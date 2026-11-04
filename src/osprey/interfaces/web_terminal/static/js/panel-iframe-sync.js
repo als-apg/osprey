@@ -2,9 +2,9 @@
 /* OSPREY Web Terminal — Panel Iframe State Sync
  *
  * The per-iframe "push host state into a panel" seam: theme, active session,
- * header actions, plus the artifacts viewer's three messages
- * (which artifact to show, a tile-menu action on it, and a server-side change
- * to it), each serialized to a panel
+ * header actions, the agent-activity notice, plus the artifacts viewer's three
+ * messages (which artifact to show, a tile-menu action on it, and a server-side
+ * change to it), each serialized to a panel
  * iframe via postMessage. Extracted from panel-manager so that module stays
  * focused on panel lifecycle, rail rendering, and health — these helpers
  * share one shape (take an iframe, guard its contentWindow, swallow the
@@ -13,8 +13,8 @@
  * their own.
  *
  * A panel popped out into its own window (popout.js) is a follower too, with
- * a WindowProxy where an iframe has a contentWindow: the three state messages
- * have a window-addressed twin each, and the pop-out URL is built beside the
+ * a WindowProxy where an iframe has a contentWindow: the state messages and the
+ * agent-activity notice have a window-addressed twin each, and the pop-out URL is built beside the
  * embed URL so the two query contracts cannot drift.
  *
  * The hub-role fan-outs that iterate every panel (theme-manager's own theme
@@ -182,6 +182,52 @@ export function sendArtifactChangedToIframe(iframe, artifactId, change, artifact
     change,
     ...(artifact ? { artifact } : {}),
   });
+}
+
+/**
+ * The panel-addressed half of an `agent_activity` frame: what a panel receives
+ * when the agent touched it.
+ * @typedef {object} AgentActivityMessage
+ * @property {string} tool         the agent tool that acted
+ * @property {string} [detail]     the frame's `target.detail` (an entry id, a
+ *                                 path), absent when the producer sent none
+ * @property {number} [ts]         the server's stamp, epoch seconds
+ */
+
+/**
+ * The `osprey-agent-activity` message: tell a panel the agent just acted on
+ * it, so the panel can refresh or mark what changed. The hub's own rail badge
+ * is applied separately (panel-agent-attention.js); this is only the follower
+ * notice. Addressed to the hub origin, like the session: the detail can name
+ * an operator's record, and an opaque panel has no business reading it.
+ * @param {AgentActivityMessage} activity
+ */
+function agentActivityMessage(activity) {
+  return {
+    type: 'osprey-agent-activity',
+    tool: activity.tool,
+    detail: activity.detail,
+    ts: activity.ts,
+  };
+}
+
+/**
+ * Relay an agent-activity notice to one panel iframe.
+ * @param {HTMLIFrameElement | null} iframe  the panel's mounted iframe
+ * @param {AgentActivityMessage} activity
+ */
+export function sendAgentActivityToIframe(iframe, activity) {
+  postToIframe(iframe, agentActivityMessage(activity));
+}
+
+/**
+ * Relay an agent-activity notice to a popped-out panel window — the window
+ * twin of {@link sendAgentActivityToIframe}.
+ * @param {Window | null} win  the panel's pop-out window
+ * @param {AgentActivityMessage} activity
+ */
+export function sendAgentActivityToWindow(win, activity) {
+  postToWindow(win, agentActivityMessage(activity));
 }
 
 // ---- Navigation Guard ----
