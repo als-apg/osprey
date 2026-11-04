@@ -21,9 +21,11 @@
  */
 
 import { isTerminalSurface } from './agent-surface.js';
+import { onChat } from './chat-events.js';
 import { activeKind, subscribe } from './control-target-chip.js';
 import { KIND_READ_PHRASES } from './control-target-facts.js';
 import { focusTerminal, onSessionChange, pasteToTerminal } from './terminal.js';
+import { showUndoNotice } from './undo-notice.js';
 
 /**
  * What the server knows about this deployment's first contact.
@@ -121,6 +123,47 @@ export function starterPrompts(kind = activeKind(), facts = current) {
 /** The chat's one prompt input. */
 const CHAT_INPUT = '#operator-container .op-input-area textarea';
 
+/** What the operator is told when a contribution has to wait for the turn. */
+export const PENDING_NOTICE = 'Added to the prompt when the agent is free';
+
+/**
+ * Contributions that arrived while a turn was streaming, joined in arrival
+ * order, waiting for the input to be the operator's again. `null` when nothing
+ * waits.
+ * @type {string|null}
+ */
+let pendingAppend = null;
+
+/**
+ * Hold a contribution until the turn ends.
+ *
+ * A panel's addresses are the operator's material, not a proposal they can
+ * re-ask for: dropping them because the agent happened to be talking would
+ * lose the only copy. Later contributions join the waiting one on their own
+ * line, the same separator an append into a live input uses. The notice is
+ * shown once per waiting batch — a second panel click while the first still
+ * waits has nothing new to say.
+ * @param {string} text
+ */
+function holdAppend(text) {
+  const first = pendingAppend === null;
+  pendingAppend = first ? text : `${pendingAppend}\n${text}`;
+  if (first) showUndoNotice({ message: PENDING_NOTICE });
+}
+
+// The chat enables its input before it reports `busy: false`, so the flush
+// lands in a live input. `busy` repeats with the same value, so the handler
+// does nothing unless something waits. Still appended, never sent: the turn
+// ending is not the operator pressing Enter.
+onChat('busy', ({ busy }) => {
+  if (busy || pendingAppend === null) return;
+  const input = /** @type {HTMLTextAreaElement|null} */ (document.querySelector(CHAT_INPUT));
+  if (isTerminalSurface() || !input || input.disabled) return;
+  const text = pendingAppend;
+  pendingAppend = null;
+  insertPrompt(text, { append: true });
+});
+
 /**
  * Put one prompt where the operator is typing, and leave the cursor there.
  *
@@ -141,6 +184,8 @@ const CHAT_INPUT = '#operator-container .op-input-area textarea';
  * sentence would destroy the only copy of it. A chip, which offers a whole
  * question, still replaces. Nothing is appended on the terminal surface: the
  * terminal has no value to read back, and pasting is already additive there.
+ * An append that arrives while a turn streams is held and lands, still
+ * unsent, when the chat reports the turn over.
  * @param {string} text
  * @param {{append?: boolean}} [options]  `append`: add below existing text
  *   instead of replacing it
@@ -148,10 +193,16 @@ const CHAT_INPUT = '#operator-container .op-input-area textarea';
 export function insertPrompt(text, { append = false } = {}) {
   if (!isTerminalSurface()) {
     const input = /** @type {HTMLTextAreaElement|null} */ (document.querySelector(CHAT_INPUT));
+    if (!input) return;
     // Disabled means a turn is streaming: the chat owns the input until it is
-    // done, and overwriting a value it is about to clear would be a no-op the
-    // operator watched happen.
-    if (!input || input.disabled) return;
+    // done. A chip's whole question is dropped — overwriting a value the chat
+    // is about to clear would be a no-op the operator watched happen, and the
+    // chip is still there to click. A contribution waits for the turn to end
+    // instead ({@link holdAppend}).
+    if (input.disabled) {
+      if (append) holdAppend(text);
+      return;
+    }
     // An input holding only whitespace has nothing to preserve, so appending to
     // it would just open the prompt with a blank line. The trailing run is
     // collapsed to the single newline that separates the two, rather than
