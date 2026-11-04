@@ -6121,7 +6121,12 @@ jobs:
     # qmd's fail-closed startup pass, which will not serve until it has
     # embedded the corpus. Warm-cache runs skip the fetch entirely (see the
     # cache step).
-    timeout-minutes: 60
+    #
+    # The sum of the step caps below (125 + 15 + 55 + 10 = 205 min) plus the
+    # image build; a step cap above the job's remaining time would never fire.
+    # tests/integration/test_qmd_sidecar_time_budget.py checks this cap against
+    # the step caps.
+    timeout-minutes: 240
 
     steps:
     # Image-building E2E lanes run the hosted runner out of disk ("No space left
@@ -6180,7 +6185,14 @@ jobs:
       # Step cap under the job cap so a wedged query fails THIS step, leaving
       # the capture step below room to run. A job-level timeout is a hard
       # cancel that takes the container logs with it.
-      timeout-minutes: 45
+      #
+      # The step runs the ARIEL and OKF sidecar modules back to back, so the cap
+      # outlasts the sum of their timeout marks, SIDECAR_ARIEL_TEST_TIMEOUT +
+      # SIDECAR_OKF_TEST_TIMEOUT (7041 s), rounded up to 5 min, plus 5 min for
+      # collection and teardown: a slow sidecar ends with the wait's message,
+      # never a cancelled step. tests/integration/test_qmd_sidecar_time_budget.py
+      # checks this cap against those marks.
+      timeout-minutes: 125
       env:
         # The module starts the sidecar from this tag instead of building its
         # own image, so what the tests exercise is the cached build above.
@@ -6200,8 +6212,8 @@ jobs:
       # this directory cannot be left unrun. A selection that matches nothing
       # exits non-zero, so an emptied marker cannot go green. The image is the
       # one built and cached above: the cost is one sidecar start plus the
-      # budget's queries. This cap and the job cap are re-derived together
-      # from observed green runs.
+      # budget's queries. The job cap is checked against the sum of the step
+      # caps by tests/integration/test_qmd_sidecar_time_budget.py.
       timeout-minutes: 15
       env:
         OSPREY_QMD_IMAGE: osprey-qmd:ci
@@ -6215,7 +6227,12 @@ jobs:
       # rename cannot silently drop it — and `-m qmd` deselects the four
       # lifecycle tests those lanes already own, keeping them from running
       # twice.
-      timeout-minutes: 20
+      #
+      # The cap outlasts the test's mark, DEPLOY_LIFECYCLE_QMD_TIMEOUT (2802 s),
+      # rounded up to 5 min, plus 5 min for collection and teardown.
+      # tests/integration/test_qmd_sidecar_time_budget.py checks this cap against
+      # that mark.
+      timeout-minutes: 55
       env:
         OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: uv run pytest tests/e2e/test_deploy_lifecycle.py -m qmd -v --tb=short
