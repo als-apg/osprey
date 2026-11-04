@@ -18,6 +18,8 @@
  *   - otherwise (scrolled, paged, or a search view, whose ranked order a
  *     refresh would reshuffle): a create adds to the "n new" pill, whose click
  *     scrolls to the top and refreshes; a publish never counts as new.
+ * Either way the rail's facet counts are refetched, once per page-1 check, so
+ * a burst of frames is one facets request, not one per row.
  *
  * Frames coalesce into a set of pending ids: one fetch in flight plus one
  * trailing for the ids that arrived meanwhile, and every pending id counts. A
@@ -32,6 +34,7 @@ import { searchPage } from './search.js';
 import { PAGE_SIZE, listingFilter } from './paging.js';
 import { refresh, searchRequest } from './list.js';
 import { getState, subscribe } from './store.js';
+import { refreshFacets } from './facets.js';
 import { flashElement } from '/design-system/js/highlight.js';
 
 /** @typedef {import('./store.js').State} State */
@@ -146,6 +149,7 @@ function flashRow(id) {
 async function apply(batch, ids, state, seq) {
   const hits = [...batch].filter(([id]) => ids.has(id));
   if (hits.length === 0) return;
+  refreshFacets();
   if (!isSearchView(state) && atTopOfPageOne()) {
     await refresh();
     if (seq !== viewSeq) return;
