@@ -281,11 +281,12 @@ about the disagreement, are in :ref:`compose-interpolation-precedence`.
 
 .. _podman-network-backend:
 
-Podman's network backend (required by the Bluesky stack)
---------------------------------------------------------
+Podman's network backend (required by the Bluesky and optimizer stacks)
+-----------------------------------------------------------------------
 
 The ``bluesky`` service puts its bridge, RE Manager and Redis on an internal
-network and dual-homes the queueserver across two networks. Resolving one
+network and dual-homes the queueserver across two networks; the ``optimizer``
+service does the same with the optimizer and its Redis job store. Resolving one
 container by name from another is therefore load-bearing, and on Podman that
 depends on which networking backend the host runs:
 
@@ -293,14 +294,15 @@ depends on which networking backend the host runs:
   container-name DNS on every network a container is attached to. **Required.**
 * **cni** (the legacy backend, still configured on some RHEL 8 hosts) — has no
   aardvark-dns. A dual-homed container receives only its *first* network's
-  resolver, so ``bluesky-queueserver`` can never resolve ``bluesky-redis``.
+  resolver, so ``bluesky-queueserver`` can never resolve ``bluesky-redis``, nor
+  ``optimizer`` its ``optimizer-redis``.
 
-On ``cni`` the queueserver never becomes healthy and ``osprey up`` aborts before
-the web slice renders — the whole deployment is down, on a DNS fact nothing in
-the deploy output points at. So ``osprey up`` checks the backend up front and
-refuses, before touching a container, when ``bluesky`` is deployed on a ``cni``
-host. Only the Bluesky stack needs this; every other service here runs fine on
-either backend, and a Docker host is unaffected.
+On ``cni`` that container never becomes healthy and ``osprey up`` aborts — the
+whole deployment is down, on a DNS fact nothing in the deploy output points at.
+So ``osprey up`` checks the backend up front and refuses, before touching a
+container, when ``bluesky`` or ``optimizer`` is deployed on a ``cni`` host. Only
+those two stacks need this; every other service here runs fine on either
+backend, and a Docker host is unaffected.
 
 To switch a host over, install ``aardvark-dns`` and set the backend in
 ``containers.conf`` (``/etc/containers/containers.conf``, or

@@ -366,25 +366,33 @@ ledger directory is ``OSPREY_WRITE_LEDGER_DIR`` (on a deployment,
 ``var/write_ledger/``). The ledger is written by the holder (it opens and
 renews the lease) and by its connector child (it appends one step per write
 call), so a holder's container needs ``OSPREY_WRITE_LEDGER_DIR`` bound
-writable and ``OSPREY_CONTROL_OWNER`` naming the login it stands in for. An
-approver that is not the holder reads the requests from
+writable and ``OSPREY_CONTROL_OWNER`` naming the login it stands in for. A web
+terminal reads the requests through a read-only bind,
 ``OSPREY_WRITE_REQUESTS_DIR``, and the holders' self-issued grants and ledgers
-from ``OSPREY_WRITE_LEDGER_VIEW_DIR``; it reads no other login's grants.
+through a read-only bind of the whole ledger directory,
+``OSPREY_WRITE_LEDGER_VIEW_DIR``; it sees no other login's grants. A program
+run on the host with no ledger directory bound files its request and keeps its
+ledger in its owner's own ``authorizations`` directory, so every surface also
+reads the requests and ledgers there.
 ``control_context.json`` is not touched and keeps its schema.
 
-**Approval.** :func:`~osprey_connectors.write_authorization.approve_request`
-acts as the owner (``approver.identity`` is the acting identity, ``surface``
-the place). It takes the owner's record lock, then the
+**Approval.** The approver acts as the owner: the web terminal's login, or
+``osprey write-authorization approve`` (``approver.identity`` is the acting
+identity, ``surface`` the place). It takes the owner's record lock, then the
 grants directory's — the one lock order every writer of both keeps — stamps
 the record's ``switch_epoch`` on the grant, and refuses ``auth_overlap`` when
 a live grant of another holder lists one of the channels on the same machine:
 one in the owner's own directory, or a self-issued one in the ledger directory
 the approver sees. Another owner's directory is not read. A grant file that
 cannot be read is logged and left out of that check; it refuses every write
-under it already. The approving surface checks what the module cannot, and
-refuses before calling it: an acting person who is not the owner, a target the
-deployment does not configure, a ceiling of ``never`` or ``unknown``, a range
-outside the limits database, and a channel without a numeric range there.
+under it already. Both surfaces also refuse a target the deployment does not
+configure, a ceiling of ``never`` or ``unknown``, a range outside the limits
+database, and a channel without a numeric range there; the chip also refuses
+in a read-only run. The ceiling is the one the program's own writes will meet:
+for a request in ``var/write_ledger/requests`` (a program in a shared
+container), the login map the build staged for those containers; for one filed
+on the host, the rendered config, as the web terminal on the host reads it.
+A refusal names every channel that cannot be approved.
 
 An approval is the confirmation for every write the run makes inside it, a
 batch included, for a login whose ceiling is ``asked`` as much as ``allowed``:
@@ -402,10 +410,10 @@ the gateway it can reach.
 (``auth_expired``); its lease lapsing — not renewed in time, or its holder
 gone (``auth_lease_lapsed``); a stop (``auth_revoked``); for a self-issued
 grant, its owner's switch leaving ``allowed``. None of these is undone:
-nothing renews a budget or revives a lease, and the program asks again.
-:func:`~osprey_connectors.write_authorization.listed_grants` reads the
-holder's ledger and reports a grant whose steps are spent or whose lease
-lapsed as ended, with its steps used of its total.
+nothing renews a budget or revives a lease, and the program asks again. The
+chip, ``osprey write-authorization list`` and ``osprey status`` read the
+holder's ledger and show a grant whose steps are spent or whose lease lapsed
+as ended, with its steps used of its total.
 
 **Stop.** :func:`~osprey_connectors.control_context.set_switch` with ``off``
 marks every grant on the named machines (every grant for ``"all"``) revoked
@@ -449,7 +457,7 @@ grant ends once its owner's switch leaves ``allowed``.
        under the same owner or self-issued.
 
 A grant that ended — revoked or expired — more than an hour ago is removed by
-:func:`~osprey_connectors.write_authorization.prune_grants`.
+the next listing (the chip's, or ``osprey write-authorization list``).
 
 .. _write-safety-upgrade:
 

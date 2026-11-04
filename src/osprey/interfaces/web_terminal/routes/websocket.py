@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
@@ -2944,6 +2945,52 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
     return None if status == "unreadable" else control_context.switch_position(record, target)
 
 
+def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
+    """This login's program authorizations still in force, by machine. BLOCKING; never raises.
+
+    Read from the ``authorizations`` directory beside the login's record, and
+    the self-issued grants naming this login from the holders' ledger
+    directory this terminal sees read-only
+    (:func:`~osprey_connectors.write_authorization.self_issued_directories`).
+    In force is :func:`~osprey_connectors.write_authorization.grant_standing`'s:
+    not revoked, not expired, issued under the record's epoch, and not ended
+    by the holder's ledger (its lease lapsed or every step spent). A row says
+    a program may write here, not that one is writing now. A directory that
+    cannot be read reports none: a grant there that cannot be read refuses
+    every write already.
+
+    A self-issued row is in force only while the switch stands at ``allowed``,
+    and ends by moving it off ``allowed`` (the row's off control), not by a
+    revoke this terminal could write.
+    """
+    from osprey_connectors import write_authorization
+
+    login = acting_identity()
+    own = write_authorization.authorizations_dir()
+    ledgers = write_authorization.self_issued_directories()
+    now = time.time_ns()
+    holds: dict[str, list[dict[str, Any]]] = {}
+    found, _unreadable = write_authorization.listed_grants([] if own is None else [own], ledgers)
+    for grant, _directory in found:
+        if grant.owner != login:
+            continue
+        standing = write_authorization.grant_standing(grant, record, ledgers, now_ns=now)
+        if not standing.in_force:
+            continue
+        holds.setdefault(grant.target, []).append(
+            {
+                "id": grant.id,
+                "holder": grant.holder,
+                "label": grant.label,
+                "steps": grant.steps,
+                "used": standing.used,
+                "expires_in_s": max(0.0, round((grant.expires_at_ns - now) / 1e9, 1)),
+                "self_issued": grant.approver.surface == write_authorization.SELF_ISSUE_SURFACE,
+            }
+        )
+    return holds
+
+
 def _session_held(app: Any, session_id: str | None) -> bool:
     """Whether the named session has an unanswered hold. BLOCKING; never raises.
 
@@ -3011,6 +3058,7 @@ def _posture_view(
     control_target = record.target if record is not None else baseline
 
     configured = list(_configured_target_names(section))
+    programs = _program_holds(record)
     # Resolved BEFORE the render, and exactly once. The display metadata names
     # one gateway per target, and WHICH gateway depends on the same verdict the
     # rows below publish.
@@ -3050,6 +3098,10 @@ def _posture_view(
                 "reason": reason,
                 "reason_detail": reason_detail,
                 "switch": _switch_state(record, record_status, target),
+                # A program's authorization on this machine, in force: the chip
+                # shows it as held, and the row's off control revokes it.
+                "program_hold": bool(programs.get(target)),
+                "programs": programs.get(target, []),
                 # Whether the next write prompts: the effective position, so a
                 # stored ``allowed`` capped at ``asked`` answers true.
                 "prompt": verdict.position == "asked",
@@ -3077,11 +3129,15 @@ def _posture_view(
         "readonly_run": readonly_run,
         "switch_epoch": None if record is None else wire_epoch(record.switch_epoch),
         # What enables "Turn all off": any machine armed in this login's record,
-        # configured here or not — a machine a later render dropped is still armed.
-        "any_armed": record is not None
-        and any(
-            control_context.switch_position(record, target) != SWITCH_OFF
-            for target in record.switch
+        # configured here or not — a machine a later render dropped is still armed —
+        # or a program's authorization in force, which the stop revokes.
+        "any_armed": bool(programs)
+        or (
+            record is not None
+            and any(
+                control_context.switch_position(record, target) != SWITCH_OFF
+                for target in record.switch
+            )
         ),
         "locks": {"readonly_run": readonly_run, "tier": _login_tier(section, login)},
         "owner": _owner_row(app, record),
@@ -3117,6 +3173,11 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       (C-KIND), and ``short_label`` follows it — never the label's shape or
       the target name, so a stand-in no server vouched for reads as the real
       machine.
+    * ``program_hold`` / ``programs`` — whether a program's write
+      authorization of this login is in force on the machine, and each one's
+      ``{id, holder, label, steps, used, expires_in_s, self_issued}``; ``used``
+      is ``null`` where the holder's ledger cannot be read. The machine's
+      switch may be off beside it; the row's off control revokes it.
     * ``switch`` / ``write_allowed`` / ``write_reason`` / ``write_phrase`` —
       the login's switch for the machine (``on`` | ``off``, ``null`` when the
       record cannot be read) and the write verdict a new call by the signed-in
@@ -3160,7 +3221,8 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       sends back unchanged with a turn-on (C-POST); ``null`` for no record or an
       epoch-less one.
     * ``any_armed`` — whether any machine is armed in this login's record,
-      configured here or not; it enables "Turn all off".
+      configured here or not, or a program's authorization is in force; it
+      enables "Turn all off".
     * ``locks`` — ``{readonly_run, tier}``: the two locks no chip gesture
       lifts. ``tier`` is this login's ceiling and its one home: ``never``,
       ``asked``, ``allowed`` or ``unknown``.

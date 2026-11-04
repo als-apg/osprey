@@ -602,6 +602,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/optimizer",
+            template_path="optimizer",
+            output_path="services/optimizer",
+            description="Optimizer service compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/graphdb",
             template_path="graphdb",
             output_path="services/graphdb",

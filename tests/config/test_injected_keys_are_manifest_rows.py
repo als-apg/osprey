@@ -34,6 +34,9 @@ NOT_KEYS = {
     # from the control-system posture; a profile spelling it would be
     # overwritten, so it is not an operator key.
     "services.bluesky.writes_enabled",
+    # The same, for the optimizer: written at render time from whether the
+    # optimizer may write at all.
+    "services.optimizer.writes_enabled",
     # host_ports names it only to say it does not exist (the graph store
     # publishes `port_host` and `http_port_host`).
     "services.graphdb.port",

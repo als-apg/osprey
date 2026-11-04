@@ -81,6 +81,7 @@ from .build_injectors import (
     _inject_gchat_bridge,
     _inject_limits_database,
     _inject_nextcloud_bridge,
+    _inject_optimizer,
     _inject_profile_services,
     _inject_teams_bridge,
     _inject_va,
@@ -144,6 +145,7 @@ __all__ = [
     "_inject_gchat_bridge",
     "_inject_limits_database",
     "_inject_nextcloud_bridge",
+    "_inject_optimizer",
     "_inject_profile_services",
     "_inject_teams_bridge",
     "_inject_va",
@@ -4670,6 +4672,9 @@ def _inject_services(
     if build_profile.bluesky_web is not None:
         _inject_bluesky_web(build_profile.bluesky_web, project_path)
         injected.append("bluesky web")
+    if build_profile.optimizer is not None:
+        _inject_optimizer(build_profile.optimizer, project_path)
+        injected.append("optimizer")
     if build_profile.virtual_accelerator is not None:
         _inject_va(build_profile.virtual_accelerator, project_path)
         injected.append("virtual accelerator")

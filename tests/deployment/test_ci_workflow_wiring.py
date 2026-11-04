@@ -11565,6 +11565,8 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         "osprey_framework-2026.9.1.tar.gz",
         "osprey_connectors-2026.9.1-py3-none-any.whl",
         "osprey_connectors-2026.9.1.tar.gz",
+        "osprey_optimizer-2026.9.1-py3-none-any.whl",
+        "osprey_optimizer-2026.9.1.tar.gz",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1.tar.gz",
     ):
@@ -11579,6 +11581,7 @@ def _assert_release_stages_every_member_wheel(release: dict[str, Any], tmp_path:
     # osprey-connectors is absent even from a dist/ that holds it: it releases
     # on its own tags, so the framework's floor on it must resolve from PyPI.
     assert _staged_siblings(release, tmp_path) == [
+        "osprey_optimizer-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
     ], "the release gate stages the wrong sibling set"
 
@@ -12398,12 +12401,14 @@ def test_lane_b_installs_the_published_metadata_at_the_floor(workflow: dict[str,
     """Only the connectors leave the workspace. ``--no-sources`` drops every
     workspace source (``--no-sources-package osprey-connectors`` alone leaves the
     root's pyaml-cs-osprey one, which ``uv pip install`` of the root refuses), so
-    the workspace pyaml-cs-osprey is named by its path or it would come from PyPI."""
+    the workspace pyaml-cs-osprey and osprey-optimizer are named by their paths or
+    they would come from PyPI."""
     install = _find_named_step(
         workflow, FLOOR_COMPAT_JOB, "Install the framework with the floor connectors"
     )["run"]
     assert "--no-sources " in install
     assert "-e ./packages/pyaml-cs-osprey " in install
+    assert "-e ./packages/osprey-optimizer " in install
     assert '"osprey-connectors==$FLOOR"' in install
 
 

@@ -1,0 +1,141 @@
+# The optimizer service: a FastAPI process (osprey_optimizer.api.main) that runs
+# Xopt-driven optimizations against the control system, and the Redis job store
+# it keeps its jobs, locks and cancellation flags in.
+# Its image is built from the Dockerfile beside this file unless
+# services.optimizer.image names a different image, which this file then runs
+# as named with no build. OSPREY_OPTIMIZER_IMAGE names one for a single shell,
+# and a start that reads it builds nothing for this service.
+# Use `osprey build --dev` to bake in your local optimizer and connectors
+# checkout via wheels; otherwise the image installs them from PyPI.
+
+services:
+  optimizer:
+    image: ${OSPREY_OPTIMIZER_IMAGE:-registry.example.org/physics/osprey/golden-project-optimizer:v1.2.3}
+    build:
+      # Relative paths resolve against the compose project directory, the
+      # deployment repo root, never this file's own subdir.
+      context: ./build/services/optimizer
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
+    depends_on:
+      optimizer-redis:
+        condition: service_healthy
+      # Only when the Virtual Accelerator is co-deployed and this optimizer may
+      # drive it: a run must not open its connector before the VA's Channel
+      # Access server answers. Compose errors on a depends_on naming a service
+      # no document defines, hence the co-deployment test.
+      virtual-accelerator:
+        condition: service_healthy
+    # container_name is a HOST-GLOBAL docker identifier: namespaced per project.
+    # In-network consumers reach this service by its compose key `optimizer`.
+    container_name: golden-project-optimizer
+    # An init process is PID 1, not uvicorn: the connector-host children the
+    # service starts treat a parent of PID 1 as gone and exit at once, so with
+    # uvicorn there every read and write of the machine fails. It also forwards
+    # SIGTERM and reaps the exited children.
+    init: true
+    # The service runs as root, so before it starts root is renamed to the
+    # optimizer's control identity (uid 0 keeps its number) and every write it
+    # makes names the optimizer in the put-log. The name labels and guards
+    # nothing, so a failed rename warns and the service starts as `root`. The
+    # `;` is load-bearing: uvicorn starts on either outcome.
+    command:
+      - "sh"
+      - "-c"
+      - >-
+        python /opt/osprey/control_identity/control_identity.py apply --uid 0 --name osprey-optimizer
+        || echo "WARNING: control identity osprey-optimizer not applied; the optimizer writes as root" >&2;
+        exec uvicorn osprey_optimizer.api.main:app --host 0.0.0.0 --port 10082
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:10082:10082"
+    environment:
+      # The mounted config, named twice for its two kinds of reader: the
+      # connectors read CONFIG_FILE, the framework's config loader
+      # OSPREY_CONFIG. Its control_system section is where each target's
+      # connector block, gateway and write posture come from.
+      CONFIG_FILE: /app/project/config.yml
+      OSPREY_CONFIG: /app/project/config.yml
+      TZ: UTC
+      # The job store, by its in-network compose key on the internal network.
+      REDIS_URL: redis://optimizer-redis:6379/0
+      # The environment files mounted below. Set even with no directory
+      # mounted, so the service never falls back to its working directory.
+      OPTIMIZER_ENVIRONMENTS_DIR: /app/environments
+      # Where runs are written: the results volume mounted below.
+      OPTIMIZER_RESULTS_DIR: /app/results
+      # The control targets this deployment's optimizer may drive. The live
+      # machine is refused at build time until the optimizer supports it.
+      OPTIMIZER_TARGETS: "va"
+      # No :-default — an unset token stays EMPTY, so the routes that move
+      # hardware refuse rather than accept a guessable secret. `osprey up`
+      # mints it into the project .env when unset (container_lifecycle's
+      # per-service token-mint map).
+      OPTIMIZER_LAUNCH_TOKEN: ${OPTIMIZER_LAUNCH_TOKEN}
+      # Who this service's audit records are written as: its compose key. It
+      # is also the holder every write authorization the optimizer asks for
+      # names, and the one its connector children are checked against.
+      OSPREY_AUDIT_IDENTITY: optimizer
+      # Where it appends its agent-record events and keeps its own state: its
+      # own directories in the two zones, bound below.
+      OSPREY_SPOOL_DIR: /app/project/var/spool/optimizer
+      OSPREY_STATE_DIR: /app/project/var/state/optimizer
+    volumes:
+      - ./build/services/optimizer/config.yml:/app/project/config.yml:ro
+      # The control-identity script the command runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/optimizer/control_identity:/opt/osprey/control_identity:ro
+      # This service's spool and state directories, and only its own,
+      # provisioned host-side before the mount is created
+      # (compose_generator.FIXED_SERVICE_AUDIT_IDENTITIES).
+      - ./var/spool/optimizer:/app/project/var/spool/optimizer
+      - ./var/state/optimizer:/app/project/var/state/optimizer
+      # Run results (configs, evaluated points, best points): the operator's
+      # record of what the optimizer did, kept across container restarts.
+      - optimizer_results:/app/results
+    networks:
+      # osprey-network to reach the control system's Channel Access servers;
+      # optimizer-internal for the job store.
+      - osprey-network
+      - optimizer-internal
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10082/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Importing the search stack (torch, BoTorch) takes several seconds.
+      start_period: 30s
+
+  optimizer-redis:
+    image: ${OSPREY_OPTIMIZER_REDIS_IMAGE:-redis:7.4-alpine}
+    container_name: golden-project-optimizer-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+    volumes:
+      - optimizer_redis:/data
+    networks:
+      # ONLY the internal network, and no published ports: the job store is
+      # the optimizer's alone.
+      - optimizer-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  osprey-network:
+  # `internal: true` cuts the job store off from every other container and
+  # from the outside; the optimizer reaches it here.
+  optimizer-internal:
+    internal: true
+
+volumes:
+  optimizer_redis:
+  optimizer_results:

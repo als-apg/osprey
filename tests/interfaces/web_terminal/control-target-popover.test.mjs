@@ -1016,6 +1016,34 @@ describe('the switch under a lock', () => {
 /* ---- write-state gestures ------------------------------------------------ */
 
 describe('turning writes off and on', () => {
+  test('a machine a program holds keeps its word with a qualifier, and off stops it', async () => {
+    const held = viewOf();
+    held.targets[0] = rowOf(KINDS.live, {
+      ...STATES.off,
+      program_hold: true,
+      programs: [{ id: 'g', holder: 'optimizer', label: 'run-42', steps: 12, expires_in_s: 60 }],
+    });
+    await bootOpen(held);
+    expect(switchWord('live')?.textContent).toBe('off · program');
+    expect(switchWord('live')?.title).toContain('optimizer (run-42)');
+    const off = /** @type {HTMLButtonElement} */ (optionEl('live', 'off'));
+    expect(off.disabled).toBe(false);
+    expect(off.title).toContain("revokes the program's authorization");
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'off', switch_epoch: EPOCH } });
+    off.click();
+    await flush();
+    expect(confirmEl()).toBeNull();
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0].body).toMatchObject({ target: 'live', state: 'off' });
+  });
+
+  test('an off switch with no program is still a no-op', async () => {
+    await bootOpen();
+    optionEl('live', 'off')?.click();
+    await flush();
+    expect(posts()).toHaveLength(0);
+  });
+
   test('turning writes off applies on click, with no confirm', async () => {
     await bootOpen();
     postAnswers.push({ ok: true, body: { target: 'va', state: 'off', switch_epoch: EPOCH } });
