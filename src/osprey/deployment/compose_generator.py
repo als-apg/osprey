@@ -44,7 +44,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
-from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS
+from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS, is_loopback_bind
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
     ComposeProvider,
@@ -2251,15 +2251,88 @@ def _stage_login_tiers(config, source_dir, out_dir, login_tiers):
         return
     if not _stages_runtime_config(config, source_dir):
         return
+    _rewrite_staged_config(out_dir, lambda document: with_login_tiers(document, login_tiers))
+
+
+def _rewrite_staged_config(out_dir, transform):
+    """Replace the ``config.yml`` staged into *out_dir* with *transform* of it.
+
+    A context with no staged file is left alone.
+
+    :param out_dir: The service's output directory.
+    :type out_dir: str
+    :param transform: Maps the staged document to the one written back.
+    :type transform: Callable[[dict], dict]
+    """
     staged_path = os.path.join(out_dir, "config.yml")
     if not os.path.isfile(staged_path):
         return
     with open(staged_path, encoding="utf-8") as f:
         document = yaml_loader.safe_load(f) or {}
     with open(staged_path, "w", encoding="utf-8") as f:
-        yaml_loader.safe_dump(
-            with_login_tiers(document, login_tiers), f, default_flow_style=False, sort_keys=False
-        )
+        yaml_loader.safe_dump(transform(document), f, default_flow_style=False, sort_keys=False)
+
+
+#: The deployed machines a bridged container reaches by compose service name.
+#: Each is both a ``deployed_services`` key and its connector block's key; its
+#: service name is the key with ``-`` for ``_`` (the virtual_accelerator
+#: compose template). The rendered config addresses them as ``localhost``, right
+#: on the host and in the host-network web terminals; inside a container on the
+#: compose network that name is the container itself.
+_IN_NETWORK_MACHINES = ("virtual_accelerator", "live_standin")
+
+
+def in_network_gateways(document, deployed_services):
+    """A copy of config *document* whose deployed machines' loopback gateways name their service.
+
+    Each ``read_only`` and ``write_access`` row of a deployed machine's
+    connector block whose address is loopback is given that machine's compose
+    service name, and a loopback ``pva_gateway`` row is given the simulator's;
+    the port is kept, since the machine serves on the same port in-network. Any
+    other address is the operator's and is left alone.
+
+    :param document: The staged ``config.yml`` mapping.
+    :type document: dict
+    :param deployed_services: The deployment's ``deployed_services``.
+    :type deployed_services: list[str]
+    :return: The readdressed copy.
+    :rtype: dict
+    """
+    import copy
+
+    out = copy.deepcopy(document)
+    connectors = (out.get("control_system") or {}).get("connector") or {}
+    for key in _IN_NETWORK_MACHINES:
+        block = connectors.get(key)
+        if key not in deployed_services or not isinstance(block, dict):
+            continue
+        rows = [(row, key.replace("_", "-")) for row in (block.get("gateways") or {}).values()]
+        # Only the simulator publishes pvAccess, so a loopback pva_gateway is its server.
+        rows.append((block.get("pva_gateway"), "virtual-accelerator"))
+        for row, service in rows:
+            if isinstance(row, dict) and is_loopback_bind(str(row.get("address", ""))):
+                row["address"] = service
+    return out
+
+
+def _stage_in_network_gateways(config, source_dir, out_dir):
+    """Readdress the deployed machines in the optimizer's staged ``config.yml``.
+
+    The optimizer runs the connector-host pool on the compose network
+    (:func:`in_network_gateways`); every other context is left alone, as is one
+    with no staged file.
+
+    :param config: Deploy config.
+    :type config: dict
+    :param source_dir: The service's source directory.
+    :type source_dir: str
+    :param out_dir: The service's output directory.
+    :type out_dir: str
+    """
+    if os.path.basename(os.path.normpath(source_dir)) != "optimizer":
+        return
+    deployed = [str(s) for s in (config.get("deployed_services") or [])]
+    _rewrite_staged_config(out_dir, lambda document: in_network_gateways(document, deployed))
 
 
 def _inject_project_metadata(config):
@@ -5141,6 +5214,7 @@ def setup_build_dir(
         # After both branches above: a shared container's staged config carries
         # the login→tier map whichever of them wrote it.
         _stage_login_tiers(config, source_dir, out_dir, login_tiers)
+        _stage_in_network_gateways(config, source_dir, out_dir)
 
     return compose_filepath
 
@@ -5265,6 +5339,7 @@ def _incremental_setup_build_dir(
     # The config.yml left in place carries the map this render computed, as in
     # setup_build_dir.
     _stage_login_tiers(config, source_dir, out_dir, login_tiers)
+    _stage_in_network_gateways(config, source_dir, out_dir)
 
     return compose_filepath
 
