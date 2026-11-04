@@ -35,6 +35,7 @@ from check_kit import (
     FULL,
     NOT_TOUCHED,
     PATHS,
+    SPENDS,
     UV_RUN,
     WHOLE,
     Check,
@@ -1142,12 +1143,12 @@ SCAN_STACK = (
 _PLUGIN_TREES = ("plugins/**", ".claude-plugin/**", ".agents/plugins/**")
 
 
-def _e2e(job: str, *tests: str, why: str = "containers") -> Lane:
-    return Lane(job, why, tuple(f"tests/e2e/{name}" for name in tests))
+def _e2e(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
+    return Lane(job, why, tuple(f"tests/e2e/{name}" for name in tests), prefix)
 
 
-def _scan(job: str, *tests: str, why: str = "containers") -> Lane:
-    return Lane(job, why, (*SCAN_STACK, *(f"tests/e2e/{name}" for name in tests)))
+def _scan(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
+    return Lane(job, why, (*SCAN_STACK, *(f"tests/e2e/{name}" for name in tests)), prefix)
 
 
 def _va(job: str, *tests: str) -> Lane:
@@ -1203,12 +1204,24 @@ LANES: tuple[Lane, ...] = (
         ),
     ),
     Lane("build-boot-smoke", "matrix", ("tests/integration/test_build_boot.py",)),
-    Lane("e2e-tests", "models", ("tests/e2e/**",)),
+    Lane("e2e-tests", SPENDS, ("tests/e2e/**",), "E2E Tests"),
     Lane("e2e-no-model", "containers", ("tests/e2e/**",)),
     Lane("deploy-e2e", "containers", ("src/osprey/**",)),
-    _e2e("dispatch-deploy-e2e", "test_dispatch_deploy.py"),
-    _e2e("single-user-narrowing-e2e", "test_single_user_narrowing_e2e.py"),
-    _e2e("dispatch-overlay-e2e", "test_dispatch_overlay_visibility.py"),
+    _e2e(
+        "dispatch-deploy-e2e", "test_dispatch_deploy.py", why=SPENDS, prefix="Dispatch Deploy E2E"
+    ),
+    _e2e(
+        "single-user-narrowing-e2e",
+        "test_single_user_narrowing_e2e.py",
+        why=SPENDS,
+        prefix="Single-User Narrowing E2E",
+    ),
+    _e2e(
+        "dispatch-overlay-e2e",
+        "test_dispatch_overlay_visibility.py",
+        why=SPENDS,
+        prefix="Dispatch Overlay E2E",
+    ),
     _scan("bluesky-deploy-e2e", "test_bluesky_deploy.py"),
     _scan("bluesky-web-deploy-e2e", "test_bluesky_web_deploy.py"),
     _e2e("va-substrate-equivalence-e2e", "test_va_substrate_equivalence.py"),
@@ -1220,16 +1233,32 @@ LANES: tuple[Lane, ...] = (
         "test_preflight_probe.py",
     ),
     _scan("bluesky-queue-e2e", "test_bluesky_queue_e2e.py"),
-    _e2e("scan-agentic-e2e", "test_plan_stack_agentic.py", why="models"),
+    _e2e(
+        "scan-agentic-e2e",
+        "test_plan_stack_agentic.py",
+        why=SPENDS,
+        prefix="Scan Stack Agentic E2E",
+    ),
     _e2e("archiver-world-e2e", "test_archiver_world_e2e.py"),
     _e2e("agent-record-e2e", "test_agent_record_e2e.py"),
-    _e2e("host-record-e2e", "test_host_record_e2e.py", why="models"),
+    _e2e("host-record-e2e", "test_host_record_e2e.py", why=SPENDS, prefix="Host Record E2E"),
     _e2e("graph-reseed-e2e", "test_graph_reseed_stamp.py"),
     _scan("tiled-roundtrip-e2e", "test_tiled_roundtrip.py"),
     _scan("bluesky-catalog-e2e", "test_bluesky_catalog_e2e.py"),
     _scan("bluesky-sandbox-escape-e2e", "test_bluesky_sandbox_escape_e2e.py"),
-    _e2e("nextcloud-talk-bridge-e2e", "test_nextcloud_talk_bridge_e2e.py"),
-    _e2e("gchat-bridge-e2e", "test_gchat_bridge_e2e.py", "fixtures/test_gchat_fixture_smoke.py"),
+    _e2e(
+        "nextcloud-talk-bridge-e2e",
+        "test_nextcloud_talk_bridge_e2e.py",
+        why=SPENDS,
+        prefix="Nextcloud Talk Bridge E2E",
+    ),
+    _e2e(
+        "gchat-bridge-e2e",
+        "test_gchat_bridge_e2e.py",
+        "fixtures/test_gchat_fixture_smoke.py",
+        why=SPENDS,
+        prefix="Google Chat Bridge E2E",
+    ),
     _e2e(
         "teams-bridge-e2e",
         "test_teams_bridge_e2e.py",
@@ -1239,7 +1268,12 @@ LANES: tuple[Lane, ...] = (
     _e2e("dockerfile-e2e", "test_dockerfile_e2e.py"),
     _e2e("privilege-split-e2e", "test_privilege_split.py", "test_audit_two_container.py"),
     _e2e("execution-environment-parity-e2e", "test_execution_environment_parity.py"),
-    _e2e("agentic-per-preset", "test_preset_agentic.py", why="models"),
+    _e2e(
+        "agentic-per-preset",
+        "test_preset_agentic.py",
+        why=SPENDS,
+        prefix="Tier 3 — Agentic flow",
+    ),
     _e2e("deploy-writeback-e2e", "test_deploy_writeback_e2e.py"),
     _e2e("multi-user-deploy-lifecycle-e2e", "test_deploy_lifecycle.py"),
     _e2e("multi-user-deploy-lifecycle-e2e-podman", "test_deploy_lifecycle.py"),
@@ -1266,7 +1300,12 @@ LANES: tuple[Lane, ...] = (
         "test_per_target_posture.py",
         "test_model_status_va.py",
     ),
-    _e2e("target-switch-agentic-e2e", "test_target_switch_agentic.py", why="models"),
+    _e2e(
+        "target-switch-agentic-e2e",
+        "test_target_switch_agentic.py",
+        why=SPENDS,
+        prefix="Control-Target Switch Agentic E2E",
+    ),
     _va(
         "va-live-e2e",
         "test_approval_smoke.py",
