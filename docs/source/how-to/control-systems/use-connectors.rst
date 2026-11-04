@@ -12,7 +12,9 @@ so moving from the simulator to real hardware is a change of
 One API, whatever the machine
 -----------------------------
 
-The Python API is the same for every connector. The simulator served in
+The Python API is the same for every connector, and works from a script of your
+own with no deployment at all (:doc:`use-connectors-standalone`). The simulator
+served in
 process answers for the addresses of the built facility file without hardware
 or network access, which is what makes it the development and R&D default. Run
 ``osprey build`` first; the simulator refuses an address outside the facility
