@@ -8,7 +8,6 @@ import subprocess
 import sys
 import textwrap
 import threading
-import time
 
 import pytest
 
@@ -20,6 +19,9 @@ from tests._live import async_wait_until
 
 #: Hang ceiling for a wait on the pool: the close's own budget for a search call.
 _CEILING_S = 2 * QUERY_EMBEDDING_TIMEOUT_S
+
+#: The call's give-up clock, scaled down for the test: the call it bounds never returns here.
+_GIVE_UP_S = 0.05
 
 
 async def test_search_calls_run_on_their_own_bounded_pool(search_calls):
@@ -50,8 +52,12 @@ async def test_search_calls_run_on_their_own_bounded_pool(search_calls):
 
 
 async def test_a_search_call_times_out(search_calls):
-    with pytest.raises(TimeoutError):
-        await search_calls.run(time.sleep, 0.5, timeout_s=0.05)
+    never = threading.Event()
+    try:
+        with pytest.raises(TimeoutError):
+            await search_calls.run(never.wait, _CEILING_S, timeout_s=_GIVE_UP_S)
+    finally:
+        never.set()
 
 
 async def test_hung_calls_do_not_multiply_threads(search_calls):
