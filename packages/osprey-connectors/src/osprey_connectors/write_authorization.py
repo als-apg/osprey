@@ -9,6 +9,11 @@ renews, and who approved it. Every write the holder makes is checked against
 it; it ends at an exhausted budget, an expiry, a lapsed lease or a stop, and
 nothing renews the budget. The machine's switch may stay off throughout.
 
+**Provisional until first holder.** No program holds an authorization yet.
+Everything this module exports, and the on-disk schemas of the grant, the
+ledger and the request, may change when the first real holder (the optimizer)
+is built against them; nothing here is a stable contract before then.
+
 This module owns the two files, their readers and their writers, and the
 verdict. The write guard of every control-system connector
 (:class:`~osprey_connectors.control_system.ControlSystemConnector`) asks

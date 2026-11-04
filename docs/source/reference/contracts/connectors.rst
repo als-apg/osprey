@@ -331,6 +331,13 @@ and a switch moved to *asked* or *allowed* does not widen it. The how-to is
 :ref:`how-to-write-from-a-program`; the module is
 ``osprey_connectors.write_authorization``.
 
+.. note::
+
+   **Provisional until first holder.** No program holds an authorization yet.
+   The module's API and the grant, ledger and request schemas below may change
+   when the first real holder (the optimizer) is built against them; none of
+   it is a stable contract before then.
+
 **Three files, three writers.** Each is read the fail-closed way: no symbolic
 link followed, a bounded read, a regular file, exactly the fields below, no
 repeated key, every number finite. A file that is there and cannot be read
