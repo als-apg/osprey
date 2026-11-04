@@ -1041,6 +1041,6 @@ def _as_port(value: Any, default: int) -> int:
         ``value`` as an int, or ``default`` when it is absent or not a number.
     """
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)
     except (TypeError, ValueError):
         return default

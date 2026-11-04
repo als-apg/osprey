@@ -139,7 +139,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 #: Characters a session id may contain before it is joined into a file name.
 _SESSION_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")

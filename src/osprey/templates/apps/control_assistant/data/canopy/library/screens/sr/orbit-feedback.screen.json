@@ -11,7 +11,7 @@
       "width": 1640,
       "height": 988
     },
-    "description": "Storage-ring orbit feedback of the control-assistant simulator: BPM orbit and corrector readbacks, DCCT, Fox orbit RMS per plane, and one corrector setpoint."
+    "description": "Storage-ring orbit feedback of the control-assistant simulator: BPM orbit and corrector readbacks, DCCT, Formula Engine orbit RMS per plane, and one corrector setpoint."
   },
   "macros": [],
   "formulas": [
@@ -339,7 +339,7 @@
         "id": "w-013",
         "type": "group-box",
         "props": {
-          "title": "Orbit RMS (Fox, 72 BPMs)"
+          "title": "Orbit RMS (Formula Engine, 72 BPMs)"
         },
         "geometry": {
           "x": 16,

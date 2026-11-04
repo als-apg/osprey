@@ -147,7 +147,7 @@ class _PanelSandboxRoute(APIRoute):
     by the same path the browser asked for.
     """
 
-    def get_route_handler(self):  # type: ignore[override]
+    def get_route_handler(self):
         handler = super().get_route_handler()
         below = self.path_format.removeprefix(_PANEL_MOUNT_TEMPLATE)
 

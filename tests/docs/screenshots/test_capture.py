@@ -237,6 +237,7 @@ def test_a_real_driver_killed_by_its_preload_is_a_skip(monkeypatch, tmp_path) ->
             pytest.fail("no browser should be yielded")
 
 
+@pytest.mark.usefixtures("earlier_garbage_frozen")
 def test_a_real_driver_killed_by_its_preload_leaves_no_task_error_behind(
     monkeypatch, tmp_path, caplog
 ) -> None:

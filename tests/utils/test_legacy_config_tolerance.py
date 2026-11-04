@@ -106,12 +106,13 @@ def legacy_config_path(tmp_path, monkeypatch) -> Path:
     return config_path
 
 
-@pytest.mark.usefixtures("legacy_config_path")
+@pytest.mark.usefixtures("earlier_garbage_frozen", "legacy_config_path")
 def test_load_zero_errors_zero_warnings(caplog):
     """A config full of retired keys loads cleanly and silently."""
     caplog.set_level(logging.DEBUG, logger="osprey")
 
-    # The window records only what the loader raises: earlier garbage is finalized before it opens.
+    # The window records only what the loader raises: earlier tests' garbage is frozen out of
+    # every collection, and what this test's setup left is finalized before it opens.
     gc.collect()
     with warnings.catch_warnings(record=True) as python_warnings:
         warnings.simplefilter("always")

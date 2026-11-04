@@ -14,7 +14,7 @@ import json
 import logging
 from pathlib import Path
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from osprey.agent_runner.tool_names import FOREIGN_MCP_NAMESPACES, READ_ONLY_DENIED_BUILTINS
 from osprey.deployment.write_gates import WRITE_GATED_TOOLS

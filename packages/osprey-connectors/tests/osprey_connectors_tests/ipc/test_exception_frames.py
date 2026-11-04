@@ -92,6 +92,13 @@ def test_the_registry_is_the_builtins_plus_the_vocabulary():
         assert spec.cls.__name__ == tag
 
 
+def test_write_blocked_field_list_is_the_published_spec():
+    spec = exceptions.EXCEPTION_SPECS["ChannelWriteBlockedError"]
+    assert spec.fields == ("channel_address", "reason", "verdict_reason")
+    # Its text is not a field: the frame's own message feeds the ctor keyword.
+    assert spec.message_kwarg == "message"
+
+
 def test_every_vocabulary_class_has_its_wire_detail():
     missing = [cls.__name__ for cls in _vocabulary() if cls not in exceptions._WIRE_DETAIL]
     assert missing == []
@@ -196,7 +203,11 @@ def test_write_blocked_round_trips_reason_and_custom_message():
     body = exceptions.encode_exception(original)
 
     assert body["class_tag"] == "ChannelWriteBlockedError"
-    assert body["fields"] == {"channel_address": "SR:BEND:1:CUR", "reason": "WRITES_DISABLED"}
+    assert body["fields"] == {
+        "channel_address": "SR:BEND:1:CUR",
+        "reason": "WRITES_DISABLED",
+        "verdict_reason": None,
+    }
 
     rebuilt = exceptions.decode_exception(body)
 
@@ -204,6 +215,15 @@ def test_write_blocked_round_trips_reason_and_custom_message():
     assert rebuilt.channel_address == "SR:BEND:1:CUR"
     assert rebuilt.reason == "WRITES_DISABLED"
     assert str(rebuilt) == "Writes are disabled for this deployment"
+
+
+def test_write_blocked_round_trips_the_verdict_reason():
+    original = ChannelWriteBlockedError("SR:Z", "WRITES_DISABLED", verdict_reason="switching")
+
+    rebuilt = _round_trip(original)
+
+    assert isinstance(rebuilt, ChannelWriteBlockedError)
+    assert rebuilt.verdict_reason == "switching"
 
 
 def test_write_blocked_default_message_survives():
@@ -270,7 +290,7 @@ def test_fields_are_read_by_spec_name_not_from_the_instance_dict():
     body = exceptions.encode_exception(original)
 
     assert "internal_handle" not in body["fields"]
-    assert set(body["fields"]) == {"channel_address", "reason"}
+    assert set(body["fields"]) == {"channel_address", "reason", "verdict_reason"}
 
 
 def test_missing_attribute_encodes_as_none_without_raising():

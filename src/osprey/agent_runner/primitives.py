@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 # SDK imports — keep module importable even when SDK is absent.
 try:
-    from claude_agent_sdk import (  # type: ignore[assignment]
+    from claude_agent_sdk import (
         ClaudeAgentOptions,
         HookMatcher,
         ResultMessage,

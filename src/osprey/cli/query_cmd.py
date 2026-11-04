@@ -40,7 +40,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 import click
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from osprey.agent_runner import (
     EXIT_USAGE,
