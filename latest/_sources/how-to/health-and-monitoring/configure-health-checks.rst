@@ -147,7 +147,9 @@ Recipe: archive freshness, without declaring a check
 
 A project that deploys its own archive — one whose build profile carries a
 ``va_archiver:`` block (see :doc:`../build-profiles`) — can have the freshness
-check written for it. Name one canary channel and nothing else:
+check written for it. The build derives its canary channel from the facility
+file, the channel the simulator's probe reads; to watch another, name it and
+nothing else:
 
 .. code-block:: yaml
 
@@ -158,11 +160,11 @@ check written for it. Name one canary channel and nothing else:
 The build derives a complete ``archiver`` category from that, including the
 ``max_age_s`` you would otherwise have to choose: **three times the recorder's
 own sample cadence**, floored at 60 seconds, so the threshold follows the
-recorder with no second number to re-tune. Which channel is representative is
-the one thing only you know, so there is no default — a profile that names
-none derives no check. Declare the check yourself *or* name a
-``freshness_channel``, not both: a profile that does both is refused at build
-time, because the two would be one fact in two homes.
+recorder with no second number to re-tune. The channel is derived from the
+facility file; a stated value overrides it, and one the file does not hold is
+refused at build time (see :ref:`architecture-facility-settings`). Declare the
+check yourself *or* name a ``freshness_channel``, not both: a profile that does
+both is refused at build time, because the two would be one fact in two homes.
 
 .. note::
 

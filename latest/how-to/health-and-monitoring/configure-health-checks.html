@@ -746,7 +746,9 @@ profile’s <code class="docutils literal notranslate"><span class="pre">config:
 <h2>Recipe: archive freshness, without declaring a check<a class="headerlink" href="#recipe-archive-freshness-without-declaring-a-check" title="Link to this heading">#</a></h2>
 <p>A project that deploys its own archive — one whose build profile carries a
 <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block (see <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>) — can have the freshness
-check written for it. Name one canary channel and nothing else:</p>
+check written for it. The build derives its canary channel from the facility
+file, the channel the simulator’s probe reads; to watch another, name it and
+nothing else:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># in the build profile, not config.yml</span>
 <span class="nt">va_archiver</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">freshness_channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:DCCT:01:CURRENT:RB</span>
@@ -755,11 +757,11 @@ check written for it. Name one canary channel and nothing else:</p>
 <p>The build derives a complete <code class="docutils literal notranslate"><span class="pre">archiver</span></code> category from that, including the
 <code class="docutils literal notranslate"><span class="pre">max_age_s</span></code> you would otherwise have to choose: <strong>three times the recorder’s
 own sample cadence</strong>, floored at 60 seconds, so the threshold follows the
-recorder with no second number to re-tune. Which channel is representative is
-the one thing only you know, so there is no default — a profile that names
-none derives no check. Declare the check yourself <em>or</em> name a
-<code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code>, not both: a profile that does both is refused at build
-time, because the two would be one fact in two homes.</p>
+recorder with no second number to re-tune. The channel is derived from the
+facility file; a stated value overrides it, and one the file does not hold is
+refused at build time (see <a class="reference internal" href="../../architecture/facility-file.html#architecture-facility-settings"><span class="std std-ref">Settings the facility decides</span></a>). Declare the
+check yourself <em>or</em> name a <code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code>, not both: a profile that does
+both is refused at build time, because the two would be one fact in two homes.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>With the simulator served in process the recorder idles by design, so the check

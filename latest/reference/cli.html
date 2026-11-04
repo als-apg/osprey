@@ -1500,19 +1500,20 @@ whether the main render serves it and its solve setting, and each view with
 its path under the render and whether it is written. The views are those of
 the main render, <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a tier’s or app’s selection does not change
 them. A view that is not written names the config key or model fact that
-left it out. With <code class="docutils literal notranslate"><span class="pre">ID</span></code> it prints the place, device, channel, group or
-model of that id with its provenance (the layer and file each field came
-from, the fields the build filled) and the fixes applied to it. An id that
-names no record prints <code class="docutils literal notranslate"><span class="pre">facility</span> <span class="pre">show:</span> <span class="pre">no</span> <span class="pre">record</span> <span class="pre">&lt;id&gt;</span></code>, and an id that
-names records of more than one kind prints
-<code class="docutils literal notranslate"><span class="pre">facility</span> <span class="pre">show:</span> <span class="pre">&lt;id&gt;</span> <span class="pre">names</span> <span class="pre">a</span> <span class="pre">&lt;kind&gt;</span> <span class="pre">and</span> <span class="pre">a</span> <span class="pre">&lt;kind&gt;</span></code>; both go to stderr and
-exit 1. <code class="docutils literal notranslate"><span class="pre">--json</span></code> prints one JSON document on stdout and every other line,
-view notes included, on stderr; on an error stdout is empty. The facility
+left it out. With <code class="docutils literal notranslate"><span class="pre">ID</span></code> it prints every place, device, channel, group or
+model of that id, each under its kind, with its provenance (the layer and
+file each field came from, the fields the build filled) and the fixes
+applied to it. An id that names no record prints
+<code class="docutils literal notranslate"><span class="pre">facility</span> <span class="pre">show:</span> <span class="pre">no</span> <span class="pre">record</span> <span class="pre">&lt;id&gt;</span></code> on stderr and exits 1. <code class="docutils literal notranslate"><span class="pre">--json</span></code> prints
+one JSON document on stdout and every other line, view notes included, on
+stderr; on an error stdout is empty. The facility
 document’s keys are <code class="docutils literal notranslate"><span class="pre">identity</span></code>, <code class="docutils literal notranslate"><span class="pre">counts</span></code> (<code class="docutils literal notranslate"><span class="pre">places</span></code>, <code class="docutils literal notranslate"><span class="pre">devices</span></code>,
 <code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>, and <code class="docutils literal notranslate"><span class="pre">wiring</span></code> keyed by model), <code class="docutils literal notranslate"><span class="pre">models</span></code>
 (<code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">engine</span></code>, <code class="docutils literal notranslate"><span class="pre">served</span></code>, <code class="docutils literal notranslate"><span class="pre">solve</span></code>) and <code class="docutils literal notranslate"><span class="pre">views</span></code> (<code class="docutils literal notranslate"><span class="pre">name</span></code>,
 <code class="docutils literal notranslate"><span class="pre">path</span></code>, <code class="docutils literal notranslate"><span class="pre">written</span></code>, and <code class="docutils literal notranslate"><span class="pre">reason</span></code> only on a view that is not written);
-a record’s are <code class="docutils literal notranslate"><span class="pre">record</span></code>, <code class="docutils literal notranslate"><span class="pre">kind</span></code>, <code class="docutils literal notranslate"><span class="pre">provenance</span></code> and <code class="docutils literal notranslate"><span class="pre">fixes_applied</span></code>.</p>
+the record document is <code class="docutils literal notranslate"><span class="pre">records</span></code>, one entry per record with <code class="docutils literal notranslate"><span class="pre">record</span></code>,
+<code class="docutils literal notranslate"><span class="pre">kind</span></code>, <code class="docutils literal notranslate"><span class="pre">provenance</span></code> and <code class="docutils literal notranslate"><span class="pre">fixes_applied</span></code>, in place, device, channel,
+group, model order.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span></code></dt><dd><p>Group for the importers that write an export as sources under
 <code class="docutils literal notranslate"><span class="pre">data/facility/imported/</span></code>; the importers are <code class="docutils literal notranslate"><span class="pre">mml</span></code> and <code class="docutils literal notranslate"><span class="pre">list</span></code>.</p>
@@ -1536,23 +1537,25 @@ problem prints one <code class="docutils literal notranslate"><span class="pre">
 the mapping names and no given export carries is one such line,
 <code class="docutils literal notranslate"><span class="pre">models.&lt;system&gt;:</span> <span class="pre">&lt;system&gt;</span> <span class="pre">is</span> <span class="pre">no</span> <span class="pre">exported</span> <span class="pre">system</span></code>. A mapping with the
 wrong structure, or a profile that does not resolve, prints a one-line
-failure with its cause and exits 1. An authored record source that would
-merge against the layer prints <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">authored-present:</span> <span class="pre">&lt;n&gt;</span> <span class="pre">files</span></code>
-(<code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">file</span></code> for one) and one <code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">&lt;path&gt;</span></code> line per file and exits 1;
-<code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code> and <code class="docutils literal notranslate"><span class="pre">knowledge/</span></code> are
-never named. After the import, each scenario file that names a channel or
-model the facility no longer has is printed as one <code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">&lt;path&gt;</span></code> line under
-<code class="docutils literal notranslate"><span class="pre">these</span> <span class="pre">scenario</span> <span class="pre">files</span> <span class="pre">name</span> <span class="pre">channels</span> <span class="pre">that</span> <span class="pre">no</span> <span class="pre">longer</span> <span class="pre">exist:</span></code>, followed by
-an <code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">-r</span> <span class="pre">&lt;folder&gt;/</span></code> line for the scenario’s folder of attached files
-when it has one; the import
-deletes nothing, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops while one is left.</p>
+failure with its cause and exits 1. Before it reads an export, the import runs one step that every format runs.
+Hand-written records of a kind the format writes print
+<code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">data/facility/</span> <span class="pre">holds</span> <span class="pre">hand-written</span> <span class="pre">&lt;kinds&gt;</span> <span class="pre">records,</span> <span class="pre">which</span> <span class="pre">this</span>
+<span class="pre">import</span> <span class="pre">writes:</span></code>, each file, and a remedy, then exit 1 with nothing changed.
+Otherwise bundled files are replaced, printing
+<code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">replaced</span> <span class="pre">the</span> <span class="pre">bundled</span> <span class="pre">&lt;name&gt;</span> <span class="pre">facility</span> <span class="pre">(&lt;n&gt;</span> <span class="pre">files)</span></code>, everything
+else stays, the knowledge indexes are regenerated, and a blank
+<code class="docutils literal notranslate"><span class="pre">knowledge/index.md</span></code> is left when no page remains. The mml format
+writes channel, device, group, model, deck, seed, limit, identity and
+measurement records.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span> <span class="pre">--print-exporter</span></code></dt><dd><p>Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
 export.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span> <span class="pre">FILE</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write a CSV channel list as the list layer’s sources,
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/list/channels.yaml</span></code>, one channel record per row;
-no authored file is seeded. <code class="docutils literal notranslate"><span class="pre">FILE</span></code> is UTF-8 CSV whose header row names
+<code class="docutils literal notranslate"><span class="pre">data/facility/imported/list/channels.yaml</span></code>, one channel record per row.
+It runs the same step as the mml import under the prefix <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">list:</span></code>,
+refuses only hand-written channel and device records, and seeds the knowledge
+stub. <code class="docutils literal notranslate"><span class="pre">FILE</span></code> is UTF-8 CSV whose header row names
 <code class="docutils literal notranslate"><span class="pre">address</span></code>, required, and any of the optional columns <code class="docutils literal notranslate"><span class="pre">role</span></code> (empty
 means readback), <code class="docutils literal notranslate"><span class="pre">pair</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">unit</span></code>,
 <code class="docutils literal notranslate"><span class="pre">description</span></code>, <code class="docutils literal notranslate"><span class="pre">tags</span></code> (<code class="docutils literal notranslate"><span class="pre">;</span></code>-separated), <code class="docutils literal notranslate"><span class="pre">s</span></code> (metres, a number) and
@@ -1706,7 +1709,7 @@ read.</p>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span>
-osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/ariel/vocabulary.yml
+osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/facility/ariel/vocabulary.yml
 osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span>
 </pre></div>
 </div>

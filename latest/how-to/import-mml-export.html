@@ -635,7 +635,7 @@ model against the Middle Layer’s reads.</p>
 </div>
 <p>The first run finds no mapping, writes a draft to
 <code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/mapping.yaml</span></code> and stops with
-<code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">mapping-draft</span></code>. Nothing else is written. Review the draft, then
+<code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">mapping-draft</span></code>. No record is written. Review the draft, then
 run the same command again.</p>
 <p>The import takes every export the mapping names: a run given a subset is
 refused by the mapping check, which names each system no given export carries.</p>
@@ -796,26 +796,25 @@ whose conversion curves the pass cut, and
 <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">supplies</span> <span class="pre">folded:</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">family</span> <span class="pre">&lt;family&gt;</span> <span class="pre">(&lt;n&gt;)</span></code> names a family
 whose supplies feed several devices. Both go to stdout and never stop the
 import.</p>
-<p>The import refuses to run while <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> holds a record source of
-your own that would merge against the imported records. It prints
-<code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">authored-present:</span> <span class="pre">&lt;n&gt;</span> <span class="pre">files</span></code> and one <code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">&lt;path&gt;</span></code> line per
-file. Corrections belong in <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>, which is never in the way.</p>
-<p>Scenario files never stop the import. After a clean run it prints
-<code class="docutils literal notranslate"><span class="pre">these</span> <span class="pre">scenario</span> <span class="pre">files</span> <span class="pre">name</span> <span class="pre">channels</span> <span class="pre">that</span> <span class="pre">no</span> <span class="pre">longer</span> <span class="pre">exist:</span></code> and one
-<code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">&lt;path&gt;</span></code> line for each scenario file that names a channel or model the
-imported facility does not have, followed by an <code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">-r</span> <span class="pre">&lt;folder&gt;/</span></code> line when
-the scenario keeps a folder of attached files beside it. The import deletes
-nothing, and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops while one is left: remove each listed file, or point it
-at the imported channels.</p>
-<p>A deployment that began as a preset states
-<code class="docutils literal notranslate"><span class="pre">control_system.connector.virtual_accelerator.probe_channel</span></code> for the demo’s
-channels. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> stop with
-<code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> while it names a channel the imported facility does not
-hold, and name one it does. Set it to that channel:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.control_system.connector.virtual_accelerator.probe_channel<span class="o">=</span>&lt;channel&gt;
-</pre></div>
-</div>
+<p>Before it reads an export, the import looks at <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>:</p>
+<ul class="simple">
+<li><p>Hand-written records of a kind this format writes refuse the import, which
+names each file, changes nothing and exits 1. The mml format writes channel,
+device, group, model, deck, seed, limit, identity and measurement records; the
+list format writes channel and device records. A file is hand-written once its
+bundled-origin line is gone. Corrections belong in <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>.</p></li>
+<li><p>Bundled files are replaced, and one line says so:
+<code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">replaced</span> <span class="pre">the</span> <span class="pre">bundled</span> <span class="pre">example</span> <span class="pre">facility</span> <span class="pre">(&lt;n&gt;</span> <span class="pre">files)</span></code>. The line
+prints before the export is read, so a stop that follows it, such as a mapping
+draft, comes after the replacement.</p></li>
+<li><p>Everything else of your own stays, such as <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>, your knowledge pages
+and hand-written records of other kinds.</p></li>
+</ul>
+<p>The import regenerates the knowledge indexes, so your kept pages are listed, and
+leaves a blank <code class="docutils literal notranslate"><span class="pre">knowledge/index.md</span></code> when no page remains.</p>
+<p>The build derives the simulator’s probe channel from the imported file. A stated
+<code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> naming a scenario the imported file lacks stops
+the next build with the file’s scenarios.</p>
 </section>
 </section>
 <section id="check-the-result">

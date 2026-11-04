@@ -784,10 +784,8 @@ rewritten by every run; <code class="docutils literal notranslate"><span class="
 absent. The import also creates <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
 <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and
 <code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code> when they do not exist, and never rewrites them
-afterwards. It refuses to run while
-authored record sources are present: every file of <code class="docutils literal notranslate"><span class="pre">records/</span></code> and
-<code class="docutils literal notranslate"><span class="pre">decks/</span></code>, <code class="docutils literal notranslate"><span class="pre">models.yaml</span></code>, and a <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code> or measurement file it did not create itself.</p>
+afterwards. It replaces a bundled facility, saying so in one line, and refuses
+only hand-written records of the kinds it writes, naming each file.</p>
 </section>
 <section id="a-channel-list">
 <h3>A channel list<a class="headerlink" href="#a-channel-list" title="Link to this heading">#</a></h3>
@@ -804,9 +802,9 @@ SR:MAG:QF:01:CURRENT:RB,,QF01,A,Focusing quadrupole current readback
 <p>The files under <code class="docutils literal notranslate"><span class="pre">imported/list/</span></code> belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
 into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. A run whose list states no <code class="docutils literal notranslate"><span class="pre">s</span></code> leaves no
-<code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>. The list import runs beside authored records and merges with
-them field by field, where the mml import refuses while authored record
-sources are present.</p>
+<code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>. The list import runs the same step as every format: it
+replaces a bundled facility and refuses only hand-written channel and device
+lists, so it still positions a list against your own deck, models and places.</p>
 </section>
 </section>
 <section id="fixes">

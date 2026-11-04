@@ -618,12 +618,34 @@ untouched.</p>
 <p>Several scenarios apply together only when no two of them write one target,
 a channel or a model’s fault. A set that breaks the rule is refused before
 anything is written, and the refusal names the target.</p>
-<p>Every facility has a scenario named <code class="docutils literal notranslate"><span class="pre">still</span></code> that stills every reading:
+<p>Every facility has a scenario named <code class="docutils literal notranslate"><span class="pre">still</span></code> that stills every float reading:
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">still</span></code>, or <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">[still]</span></code> for a
 deployment that should start still. A file may define its own <code class="docutils literal notranslate"><span class="pre">still</span></code>,
 which replaces the built-in one. <code class="docutils literal notranslate"><span class="pre">still</span></code> composes with overrides and faults,
 and is refused beside a scenario that sets the same reading’s <code class="docutils literal notranslate"><span class="pre">noise</span></code> or
 <code class="docutils literal notranslate"><span class="pre">couple</span></code>. It holds in both venues of the simulator.</p>
+<p>Any scenario can still a family of readings by selecting it over the facility
+file’s own records. Each selection names a model or a place, and the build
+resolves it to plain addresses:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">still</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="nv">&lt;model&gt;</span><span class="p p-Indicator">,</span><span class="nt"> role</span><span class="p">:</span><span class="w"> </span><span class="nv">monitor</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">place</span><span class="p">:</span><span class="w"> </span><span class="nv">&lt;place&gt;</span><span class="p p-Indicator">,</span><span class="nt"> signal</span><span class="p">:</span><span class="w"> </span><span class="nv">&lt;signal&gt;</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;address&gt;</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">model</span></code>: channels a wiring record of that model names, or on a device of
+that model.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">place</span></code>: channels on that place or on a place under it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">group</span></code>: channels on a device of that group.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">signal</span></code>: channels stating that <code class="docutils literal notranslate"><span class="pre">signal</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">role</span></code>: channels whose wiring record has that role (<code class="docutils literal notranslate"><span class="pre">setpoint</span></code>,
+<code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>), not the channel’s own <code class="docutils literal notranslate"><span class="pre">role</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">plane</span></code>: channels whose wiring record has that plane.</p></li>
+</ul>
+<p>The keys of one selection all apply. The build stops on a selection that names
+neither a model nor a place, and on one that matches no float channel; a
+matched channel that is not a float is left out.</p>
 </section>
 <section id="write-a-scenario">
 <h2>Write a scenario<a class="headerlink" href="#write-a-scenario" title="Link to this heading">#</a></h2>
@@ -686,9 +708,9 @@ unit, or <code class="docutils literal notranslate"><span class="pre">{&lt;addre
 fraction of the reading.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">still</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">all</span></code>, or a list of addresses: while the scenario is active, those
-readings serve without drift, couplings or noise; readout faults still
-apply.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">all</span></code>, or a list of addresses and selections (see <a class="reference internal" href="#apply-a-scenario">Apply a scenario</a>):
+while the scenario is active, those readings serve without drift,
+couplings or noise; readout faults still apply.</p></td>
 </tr>
 </tbody>
 </table>

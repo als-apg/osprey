@@ -613,6 +613,8 @@ or the index. The web interface enumerates and validates against it, and
 <span class="w">        </span><span class="nt">duckdb_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/channel_finder/middle_layer.duckdb</span>
 <span class="w">    </span><span class="c1"># graph has no entry: it is configured by the `services.graphdb` block.</span>
 <span class="w">  </span><span class="nt">benchmark</span><span class="p">:</span>
+<span class="w">    </span><span class="c1"># Stated by the build when the facility ships benchmark query sources;</span>
+<span class="w">    </span><span class="c1"># the benchmarks view writes the mode&#39;s query file here.</span>
 <span class="w">    </span><span class="nt">dataset_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/benchmarks/queries.json</span>
 <span class="w">    </span><span class="c1"># Concurrency and output dir are set per run via CLI flags</span>
 <span class="w">    </span><span class="c1"># (osprey channel-finder benchmark --concurrency / --output-dir);</span>

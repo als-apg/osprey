@@ -20,6 +20,14 @@ about what the build makes of them.
 The facility file
 =================
 
+A facility ``osprey init`` copies from a preset is bundled: every copied text file
+opens with the bundled-origin line, except the knowledge indexes, which
+``osprey knowledge regen-index`` writes. Delete the line to make a file yours. The
+import, in every format, replaces the bundled files and refuses only hand-written
+records of the kinds that format writes. A bundled facility carries data only:
+records, decks, models, limits, seeds, scenarios, knowledge pages, benchmark query
+sources and the ARIEL vocabulary, and never a skill, agent or rule.
+
 ``build/facility.json`` is every record of the facility in one document,
 under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
 ``channels``, ``groups``, ``models`` with their wiring, ``limits`` and
@@ -34,6 +42,91 @@ which fixes were applied and which fields the build filled.
 
 The file is the same in every render of a build. It carries no timestamp, no
 OSPREY version and no absolute path, so equal sources give equal bytes.
+
+Reading the facility file
+=========================
+
+Code reads the built file through one read model,
+``osprey.facility.records.FacilityRecords``: the records of a finished document
+by kind and id. A reference resolves to a channel or a device. A selection
+filters the file's own channel records and names a model or a place.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 36 20 20
+
+   * - Method
+     - What it answers
+     - Order
+     - Absence
+   * - ``FacilityRecords(document)``
+     - The index over one finished document.
+     -
+     - An absent or non-list kind has no records.
+   * - ``from_file(path)``
+     - The read model of a render's ``facility.json``.
+     -
+     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON or is not an object.
+   * - ``document``
+     - The mapping it was built from, read-only.
+     -
+     -
+   * - ``record(kind, id)``
+     - The one record of that kind and id.
+     -
+     - ``None``.
+   * - ``require(kind, id)``
+     - The same, for a caller that cannot go on without it.
+     -
+     - ``KeyError`` naming the kind and the id.
+   * - ``of_kind(kind)``
+     - Every record of a kind that carries its id; the first of a duplicate id.
+     - Document order.
+     - Empty.
+   * - ``ids(kind)``
+     - The ids of a kind.
+     -
+     - Empty.
+   * - ``find(id)``
+     - Every record, of any kind, with that id.
+     - ``RECORD_KINDS``: place, device, channel, group, model.
+     - Empty.
+   * - ``channels_on(device_id)``
+     - The channels whose ``on.device`` names the device or that list it in ``endpoint_of``.
+     - Document order, each once.
+     - Empty, also for an unknown id.
+   * - ``wired(address)``
+     - The one wiring record naming an address, as the file holds it.
+     -
+     - ``None`` for an address no model wires.
+   * - ``resolve(target)``
+     - The channel and device records a reference target names, by exact id.
+     - ``LINK_KINDS``: channel, then device.
+     - Empty when dangling.
+   * - ``targets()``
+     - Every string ``resolve`` resolves.
+     -
+     - Empty.
+   * - ``describe(target)``
+     - A fresh ``{kind, id, unit?, description?}`` per record ``resolve`` returns.
+     - ``resolve`` order.
+     - Empty when dangling.
+   * - ``select_channels(selection)``
+     - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group``, ``signal``, ``role`` and ``plane`` facets AND; a place takes every place under it; ``role`` and ``plane`` match the wiring record naming the address.
+     - Document order.
+     - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold, or a role or plane outside the schema's vocabulary.
+
+``osprey.facility.references.resolved_references`` is the one describer of
+references: every surface that returns ``facility_references`` calls it, and each
+reference's ``start`` and ``end`` are Unicode code-point offsets into the text it
+was found in.
+
+The read model relies on four things the build guarantees:
+
+- Ids are unique per kind, so one string may name records of several kinds but only one of each.
+- An address is wired at most once.
+- Every record carries its id, and every id a record names exists.
+- A channel's devices are its ``on.device`` and its ``endpoint_of``, each once.
 
 Two halves of the build
 =======================
@@ -85,6 +178,55 @@ into a temporary directory, adds the response check of a Middle Layer import,
 and writes nothing into the repo. Tier, app and image renders are checked by
 ``osprey build`` alone.
 
+.. _architecture-facility-settings:
+
+Settings the facility decides
+=============================
+
+A few profile settings take their value from the facility: the build derives
+each one from the facility file or tree when the profile leaves it unstated. A
+stated value is an override checked against the facility, the one block of
+derived keys where a stated value is not refused.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 25 25
+
+   * - Key
+     - Stated at
+     - Derived from
+     - A stated value must
+   * - ``control_system.connector.virtual_accelerator.probe_channel``
+     - the key
+     - the first readback, by address, of the served models; only for a
+       render that carries the simulator's block
+     - be a channel of the facility file, as must a stated stand-in probe
+   * - ``health.categories.archiver.checks``
+     - ``va_archiver.freshness_channel``
+     - the probe's channel, for a profile with a ``va_archiver:`` block
+     - be a channel of the facility file
+   * - ``simulation.default_scenarios``
+     - the key
+     - never derived
+     - name only scenarios the facility serves: its own and the built-in ``still``
+   * - ``ariel.vocabulary.enabled``
+     - the key
+     - ``true`` when the tree ships ``ariel/vocabulary.yml``
+     - when ``true`` with no path, have that file in the tree
+   * - ``ariel.vocabulary.path``
+     - the key
+     - the shipped ``data/facility/ariel/vocabulary.yml``
+     - while the vocabulary is on, name a file, resolved against the project
+       root
+   * - ``channel_finder.benchmark.dataset_path``
+     - the key
+     - ``data/benchmarks/queries.json`` when the tree ships benchmark query
+       sources
+     - have benchmark query sources in the tree
+
+A value the facility contradicts stops the build with a ``profile-invalid``
+line naming the key.
+
 The views
 =========
 
@@ -124,6 +266,11 @@ The views
      - always
      - The graph store ``osprey up`` seeds, and ``osprey knowledge
        seed-from-ttl``.
+   * - benchmarks
+     - ``data/<dataset_path>``, by default ``data/benchmarks/queries.json``
+     - ``channel_finder.benchmark.dataset_path`` is stated and the facility
+       ships query sources under ``benchmarks/cross_paradigm/queries/``
+     - ``osprey channel-finder benchmark``.
    * - pyaml
      - ``data/pyaml/<model>/configuration.yaml`` and the files it names
        (``lattice.json``, ``trm.json``, ``crm.json``)

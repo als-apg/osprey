@@ -1610,9 +1610,10 @@ derives exactly seven keys from it, all under
 <li><p>the six <code class="docutils literal notranslate"><span class="pre">gateways.*</span></code> keys — <code class="docutils literal notranslate"><span class="pre">address</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code> and <code class="docutils literal notranslate"><span class="pre">use_name_server</span></code>
 for each of the <code class="docutils literal notranslate"><span class="pre">read_only</span></code> and <code class="docutils literal notranslate"><span class="pre">write_access</span></code> roles, pointing both lanes
 at loopback on the stand-in’s port over the Channel Access name server;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">probe_channel</span></code>, copied from the simulator’s own, since the stand-in is the
-same soft IOC over the same machine model. A deployment whose simulator names
-none gets none here either.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">probe_channel</span></code>, copied from the simulator’s own, stated or derived from the
+facility file (see <a class="reference internal" href="../../architecture/facility-file.html#architecture-facility-settings"><span class="std std-ref">Settings the facility decides</span></a>), since the stand-in
+is the same soft IOC over the same machine model. A deployment whose simulator
+has none gets none here either.</p></li>
 </ul>
 <p>A profile that spells any of the seven in its own <code class="docutils literal notranslate"><span class="pre">config:</span></code> block is refused by
 name at build time rather than silently having the derived copy win: two homes
@@ -1665,7 +1666,6 @@ the <code class="docutils literal notranslate"><span class="pre">mongodb_archive
 <span class="w">  </span><span class="nt">hot_span_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">48</span>
 <span class="w">  </span><span class="nt">hot_cadence_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 <span class="w">  </span><span class="nt">tail_cadence_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
-<span class="w">  </span><span class="nt">freshness_channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:DCCT:01:CURRENT:RB</span>
 </pre></div>
 </div>
 <p>Every key is optional and the defaults describe a working archive; the block’s
@@ -1721,9 +1721,12 @@ to record at all. It records only for a <code class="docutils literal notranslat
 system, and this is what lets that flip take effect without a restart.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code></p></td>
-<td><p>unset</p></td>
-<td><p>Canary channel for a derived <code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code> health check. Unset
-derives no check (see
+<td><p>derived</p></td>
+<td><p>Canary channel for a derived <code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code> health check. The
+build derives it from the facility file: the first readback by address
+the served simulator holds (the probe’s channel); none derives no check.
+A stated value is an override checked against the file (see
+<a class="reference internal" href="../../architecture/facility-file.html#architecture-facility-settings"><span class="std std-ref">Settings the facility decides</span></a> and
 <a class="reference internal" href="../../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">host</span></code></p></td>
@@ -1775,7 +1778,8 @@ by name, rather than silently having one copy win:</p>
 all derived from the keys above;</p></li>
 <li><p>the shape knobs, written to <code class="docutils literal notranslate"><span class="pre">va_archiver.*</span></code> in the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
 for the seeder and the recorder to read;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">health.categories.archiver</span></code>, when <code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code> is set.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">health.categories.archiver</span></code>, from the channel the build derives from the
+facility file or a stated <code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code>, an override checked against it.</p></li>
 </ul>
 <p>Two homes for one fact are free to disagree, and the disagreement is the
 dangerous case: a stale <code class="docutils literal notranslate"><span class="pre">collection</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code> in <code class="docutils literal notranslate"><span class="pre">config:</span></code> points the

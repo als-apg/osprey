@@ -511,7 +511,7 @@ and <code class="docutils literal notranslate"><span class="pre">[]</span></code
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code></p></td>
 <td><p>Seconds between the simulator’s ticks. Absent means <code class="docutils literal notranslate"><span class="pre">1.0</span></code>; every
-shipped preset sets <code class="docutils literal notranslate"><span class="pre">1.0</span></code>. A value at or below <code class="docutils literal notranslate"><span class="pre">0</span></code> stops the build
+shipped preset sets <code class="docutils literal notranslate"><span class="pre">1.0</span></code>. A value of <code class="docutils literal notranslate"><span class="pre">0</span></code> or less stops the build
 with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line naming the key.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code></p></td>
@@ -519,10 +519,13 @@ with a <code class="docutils literal notranslate"><span class="pre">profile-inva
 name from the facility’s scenarios. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> activates them
 the way <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> would, before it seeds the archive and the
 logbook, and only while no set has been chosen. Absent, <code class="docutils literal notranslate"><span class="pre">null</span></code> or
-<code class="docutils literal notranslate"><span class="pre">[]</span></code> starts in <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone. The control-assistant preset sets
-<code class="docutils literal notranslate"><span class="pre">[rf-thermal]</span></code>; the other presets leave it out. A value that is not a
-list of non-empty names stops the build with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line
-naming the key.</p></td>
+<code class="docutils literal notranslate"><span class="pre">[]</span></code> starts in <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone, which is the default: the build
+derives no start set. The control-assistant preset sets <code class="docutils literal notranslate"><span class="pre">[rf-thermal]</span></code>;
+the other presets leave it out. A value that is not a list of non-empty
+names, or a name that is not a scenario the facility serves (its own or
+the built-in <code class="docutils literal notranslate"><span class="pre">still</span></code>), stops the
+build with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line naming the key (see
+<a class="reference internal" href="../../architecture/facility-file.html#architecture-facility-settings"><span class="std std-ref">Settings the facility decides</span></a>).</p></td>
 </tr>
 </tbody>
 </table>

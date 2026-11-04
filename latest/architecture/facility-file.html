@@ -470,7 +470,7 @@ about what the build makes of them.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1200 700" role="img" aria-labelledby="fm-title fm-desc">
   <title id="fm-title">The facility file: sources under data/facility, one facility file, a view per service</title>
-  <desc id="fm-desc">On the left, the sources under data/facility. Imported sources are written by osprey facility import mml, from a Middle Layer export, into imported/mml, and by osprey facility import list, from a channel list, into imported/list; each import rewrites its own directory. Authored sources are edited by hand: records, models and decks; fixes.yaml; limits.yaml and seeds.yaml; measurement and scenarios; identity.yaml and classes.yaml; and the knowledge pages. osprey build loads, combines, applies the fixes, validates against the facility-agnostic schema (core.yaml and vocabulary.yaml, LinkML carried from NARAD) and computes, giving one file, build/facility.json, with places, devices, channels, groups, models and limits, plus identity, classes and scenarios, and the provenance of every record. From it the build writes one view per service: the channel-finder index of the selected pipeline, read by the channel-finder server; the graph, data/graph/facility.ttl, seeded into the graph store by osprey up; the simulator view, served by the virtual accelerator; a pyAML configuration per measured model, read by the measurement tools in the python executor; the Bluesky devices, read by the Bluesky worker; the limits, read by the write checks; and the facts, read into the agents' prompts and the facility_description tool. The knowledge pages are read in place by the facility-knowledge server; the build checks that each page's device link names a device.</desc>
+  <desc id="fm-desc">On the left, the sources under data/facility. Imported sources are written by osprey facility import mml, from a Middle Layer export, into imported/mml, and by osprey facility import list, from a channel list, into imported/list; each import rewrites its own directory. Authored sources are edited by hand: records, models and decks; fixes.yaml; limits.yaml and seeds.yaml; measurement and scenarios; identity.yaml and classes.yaml; and the knowledge pages. osprey build loads, combines, applies the fixes, validates against the facility-agnostic schema (core.yaml and vocabulary.yaml, LinkML carried from NARAD) and computes, giving one file, build/facility.json, with places, devices, channels, groups, models and limits, plus identity, classes and scenarios, and the provenance of every record. From it the build writes one view per service: the channel-finder index of the selected pipeline, read by the channel-finder server; the graph, data/graph/facility.ttl, seeded into the graph store by osprey up; the simulator view, served by the virtual accelerator; a pyAML configuration per measured model, read by the measurement tools in the python executor; the Bluesky devices, read by the Bluesky worker; the benchmark queries, read by osprey channel-finder benchmark; the limits, read by the write checks; and the facts, read into the agents' prompts and the facility_description tool. The knowledge pages are read in place by the facility-knowledge server; the build checks that each page's device link names a device.</desc>
   <defs>
     <marker id="fm-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fm-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
@@ -642,6 +642,13 @@ about what the build makes of them.</p>
 </div>
 <section id="the-facility-file">
 <h2>The facility file<a class="headerlink" href="#the-facility-file" title="Link to this heading">#</a></h2>
+<p>A facility <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> copies from a preset is bundled: every copied text file
+opens with the bundled-origin line, except the knowledge indexes, which
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span></code> writes. Delete the line to make a file yours. The
+import, in every format, replaces the bundled files and refuses only hand-written
+records of the kinds that format writes. A bundled facility carries data only:
+records, decks, models, limits, seeds, scenarios, knowledge pages, benchmark query
+sources and the ARIEL vocabulary, and never a skill, agent or rule.</p>
 <p><code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> is every record of the facility in one document,
 under a <code class="docutils literal notranslate"><span class="pre">schema</span></code> header: <code class="docutils literal notranslate"><span class="pre">identity</span></code>, <code class="docutils literal notranslate"><span class="pre">classes</span></code>, <code class="docutils literal notranslate"><span class="pre">places</span></code>, <code class="docutils literal notranslate"><span class="pre">devices</span></code>,
 <code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>, <code class="docutils literal notranslate"><span class="pre">models</span></code> with their wiring, <code class="docutils literal notranslate"><span class="pre">limits</span></code> and
@@ -655,6 +662,112 @@ which fixes were applied and which fields the build filled.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">show</span> <span class="pre">&lt;id&gt;</span></code> prints it.</p>
 <p>The file is the same in every render of a build. It carries no timestamp, no
 OSPREY version and no absolute path, so equal sources give equal bytes.</p>
+</section>
+<section id="reading-the-facility-file">
+<h2>Reading the facility file<a class="headerlink" href="#reading-the-facility-file" title="Link to this heading">#</a></h2>
+<p>Code reads the built file through one read model,
+<code class="docutils literal notranslate"><span class="pre">osprey.facility.records.FacilityRecords</span></code>: the records of a finished document
+by kind and id. A reference resolves to a channel or a device. A selection
+filters the file’s own channel records and names a model or a place.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 24.0%" />
+<col style="width: 36.0%" />
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Method</p></th>
+<th class="head"><p>What it answers</p></th>
+<th class="head"><p>Order</p></th>
+<th class="head"><p>Absence</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">FacilityRecords(document)</span></code></p></td>
+<td><p>The index over one finished document.</p></td>
+<td></td>
+<td><p>An absent or non-list kind has no records.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">from_file(path)</span></code></p></td>
+<td><p>The read model of a render’s <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>.</p></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code> with no file; <code class="docutils literal notranslate"><span class="pre">FacilityFileError</span></code> when it cannot be read, is not JSON or is not an object.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">document</span></code></p></td>
+<td><p>The mapping it was built from, read-only.</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">record(kind,</span> <span class="pre">id)</span></code></p></td>
+<td><p>The one record of that kind and id.</p></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">require(kind,</span> <span class="pre">id)</span></code></p></td>
+<td><p>The same, for a caller that cannot go on without it.</p></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">KeyError</span></code> naming the kind and the id.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">of_kind(kind)</span></code></p></td>
+<td><p>Every record of a kind that carries its id; the first of a duplicate id.</p></td>
+<td><p>Document order.</p></td>
+<td><p>Empty.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ids(kind)</span></code></p></td>
+<td><p>The ids of a kind.</p></td>
+<td></td>
+<td><p>Empty.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">find(id)</span></code></p></td>
+<td><p>Every record, of any kind, with that id.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">RECORD_KINDS</span></code>: place, device, channel, group, model.</p></td>
+<td><p>Empty.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channels_on(device_id)</span></code></p></td>
+<td><p>The channels whose <code class="docutils literal notranslate"><span class="pre">on.device</span></code> names the device or that list it in <code class="docutils literal notranslate"><span class="pre">endpoint_of</span></code>.</p></td>
+<td><p>Document order, each once.</p></td>
+<td><p>Empty, also for an unknown id.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">wired(address)</span></code></p></td>
+<td><p>The one wiring record naming an address, as the file holds it.</p></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code> for an address no model wires.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">resolve(target)</span></code></p></td>
+<td><p>The channel and device records a reference target names, by exact id.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">LINK_KINDS</span></code>: channel, then device.</p></td>
+<td><p>Empty when dangling.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">targets()</span></code></p></td>
+<td><p>Every string <code class="docutils literal notranslate"><span class="pre">resolve</span></code> resolves.</p></td>
+<td></td>
+<td><p>Empty.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">describe(target)</span></code></p></td>
+<td><p>A fresh <code class="docutils literal notranslate"><span class="pre">{kind,</span> <span class="pre">id,</span> <span class="pre">unit?,</span> <span class="pre">description?}</span></code> per record <code class="docutils literal notranslate"><span class="pre">resolve</span></code> returns.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">resolve</span></code> order.</p></td>
+<td><p>Empty when dangling.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">select_channels(selection)</span></code></p></td>
+<td><p>The channels a <code class="docutils literal notranslate"><span class="pre">ChannelSelection</span></code> matches. Its <code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">group</span></code>, <code class="docutils literal notranslate"><span class="pre">signal</span></code>, <code class="docutils literal notranslate"><span class="pre">role</span></code> and <code class="docutils literal notranslate"><span class="pre">plane</span></code> facets AND; a place takes every place under it; <code class="docutils literal notranslate"><span class="pre">role</span></code> and <code class="docutils literal notranslate"><span class="pre">plane</span></code> match the wiring record naming the address.</p></td>
+<td><p>Document order.</p></td>
+<td><p>Empty when nothing matches; <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> naming a model, place or group the file does not hold, or a role or plane outside the schema’s vocabulary.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey.facility.references.resolved_references</span></code> is the one describer of
+references: every surface that returns <code class="docutils literal notranslate"><span class="pre">facility_references</span></code> calls it, and each
+reference’s <code class="docutils literal notranslate"><span class="pre">start</span></code> and <code class="docutils literal notranslate"><span class="pre">end</span></code> are Unicode code-point offsets into the text it
+was found in.</p>
+<p>The read model relies on four things the build guarantees:</p>
+<ul class="simple">
+<li><p>Ids are unique per kind, so one string may name records of several kinds but only one of each.</p></li>
+<li><p>An address is wired at most once.</p></li>
+<li><p>Every record carries its id, and every id a record names exists.</p></li>
+<li><p>A channel’s devices are its <code class="docutils literal notranslate"><span class="pre">on.device</span></code> and its <code class="docutils literal notranslate"><span class="pre">endpoint_of</span></code>, each once.</p></li>
+</ul>
 </section>
 <section id="two-halves-of-the-build">
 <h2>Two halves of the build<a class="headerlink" href="#two-halves-of-the-build" title="Link to this heading">#</a></h2>
@@ -719,6 +832,66 @@ into a temporary directory, adds the response check of a Middle Layer import,
 and writes nothing into the repo. Tier, app and image renders are checked by
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> alone.</p>
 </section>
+<section id="settings-the-facility-decides">
+<span id="architecture-facility-settings"></span><h2>Settings the facility decides<a class="headerlink" href="#settings-the-facility-decides" title="Link to this heading">#</a></h2>
+<p>A few profile settings take their value from the facility: the build derives
+each one from the facility file or tree when the profile leaves it unstated. A
+stated value is an override checked against the facility, the one block of
+derived keys where a stated value is not refused.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 20.0%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Stated at</p></th>
+<th class="head"><p>Derived from</p></th>
+<th class="head"><p>A stated value must</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">control_system.connector.virtual_accelerator.probe_channel</span></code></p></td>
+<td><p>the key</p></td>
+<td><p>the first readback, by address, of the served models; only for a
+render that carries the simulator’s block</p></td>
+<td><p>be a channel of the facility file, as must a stated stand-in probe</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">health.categories.archiver.checks</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">va_archiver.freshness_channel</span></code></p></td>
+<td><p>the probe’s channel, for a profile with a <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block</p></td>
+<td><p>be a channel of the facility file</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code></p></td>
+<td><p>the key</p></td>
+<td><p>never derived</p></td>
+<td><p>name only scenarios the facility serves: its own and the built-in <code class="docutils literal notranslate"><span class="pre">still</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.enabled</span></code></p></td>
+<td><p>the key</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> when the tree ships <code class="docutils literal notranslate"><span class="pre">ariel/vocabulary.yml</span></code></p></td>
+<td><p>when <code class="docutils literal notranslate"><span class="pre">true</span></code> with no path, have that file in the tree</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code></p></td>
+<td><p>the key</p></td>
+<td><p>the shipped <code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code></p></td>
+<td><p>while the vocabulary is on, name a file, resolved against the project
+root</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder.benchmark.dataset_path</span></code></p></td>
+<td><p>the key</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/benchmarks/queries.json</span></code> when the tree ships benchmark query
+sources</p></td>
+<td><p>have benchmark query sources in the tree</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A value the facility contradicts stops the build with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code>
+line naming the key.</p>
+</section>
 <section id="the-views">
 <h2>The views<a class="headerlink" href="#the-views" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -770,7 +943,13 @@ middle-layer index</p></td>
 <td><p>The graph store <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span>
 <span class="pre">seed-from-ttl</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p>pyaml</p></td>
+<tr class="row-even"><td><p>benchmarks</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/&lt;dataset_path&gt;</span></code>, by default <code class="docutils literal notranslate"><span class="pre">data/benchmarks/queries.json</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">channel_finder.benchmark.dataset_path</span></code> is stated and the facility
+ships query sources under <code class="docutils literal notranslate"><span class="pre">benchmarks/cross_paradigm/queries/</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">benchmark</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>pyaml</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">data/pyaml/&lt;model&gt;/configuration.yaml</span></code> and the files it names
 (<code class="docutils literal notranslate"><span class="pre">lattice.json</span></code>, <code class="docutils literal notranslate"><span class="pre">trm.json</span></code>, <code class="docutils literal notranslate"><span class="pre">crm.json</span></code>)</p></td>
 <td><p>a served model names a deck and has a measurement file</p></td>
@@ -1010,7 +1189,9 @@ the texture’s.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-facility-file">The facility file</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-the-facility-file">Reading the facility file</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-halves-of-the-build">Two halves of the build</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#settings-the-facility-decides">Settings the facility decides</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-views">The views</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-schema">The schema</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#simulation-models">Simulation models</a></li>

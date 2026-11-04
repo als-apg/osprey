@@ -821,9 +821,10 @@ It is plain dictionary matching — no model, no network call, microseconds —
 and every rewrite is reported back with the results, so a hit that looks
 surprising always arrives with the reason it appeared.</p>
 <p>Nothing is built in. With no vocabulary configured, no query is ever rewritten.
-The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> template ships a twenty-concept example at
-<code class="docutils literal notranslate"><span class="pre">data/ariel/vocabulary.yml</span></code> as a starting point and a format tutorial; it is
-meant to be edited down to what your control room actually says.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> turns expansion on when the facility ships
+<code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code>, and states that path. The example
+facility ships one as a starting point and a format tutorial; it is meant to be
+edited down to what your control room actually says.</p>
 <section id="the-vocabulary-file">
 <h4>The vocabulary file<a class="headerlink" href="#the-vocabulary-file" title="Link to this heading">#</a></h4>
 <p>One top-level key, <code class="docutils literal notranslate"><span class="pre">concepts</span></code>, holding a non-empty list. Each entry has three
@@ -990,7 +991,9 @@ expansion on, drop that one mode rather than the feature:</p>
 <section id="turning-expansion-off-for-a-deployment-or-for-one-search">
 <h4>Turning expansion off, for a deployment or for one search<a class="headerlink" href="#turning-expansion-off-for-a-deployment-or-for-one-search" title="Link to this heading">#</a></h4>
 <p><code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.enabled:</span> <span class="pre">false</span></code> switches the whole thing off: nothing is
-read, and a stale <code class="docutils literal notranslate"><span class="pre">path</span></code> left behind is inert rather than a startup failure.</p>
+read, and a stale <code class="docutils literal notranslate"><span class="pre">path</span></code> left behind is inert rather than a startup failure.
+A profile that states <code class="docutils literal notranslate"><span class="pre">true</span></code> and no <code class="docutils literal notranslate"><span class="pre">path</span></code> of its own, for a facility that
+ships no <code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code>, is refused at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 <p>For a single search, every surface takes an <code class="docutils literal notranslate"><span class="pre">expand_query</span></code> argument — the
 <strong>Expand vocabulary</strong> toggle in the web interface’s advanced options, and an
 argument on the <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>
@@ -1076,14 +1079,14 @@ the pattern. Both carry the expansion groups the query was going to use.</p>
 <h4>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h4>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">vocabulary</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                       </span><span class="c1"># default: false</span>
-<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/ariel/vocabulary.yml</span><span class="w">     </span><span class="c1"># required when enabled</span>
-<span class="w">    </span><span class="nt">expand_by_default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">             </span><span class="c1"># default: true</span>
-<span class="w">    </span><span class="nt">expand_entries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">               </span><span class="c1"># default: false</span>
-<span class="w">    </span><span class="nt">canonical_to_acronym</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default: true</span>
-<span class="w">    </span><span class="nt">canonical_to_shorthand</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">       </span><span class="c1"># default: false</span>
-<span class="w">    </span><span class="c1"># expand_modes: [keyword, semantic] # default: every enabled module</span>
-<span class="w">                                        </span><span class="c1"># (semantic/hybrid only with expand_entries)</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                                </span><span class="c1"># stated by the build when the file exists</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/facility/ariel/vocabulary.yml</span><span class="w">     </span><span class="c1"># stated by the build when the file exists</span>
+<span class="w">    </span><span class="nt">expand_by_default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                      </span><span class="c1"># default: true</span>
+<span class="w">    </span><span class="nt">expand_entries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                        </span><span class="c1"># default: false</span>
+<span class="w">    </span><span class="nt">canonical_to_acronym</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                   </span><span class="c1"># default: true</span>
+<span class="w">    </span><span class="nt">canonical_to_shorthand</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                </span><span class="c1"># default: false</span>
+<span class="w">    </span><span class="c1"># expand_modes: [keyword, semantic]          # default: every enabled module</span>
+<span class="w">                                                 </span><span class="c1"># (semantic/hybrid only with expand_entries)</span>
 
 <span class="w">  </span><span class="nt">search_modules</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">keyword</span><span class="p">:</span>
@@ -1121,7 +1124,7 @@ defaults.</p>
 <section id="checking-the-file-and-reading-the-status">
 <h4>Checking the file, and reading the status<a class="headerlink" href="#checking-the-file-and-reading-the-status" title="Link to this heading">#</a></h4>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w">                            </span><span class="c1"># the configured file</span>
-osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/ariel/vocabulary.yml<span class="w">  </span><span class="c1"># any file</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/facility/ariel/vocabulary.yml<span class="w">  </span><span class="c1"># any file</span>
 osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>--json<span class="w">                     </span><span class="c1"># one JSON document</span>
 </pre></div>
 </div>
@@ -1177,6 +1180,9 @@ or repoint <code class="docutils literal notranslate"><span class="pre">ariel.vo
 <li><p>The MCP server refuses to start, naming the same key, so the OSPREY agent
 never gets a half-working search.</p></li>
 </ul>
+<p>A stated <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code> that is not a file stops <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+while the vocabulary is on, so a missing file never reaches this mode (see
+<a class="reference internal" href="../../architecture/facility-file.html#architecture-facility-settings"><span class="std std-ref">Settings the facility decides</span></a>).</p>
 <p>If the broken file is baked into a deployed image, the panel’s editor cannot
 reach it: <code class="docutils literal notranslate"><span class="pre">vocabulary.yml</span></code> ships inside the image, like the channel databases.
 Fix the file in the project source, then re-run the build and deploy again.</p>
