@@ -593,7 +593,9 @@ metadata.enum_labels = [&#39;OFFLINE&#39;, &#39;STANDBY&#39;, &#39;ACQUIRING&#39
 <p>Writes are off until the login’s tier allows them
 (<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code>) and the person arms a
 machine from the chip. See <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a> in
-<a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>.</p>
+<a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>. A program with nobody at a prompt
+asks for a bounded authorization instead; see
+<a class="reference internal" href="#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a>.</p>
 </div>
 </section>
 <section id="pick-a-control-system">
@@ -1039,6 +1041,95 @@ whole. Any other block under <code class="docutils literal notranslate"><span cl
 <code class="docutils literal notranslate"><span class="pre">timeout</span></code>, <code class="docutils literal notranslate"><span class="pre">token_env</span></code>, <code class="docutils literal notranslate"><span class="pre">username</span></code>, <code class="docutils literal notranslate"><span class="pre">password_env</span></code> or <code class="docutils literal notranslate"><span class="pre">ca_bundle</span></code> is
 refused with the nested key it moved to.</p>
 </section>
+<section id="writing-from-a-program">
+<span id="how-to-write-from-a-program"></span><h2>Writing from a program<a class="headerlink" href="#writing-from-a-program" title="Link to this heading">#</a></h2>
+<p>A person’s switch opens a whole machine. A program that writes with nobody at
+a prompt, such as an optimizer run, asks for less: a <strong>write authorization</strong>
+naming the channels it will write, a range for each, how many write calls it
+will make, when it ends, and a lease it renews while it runs. A person
+approves it, and every write the program makes is checked against it. The
+machine’s switch can stay off throughout, and moving it to <em>asked</em> or
+<em>allowed</em> does not widen the program. The files and the reasons are in
+<a class="reference internal" href="../../reference/contracts/connectors.html#write-authorization-contract"><span class="std std-ref">A Program’s Write Authorization</span></a>.</p>
+<p><strong>1. Ask.</strong> The program writes a request into its ledger directory
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code>; on a host with no deployment, its own state
+directory). Spell each channel exactly as it will be written, and count the
+completion write (<code class="docutils literal notranslate"><span class="pre">apply_best</span></code> or <code class="docutils literal notranslate"><span class="pre">restore</span></code>) in <code class="docutils literal notranslate"><span class="pre">steps</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">write_authorization</span> <span class="k">as</span> <span class="n">wa</span>
+
+<span class="n">request</span> <span class="o">=</span> <span class="n">wa</span><span class="o">.</span><span class="n">write_request</span><span class="p">(</span>
+    <span class="s2">&quot;standin&quot;</span><span class="p">,</span>
+    <span class="p">{</span><span class="s2">&quot;SR:CORRECTOR:H1&quot;</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="s2">&quot;SR:CORRECTOR:H2&quot;</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)},</span>
+    <span class="n">steps</span><span class="o">=</span><span class="mi">41</span><span class="p">,</span>                                  <span class="c1"># 40 evaluations + apply_best</span>
+    <span class="n">expires_at_ns</span><span class="o">=</span><span class="n">time</span><span class="o">.</span><span class="n">time_ns</span><span class="p">()</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="mi">3600</span> <span class="o">*</span> <span class="mi">10</span><span class="o">**</span><span class="mi">9</span><span class="p">,</span>
+    <span class="n">lease_s</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span>
+    <span class="n">label</span><span class="o">=</span><span class="s2">&quot;injector tuning 7&quot;</span><span class="p">,</span>
+    <span class="n">completion</span><span class="o">=</span><span class="s2">&quot;apply_best&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>The holder is the program’s acting identity; the owner is the login the run
+stands in for (<code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_OWNER</span></code> in a container). A program’s container
+needs both that variable and <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code> bound writable: the
+program opens and renews its lease there, and its connector child spends the
+steps there. <code class="docutils literal notranslate"><span class="pre">self_issue()</span></code> is
+the alternative while the owner’s switch for the machine stands at
+<code class="docutils literal notranslate"><span class="pre">allowed</span></code>: the program writes its own grant, honoured only while the switch
+stays there.</p>
+<p><strong>2. Wait for the approval.</strong> A person acting as the owner approves it:
+the approving surface reads the request and calls <code class="docutils literal notranslate"><span class="pre">approve_request()</span></code>,
+which issues the grant under the request’s id, so the program polls for it:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">while</span> <span class="p">(</span><span class="n">grant</span> <span class="o">:=</span> <span class="n">wa</span><span class="o">.</span><span class="n">approved_grant</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">))</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">wa</span><span class="o">.</span><span class="n">withdraw_request</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+<span class="n">wa</span><span class="o">.</span><span class="n">start_lease</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>        <span class="c1"># once, by the process that renews it</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">approved_grant</span></code> raises <code class="docutils literal notranslate"><span class="pre">AuthorizationRefused</span></code> for a grant that is there
+and does not stand (revoked, expired, unreadable, another holder’s).</p>
+<p><strong>3. Write.</strong> Name the authorization to the connector pool once the lease is
+open, and renew the lease from a heartbeat at a fraction of <code class="docutils literal notranslate"><span class="pre">lease_s</span></code>. A
+handle taken before the lease started selected the read gateway, and its
+writes are refused <code class="docutils literal notranslate"><span class="pre">switching</span></code> (nothing spent) like any other refusal:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pool</span><span class="o">.</span><span class="n">connector</span><span class="p">(</span><span class="s2">&quot;standin&quot;</span><span class="p">,</span> <span class="n">owner</span><span class="o">=</span><span class="n">grant</span><span class="o">.</span><span class="n">owner</span><span class="p">,</span> <span class="n">authorization</span><span class="o">=</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_multiple_channels</span><span class="p">(</span>
+    <span class="p">[(</span><span class="s2">&quot;SR:CORRECTOR:H1&quot;</span><span class="p">,</span> <span class="mf">0.12</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;SR:CORRECTOR:H2&quot;</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.03</span><span class="p">)],</span> <span class="n">confirm</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+<span class="o">...</span>
+<span class="n">wa</span><span class="o">.</span><span class="n">renew_lease</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>        <span class="c1"># False: the lease has lapsed, stop</span>
+</pre></div>
+</div>
+<p>One write call is one step, a batch included, and the step is spent before
+anything is put: a batch with an unlisted channel or a value out of range
+writes nothing; a write the limits database then refuses, and one whose put
+fails, has still spent its step.</p>
+<p><strong>4. Read the reason.</strong> A refused write returns <code class="docutils literal notranslate"><span class="pre">outcome</span></code> <code class="docutils literal notranslate"><span class="pre">REFUSED</span></code> with
+<code class="docutils literal notranslate"><span class="pre">verdict_reason</span></code> set (<code class="docutils literal notranslate"><span class="pre">write_channel_checked</span></code> raises
+<code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code> carrying it). End the run on any <code class="docutils literal notranslate"><span class="pre">auth_*</span></code>
+reason rather than retrying: <code class="docutils literal notranslate"><span class="pre">auth_exhausted</span></code> (no step left),
+<code class="docutils literal notranslate"><span class="pre">auth_expired</span></code>, <code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code> (a person stopped it), <code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code>,
+<code class="docutils literal notranslate"><span class="pre">auth_range</span></code> and <code class="docutils literal notranslate"><span class="pre">auth_channel</span></code> (the program wrote outside what was
+approved). Nothing renews an authorization; the program asks again.</p>
+<p>An authorization ends at whichever comes first: every step spent, its expiry,
+its lease lapsing, or a person’s stop. The bounds hold a program that runs as
+written: the step budget and the lease are kept in the program’s own ledger,
+which it can write, so the boundary for a program that must not write at all
+is the gateway it can reach.</p>
+<p><strong>5. Stop.</strong> A person’s stop is one gesture: the machine’s <em>off</em> control or
+<strong>Turn all writes off</strong> on the chip, or <code class="docutils literal notranslate"><span class="pre">revoke_grants()</span></code>. Each marks the
+grant revoked, and the program’s
+next write is refused <code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code>. A write already past its check when the
+stop lands goes out as judged.</p>
+<p><strong>6. Crash.</strong> A program that dies stops renewing its lease, and its next write
+— from a restarted process, or anything still holding its connector — is
+refused <code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code> within one <code class="docutils literal notranslate"><span class="pre">lease_s</span></code>; a reader in the
+holder’s own PID namespace ends it at once when the holder’s PID is gone. A lease is opened once per authorization,
+so a restarted program asks again. A connector child that crashes is replaced
+on the next call, and the steps already spent stay spent: the ledger is on
+disk.</p>
+</section>
 <section id="contracts-and-custom-connectors">
 <h2>Contracts and Custom Connectors<a class="headerlink" href="#contracts-and-custom-connectors" title="Link to this heading">#</a></h2>
 <p>The behaviour every connector has to implement – how large array values come
@@ -1108,6 +1199,7 @@ safety gates, and the archiver <code class="docutils literal notranslate"><span 
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-api-whatever-the-machine">One API, whatever the machine</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-a-control-system">Pick a control system</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-an-archiver">Pick an archiver</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#writing-from-a-program">Writing from a program</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contracts-and-custom-connectors">Contracts and Custom Connectors</a></li>
 </ul>
   </nav></div>

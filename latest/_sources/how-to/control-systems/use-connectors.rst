@@ -59,7 +59,9 @@ Everything below is configuration only — which machine sits behind that API.
    Writes are off until the login's tier allows them
    (``control_system.writes: asked`` or ``allowed``) and the person arms a
    machine from the chip. See :ref:`write-safety-config` in
-   :doc:`/reference/contracts/connectors`.
+   :doc:`/reference/contracts/connectors`. A program with nobody at a prompt
+   asks for a bounded authorization instead; see
+   :ref:`how-to-write-from-a-program`.
 
 Pick a control system
 ---------------------
@@ -555,6 +557,111 @@ Every archiver that reaches a service by address spells its request bound
 ``timeout_s``, and a login and a CA as ``auth:`` and ``tls:`` above. A flat
 ``timeout``, ``token_env``, ``username``, ``password_env`` or ``ca_bundle`` is
 refused with the nested key it moved to.
+
+.. _how-to-write-from-a-program:
+
+Writing from a program
+----------------------
+
+A person's switch opens a whole machine. A program that writes with nobody at
+a prompt, such as an optimizer run, asks for less: a **write authorization**
+naming the channels it will write, a range for each, how many write calls it
+will make, when it ends, and a lease it renews while it runs. A person
+approves it, and every write the program makes is checked against it. The
+machine's switch can stay off throughout, and moving it to *asked* or
+*allowed* does not widen the program. The files and the reasons are in
+:ref:`write-authorization-contract`.
+
+**1. Ask.** The program writes a request into its ledger directory
+(``OSPREY_WRITE_LEDGER_DIR``; on a host with no deployment, its own state
+directory). Spell each channel exactly as it will be written, and count the
+completion write (``apply_best`` or ``restore``) in ``steps``:
+
+.. code-block:: python
+
+   import time
+
+   from osprey_connectors import write_authorization as wa
+
+   request = wa.write_request(
+       "standin",
+       {"SR:CORRECTOR:H1": (-0.5, 0.5), "SR:CORRECTOR:H2": (-0.5, 0.5)},
+       steps=41,                                  # 40 evaluations + apply_best
+       expires_at_ns=time.time_ns() + 2 * 3600 * 10**9,
+       lease_s=30.0,
+       label="injector tuning 7",
+       completion="apply_best",
+   )
+
+The holder is the program's acting identity; the owner is the login the run
+stands in for (``OSPREY_CONTROL_OWNER`` in a container). A program's container
+needs both that variable and ``OSPREY_WRITE_LEDGER_DIR`` bound writable: the
+program opens and renews its lease there, and its connector child spends the
+steps there. ``self_issue()`` is
+the alternative while the owner's switch for the machine stands at
+``allowed``: the program writes its own grant, honoured only while the switch
+stays there.
+
+**2. Wait for the approval.** A person acting as the owner approves it:
+the approving surface reads the request and calls ``approve_request()``,
+which issues the grant under the request's id, so the program polls for it:
+
+.. code-block:: python
+
+   while (grant := wa.approved_grant(request.id)) is None:
+       time.sleep(2)
+   wa.withdraw_request(request.id)
+   wa.start_lease(grant.id)        # once, by the process that renews it
+
+``approved_grant`` raises ``AuthorizationRefused`` for a grant that is there
+and does not stand (revoked, expired, unreadable, another holder's).
+
+**3. Write.** Name the authorization to the connector pool once the lease is
+open, and renew the lease from a heartbeat at a fraction of ``lease_s``. A
+handle taken before the lease started selected the read gateway, and its
+writes are refused ``switching`` (nothing spent) like any other refusal:
+
+.. code-block:: python
+
+   connector = await pool.connector("standin", owner=grant.owner, authorization=grant.id)
+   results = await connector.write_multiple_channels(
+       [("SR:CORRECTOR:H1", 0.12), ("SR:CORRECTOR:H2", -0.03)], confirm=True
+   )
+   ...
+   wa.renew_lease(grant.id)        # False: the lease has lapsed, stop
+
+One write call is one step, a batch included, and the step is spent before
+anything is put: a batch with an unlisted channel or a value out of range
+writes nothing; a write the limits database then refuses, and one whose put
+fails, has still spent its step.
+
+**4. Read the reason.** A refused write returns ``outcome`` ``REFUSED`` with
+``verdict_reason`` set (``write_channel_checked`` raises
+``ChannelWriteBlockedError`` carrying it). End the run on any ``auth_*``
+reason rather than retrying: ``auth_exhausted`` (no step left),
+``auth_expired``, ``auth_revoked`` (a person stopped it), ``auth_lease_lapsed``,
+``auth_range`` and ``auth_channel`` (the program wrote outside what was
+approved). Nothing renews an authorization; the program asks again.
+
+An authorization ends at whichever comes first: every step spent, its expiry,
+its lease lapsing, or a person's stop. The bounds hold a program that runs as
+written: the step budget and the lease are kept in the program's own ledger,
+which it can write, so the boundary for a program that must not write at all
+is the gateway it can reach.
+
+**5. Stop.** A person's stop is one gesture: the machine's *off* control or
+**Turn all writes off** on the chip, or ``revoke_grants()``. Each marks the
+grant revoked, and the program's
+next write is refused ``auth_revoked``. A write already past its check when the
+stop lands goes out as judged.
+
+**6. Crash.** A program that dies stops renewing its lease, and its next write
+— from a restarted process, or anything still holding its connector — is
+refused ``auth_lease_lapsed`` within one ``lease_s``; a reader in the
+holder's own PID namespace ends it at once when the holder's PID is gone. A lease is opened once per authorization,
+so a restarted program asks again. A connector child that crashes is replaced
+on the next call, and the steps already spent stay spent: the ledger is on
+disk.
 
 Contracts and Custom Connectors
 -------------------------------

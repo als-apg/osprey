@@ -782,6 +782,155 @@ boundary (the approval hook, the launch token for plans), which gates the
 <em>intent</em> once rather than every put. Neither substitutes for the other. See
 <a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a> for the order the layers run in.</p>
 </section>
+<section id="a-program-s-write-authorization">
+<span id="write-authorization-contract"></span><h3>A Program’s Write Authorization<a class="headerlink" href="#a-program-s-write-authorization" title="Link to this heading">#</a></h3>
+<p>A process that names an authorization (<code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_AUTHORIZATION</span></code>, set by
+the connector pool for a key that names one) has every write call judged
+against it by the connector’s write guard, after the write verdict: the
+authorization is consulted whenever that verdict allows or refuses only
+<code class="docutils literal notranslate"><span class="pre">switch_off</span></code>, so it never lifts a tier, an owner, a record, a pin or a hold,
+and a switch moved to <em>asked</em> or <em>allowed</em> does not widen it. The how-to is
+<a class="reference internal" href="../../how-to/control-systems/use-connectors.html#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a>; the module is
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.write_authorization</span></code>.</p>
+<p><strong>Three files, three writers.</strong> Each is read the fail-closed way: no symbolic
+link followed, a bounded read, a regular file, exactly the fields below, no
+repeated key, every number finite. A file that is there and cannot be read
+refuses; an absent grant is no authorization (<code class="docutils literal notranslate"><span class="pre">switch_off</span></code>).</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 30.0%" />
+<col style="width: 48.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Where, written by</p></th>
+<th class="head"><p>Fields (<code class="docutils literal notranslate"><span class="pre">schema:</span> <span class="pre">1</span></code>)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>request</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;ledger</span> <span class="pre">dir&gt;/requests/&lt;id&gt;.json</span></code>, the holder</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">owner</span></code>, <code class="docutils literal notranslate"><span class="pre">holder</span></code>, <code class="docutils literal notranslate"><span class="pre">target</span></code>, <code class="docutils literal notranslate"><span class="pre">channels</span></code>
+(<code class="docutils literal notranslate"><span class="pre">{address:</span> <span class="pre">{min,</span> <span class="pre">max}}</span></code>), <code class="docutils literal notranslate"><span class="pre">steps</span></code>, <code class="docutils literal notranslate"><span class="pre">requested_at_ns</span></code>,
+<code class="docutils literal notranslate"><span class="pre">expires_at_ns</span></code>, <code class="docutils literal notranslate"><span class="pre">lease_s</span></code>, <code class="docutils literal notranslate"><span class="pre">label</span></code>, <code class="docutils literal notranslate"><span class="pre">completion</span></code>
+(<code class="docutils literal notranslate"><span class="pre">none</span></code> | <code class="docutils literal notranslate"><span class="pre">apply_best</span></code> | <code class="docutils literal notranslate"><span class="pre">restore</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>grant</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;owner's</span> <span class="pre">state</span> <span class="pre">dir&gt;/authorizations/&lt;id&gt;.json</span></code>, the approver (chip or
+CLI); a self-issued one in the holder’s ledger dir</p></td>
+<td><p>the request’s fields but <code class="docutils literal notranslate"><span class="pre">requested_at_ns</span></code> and <code class="docutils literal notranslate"><span class="pre">completion</span></code>, plus
+<code class="docutils literal notranslate"><span class="pre">switch_epoch</span></code>, <code class="docutils literal notranslate"><span class="pre">issued_at_ns</span></code>, <code class="docutils literal notranslate"><span class="pre">approver</span></code>
+(<code class="docutils literal notranslate"><span class="pre">{identity,</span> <span class="pre">surface:</span> <span class="pre">chip</span> <span class="pre">|</span> <span class="pre">cli</span> <span class="pre">|</span> <span class="pre">write_switch,</span> <span class="pre">at_ns}</span></code>) and
+<code class="docutils literal notranslate"><span class="pre">revoked</span></code> (<code class="docutils literal notranslate"><span class="pre">null</span></code> or <code class="docutils literal notranslate"><span class="pre">{at_ns,</span> <span class="pre">by}</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p>ledger</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;ledger</span> <span class="pre">dir&gt;/&lt;id&gt;.ledger.json</span></code>, the holder’s connector child</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">authorization</span></code>, <code class="docutils literal notranslate"><span class="pre">holder_pid</span></code>, <code class="docutils literal notranslate"><span class="pre">holder_start</span></code>, <code class="docutils literal notranslate"><span class="pre">pid_ns</span></code>,
+<code class="docutils literal notranslate"><span class="pre">lease_until_ns</span></code>, <code class="docutils literal notranslate"><span class="pre">steps</span></code> (<code class="docutils literal notranslate"><span class="pre">[{n,</span> <span class="pre">at_ns,</span> <span class="pre">channels}]</span></code>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The grant’s id is the request’s, so a holder waits for exactly that id. The
+ledger directory is <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code> (on a deployment,
+<code class="docutils literal notranslate"><span class="pre">var/write_ledger/</span></code>). The ledger is written by the holder (it opens and
+renews the lease) and by its connector child (it appends one step per write
+call), so a holder’s container needs <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code> bound
+writable and <code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_OWNER</span></code> naming the login it stands in for. An
+approver that is not the holder reads the requests from
+<code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_REQUESTS_DIR</span></code>, and the holders’ self-issued grants and ledgers
+from <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_VIEW_DIR</span></code>; it reads no other login’s grants.
+<code class="docutils literal notranslate"><span class="pre">control_context.json</span></code> is not touched and keeps its schema.</p>
+<p><strong>Approval.</strong> <code class="xref py py-func docutils literal notranslate"><span class="pre">approve_request()</span></code>
+acts as the owner (<code class="docutils literal notranslate"><span class="pre">approver.identity</span></code> is the acting identity, <code class="docutils literal notranslate"><span class="pre">surface</span></code>
+the place). It takes the owner’s record lock, then the
+grants directory’s — the one lock order every writer of both keeps — stamps
+the record’s <code class="docutils literal notranslate"><span class="pre">switch_epoch</span></code> on the grant, and refuses <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code> when
+a live grant of another holder lists one of the channels on the same machine:
+one in the owner’s own directory, or a self-issued one in the ledger directory
+the approver sees. Another owner’s directory is not read. A grant file that
+cannot be read is logged and left out of that check; it refuses every write
+under it already. The approving surface checks what the module cannot, and
+refuses before calling it: an acting person who is not the owner, a target the
+deployment does not configure, a ceiling of <code class="docutils literal notranslate"><span class="pre">never</span></code> or <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, a range
+outside the limits database, and a channel without a numeric range there.</p>
+<p>An approval is the confirmation for every write the run makes inside it, a
+batch included, for a login whose ceiling is <code class="docutils literal notranslate"><span class="pre">asked</span></code> as much as <code class="docutils literal notranslate"><span class="pre">allowed</span></code>:
+the person confirms the channels, ranges and step count once, and the
+program’s writes are not prompted one by one.</p>
+<p><strong>What the bounds guard.</strong> The channels, ranges and the grant itself are the
+approver’s, written where the holder cannot write them. The step budget and
+the lease are the holder’s own record: the ledger directory is writable by the
+holder, so they bound a program that runs as written, not one that sets out
+to forge its ledger. The boundary for a program that must not write at all is
+the gateway it can reach.</p>
+<p><strong>How a grant ends.</strong> Every step spent (<code class="docutils literal notranslate"><span class="pre">auth_exhausted</span></code>); its expiry
+(<code class="docutils literal notranslate"><span class="pre">auth_expired</span></code>); its lease lapsing — not renewed in time, or its holder
+gone (<code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code>); a stop (<code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code>); for a self-issued
+grant, its owner’s switch leaving <code class="docutils literal notranslate"><span class="pre">allowed</span></code>. None of these is undone:
+nothing renews a budget or revives a lease, and the program asks again.
+<code class="xref py py-func docutils literal notranslate"><span class="pre">listed_grants()</span></code> reads the
+holder’s ledger and reports a grant whose steps are spent or whose lease
+lapsed as ended, with its steps used of its total.</p>
+<p><strong>Stop.</strong> <code class="xref py py-func docutils literal notranslate"><span class="pre">set_switch()</span></code> with <code class="docutils literal notranslate"><span class="pre">off</span></code>
+marks every grant on the named machines (every grant for <code class="docutils literal notranslate"><span class="pre">&quot;all&quot;</span></code>) revoked
+inside its record lock; <code class="docutils literal notranslate"><span class="pre">&quot;all&quot;</span></code> also moves the epoch, which ends every grant
+issued under the old one. A stop whose marks cannot be written moves the epoch
+as well, so it ends every grant of that owner rather than none. A self-issued
+grant ends once its owner’s switch leaves <code class="docutils literal notranslate"><span class="pre">allowed</span></code>.</p>
+<p><strong>Reasons.</strong> Each <code class="docutils literal notranslate"><span class="pre">auth_*</span></code> reason is a member of
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.refusals.REASONS</span></code> with its phrase, and arrives as
+<code class="docutils literal notranslate"><span class="pre">verdict_reason</span></code> on a refused write. In the order the terms are judged:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Reason</p></th>
+<th class="head"><p>Refused when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code></p></td>
+<td><p>the named id is not an id, the grant or the ledger is there and cannot
+be read, or the process has no ledger directory.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_holder</span></code></p></td>
+<td><p>the grant names another owner, or another holder than the writing
+process’s acting identity.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_channel</span></code></p></td>
+<td><p>the grant covers another machine, the write names no channel, or a
+channel the grant does not list.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code></p></td>
+<td><p>the grant is marked revoked, the record’s epoch has moved past it, or a
+self-issued grant’s switch is no longer at <code class="docutils literal notranslate"><span class="pre">allowed</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_expired</span></code></p></td>
+<td><p>its expiry has passed.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_range</span></code></p></td>
+<td><p>a value is not a finite number inside its channel’s range.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code></p></td>
+<td><p>no lease was started, the lease ran out, or its holder is gone.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_exhausted</span></code></p></td>
+<td><p>every step has been spent.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code></p></td>
+<td><p>(approval only) another program holds a listed channel on the machine,
+under the same owner or self-issued.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A grant that ended — revoked or expired — more than an hour ago is removed by
+<code class="xref py py-func docutils literal notranslate"><span class="pre">prune_grants()</span></code>.</p>
+</section>
 <section id="upgrading-from-a-deployment-wide-write-flag">
 <span id="write-safety-upgrade"></span><h3>Upgrading from a deployment-wide write flag<a class="headerlink" href="#upgrading-from-a-deployment-wide-write-flag" title="Link to this heading">#</a></h3>
 <p>Earlier releases armed writes per connector type, with
@@ -1091,6 +1240,7 @@ relabeled – to your backend’s UTC wire format; <code class="docutils literal
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-confirmation-off">Switching confirmation off</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-values-are-compared">How values are compared</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-may-write">Who May Write</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-program-s-write-authorization">A Program’s Write Authorization</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrading-from-a-deployment-wide-write-flag">Upgrading from a deployment-wide write flag</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-write-door">The write door</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
