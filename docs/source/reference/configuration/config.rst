@@ -237,6 +237,17 @@ configured or deployed, so a minimal build shows no empty tiles.
   names the config key the client resolved it from, and a client switched on
   with nothing to resolve warns with the key that would give it one — the
   same condition ``osprey build`` refuses (:doc:`/how-to/build-profiles`).
+- ``simulator`` — appears when the render carries a simulator view with a
+  physics model and the deployment serves a simulator from a process of its
+  own: the ``va`` target's container, the ``standin`` target, or both. One row
+  per target and model, read from the model's status channel exactly as
+  ``osprey sim status --target`` reads it: ``ok`` while the model serves,
+  ``ok`` with "no deck, not built by design" for a model that names no deck
+  and wires no channel, and ``error`` naming the error for a model that
+  failed. A failed model serves NaN while the container keeps serving every
+  other channel, so its healthcheck stays green and this row is where the
+  failure shows. A target whose channels cannot be read is one ``warning``
+  row. A simulator served only in process gives no rows.
 
 .. note::
 
