@@ -12,12 +12,15 @@ from __future__ import annotations
 import importlib.resources
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
 from osprey.deployment.compose_generator import TEMPLATE_FILENAME
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 from .build_profile_document import _read_profile_document
 from .profile_root import ProfileKind
@@ -145,6 +148,18 @@ def bundled_services_dir() -> Path:
         return Path(__file__).parent.parent / "templates" / "services"
 
 
+#: The second instance of the virtual accelerator: an instance, rendered off
+#: another service's shipped template under a service key of its own. Its
+#: block keeps its own manifest rows (``services.live_standin.*``).
+LIVE_STANDIN_SERVICE = LIVE_STANDIN_PORT_KEY.split(".")[1]
+
+#: Every service key that is an instance, rendered off another service's
+#: shipped template: the plan lanes beyond lane one and the live stand-in.
+SERVICE_INSTANCE_KEYS: frozenset[str] = frozenset(SECOND_LANE_KEYS.values()) | {
+    LIVE_STANDIN_SERVICE
+}
+
+
 def bundled_service_template(template: str) -> str | None:
     """The framework template a service ``template:`` selects, or ``None``.
 
@@ -185,6 +200,26 @@ class ServiceTemplateSource:
         if not self.path.is_dir():
             return f"Service '{service}' template dir not found: {self.path}"
         return f"Service '{service}' template dir missing {TEMPLATE_FILENAME}"
+
+
+@lru_cache(maxsize=1)
+def bundled_service_names() -> frozenset[str]:
+    """Every service key whose block OSPREY's own template reads.
+
+    The template directories shipped under ``osprey/templates/services``, plus
+    the instances rendered off one of them (:data:`SERVICE_INSTANCE_KEYS`): the
+    second plan lanes and the live stand-in. A custom service is not here — its
+    template is the facility's own, so its block stays open.
+    """
+    root = bundled_services_dir()
+    if not root.is_dir():
+        return frozenset()
+    templates = {
+        entry.name
+        for entry in root.iterdir()
+        if ServiceTemplateSource(template=f"osprey.{entry.name}", path=entry, bundled=True).exists
+    }
+    return frozenset(templates) | SERVICE_INSTANCE_KEYS
 
 
 def resolve_service_template(profile_dir: Path, template: str) -> ServiceTemplateSource:

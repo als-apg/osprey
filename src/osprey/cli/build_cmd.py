@@ -73,7 +73,6 @@ from .build_environment import (
     report_provider_credentials,
 )
 from .build_injectors import (
-    _SHARED_SERVICE_TEMPLATE,
     _copy_service_templates,
     _declare_bundled_host_bindings,
     _inject_bluesky,
@@ -104,7 +103,7 @@ from .build_persistence import (
     _register_convention_artifacts,
     _resolve_context_roster,
 )
-from .build_profile_presets import bundled_services_dir
+from .build_profile_presets import bundled_service_names, bundled_services_dir
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
@@ -1086,24 +1085,6 @@ def _network_check_errors(config: dict[str, Any], compose_files: Sequence[str]) 
 # ---------------------------------------------------------------------------
 
 
-def _bundled_service_names() -> frozenset[str]:
-    """Every service OSPREY ships a compose template for, by its config key.
-
-    A second instance of a bundled service (``live_standin``) is bundled too:
-    it renders the template of the service it shares.
-    """
-    root = bundled_services_dir()
-    if not root.is_dir():
-        return frozenset()
-    templates = {
-        entry.name
-        for entry in root.iterdir()
-        if entry.is_dir() and (entry / TEMPLATE_FILENAME).is_file()
-    }
-    shared = {name for name, owner in _SHARED_SERVICE_TEMPLATE.items() if owner in templates}
-    return frozenset(templates | shared)
-
-
 def _service_existence_errors(config: Mapping[str, Any], render_root: Path) -> list[str]:
     """Every ``services.<name>`` block and ``deployed_services`` entry nothing can render.
 
@@ -1130,7 +1111,7 @@ def _service_existence_errors(config: Mapping[str, Any], render_root: Path) -> l
     services = raw_services if isinstance(raw_services, Mapping) else {}
     raw_deployed = config.get("deployed_services")
     deployed = [str(name) for name in raw_deployed] if isinstance(raw_deployed, list) else []
-    bundled = _bundled_service_names()
+    bundled = bundled_service_names()
 
     errors: list[str] = []
     seen: set[str] = set()
