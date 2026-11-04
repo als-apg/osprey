@@ -36,6 +36,7 @@ from osprey.agent_runner import (
     ToolUseEvent,
     agent_session,
 )
+from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice
 from osprey.agent_runner.clean_env import add_panel_token, build_clean_env
 from osprey.agent_runner.sdk_context import (
     PermissionResultAllow,
@@ -1205,6 +1206,7 @@ class OperatorSession:
                 session_id=session_id,
                 await_mcp_servers=(),
                 can_use_tool=self._can_use_tool,
+                stderr=self._record_stderr,
                 include_partial_messages=True,
             )
         )
@@ -1214,6 +1216,20 @@ class OperatorSession:
         self._stream_ended = False
         self._pump_task = asyncio.create_task(self._pump())
         logger.info("OperatorSession started (cwd=%s)", self._cwd)
+
+    def _record_stderr(self, line: str) -> None:
+        """Log one CLI stderr line; loudly when the CLI dropped the render's allow list."""
+        if is_untrusted_allow_rules_notice(line):
+            logger.warning(
+                "Claude Code is ignoring the permissions.allow list of %s because it is "
+                "not a trusted workspace, so every read-only tool will ask for approval. "
+                'Set projects["%s"].hasTrustDialogAccepted: true in Claude Code\'s '
+                ".claude.json (the web terminal does this at startup on a host).",
+                self._cwd,
+                Path(self._cwd).resolve(),
+            )
+            return
+        logger.debug("Claude Code stderr: %s", line)
 
     # ---- Operator approvals ---- #
 
