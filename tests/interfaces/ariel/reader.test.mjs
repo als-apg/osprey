@@ -542,6 +542,32 @@ describe('the thread section (C-THREAD)', () => {
     const link = /** @type {HTMLElement} */ (section?.querySelector('[data-thread-entry]'));
     expect(link.dataset.threadEntry).toBe('c"><b>x</b>');
   });
+
+  test('a truncated thread says older follow-ups are not shown (A17)', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
+    vi.mocked(entriesApi.thread).mockResolvedValueOnce({
+      parent_id: null,
+      parent: null,
+      children: [row('c-1'), row('c-2')],
+      truncated: true,
+    });
+    await showInReader(container, 'e-1');
+    const section = threadSection();
+    expect(section?.textContent?.toLowerCase()).toContain('older follow-ups not shown');
+    expect(section?.querySelector('[data-thread-truncated]')).not.toBeNull();
+  });
+
+  test('a thread under the cap has no truncation note (A17)', async () => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce(entry('e-1'));
+    vi.mocked(entriesApi.thread).mockResolvedValueOnce({
+      parent_id: null,
+      parent: null,
+      children: [row('c-1')],
+      truncated: false,
+    });
+    await showInReader(container, 'e-1');
+    expect(threadSection()?.textContent?.toLowerCase()).not.toContain('older follow-ups not shown');
+  });
 });
 
 describe('the Follow up action', () => {

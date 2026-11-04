@@ -159,14 +159,15 @@ class TestOKFDocumentValidate:
         doc = OKFDocument.parse(FULL_DOC)
         doc.validate("consuming")  # must not raise
 
-    def test_consuming_fails_missing_type(self):
-        doc = OKFDocument(frontmatter={"title": "A title"})
-
-        with pytest.raises(OKFDocumentError, match="type"):
-            doc.validate("consuming")
-
-    def test_consuming_fails_empty_type(self):
-        doc = OKFDocument(frontmatter={"type": ""})
+    @pytest.mark.parametrize(
+        "frontmatter",
+        [
+            pytest.param({"title": "A title"}, id="missing-type"),
+            pytest.param({"type": ""}, id="empty-type"),
+        ],
+    )
+    def test_consuming_fails_without_a_usable_type(self, frontmatter):
+        doc = OKFDocument(frontmatter=frontmatter)
 
         with pytest.raises(OKFDocumentError, match="type"):
             doc.validate("consuming")
@@ -191,16 +192,23 @@ class TestOKFDocumentValidate:
         )
         doc.validate("authoring")  # must not raise
 
-    def test_authoring_fails_missing_title(self):
-        doc = OKFDocument(frontmatter={"type": "facility_overview", "description": "Desc."})
+    @pytest.mark.parametrize(
+        ("frontmatter", "missing"),
+        [
+            pytest.param(
+                {"type": "facility_overview", "description": "Desc."}, "title", id="missing-title"
+            ),
+            pytest.param(
+                {"type": "facility_overview", "title": "Title"},
+                "description",
+                id="missing-description",
+            ),
+        ],
+    )
+    def test_authoring_fails_when_a_required_key_is_missing(self, frontmatter, missing):
+        doc = OKFDocument(frontmatter=frontmatter)
 
-        with pytest.raises(OKFDocumentError, match="title"):
-            doc.validate("authoring")
-
-    def test_authoring_fails_missing_description(self):
-        doc = OKFDocument(frontmatter={"type": "facility_overview", "title": "Title"})
-
-        with pytest.raises(OKFDocumentError, match="description"):
+        with pytest.raises(OKFDocumentError, match=missing):
             doc.validate("authoring")
 
     # --- unknown level ---

@@ -714,6 +714,10 @@ class PtyRegistry:
         """Get an existing session by ID."""
         return self._sessions.get(session_id)
 
+    def session_keys(self) -> list[str]:
+        """The keys of every session in the pool now, attached or not."""
+        return list(self._sessions)
+
     def pop_session(self, session_id: str) -> PtySession | None:
         """Remove a session from the pool and hand it to the caller, unkilled.
 

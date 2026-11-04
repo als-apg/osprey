@@ -68,12 +68,13 @@ def okf_bundle(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_knowledge_help_lists_regen_index() -> None:
-    """``knowledge --help`` output includes ``regen-index``."""
+@pytest.mark.parametrize("subcommand", ["regen-index", "validate", "seed-from-ttl"])
+def test_knowledge_help_lists_the_subcommand(subcommand: str) -> None:
+    """``knowledge --help`` output includes the subcommand."""
     runner = CliRunner()
     result = runner.invoke(knowledge, ["--help"])
     assert result.exit_code == 0, result.output
-    assert "regen-index" in result.output
+    assert subcommand in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -133,14 +134,6 @@ def test_regen_index_no_bundle_and_no_config_errors() -> None:
 # ---------------------------------------------------------------------------
 # validate
 # ---------------------------------------------------------------------------
-
-
-def test_validate_help_lists_validate() -> None:
-    """``knowledge --help`` output includes ``validate``."""
-    runner = CliRunner()
-    result = runner.invoke(knowledge, ["--help"])
-    assert result.exit_code == 0, result.output
-    assert "validate" in result.output
 
 
 def test_validate_clean_bundle_exits_zero(okf_bundle: Path) -> None:
@@ -399,14 +392,6 @@ def seed_bundle(tmp_path: Path) -> Path:
     bundle = tmp_path / "seed_bundle"
     bundle.mkdir()
     return bundle
-
-
-def test_seed_from_ttl_help_listed() -> None:
-    """``knowledge --help`` output includes ``seed-from-ttl``."""
-    runner = CliRunner()
-    result = runner.invoke(knowledge, ["--help"])
-    assert result.exit_code == 0, result.output
-    assert "seed-from-ttl" in result.output
 
 
 def test_seed_from_ttl_no_rdflib_clean_error(mini_ttl: Path, seed_bundle: Path) -> None:

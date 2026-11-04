@@ -55,11 +55,18 @@ ariel_url = _shell.ariel_url
 #: Stands in for the hub: the page is top-level in these tests, so
 #: ``window.parent`` is replaced with a recorder before any script runs, and
 #: ``contributeHeader`` (a no-op unless ``window.parent !== window``) posts
-#: each contribution into ``window.__contributions``.
+#: each contribution into ``window.__contributions``. Other messages to the
+#: host (the router's ``canopy-host-navigate-ready``) are not recorded.
 _RECORD_CONTRIBUTIONS = """
 (() => {
   window.__contributions = [];
-  const hub = { postMessage: (message) => { window.__contributions.push(message); } };
+  const hub = {
+    postMessage: (message) => {
+      if (message && message.type === 'canopy-host-header-contribution') {
+        window.__contributions.push(message);
+      }
+    },
+  };
   Object.defineProperty(window, 'parent', { configurable: true, get: () => hub });
 })();
 """

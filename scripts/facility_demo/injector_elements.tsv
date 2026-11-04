@@ -463,6 +463,8 @@ BTS_____TV6LIT_BC21	tv_lamp_rb	BTS:DIAG:TV:06:LAMP:RB		FALSE
 SR01C___TV1____BC17	tv_paddle_sp	BTS:DIAG:TV:07:PADDLE:SP		FALSE
 SR01C___TV1____BC17	tv_paddle_rb	BTS:DIAG:TV:07:PADDLE:RB		FALSE
 SR01C___TV1LIT_BC18	tv_lamp_rb	BTS:DIAG:TV:07:LAMP:RB		FALSE
+# The paddle count counts every injector screen from the gun to the end of BTS, so the
+# GTL panel's all-paddles-out LED binds this BTS channel too: GTL has no count of its own.
 CCD:Paddles:Status	paddle_count	BTS:DIAG:PADDLES:01:COUNT:INSERTED		0
 	ict_charge	BTS:DIAG:ICT:01:CHARGE:RB		0.8
 # SR: injection septa (unwired, on the BTS deck) and the stored-beam current

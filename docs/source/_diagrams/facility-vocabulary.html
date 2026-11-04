@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 1000 600" role="img" aria-labelledby="fv-title fv-desc">
   <title id="fv-title">The shared vocabulary: what a device class and a signal say, how the build pairs a setpoint with its readback, and what the graph stores</title>
-  <desc id="fv-desc">Top: the vocabulary, src/osprey/facility/schema/vocabulary.yaml, carried from NARAD. It holds 42 device classes such as Quadrupole, BeamPositionMonitor and AcceleratingCavity, with aliases, to which a facility adds its own in classes.yaml; 114 signal roles such as current_setpoint, current_readback, gap_setpoint and gap_readback, which a facility cannot extend; and 15 properties. Middle: two channel records on the device SR/ID01, of class Undulator, which the facility adds under Magnet. SR:ID:01:GAP:SP is a setpoint with signal gap_setpoint; SR:ID:01:GAP:RB is a readback with signal gap_readback. Both name the quantity gap on the same device, which holds no other setpoint or readback of it, so the build pairs them; the Bluesky settable and every settled write wait on that readback. An unknown class or signal stops the build. Bottom: in the graph, SR/ID01, an Undulator, hasBinding SR:ID:01:GAP:RB, which readsSignal gap_readback; the agent finds channels by signal and class.</desc>
+  <desc id="fv-desc">Top: the vocabulary, src/osprey/facility/schema/vocabulary.yaml, carried from NARAD. It holds 42 device classes such as Quadrupole, BeamPositionMonitor and AcceleratingCavity, with aliases, to which a facility adds its own in classes.yaml; 121 signal roles such as current_setpoint, current_readback, gap_setpoint and gap_readback, which a facility cannot extend; and 15 properties. Middle: two channel records on the device SR/ID01, of class Undulator, which the facility adds under Magnet. SR:ID:01:GAP:SP is a setpoint with signal gap_setpoint; SR:ID:01:GAP:RB is a readback with signal gap_readback. Both name the quantity gap on the same device, which holds no other setpoint or readback of it, so the build pairs them; the Bluesky settable and every settled write wait on that readback. An unknown class or signal stops the build. Bottom: in the graph, SR/ID01, an Undulator, hasBinding SR:ID:01:GAP:RB, which readsSignal gap_readback; the agent finds channels by signal and class.</desc>
   <defs>
     <marker id="fv-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fv-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
@@ -14,7 +14,7 @@
   <text class="ta" x="60" y="74">DEVICE CLASSES (42)</text>
   <text class="ts" x="220" y="74">Quadrupole, BeamPositionMonitor, AcceleratingCavity, … + aliases</text>
   <text class="ts t-acc" x="220" y="89">a facility adds its own in classes.yaml</text>
-  <text class="ta" x="60" y="118">SIGNAL ROLES (114)</text>
+  <text class="ta" x="60" y="118">SIGNAL ROLES (121)</text>
   <text class="ts" x="220" y="118">current_setpoint, current_readback, gap_setpoint, gap_readback, …</text>
   <text class="ts t-acc" x="220" y="133">closed: a quantity it lacks is a change to OSPREY</text>
   <text class="ta" x="60" y="156">PROPERTIES (15)</text>

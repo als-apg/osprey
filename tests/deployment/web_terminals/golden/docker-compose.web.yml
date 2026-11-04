@@ -35,6 +35,7 @@ services:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest
     container_name: dls_controls-web-alice
     restart: unless-stopped
+    init: true
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     labels:
@@ -107,6 +108,7 @@ services:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest
     container_name: dls_controls-web-bob
     restart: unless-stopped
+    init: true
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     labels:
@@ -179,6 +181,7 @@ services:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal-logbook:latest
     container_name: dls_controls-web-logbook
     restart: unless-stopped
+    init: true
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     labels:

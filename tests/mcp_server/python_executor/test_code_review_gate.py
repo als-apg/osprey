@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -22,7 +23,13 @@ from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.mcp_server.python_executor.tools import _execution_gates, pyaml_measure
 from osprey.mcp_server.python_executor.tools._execution_gates import run_gated_execution
-from osprey.services.code_review.contract import SURFACE_EXECUTE, ReviewFailure, ReviewVerdict
+from osprey.services.code_review.contract import (
+    SURFACE_EXECUTE,
+    ReviewFailure,
+    ReviewSwitchedOff,
+    ReviewVerdict,
+    code_digest,
+)
 from osprey.services.code_review.review import AUDIT_REASON, agent_message, decide
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -32,6 +39,8 @@ TOOLS = pytest.mark.parametrize("tool_name", ["execute", "execute_file"])
 #: Code no gate objects to: no write pattern, so the write-activity report stays out of it too.
 CODE = "print('reviewed')\n"
 DESCRIPTION = "review probe"
+#: The short digest of ``CODE`` every review record of these calls carries.
+DIGEST = f"digest={code_digest(CODE)[:16]}"
 
 #: The policy that asks nobody, so the reviewed calls clear the admission pre-check.
 NO_ASK = {"tools": {"execute": "skip", "execute_file": "skip", "pyaml_measure": "skip"}}
@@ -158,6 +167,20 @@ def stub():
     review = ReviewStub()
     with patch("osprey.services.code_review.review.review_code", review):
         yield review
+
+
+@pytest.fixture(autouse=True)
+def switch(monkeypatch):
+    """Code review's runtime switch as the gate reads it: on, unless a case turns it off."""
+    reads: list[ReviewSwitchedOff | None] = []
+    state: dict[str, ReviewSwitchedOff | None] = {"off": None}
+
+    def read() -> ReviewSwitchedOff | None:
+        reads.append(state["off"])
+        return state["off"]
+
+    monkeypatch.setattr("osprey.services.code_review.switch.switched_off", read)
+    return SimpleNamespace(reads=reads, state=state)
 
 
 @pytest.fixture(autouse=True)
@@ -317,7 +340,7 @@ async def test_each_outcome_at_each_level(
 
     assert len(_review_records(records)) == 1
     writer, fields = _review_records(records)[0]
-    assert fields["detail"] == detail
+    assert fields["detail"] == f"{detail} {DIGEST}"
     assert fields["decision"] == decision
     assert fields["surface"] == "executor"
     assert fields["subject"] == tool_name
@@ -454,6 +477,70 @@ async def test_the_project_root_a_tool_resolved_anchors_the_review(tmp_path, pro
 
 
 # ---------------------------------------------------------------------------
+# Switched off at runtime by an admin
+# ---------------------------------------------------------------------------
+
+
+@TOOLS
+@pytest.mark.parametrize("level", ["block", "flag"])
+async def test_a_review_switched_off_is_skipped_recorded_and_the_run_goes_ahead(
+    tool_name, level, project_root, launch, notices, records, stub, switch
+):
+    _configure(project_root, {"enabled": True, "level": level})
+    stub.result = BLOCK  # would refuse at block, were it reached
+    switch.state["off"] = ReviewSwitchedOff(off_by="alice", off_at=1700000000.0)
+
+    await _call(tool_name, project_root)
+
+    assert stub.calls == [], "no reviewer runs while the switch is off"
+    launch.assert_awaited_once()
+    # The tool result tells the agent, and so the session, that the run went unreviewed.
+    assert _result(launch).code_review.startswith(
+        "The code review was skipped: switched off in this terminal by alice at "
+    )
+    [(writer, fields)] = _review_records(records)
+    assert writer == "record"
+    assert fields["decision"] == "allowed"
+    assert fields["detail"] == (
+        f"review=skipped level={level} kind=switched_off by=alice mode=readwrite {DIGEST}"
+    )
+    assert fields["surface"] == "executor"
+    AuditEnvelope(actor="someone", **fields)
+    [notice] = _review_notices(notices)
+    assert notice.kwargs["detail"].startswith("Code review on execute: skipped (switched off")
+
+
+@TOOLS
+@pytest.mark.usefixtures("launch")
+async def test_the_switch_is_read_at_each_review_so_back_on_reviews_again(
+    tool_name, project_root, records, stub, switch
+):
+    _configure(project_root, {"enabled": True, "level": "block"})
+    stub.stage(PASS)
+    switch.state["off"] = ReviewSwitchedOff(off_by="alice")
+    await _call(tool_name, project_root)
+    switch.state["off"] = None
+
+    await _call(tool_name, project_root)
+
+    assert len(stub.calls) == 1
+    assert [f["detail"].split()[0] for _, f in _review_records(records)] == [
+        "review=skipped",
+        "review=pass",
+    ]
+
+
+@TOOLS
+@pytest.mark.usefixtures("launch")
+async def test_no_switch_read_where_nothing_would_be_reviewed(tool_name, project_root, switch):
+    _configure(project_root, {"enabled": False})
+
+    await _call(tool_name, project_root)
+
+    assert switch.reads == []
+
+
+# ---------------------------------------------------------------------------
 # Off, and which modes are reviewed
 # ---------------------------------------------------------------------------
 
@@ -516,7 +603,9 @@ async def test_a_readonly_call_is_reviewed_when_modes_name_it(
     await _call(tool_name, project_root, "readonly")
 
     assert stub.calls[0]["request"].mode == "readonly"
-    assert _review_records(records)[0][1]["detail"] == "review=pass level=block mode=readonly"
+    assert _review_records(records)[0][1]["detail"] == (
+        f"review=pass level=block mode=readonly {DIGEST}"
+    )
     launch.assert_awaited_once()
 
 
@@ -608,7 +697,7 @@ async def test_a_config_failure_refuses_without_a_level(
     assert len(_review_records(records)) == 1
     writer, fields = _review_records(records)[0]
     assert writer == "record_and_mark"
-    assert fields["detail"] == "review=failure kind=config"
+    assert fields["detail"] == f"review=failure kind=config {DIGEST}"
     assert fields["decision"] == "refused"
     assert fields["subject"] == tool_name
     AuditEnvelope(actor="someone", **fields)
@@ -709,7 +798,7 @@ async def test_a_decline_that_does_not_hold_at_the_launch_runs_told_at_flag(
     assert "proceeded unreviewed" in message
     [(writer, fields)] = _review_records(records)
     assert writer == "record"
-    assert fields["detail"] == "review=failure level=flag kind=skipped mode=readwrite"
+    assert fields["detail"] == f"review=failure level=flag kind=skipped mode=readwrite {DIGEST}"
     assert len(_review_notices(notices)) == 1
 
 

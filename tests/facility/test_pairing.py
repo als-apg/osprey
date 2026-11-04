@@ -34,6 +34,7 @@ PAIRINGS = {
     ("tuner_position_setpoint", "tuner_position_readback"),
     ("gap_setpoint", "gap_readback"),
     ("offset_setpoint", "offset_readback"),
+    ("blade_position_setpoint", "blade_position_readback"),
     ("voltage_setpoint", "voltage_readback"),
     ("lamp_command", "lamp_status"),
     ("power_on_command", "power_on_status"),
@@ -252,8 +253,10 @@ def test_a_pair_where_one_side_states_no_unit_builds(tmp_path: Path) -> None:
 
 # --- the demo ----------------------------------------------------------------------------
 
-#: The demo setpoints the rule leaves unpaired: each is one of several switches
-#: of one quantity on its device, so only the stated pair names its readback.
+#: The demo setpoints the rule leaves unpaired: each gun and buncher switch is one
+#: of several switches of one quantity on its device, and a storage-ring sector
+#: valve's open command shares no quantity with its open limit switch, so only the
+#: stated pair names its readback.
 STATED_ONLY = frozenset(
     {
         "GTL:GUN:EGUN:01:AUX_ON:SP",
@@ -263,6 +266,7 @@ STATED_ONLY = frozenset(
         "GTL:RF:SHB:01:PHASE_ON:SP",
         "GTL:RF:SHB:02:HV_ON:SP",
         "GTL:RF:SHB:02:PHASE_ON:SP",
+        *(f"SR:VAC:VALVE:{n:02d}:OPEN:SP" for n in range(1, 25)),
     }
 )
 
@@ -286,7 +290,7 @@ def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
         }
 
     authored = pairs(stated)
-    assert len(authored) == 522
+    assert len(authored) == 674
     derived_pairs = pairs(derived)
     assert {address: derived_pairs[address] for address in STATED_ONLY} == {
         address: address for address in STATED_ONLY

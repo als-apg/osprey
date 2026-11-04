@@ -81,19 +81,21 @@ class TestWhenItSpeaks:
 
 class TestWhenItStaysQuiet:
     @pytest.mark.usefixtures("on_desktop")
-    def test_an_enabled_forwarder_says_nothing(self, monkeypatch, warned):
-        _setting(monkeypatch, True)
-
-        deploy_cmd._warn_if_host_networking_is_off(_WITH_WEB_TERMINALS)
-
-        assert warned == []
-
-    @pytest.mark.usefixtures("on_desktop")
-    def test_a_setting_that_cannot_be_read_says_nothing(self, monkeypatch, warned):
-        """The discipline that keeps this warning worth reading. Guessing here
-        would warn on every host this reader cannot interrogate, and the post-up
-        probe still catches the real thing by testing the port."""
-        _setting(monkeypatch, None)
+    @pytest.mark.parametrize(
+        "setting",
+        [
+            True,
+            # The discipline that keeps this warning worth reading. Guessing here
+            # would warn on every host this reader cannot interrogate, and the post-up
+            # probe still catches the real thing by testing the port.
+            None,
+        ],
+        ids=["enabled-forwarder", "setting-cannot-be-read"],
+    )
+    def test_a_setting_that_gives_no_reason_to_warn_says_nothing(
+        self, monkeypatch, warned, setting
+    ):
+        _setting(monkeypatch, setting)
 
         deploy_cmd._warn_if_host_networking_is_off(_WITH_WEB_TERMINALS)
 

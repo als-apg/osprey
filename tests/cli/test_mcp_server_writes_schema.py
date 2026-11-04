@@ -135,17 +135,16 @@ def test_a_server_spelled_under_both_keys_is_a_build_error(config):
     assert "claude_code.servers" in message
 
 
-def test_an_enable_switch_beside_a_profile_server_is_not_a_second_spelling():
-    profile = _parse_profile(
-        _raw(_server(), config={"claude_code.servers.facility.enabled": False})
-    )
-    assert "facility" in profile.mcp_servers
-
-
-def test_a_config_definition_of_another_server_is_not_a_clash():
-    profile = _parse_profile(
-        _raw(_server(), config={"claude_code.servers.other.url": "http://o:1/mcp"})
-    )
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"claude_code.servers.facility.enabled": False},
+        {"claude_code.servers.other.url": "http://o:1/mcp"},
+    ],
+    ids=["enable-switch-beside-a-profile-server", "definition-of-another-server"],
+)
+def test_a_claude_code_server_entry_that_redefines_no_profile_server_is_not_a_clash(config):
+    profile = _parse_profile(_raw(_server(), config=config))
     assert "facility" in profile.mcp_servers
 
 

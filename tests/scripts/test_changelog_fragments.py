@@ -223,12 +223,31 @@ class TestLoadFragment:
             cf.load_fragment(path)
         assert "must open with prose" in str(excinfo.value)
 
-    @pytest.mark.parametrize("text", ["", "\n\n", "   \n\t\n"])
-    def test_an_empty_body_is_rejected(self, tmp_path, text):
-        path = write(tmp_path, "745.fixed.md", text)
+    @pytest.mark.parametrize(
+        ("name", "text", "message"),
+        [
+            pytest.param("745.fixed.md", "", "write one user-facing sentence", id="empty-body"),
+            pytest.param(
+                "745.fixed.md", "\n\n", "write one user-facing sentence", id="blank-lines-body"
+            ),
+            pytest.param(
+                "745.fixed.md", "   \n\t\n", "write one user-facing sentence", id="whitespace-body"
+            ),
+            pytest.param(
+                "745.fixed.md",
+                "The gate no longer double-counts. (#745)\n",
+                "comes from the filename",
+                id="ref-bearing-name-repeating-the-ref",
+            ),
+            # Rejected on the name alone, before the file is read.
+            pytest.param("745.tweaked.md", "body\n", 'unknown type "tweaked"', id="bad-name"),
+        ],
+    )
+    def test_a_malformed_fragment_is_rejected_with_its_reason(self, tmp_path, name, text, message):
+        path = write(tmp_path, name, text)
         with pytest.raises(cf.FragmentError) as excinfo:
             cf.load_fragment(path)
-        assert "write one user-facing sentence" in str(excinfo.value)
+        assert message in str(excinfo.value)
 
     def test_bytes_that_are_not_utf8_are_rejected(self, tmp_path):
         tmp_path.mkdir(parents=True, exist_ok=True)
@@ -248,12 +267,6 @@ class TestLoadFragment:
             cf.load_fragment(path)
         assert str(excinfo.value).startswith("745.fixed.md: cannot read")
         assert "Permission denied" in str(excinfo.value)
-
-    def test_a_ref_bearing_name_may_not_repeat_the_ref(self, tmp_path):
-        path = write(tmp_path, "745.fixed.md", "The gate no longer double-counts. (#745)\n")
-        with pytest.raises(cf.FragmentError) as excinfo:
-            cf.load_fragment(path)
-        assert "comes from the filename" in str(excinfo.value)
 
     def test_the_ref_check_reads_the_opening_paragraph_not_the_last_line(self, tmp_path):
         body = "A wrapped sentence that runs on\nand ends with the reference. (#745)\n\n- detail\n"
@@ -275,12 +288,6 @@ class TestLoadFragment:
     def test_a_slug_fragment_may_even_write_a_single_ref(self, tmp_path):
         path = write(tmp_path, "gate.fixed.md", "One issue, named by hand. (#735)\n")
         assert cf.load_fragment(path).ref is None
-
-    def test_a_bad_name_is_rejected_before_the_file_is_read(self, tmp_path):
-        path = write(tmp_path, "745.tweaked.md", "body\n")
-        with pytest.raises(cf.FragmentError) as excinfo:
-            cf.load_fragment(path)
-        assert 'unknown type "tweaked"' in str(excinfo.value)
 
     def test_a_byte_order_mark_is_stripped(self, tmp_path):
         """Windows editors write one by default; it is invisible in the changelog."""
@@ -478,9 +485,34 @@ class TestRenderBullet:
         """Load a real fragment, so the ref comes from the name the fold sees."""
         return cf.load_fragment(write(tmp_path, name, body))
 
-    def test_a_single_line_bullet_carries_its_ref(self, tmp_path):
-        frag = self.make(tmp_path, "745.fixed.md", "The gate no longer double-counts.\n")
-        assert cf.render_bullet(frag) == ["- The gate no longer double-counts. (#745)"]
+    @pytest.mark.parametrize(
+        ("name", "body", "bullet"),
+        [
+            pytest.param(
+                "745.fixed.md",
+                "The gate no longer double-counts.\n",
+                "- The gate no longer double-counts. (#745)",
+                id="single-line-bullet-carries-its-ref",
+            ),
+            pytest.param(
+                "745.changed.md",
+                "**Breaking change:** the flag is gone.\n",
+                "- **Breaking change:** the flag is gone. (#745)",
+                id="bold-opener-rendered-as-written",
+            ),
+            pytest.param(
+                "745-gate.fixed.md",
+                "One of several fixes for the wave.\n",
+                "- One of several fixes for the wave. (#745)",
+                id="issue-and-slug-name-still-appends-the-issue",
+            ),
+        ],
+    )
+    def test_a_one_line_fragment_renders_as_one_bullet_ending_with_its_ref(
+        self, tmp_path, name, body, bullet
+    ):
+        frag = self.make(tmp_path, name, body)
+        assert cf.render_bullet(frag) == [bullet]
 
     def test_a_hand_wrapped_bullet_indents_the_continuation_and_ends_with_the_ref(self, tmp_path):
         body = "Changelog entries now live in one small file per change instead of\nthe shared section.\n"
@@ -552,10 +584,6 @@ class TestRenderBullet:
             "  **emphasis** and keeps going. (#745)",
         ]
 
-    def test_a_bold_opener_is_rendered_as_written(self, tmp_path):
-        frag = self.make(tmp_path, "745.changed.md", "**Breaking change:** the flag is gone.\n")
-        assert cf.render_bullet(frag) == ["- **Breaking change:** the flag is gone. (#745)"]
-
     def test_a_slug_name_appends_nothing(self, tmp_path):
         frag = self.make(tmp_path, "gate.fixed.md", "A change with no issue behind it.\n")
         assert frag.ref is None
@@ -568,10 +596,6 @@ class TestRenderBullet:
         assert cf.render_bullet(frag) == [
             "- Seven issues from the wave landed together. (#735, #737)"
         ]
-
-    def test_a_name_with_an_issue_and_a_slug_still_appends_the_issue(self, tmp_path):
-        frag = self.make(tmp_path, "745-gate.fixed.md", "One of several fixes for the wave.\n")
-        assert cf.render_bullet(frag) == ["- One of several fixes for the wave. (#745)"]
 
     def test_an_internal_fragment_is_never_rendered(self, tmp_path):
         frag = self.make(tmp_path, "745.internal.md", "Refactored the loader; nobody sees this.\n")
@@ -1095,29 +1119,33 @@ class TestGateFailures:
         assert len(failures) == 1
         assert "no changelog fragment" in failures[0]
 
-    def test_an_unknown_type_is_left_to_the_validator(self):
-        """Rule 3 asks only that the *name* be a fragment name.
-
-        `745.tweaked.md` matches the grammar, so the gate stops complaining
-        about a missing fragment — and `validate_dir` fails the same run with
-        the vocabulary, which is the message the contributor needs. Checking
-        the type here as well would print two failures for one typo.
-        """
+    @pytest.mark.parametrize(
+        ("added", "ok_prefix"),
+        [
+            # Rule 3 asks only that the *name* be a fragment name.
+            #
+            # `745.tweaked.md` matches the grammar, so the gate stops complaining
+            # about a missing fragment — and `validate_dir` fails the same run with
+            # the vocabulary, which is the message the contributor needs. Checking
+            # the type here as well would print two failures for one typo.
+            pytest.param(
+                "changelog.d/745.tweaked.md",
+                "✓ changelog gate: changelog.d/745.tweaked.md added",
+                id="unknown-type-left-to-the-validator",
+            ),
+            # A refactor passes honestly instead of inventing a user-facing sentence.
+            pytest.param(
+                "changelog.d/745.internal.md",
+                "✓ changelog gate: changelog.d/745.internal.md added",
+                id="internal-fragment",
+            ),
+        ],
+    )
+    def test_an_added_fragment_satisfies_the_gate_whatever_its_type(self, added, ok_prefix):
         text = self.changelog(self.EXISTING)
-        failures, ok_lines = cf.gate_failures(
-            ["src/osprey/a.py"], ["changelog.d/745.tweaked.md"], [], text, text
-        )
+        failures, ok_lines = cf.gate_failures(["src/osprey/a.py"], [added], [], text, text)
         assert failures == []
-        assert ok_lines[0].startswith("✓ changelog gate: changelog.d/745.tweaked.md added")
-
-    def test_an_internal_fragment_satisfies_the_gate(self):
-        """A refactor passes honestly instead of inventing a user-facing sentence."""
-        text = self.changelog(self.EXISTING)
-        failures, ok_lines = cf.gate_failures(
-            ["src/osprey/a.py"], ["changelog.d/745.internal.md"], [], text, text
-        )
-        assert failures == []
-        assert ok_lines[0].startswith("✓ changelog gate: changelog.d/745.internal.md added")
+        assert ok_lines[0].startswith(ok_prefix)
 
     def test_the_ok_line_names_the_first_fragment_in_filename_order(self):
         text = self.changelog(self.EXISTING)
@@ -1206,16 +1234,23 @@ class TestGateFailures:
         assert len(failures) == 1
         assert "adds to ## [Unreleased] by hand" in failures[0]
 
-    def test_a_changelog_only_correction_passes(self):
+    @pytest.mark.parametrize(
+        "head_body",
+        [
+            pytest.param(
+                "\n### Fixed\n\n- an entry that was already here, reworded\n\n", id="correction"
+            ),
+            pytest.param("\n### Fixed\n\n", id="removal"),
+            # Named residual: a correction-shaped edit the bullet count cannot tell apart.
+            pytest.param(
+                "\n### Fixed\n\n- an entirely different entry\n\n",
+                id="delete-one-add-one",
+            ),
+        ],
+    )
+    def test_a_changelog_only_edit_that_adds_no_bullet_passes(self, head_body):
         base = self.changelog(self.EXISTING)
-        head = self.changelog("\n### Fixed\n\n- an entry that was already here, reworded\n\n")
-        failures, ok_lines = cf.gate_failures(["CHANGELOG.md"], [], [], head, base)
-        assert failures == []
-        assert ok_lines[1] == "✓ [Unreleased]: changelog-only correction"
-
-    def test_a_changelog_only_removal_passes(self):
-        base = self.changelog(self.EXISTING)
-        head = self.changelog("\n### Fixed\n\n")
+        head = self.changelog(head_body)
         failures, ok_lines = cf.gate_failures(["CHANGELOG.md"], [], [], head, base)
         assert failures == []
         assert ok_lines[1] == "✓ [Unreleased]: changelog-only correction"
@@ -1226,14 +1261,6 @@ class TestGateFailures:
         failures, _ = cf.gate_failures(["CHANGELOG.md"], [], [], head, base)
         assert len(failures) == 1
         assert "adds to ## [Unreleased] by hand" in failures[0]
-
-    def test_delete_one_add_one_in_a_changelog_only_pr_passes(self):
-        """Named residual: a correction-shaped edit the bullet count cannot tell apart."""
-        base = self.changelog(self.EXISTING)
-        head = self.changelog("\n### Fixed\n\n- an entirely different entry\n\n")
-        failures, ok_lines = cf.gate_failures(["CHANGELOG.md"], [], [], head, base)
-        assert failures == []
-        assert ok_lines[1] == "✓ [Unreleased]: changelog-only correction"
 
     def test_a_correction_alongside_another_file_fails(self):
         """The exemption is for a CHANGELOG-only PR, and nothing else."""
@@ -1847,31 +1874,25 @@ class TestResolveBase:
     def rev_parse(ref: str) -> tuple[str, ...]:
         return ("git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
 
-    def test_a_plain_name_is_looked_for_under_origin_first(self):
-        git = FakeGit({self.rev_parse("origin/main"): completed(f"{BASE_SHA}\n")})
-        assert cf.resolve_base("main", git) == BASE_SHA
-        assert git.calls == [list(self.rev_parse("origin/main"))]
+    @pytest.mark.parametrize(
+        ("name", "tried"),
+        [
+            pytest.param("main", "origin/main", id="plain-name-under-origin-first"),
+            pytest.param("origin/main", "origin/main", id="already-qualified-ref-as-given"),
+            # `HEAD~1` is not a branch name; `origin/HEAD~1` must not come first.
+            pytest.param("HEAD~1", "HEAD~1", id="revision-expression-as-given"),
+            pytest.param("HEAD", "HEAD", id="head-is-not-a-branch-name"),
+        ],
+    )
+    def test_a_ref_is_resolved_by_the_first_spelling_tried_for_it(self, name, tried):
+        git = FakeGit({self.rev_parse(tried): completed(f"{BASE_SHA}\n")})
+        assert cf.resolve_base(name, git) == BASE_SHA
+        assert git.calls == [list(self.rev_parse(tried))]
 
     def test_a_plain_name_falls_back_to_the_local_branch(self):
         git = FakeGit({self.rev_parse("main"): completed(f"{BASE_SHA}\n")})
         assert cf.resolve_base("main", git) == BASE_SHA
         assert [call[-1] for call in git.calls] == ["origin/main^{commit}", "main^{commit}"]
-
-    def test_an_already_qualified_ref_is_tried_as_given(self):
-        git = FakeGit({self.rev_parse("origin/main"): completed(f"{BASE_SHA}\n")})
-        assert cf.resolve_base("origin/main", git) == BASE_SHA
-        assert git.calls == [list(self.rev_parse("origin/main"))]
-
-    def test_a_revision_expression_is_tried_as_given(self):
-        """`HEAD~1` is not a branch name; `origin/HEAD~1` must not come first."""
-        git = FakeGit({self.rev_parse("HEAD~1"): completed(f"{BASE_SHA}\n")})
-        assert cf.resolve_base("HEAD~1", git) == BASE_SHA
-        assert git.calls == [list(self.rev_parse("HEAD~1"))]
-
-    def test_head_itself_is_not_treated_as_a_branch_name(self):
-        git = FakeGit({self.rev_parse("HEAD"): completed(f"{BASE_SHA}\n")})
-        assert cf.resolve_base("HEAD", git) == BASE_SHA
-        assert git.calls == [list(self.rev_parse("HEAD"))]
 
     def test_an_unresolvable_ref_is_none_after_both_spellings(self):
         git = FakeGit({})

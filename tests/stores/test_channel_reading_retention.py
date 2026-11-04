@@ -72,16 +72,19 @@ class TestWindow:
         assert [e.id for e in pruned] == [entries[0].id, entries[1].id]
         assert _ids(store) == [e.id for e in entries[2:]]
 
-    def test_window_not_yet_full_is_a_no_op(self, store):
-        entries = [_save(store) for _ in range(2)]
+    @pytest.mark.parametrize(
+        ("saved", "keep"),
+        [
+            pytest.param(2, 3, id="window-not-yet-full"),
+            pytest.param(3, 3, id="exactly-at-the-window"),
+            # 0 means unlimited retention, not 'delete everything'.
+            pytest.param(4, 0, id="keep-zero"),
+        ],
+    )
+    def test_a_window_that_holds_every_reading_is_a_no_op(self, store, saved, keep):
+        entries = [_save(store) for _ in range(saved)]
 
-        assert store.prune_channel_readings(CHANNEL, keep=3) == []
-        assert _ids(store) == [e.id for e in entries]
-
-    def test_exactly_at_the_window_is_a_no_op(self, store):
-        entries = [_save(store) for _ in range(3)]
-
-        assert store.prune_channel_readings(CHANNEL, keep=3) == []
+        assert store.prune_channel_readings(CHANNEL, keep=keep) == []
         assert _ids(store) == [e.id for e in entries]
 
     def test_repeated_saves_hold_the_window(self, store):
@@ -93,13 +96,6 @@ class TestWindow:
             store.prune_channel_readings(CHANNEL, keep=2)
             kept = kept[-2:]
             assert _ids(store) == kept
-
-    def test_keep_zero_keeps_everything(self, store):
-        """0 means unlimited retention, not 'delete everything'."""
-        entries = [_save(store) for _ in range(4)]
-
-        assert store.prune_channel_readings(CHANNEL, keep=0) == []
-        assert _ids(store) == [e.id for e in entries]
 
     def test_negative_keep_keeps_everything(self, store):
         entries = [_save(store) for _ in range(4)]

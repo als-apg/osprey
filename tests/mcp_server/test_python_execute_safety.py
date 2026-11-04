@@ -34,52 +34,37 @@ async def test_syntax_error_caught_before_execution(tmp_path, monkeypatch):
     assert any("Syntax error" in s for s in data["suggestions"])
 
 
-async def test_exec_call_flagged(tmp_path, monkeypatch):
-    """Code containing exec() is flagged by safety checks."""
+@pytest.mark.parametrize(
+    ("code", "description", "flagged"),
+    [
+        # Code containing exec() is flagged by safety checks.
+        pytest.param("exec('print(1)')", "exec call", "exec", id="exec-call"),
+        # Code containing eval() is flagged by safety checks.
+        pytest.param("result = eval('2 + 2')", "eval call", "eval", id="eval-call"),
+        # Code with prohibited imports is blocked.
+        pytest.param(
+            "import subprocess\nsubprocess.run(['ls'])",
+            "prohibited import",
+            "subprocess",
+            id="prohibited-import",
+        ),
+    ],
+)
+async def test_unsafe_code_is_flagged_by_safety_checks(
+    tmp_path, monkeypatch, code, description, flagged
+):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_python_execute()
     with assert_raises_error(error_type="safety_error") as _exc_ctx:
         await fn(
-            code="exec('print(1)')",
-            description="exec call",
+            code=code,
+            description=description,
             execution_mode="readonly",
         )
 
     data = _exc_ctx["envelope"]
-    assert any("exec" in s.lower() for s in data["suggestions"])
-
-
-async def test_eval_call_flagged(tmp_path, monkeypatch):
-    """Code containing eval() is flagged by safety checks."""
-    monkeypatch.chdir(tmp_path)
-
-    fn = _get_python_execute()
-    with assert_raises_error(error_type="safety_error") as _exc_ctx:
-        await fn(
-            code="result = eval('2 + 2')",
-            description="eval call",
-            execution_mode="readonly",
-        )
-
-    data = _exc_ctx["envelope"]
-    assert any("eval" in s.lower() for s in data["suggestions"])
-
-
-async def test_prohibited_import_blocked(tmp_path, monkeypatch):
-    """Code with prohibited imports is blocked."""
-    monkeypatch.chdir(tmp_path)
-
-    fn = _get_python_execute()
-    with assert_raises_error(error_type="safety_error") as _exc_ctx:
-        await fn(
-            code="import subprocess\nsubprocess.run(['ls'])",
-            description="prohibited import",
-            execution_mode="readonly",
-        )
-
-    data = _exc_ctx["envelope"]
-    assert any("subprocess" in s.lower() for s in data["suggestions"])
+    assert any(flagged in s.lower() for s in data["suggestions"])
 
 
 async def test_valid_code_passes_safety_checks(tmp_path, monkeypatch):
@@ -244,39 +229,25 @@ def test_readonly_imports_denied(code):
 @pytest.mark.parametrize(
     "code",
     [
+        # Frameworks are not import-denied; only their write calls refuse.
+        # ophyd-async and Bluesky are how a readonly script reads a device tree or a
+        # catalog. Denying the import would refuse legitimate analysis; the runtime
+        # guard refuses the calls that move hardware instead.
         pytest.param("from ophyd_async.core import SignalRW", id="ophyd-async"),
         pytest.param("import bluesky", id="bluesky"),
         pytest.param("from bluesky import RunEngine", id="bluesky-run-engine"),
-    ],
-)
-def test_readonly_allows_framework_imports(code):
-    """Frameworks are not import-denied; only their write calls refuse.
-
-    ophyd-async and Bluesky are how a readonly script reads a device tree or a
-    catalog. Denying the import would refuse legitimate analysis; the runtime
-    guard refuses the calls that move hardware instead.
-    """
-    assert _readonly_import_issues(code) == []
-
-
-@pytest.mark.parametrize(
-    "code",
-    [
         pytest.param("import numpy as np", id="numpy"),
         pytest.param("from osprey.runtime import read_channel", id="osprey-runtime"),
         pytest.param("import epicsarchiver_client", id="prefix-is-not-package"),
         pytest.param("# import epics\nprint('commented out')", id="comment-only"),
         pytest.param("s = 'import epics'", id="string-only"),
         pytest.param("x = epics.caput", id="no-import-statement"),
+        # Syntax errors belong to check_syntax; this walker stays quiet.
+        pytest.param("def (:", id="syntax-error-is-not-an-issue-here"),
     ],
 )
 def test_readonly_imports_allowed(code):
     assert _readonly_import_issues(code) == []
-
-
-def test_readonly_imports_syntax_error_is_not_an_issue_here():
-    """Syntax errors belong to check_syntax; this walker stays quiet."""
-    assert _readonly_import_issues("def (:") == []
 
 
 # ---------------------------------------------------------------------------

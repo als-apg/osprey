@@ -414,8 +414,17 @@ MATCH_CASES = [
             has_images=True,
             enhancement_status={"image_caption": {"status": "failed", "marker": "m1"}},
         ),
+        True,
+        id="enhancement-image-failed-under-old-marker-is-failed",
+    ),
+    pytest.param(
+        {"enhancement": ["image_caption:stale"]},
+        _entry(
+            has_images=True,
+            enhancement_status={"image_caption": {"status": "failed", "marker": "m1"}},
+        ),
         False,
-        id="enhancement-image-failed-under-old-marker-is-stale",
+        id="enhancement-failed-wins-over-stale",
     ),
     pytest.param(
         {"enhancement": ["image_caption:stale", "text_embedding:failed"]},

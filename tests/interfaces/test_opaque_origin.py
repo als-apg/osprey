@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from osprey.interfaces.opaque_origin import (
@@ -27,6 +30,39 @@ def test_csp_is_the_exact_token_set():
     assert set(tokens) == EXPECTED_TOKENS
     assert len(tokens) == len(EXPECTED_TOKENS)
     assert tokens[0] == "sandbox"
+
+
+#: The browser-side mirrors of the sandbox. Each frames an opaque document
+#: with an iframe ``sandbox`` attribute, which takes the CSP's tokens without
+#: the ``sandbox`` keyword; a token the server adds and a mirror lacks is a
+#: capability the document has when opened directly but not in its frame.
+_STATIC = Path(__file__).resolve().parents[2] / "src" / "osprey" / "interfaces"
+JS_MIRRORS = {
+    "web-terminal panel frame": _STATIC / "web_terminal/static/js/panel-iframe-factory.js",
+    "artifacts gallery": _STATIC / "artifacts/static/js/types.js",
+}
+
+
+def _js_string_const(path: Path, name: str) -> str:
+    match = re.search(rf"^export const {name} = '([^']*)';$", path.read_text(), re.M)
+    assert match is not None, f"no `export const {name} = '...';` in {path}"
+    return match.group(1)
+
+
+@pytest.mark.parametrize("path", JS_MIRRORS.values(), ids=JS_MIRRORS.keys())
+def test_js_sandbox_is_the_csp_minus_the_sandbox_keyword(path):
+    tokens = _js_string_const(path, "OPAQUE_SANDBOX").split(" ")
+
+    assert len(tokens) == len(set(tokens)), tokens
+    assert set(tokens) == set(OPAQUE_CSP.split(" ")) - {"sandbox"}
+
+
+def test_js_inert_list_is_the_server_list():
+    text = JS_MIRRORS["artifacts gallery"].read_text()
+    body = re.search(r"^const INERT_TYPES = new Set\(\[(.*?)\]\);$", text, re.M | re.S)
+    assert body is not None, "no `const INERT_TYPES = new Set([...]);` in types.js"
+
+    assert set(re.findall(r"'([^']+)'", body.group(1))) == INERT_TYPES
 
 
 def test_csp_spelling_is_pinned():

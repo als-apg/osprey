@@ -70,7 +70,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -143,6 +143,9 @@ class EndpointRow:
 
     ``probed_monotonic`` is the clock staleness is computed on; ``probed_at`` is
     the same instant in wall-clock terms, for a human reading the roster.
+    ``down_since`` is the wall clock (epoch seconds) of the first sweep in the
+    current unbroken run of ``unreachable`` rows for this role, ``None`` while
+    the gateway answers or is not probed.
     """
 
     endpoint_tcp: str
@@ -150,6 +153,7 @@ class EndpointRow:
     probed_at: str
     probed_monotonic: float
     detail: str = ""
+    down_since: float | None = None
 
     def as_dict(self, *, stale: bool = False) -> dict[str, Any]:
         """The row as the roster reports it, optionally aged out to ``stale``.
@@ -190,6 +194,7 @@ class EndpointProber:
         connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S,
         interval_s: float | None = None,
         monotonic: Any = time.monotonic,
+        wall_clock: Any = time.time,
     ) -> None:
         """Create a prober.
 
@@ -208,6 +213,9 @@ class EndpointProber:
             monotonic: The monotonic clock, injectable so a test can age rows
                 without sleeping. Never a wall clock: staleness must survive a
                 clock adjustment.
+            wall_clock: The wall clock in epoch seconds, injectable for the
+                same reason. It stamps ``down_since`` only, a moment another
+                process reads, so it has to be one every process shares.
         """
         self._config = config
         self._targets = (
@@ -220,6 +228,7 @@ class EndpointProber:
             else _configured_interval(config)
         )
         self._monotonic = monotonic
+        self._wall_clock = wall_clock
         self._cache: dict[str, dict[str, EndpointRow]] = {}
         self._task: asyncio.Task[None] | None = None
         #: Set once the first sweep has finished, so a caller that needs rows
@@ -345,7 +354,29 @@ class EndpointProber:
             rows = await asyncio.gather(
                 *(self._probe(derivation.endpoints[role]) for role in roles)
             )
-            self._cache[target] = dict(zip(roles, rows, strict=True))
+            previous = self._cache.get(target, {})
+            self._cache[target] = {
+                role: self._carry_down_since(row, previous.get(role))
+                for role, row in zip(roles, rows, strict=True)
+            }
+
+    def _carry_down_since(self, row: EndpointRow, previous: EndpointRow | None) -> EndpointRow:
+        """*row* with ``down_since`` set for an ``unreachable`` measurement.
+
+        Stamped at the first down sweep of a run and carried unchanged across
+        every later down sweep, so a reader can say how long the gateway has
+        been down rather than how long ago it was last tried. Any other status
+        ends the run; the next down sweep starts a new one.
+        """
+        if row.endpoint_tcp != STATUS_UNREACHABLE:
+            return row
+        if (
+            previous is not None
+            and previous.endpoint_tcp == STATUS_UNREACHABLE
+            and previous.down_since is not None
+        ):
+            return replace(row, down_since=previous.down_since)
+        return replace(row, down_since=float(self._wall_clock()))
 
     async def _probe(self, endpoint: Endpoint) -> EndpointRow:
         """One endpoint's row. Connects only in name-server mode."""
@@ -417,9 +448,11 @@ class EndpointProber:
     def reachability_rows(self) -> dict[str, dict[str, dict[str, Any]]]:
         """The current rows as the state file publishes them, freshly built.
 
-        ``{target: {role: {"state", "probed_at", "gateway", "detail"}}}`` —
-        ``state`` in the readers' vocabulary, ``probed_at`` the wall clock a
-        reader in another process can subtract from its own to get an age.
+        ``{target: {role: {"state", "probed_at", "gateway", "detail",
+        "down_since"}}}`` — ``state`` in the readers' vocabulary, ``probed_at``
+        the wall clock a reader in another process can subtract from its own to
+        get an age, ``down_since`` the epoch seconds a ``down`` run began
+        (``None`` on any other state).
         ``probed_monotonic`` is deliberately not published: it is meaningless
         outside this process.
 
@@ -434,6 +467,7 @@ class EndpointProber:
                     "probed_at": row.probed_at,
                     "gateway": row.gateway,
                     "detail": row.detail,
+                    "down_since": row.down_since,
                 }
                 for role, row in rows.items()
             }

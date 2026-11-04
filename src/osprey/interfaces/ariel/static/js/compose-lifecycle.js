@@ -20,6 +20,12 @@
  * attachment inputs never save. `close()` and `pagehide` flush the pending
  * save; `finish()` cancels it and forgets the context's snapshot. Aborting
  * `options.signal` removes the listeners and drops the pending save.
+ *
+ * Focus: `open` records the opener, the element focused when a closed sheet
+ * opens (a reopen from inside the sheet keeps the first one). When an open
+ * sheet then closes or finishes (Close, Discard, Esc, a submit), focus returns
+ * to the opener, or to `fallbackFocus()` (the selected row) when the opener
+ * is gone; it is left alone when it already sits outside `scope`.
  */
 
 import {
@@ -52,6 +58,10 @@ import {
  * @property {Iterable<HTMLButtonElement|null>} [gated] - disabled until step 4 finishes
  * @property {AbortSignal} [signal] - removes the lifecycle's listeners
  * @property {number} [delay] - the save debounce, in ms
+ * @property {HTMLElement|null} [scope] - the sheet: focus inside it returns to
+ *   the opener on close (defaults to `form`)
+ * @property {() => (HTMLElement|null)} [fallbackFocus] - where focus returns
+ *   when the opener is gone (the selected row)
  */
 
 /** The built-in fields a snapshot holds, by `name`. */
@@ -95,13 +105,24 @@ async function runStep(step, fn) {
 }
 
 /**
+ * Whether `el` can still take focus back: in the document and not inside a
+ * hidden or inert subtree.
+ * @param {HTMLElement|null} el
+ * @returns {el is HTMLElement}
+ */
+function canFocus(el) {
+  return !!el && el.isConnected && !el.closest('[hidden], [inert]');
+}
+
+/**
  * Create the compose sheet's lifecycle.
  * @param {LifecycleHooks} hooks
  * @param {LifecycleOptions} [options]
  * @returns {{open(compose: Compose): Promise<void>, close(): void, finish(): void, isOpen(): boolean}}
  */
 export function createComposeLifecycle(hooks, options = {}) {
-  const { form = null, signal, delay = SAVE_DELAY_MS } = options;
+  const { form = null, signal, delay = SAVE_DELAY_MS, fallbackFocus } = options;
+  const scope = options.scope ?? form;
   const gated = Array.from(options.gated || []).filter(
     /** @returns {b is HTMLButtonElement} */ (b) => !!b
   );
@@ -113,6 +134,32 @@ export function createComposeLifecycle(hooks, options = {}) {
   let ready = false;
   /** @type {ReturnType<typeof setTimeout>|null} */
   let timer = null;
+  /** @type {HTMLElement|null} the element focused when the sheet opened */
+  let opener = null;
+
+  /** @returns {Element|null} the focused element, or null for none or the body */
+  function focused() {
+    if (typeof document === 'undefined') return null;
+    const active = document.activeElement;
+    return active && active !== document.body ? active : null;
+  }
+
+  /** Take the opener of a closed sheet; a reopen from inside the sheet keeps it. */
+  function recordOpener() {
+    const active = focused();
+    if (active && scope?.contains(active)) return;
+    opener = active instanceof HTMLElement ? active : null;
+  }
+
+  /** Return focus from a closing sheet to the opener, else the fallback. */
+  function restoreFocus() {
+    const target = opener;
+    opener = null;
+    const active = focused();
+    if (active && !scope?.contains(active)) return;
+    const next = canFocus(target) ? target : (fallbackFocus?.() ?? null);
+    next?.focus();
+  }
 
   /** @param {boolean} on */
   function setReady(on) {
@@ -162,12 +209,14 @@ export function createComposeLifecycle(hooks, options = {}) {
     cancel();
     token += 1;
     key = null;
+    opener = null;
   });
 
   return {
     async open(compose) {
       flush();
       cancel();
+      recordOpener();
       const mine = ++token;
       const isCurrent = () => mine === token;
       key = contextKey(compose);
@@ -194,13 +243,17 @@ export function createComposeLifecycle(hooks, options = {}) {
 
     close() {
       flush();
+      const wasOpen = key !== null;
       invalidate();
+      if (wasOpen) restoreFocus();
     },
 
     finish() {
       cancel();
+      const wasOpen = key !== null;
       if (key) clearCompose(key);
       invalidate();
+      if (wasOpen) restoreFocus();
     },
 
     isOpen() {

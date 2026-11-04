@@ -508,16 +508,14 @@ class TestSemanticProcessorParseResponseEdgeCases:
         assert result is not None
         assert result.keywords == ["test"]
 
-    def test_parse_response_empty_string(self):
-        """Parse handles empty string."""
+    @pytest.mark.parametrize(
+        "response",
+        [pytest.param("", id="empty-string"), pytest.param("   \n   ", id="whitespace-only")],
+    )
+    def test_parse_response_without_content_returns_none(self, response):
+        """Parse handles a response with no content."""
         module = SemanticProcessorModule()
-        result = module._parse_response("")
-        assert result is None
-
-    def test_parse_response_whitespace_only(self):
-        """Parse handles whitespace-only string."""
-        module = SemanticProcessorModule()
-        result = module._parse_response("   \n   ")
+        result = module._parse_response(response)
         assert result is None
 
 
@@ -1261,28 +1259,26 @@ class TestTextEmbeddingEnhanceWithProvider:
         assert provider.calls[0]["api_key"] is None
 
     @pytest.mark.asyncio
-    async def test_enhance_cuts_a_long_entry_to_the_model_input_limit(self, monkeypatch):
-        """A long entry is cut to the model's limit less the reserved tokens, in bytes."""
+    @pytest.mark.parametrize(
+        "raw_text",
+        [
+            # Cut to the model's limit less the reserved tokens, in bytes.
+            pytest.param("x" * 100, id="long-entry-is-cut"),
+            # An entry that fits the limit is sent unchanged.
+            pytest.param("x" * 32, id="entry-within-limit-is-sent-whole"),
+        ],
+    )
+    async def test_enhance_sends_an_entry_no_longer_than_the_model_input_limit(
+        self, monkeypatch, raw_text
+    ):
+        """An entry reaches the provider no longer than the model's input limit allows."""
         provider = _route_provider(monkeypatch, make_fake_embedding_provider())
         module = _embedding_module(
             models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
         )
         conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
 
-        await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 100}, conn)
-
-        assert provider.calls[0]["texts"] == ["x" * 32]
-
-    @pytest.mark.asyncio
-    async def test_enhance_sends_an_entry_within_the_limit_whole(self, monkeypatch):
-        """An entry that fits the limit is sent unchanged."""
-        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
-        module = _embedding_module(
-            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
-        )
-        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
-
-        await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 32}, conn)
+        await module.enhance({"entry_id": "entry-001", "raw_text": raw_text}, conn)
 
         assert provider.calls[0]["texts"] == ["x" * 32]
 
@@ -2488,3 +2484,179 @@ class TestTextEmbeddingInputKey:
         lines = _absent_log_lines(caplog)
         assert len(lines) == 1
         assert "text_embeddings_model_b" in lines[0]
+
+
+# --- inspect(): what a text module produced for one entry --------------------
+
+
+class _InspectRepository:
+    """Repository stand-in for ``inspect()``: one stored entry and a fake pool."""
+
+    def __init__(self, entry=None, *, results=None, rows_for=None):
+        from unittest.mock import AsyncMock
+
+        from tests.services.ariel_search.conftest import _FakePool
+
+        self.get_entry = AsyncMock(return_value=entry)
+        self.pool = _FakePool(results=results, rows_for=rows_for)
+
+
+def _assert_json_safe(detail):
+    import json
+
+    assert json.loads(json.dumps(detail)) == detail
+
+
+class TestSemanticProcessorInspect:
+    """``SemanticProcessorModule.inspect`` returns the stored summary and keywords."""
+
+    async def test_inspect_returns_summary_and_keywords(self):
+        repo = _InspectRepository(
+            {"entry_id": "e1", "summary": "Beam lost at 3am.", "keywords": ["beam", "loss"]}
+        )
+        detail = await SemanticProcessorModule().inspect("e1", repo)
+        assert detail == {"summary": "Beam lost at 3am.", "keywords": ["beam", "loss"]}
+        repo.get_entry.assert_awaited_once_with("e1")
+        _assert_json_safe(detail)
+
+    async def test_inspect_none_before_processing(self):
+        repo = _InspectRepository({"entry_id": "e1", "summary": None, "keywords": []})
+        assert await SemanticProcessorModule().inspect("e1", repo) is None
+
+    async def test_inspect_none_for_unknown_entry(self):
+        assert await SemanticProcessorModule().inspect("nope", _InspectRepository(None)) is None
+
+    async def test_inspect_keeps_keywords_without_summary(self):
+        repo = _InspectRepository({"entry_id": "e1", "summary": "", "keywords": ["rf"]})
+        assert await SemanticProcessorModule().inspect("e1", repo) == {
+            "summary": None,
+            "keywords": ["rf"],
+        }
+
+
+class TestTextEmbeddingInspect:
+    """``TextEmbeddingModule.inspect`` describes stored vectors without the vector."""
+
+    ENTRY = {"entry_id": "e1", "raw_text": "Beam at 500mA.", "attachment_text": None}
+
+    async def test_inspect_describes_stored_row_and_text_now(self):
+        created = datetime(2026, 11, 3, 12, 0, tzinfo=UTC)
+        repo = _InspectRepository(
+            self.ENTRY,
+            rows_for={
+                TABLES_QUERY: [(True,)],
+                COLUMNS_QUERY: [(1,)],
+                "SELECT created_at": [(created, "r1")],
+            },
+        )
+        module = _embedding_module(models=[{"name": "test-model", "dimension": 4}])
+        detail = await module.inspect("e1", repo)
+
+        assert detail == {
+            "tables": [
+                {
+                    "table": "text_embeddings_test_model",
+                    "model": "test-model",
+                    "dimensions": 4,
+                    "created_at": created.isoformat(),
+                    "input_key": "r1",
+                    "would_embed_now": {"input_key": "r1", "text": "Beam at 500mA."},
+                }
+            ]
+        }
+        _assert_json_safe(detail)
+        selects = repo.pool.matching("SELECT created_at")
+        assert len(selects) == 1
+        assert "embedding" not in selects[0][0].replace("text_embeddings", "")
+        assert selects[0][1] == ["e1"]
+
+    async def test_inspect_never_selects_the_vector(self):
+        repo = _InspectRepository(
+            self.ENTRY,
+            rows_for={
+                TABLES_QUERY: [(True,)],
+                COLUMNS_QUERY: [],
+                "SELECT created_at": [(datetime(2026, 1, 1, tzinfo=UTC),)],
+            },
+        )
+        module = _embedding_module()
+        detail = await module.inspect("e1", repo)
+        for sql, _params in repo.pool.calls:
+            assert "*" not in sql
+            assert " embedding" not in sql.replace("text_embeddings", "")
+        row = detail["tables"][0]
+        assert row["input_key"] is None
+        assert row["would_embed_now"]["input_key"] is None
+        assert "embedding" not in row
+
+    async def test_inspect_none_when_nothing_embedded(self):
+        repo = _InspectRepository(
+            self.ENTRY,
+            rows_for={TABLES_QUERY: [(True,)], COLUMNS_QUERY: [(1,)], "SELECT created_at": []},
+        )
+        assert await _embedding_module().inspect("e1", repo) is None
+
+    async def test_inspect_skips_missing_table(self):
+        repo = _InspectRepository(self.ENTRY, rows_for={TABLES_QUERY: [(False,)]})
+        assert await _embedding_module().inspect("e1", repo) is None
+        assert repo.pool.matching("SELECT created_at") == []
+
+    async def test_inspect_none_for_unknown_entry(self):
+        assert await _embedding_module().inspect("e1", _InspectRepository(None)) is None
+
+    async def test_inspect_text_now_uses_bound_expander_key(self):
+        expander = mock.MagicMock()
+        expander.key = "v7"
+        expander.expand.return_value = mock.MagicMock(insertions=[])
+        repo = _InspectRepository(
+            self.ENTRY,
+            rows_for={
+                TABLES_QUERY: [(True,)],
+                COLUMNS_QUERY: [(1,)],
+                "SELECT created_at": [(datetime(2026, 1, 1, tzinfo=UTC), "r1")],
+            },
+        )
+        module = _embedding_module()
+        module._expander = expander
+        detail = await module.inspect("e1", repo)
+        row = detail["tables"][0]
+        assert row["input_key"] == "r1"
+        assert row["would_embed_now"] == {"input_key": "r1:v7", "text": "Beam at 500mA."}
+
+
+class TestQmdExportInspect:
+    """``QmdExportModule.inspect`` reports the mirror path and whether it exists."""
+
+    ENTRY = {
+        "entry_id": "e1",
+        "timestamp": datetime(2026, 11, 3, tzinfo=UTC),
+        "raw_text": "Beam at 500mA.",
+    }
+
+    def _module(self, root):
+        module = QmdExportModule()
+        module.configure({"mirror_path": str(root)})
+        return module
+
+    async def test_inspect_reports_missing_file(self, tmp_path):
+        from osprey.services.ariel_search.enhancement.qmd_export.writer import mirror_path
+
+        detail = await self._module(tmp_path).inspect("e1", _InspectRepository(self.ENTRY))
+        assert detail == {
+            "mirror_path": str(mirror_path(tmp_path, self.ENTRY)),
+            "exists": False,
+        }
+        _assert_json_safe(detail)
+
+    async def test_inspect_reports_existing_file(self, tmp_path):
+        module = self._module(tmp_path)
+        module.mirror_now(self.ENTRY)
+        detail = await module.inspect("e1", _InspectRepository(self.ENTRY))
+        assert detail["exists"] is True
+        assert detail["mirror_path"].startswith(str(tmp_path.resolve()))
+
+    async def test_inspect_none_when_unconfigured(self):
+        assert await QmdExportModule().inspect("e1", _InspectRepository(self.ENTRY)) is None
+
+    async def test_inspect_none_for_unknown_entry(self, tmp_path):
+        assert await self._module(tmp_path).inspect("e1", _InspectRepository(None)) is None

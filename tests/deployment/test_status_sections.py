@@ -1373,14 +1373,29 @@ def test_a_staged_asked_entry_is_the_tier_cell(tmp_path):
     assert rows["alice"] == ["asked", "—", "off"]
 
 
-def test_a_legacy_on_record_reads_asked(tmp_path):
-    """The stored ``on`` from before the three positions is the word ``asked`` everywhere."""
+@pytest.mark.parametrize(
+    ("target", "switch", "expected"),
+    [
+        # The stored ``on`` from before the three positions is the word ``asked`` everywhere.
+        pytest.param(
+            "standin",
+            {"standin": "on"},
+            ["allowed", "standin", "standin:asked"],
+            id="legacy-on-reads-asked",
+        ),
+        # A switch map with nothing armed states the record's target and no machine.
+        pytest.param(
+            "live", {"standin": "maybe"}, ["allowed", "live", "off"], id="all-off-reads-off"
+        ),
+    ],
+)
+def test_a_stored_record_reads_as_its_armed_word(tmp_path, target, switch, expected):
     config = _multi_user_config(tmp_path)
-    _write_record(tmp_path, "alice", target="standin", switch={"standin": "on"})
+    _write_record(tmp_path, "alice", target=target, switch=switch)
 
     rows = _rows_by_login(config, tmp_path)
 
-    assert rows["alice"] == ["allowed", "standin", "standin:asked"]
+    assert rows["alice"] == expected
 
 
 def test_an_allowed_under_an_asked_ceiling_is_marked_capped(tmp_path):
@@ -1405,16 +1420,6 @@ def test_an_allowed_is_not_capped_without_an_asked_ceiling(tmp_path, tier):
     rows = _rows_by_login(config, tmp_path)
 
     assert rows["alice"] == [tier, "live", "live:allowed"]
-
-
-def test_an_all_off_record_reads_off(tmp_path):
-    """A switch map with nothing armed states the record's target and no machine."""
-    config = _multi_user_config(tmp_path)
-    _write_record(tmp_path, "alice", target="live", switch={"standin": "maybe"})
-
-    rows = _rows_by_login(config, tmp_path)
-
-    assert rows["alice"] == ["allowed", "live", "off"]
 
 
 def test_the_writes_table_names_the_three_words_not_the_retired_one(tmp_path):

@@ -344,3 +344,37 @@ describe('entriesApi create with follows_up', () => {
     expect(err.field).toBe('follows_up');
   });
 });
+
+describe('ids are encoded into the path', () => {
+  const awkward = 'a/b#c?d';
+  const enc = 'a%2Fb%23c%3Fd';
+  const pathOf = () => new URL(fetchMock.mock.calls[0][0], window.location.origin);
+
+  test('entriesApi.get and draftsApi.get encode the id', async () => {
+    answer({});
+    await entriesApi.get(awkward);
+    expect(pathOf().pathname).toBe(`/api/entries/${enc}`);
+    expect(pathOf().search).toBe('');
+    fetchMock.mockClear();
+    answer({});
+    await draftsApi.get(awkward);
+    expect(pathOf().pathname).toBe(`/api/drafts/${enc}`);
+  });
+
+  test('entriesApi.enhancements hits the enhancements path', async () => {
+    answer({ entry_id: 'e1', modules: [] });
+    await entriesApi.enhancements(awkward);
+    expect(pathOf().pathname).toBe(`/api/entries/${enc}/enhancements`);
+  });
+
+  test('entriesApi.related hits the related path with and without a limit', async () => {
+    answer({ state: 'ok', entries: [] });
+    await entriesApi.related(awkward, 7);
+    expect(pathOf().pathname).toBe(`/api/entries/${enc}/related`);
+    expect(pathOf().searchParams.get('limit')).toBe('7');
+    fetchMock.mockClear();
+    answer({ state: 'ok', entries: [] });
+    await entriesApi.related('e1');
+    expect(pathOf().search).toBe('');
+  });
+});

@@ -161,17 +161,20 @@ class TestClaimAndOverride:
         resp = client.put("/api/scaffold/rules/x/override", json={"content": "new"})
         assert resp.status_code == 404
 
-    def test_delete_override_default_keeps_file(self, client, svc):
+    @pytest.mark.parametrize(
+        ("url", "delete_file"),
+        [
+            pytest.param("/api/scaffold/rules/x/override", False, id="default-keeps-file"),
+            pytest.param(
+                "/api/scaffold/rules/x/override?delete_file=true", True, id="delete-file-flag"
+            ),
+        ],
+    )
+    def test_delete_override_passes_the_delete_file_flag(self, client, svc, url, delete_file):
         svc.unoverride.return_value = {"status": "removed"}
-        resp = client.delete("/api/scaffold/rules/x/override")
+        resp = client.delete(url)
         assert resp.status_code == 200
-        svc.unoverride.assert_called_once_with("rules/x", delete_file=False)
-
-    def test_delete_override_with_delete_file_flag(self, client, svc):
-        svc.unoverride.return_value = {"status": "removed"}
-        resp = client.delete("/api/scaffold/rules/x/override?delete_file=true")
-        assert resp.status_code == 200
-        svc.unoverride.assert_called_once_with("rules/x", delete_file=True)
+        svc.unoverride.assert_called_once_with("rules/x", delete_file=delete_file)
 
     def test_delete_override_unknown_404(self, client, svc):
         svc.unoverride.side_effect = KeyError("unknown")

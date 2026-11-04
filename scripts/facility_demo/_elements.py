@@ -5,7 +5,7 @@ injection septa, and the panel binding each one replaces.
 (channel, panel binding) pair in five tab-separated columns:
 
 ``legacy_pv``
-    The name a GTLView/BTSView binding site reads or writes today, or blank for
+    The name a GTL or BTS panel binding site reads or writes, or blank for
     a channel no panel names (a BPM's ``SUM``, a screen's lamp with no panel
     binding, the removed BTS corrector 06). A legacy name appears with each
     role at most once, so the panel re-map is keyed by (legacy name, role); a
@@ -32,7 +32,7 @@ injection septa, and the panel binding each one replaces.
     for the waveform, whose trace is generated.
 
 Rows run in beam order within each section (gun to linac to booster to storage
-injection); a line starting with ``#`` is a section banner.
+injection); a line starting with ``#`` is a section banner or a note.
 """
 
 from __future__ import annotations

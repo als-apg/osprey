@@ -497,3 +497,101 @@ describe('secrets', () => {
     }
   });
 });
+
+describe('focus', () => {
+  /** Add an opener button and a selected list row outside the sheet. */
+  function addOutside() {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      `<button type="button" id="opener">New</button>
+       <div id="row" role="option" tabindex="-1" data-entry-id="e-1" aria-selected="true"></div>`
+    );
+  }
+  const fallbackFocus = () => el('row');
+
+  test('close returns focus from the sheet to the opener', async () => {
+    addOutside();
+    const lc = create(makeHooks(), { fallbackFocus });
+    el('opener').focus();
+    await lc.open({ draft: null });
+    el('subject').focus();
+
+    lc.close();
+
+    expect(document.activeElement).toBe(el('opener'));
+  });
+
+  test('finish (Discard) returns focus to the opener, and a following close leaves it', async () => {
+    addOutside();
+    const lc = create(makeHooks(), { fallbackFocus });
+    el('opener').focus();
+    await lc.open({ draft: null });
+    el('discard').focus();
+
+    lc.finish();
+    expect(document.activeElement).toBe(el('opener'));
+    lc.close();
+    expect(document.activeElement).toBe(el('opener'));
+  });
+
+  test('a gone opener falls back to the selected row', async () => {
+    addOutside();
+    const lc = create(makeHooks(), { fallbackFocus });
+    el('opener').focus();
+    await lc.open({ draft: null });
+    el('subject').focus();
+    el('opener').remove();
+
+    lc.close();
+
+    expect(document.activeElement).toBe(el('row'));
+  });
+
+  test('a sheet opened with nothing focused falls back to the selected row', async () => {
+    addOutside();
+    const lc = create(makeHooks(), { fallbackFocus });
+    await lc.open({ draft: null });
+    el('subject').focus();
+
+    lc.close();
+
+    expect(document.activeElement).toBe(el('row'));
+  });
+
+  test('a reopen from inside the sheet keeps the first opener', async () => {
+    addOutside();
+    const lc = create(makeHooks(), { fallbackFocus });
+    el('opener').focus();
+    await lc.open({ draft: null });
+    el('subject').focus();
+    await lc.open({ draft: 'd-2' });
+
+    lc.close();
+
+    expect(document.activeElement).toBe(el('opener'));
+  });
+
+  test('focus already outside the sheet is left alone on close', async () => {
+    addOutside();
+    document.body.insertAdjacentHTML('beforeend', '<input id="elsewhere">');
+    const lc = create(makeHooks(), { fallbackFocus });
+    el('opener').focus();
+    await lc.open({ draft: null });
+    el('elsewhere').focus();
+
+    lc.close();
+
+    expect(document.activeElement).toBe(el('elsewhere'));
+  });
+
+  test('closing a sheet that never opened moves no focus', () => {
+    addOutside();
+    document.body.insertAdjacentHTML('beforeend', '<input id="elsewhere">');
+    const lc = create(makeHooks(), { fallbackFocus });
+
+    lc.close();
+    lc.finish();
+
+    expect(document.activeElement).toBe(document.body);
+  });
+});

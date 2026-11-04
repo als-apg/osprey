@@ -38,6 +38,10 @@ stdin ──► Parse JSON
               │
              YES
               ▼
+         Switched off in the terminal? ──YES──► Record (review=skipped) ──► Notice ──► note
+              │
+              NO (or no answer)
+              ▼
          Run the reviewer, capped by --deadline
               │
               ▼
@@ -64,6 +68,11 @@ cannot import ``osprey``. That denial holds even when the feature is off, becaus
 read the setting without the core. A crash this hook cannot catch lets the write land; the proposal
 accepts that remainder at this surface.
 
+**Switch.** An admin may switch code review off in the web terminal for a while. The hook asks
+right before it would review (``osprey.services.code_review.switch``); only an answer that says off,
+from the terminal that spawned the session, skips the review. The skip is recorded with who switched
+it off, sent to the activity strip and told to the agent; anything else reviews.
+
 **Records.** Every reviewed edit writes one value-free audit record, passes included, so the record
 shows that a review happened. A notice goes to the operator's activity strip for everything but a
 pass, and its failure costs only the notice.
@@ -84,6 +93,7 @@ import dataclasses
 import json
 import os
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -311,7 +321,8 @@ def _review(hook_input, tool_input, notebook_file, subject):
         return None
 
     from osprey.services.code_review.notebook import notebook_review_request
-    from osprey.services.code_review.review import review_code
+    from osprey.services.code_review.review import review_code, skip_switched_off
+    from osprey.services.code_review.switch import switched_off
 
     try:
         request = notebook_review_request(
@@ -321,10 +332,13 @@ def _review(hook_input, tool_input, notebook_file, subject):
         )
         if request is None:
             return None
-        capped = dataclasses.replace(
-            settings,
-            time_limit=min(settings.time_limit, _parse_deadline(sys.argv) - HOOK_OVERHEAD_S),
-        )
+        # The switch read spends the harness's deadline too, so the review gets what it left.
+        asked = time.monotonic()
+        off = switched_off()
+        if off is not None:
+            return _conclude(hook_input, skip_switched_off(off, settings.level), request)
+        left = _parse_deadline(sys.argv) - HOOK_OVERHEAD_S - (time.monotonic() - asked)
+        capped = dataclasses.replace(settings, time_limit=min(settings.time_limit, left))
         outcome = asyncio.run(
             review_code(
                 request,

@@ -36,11 +36,18 @@ from pathlib import Path
 #: ports fixed services listen on.
 PORT_FLOOR = 20000
 
-#: The ``deployment.port_base`` blocks the e2e lanes book. A deployment derives a
-#: port from every slot of its block and refuses a pinned port that lands on one,
-#: so a reservation inside a block can fail that lane's build. A lane that books a
-#: new block at or above the floor adds it here.
-BOOKED_BLOCKS = (range(20000, 23100), range(29000, 31000))
+#: The ``deployment.port_base`` blocks (``port_base`` plus 1000) that tests pin. A
+#: deployment derives a port from every slot of its block and binds them without
+#: taking a lock, and refuses a pinned port that lands on one, so a reservation
+#: inside a block can collide with that stack or fail its build.
+#: ``tests/infrastructure/test_ports.py`` fails when a test pins a block these
+#: ranges do not cover.
+BOOKED_BLOCKS: tuple[range, ...] = (
+    range(20000, 26700),
+    range(29000, 32000),
+    range(40000, 41000),
+    range(42000, 43000),
+)
 
 #: The one directory every test process on the host locks ports in, shared by
 #: every user of the host.

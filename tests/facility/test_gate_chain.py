@@ -6,9 +6,12 @@ injection, in the element table's beam order, and writes it as explicit
 transmission/charge proxy and every BPM ``STATUS:VALID`` after it in beam order,
 and lights its own lamp; the gun's high voltage or heater on-status ``FALSE``
 gates every one of those readings; any paddle in sets the "all paddles out"
-count to 1. A BPM's positions carry no gate, and no storage ring channel does.
+count to 1. A BPM's positions carry no gate, and the chain gates no storage
+ring channel: the storage ring's only gates are its sector valves' closed
+switches, which the peripherals generator writes, each reading closed while its
+own open switch reads not open.
 
-The committed ``seeds.yaml`` holds exactly what the generator writes. In the
+The committed ``seeds.yaml`` holds exactly what the generators write. In the
 nominal state of the built example facility no gate is active, and inserting
 any one paddle gates what the chain says it gates.
 """
@@ -85,6 +88,13 @@ def rows() -> list[Any]:
     return sorted(seen.values(), key=lambda row: order[row.section])
 
 
+@cache
+def valve_closed_switches() -> dict[str, dict[str, Any]]:
+    """The ``gate`` seeds the peripherals generator writes: the sector valves' closed switches."""
+    _devices, _channels, written = _module("_peripherals").emitted()
+    return {address: seed["gate"] for address, seed in written.items() if "gate" in seed}
+
+
 def by_role(*roles: str) -> list[str]:
     return [row.demo_name for row in rows() if row.role in roles]
 
@@ -101,7 +111,9 @@ def position(address: str) -> int:
 
 
 def test_the_committed_gates_are_exactly_what_the_generator_writes():
-    assert gated() == _module("_injector").gates()
+    chain = _module("_injector").gates()
+    assert not set(chain) & set(valve_closed_switches())
+    assert gated() == {**chain, **valve_closed_switches()}
 
 
 def test_gtl_tv1_gates_bpm2_sum_and_not_bpm1_sum():
@@ -111,11 +123,17 @@ def test_gtl_tv1_gates_bpm2_sum_and_not_bpm1_sum():
     assert screen not in gated()["GTL:DIAG:BPM:01:SUM:RB"]["inputs"]
 
 
-def test_no_storage_ring_channel_and_no_bpm_position_carries_a_gate():
+def test_only_the_sector_valves_closed_switches_and_no_bpm_position_carry_a_storage_ring_gate():
     positions = set(by_role("bpm_x", "bpm_y"))
+    switches = [f"SR:VAC:VALVE:{n:02d}:POSITION:CLOSED" for n in range(1, 25)]
 
     assert positions
-    assert not [a for a in gated() if a.startswith("SR:")]
+    assert sorted(a for a in gated() if a.startswith("SR:")) == switches
+    for switch in switches:
+        assert gated()[switch] == {
+            "inputs": {switch.removesuffix("CLOSED") + "OPEN": "FALSE"},
+            "gated": "TRUE",
+        }
     assert not positions & set(gated())
 
 
@@ -154,10 +172,10 @@ def test_any_paddle_sets_all_paddles_out_to_one():
     assert gate == {"inputs": dict.fromkeys(sorted(paddles()), "TRUE"), "gated": 1}
 
 
-def test_only_the_chain_carries_gates():
+def test_only_the_chain_and_the_valve_closed_switches_carry_gates():
     chain = set(by_role(*BEAM_ROLES, "tv_lamp_rb", "paddle_count"))
 
-    assert set(gated()) == chain
+    assert set(gated()) == chain | set(valve_closed_switches())
 
 
 # --- the served chain ------------------------------------------------------------

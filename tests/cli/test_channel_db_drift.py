@@ -51,27 +51,23 @@ def profile(tmp_path):
     return _write(root / "profile.yml", PROFILE_YAML)
 
 
-def test_editing_a_channel_database_under_data_moves_the_fingerprint(profile):
-    """The whole decision rests on this: the snapshot's source is folded material.
-
-    ``profile.yml`` is untouched — only the database the snapshot was taken from
-    changed, which is exactly what a facility adding a channel does.
-    """
+@pytest.mark.parametrize(
+    ("database", "content"),
+    [
+        # The whole decision rests on this: the snapshot's source is folded
+        # material. ``profile.yml`` is untouched — only the database the snapshot
+        # was taken from changed, which is exactly what a facility adding a
+        # channel does.
+        ("als.json", '{"channels": ["SR:BPM1"]}\n'),
+        # A new database file is new snapshot input, so it has to count as a change.
+        ("booster.json", '{"channels": []}\n'),
+    ],
+    ids=["edited", "added"],
+)
+def test_changing_a_channel_database_under_data_moves_the_fingerprint(profile, database, content):
     before = compute_profile_hash(profile)
 
-    _write(
-        profile.parent / "data" / "channel_databases" / "als.json",
-        '{"channels": ["SR:BPM1"]}\n',
-    )
-
-    assert compute_profile_hash(profile) != before
-
-
-def test_adding_a_channel_database_moves_the_fingerprint(profile):
-    """A new database file is new snapshot input, so it has to count as a change."""
-    before = compute_profile_hash(profile)
-
-    _write(profile.parent / "data" / "channel_databases" / "booster.json", '{"channels": []}\n')
+    _write(profile.parent / "data" / "channel_databases" / database, content)
 
     assert compute_profile_hash(profile) != before
 

@@ -586,23 +586,19 @@ class TestRefusedToolCalls:
             ),
         )
 
-    def test_an_error_result_of_a_disallowed_tool_is_recorded(
-        self, build_dir, tmp_path, monkeypatch
+    @pytest.mark.parametrize(
+        ("tool", "reason"),
+        [
+            pytest.param("mcp__controls__channel_write", "disallowed", id="disallowed-tool"),
+            pytest.param("mcp__other__thing", "not_allowed", id="unlisted-tool"),
+        ],
+    )
+    def test_an_error_result_of_a_refused_tool_is_recorded(
+        self, build_dir, tmp_path, monkeypatch, tool, reason
     ):
-        stream = _Scripted(*self._error_result("mcp__controls__channel_write"), _result())
+        stream = _Scripted(*self._error_result(tool), _result())
         verdict = _judge(build_dir, _definition(tmp_path), stream, monkeypatch)
-        assert [(c.tool, c.reason) for c in verdict.refused_tool_calls] == [
-            ("mcp__controls__channel_write", "disallowed")
-        ]
-
-    def test_an_error_result_of_an_unlisted_tool_is_recorded(
-        self, build_dir, tmp_path, monkeypatch
-    ):
-        stream = _Scripted(*self._error_result("mcp__other__thing"), _result())
-        verdict = _judge(build_dir, _definition(tmp_path), stream, monkeypatch)
-        assert [(c.tool, c.reason) for c in verdict.refused_tool_calls] == [
-            ("mcp__other__thing", "not_allowed")
-        ]
+        assert [(c.tool, c.reason) for c in verdict.refused_tool_calls] == [(tool, reason)]
 
     def test_a_read_tool_failing_on_its_own_is_not_a_refusal(
         self, build_dir, tmp_path, monkeypatch

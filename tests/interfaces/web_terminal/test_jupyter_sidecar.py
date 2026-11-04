@@ -21,6 +21,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import nbformat
@@ -36,6 +37,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     starter_read_channel,
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
+from osprey.profiles.sidecar_panels import JUPYTER_PANEL_ID, SIDECAR_PANELS
 from tests._live import wait_until
 from tests._processes import kill_group, kill_quietly, pid_alive, pid_gone
 
@@ -727,10 +729,10 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
         stopper = threading.Thread(target=sidecar.stop, daemon=True)
         started = time.monotonic()
         stopper.start()
-        stopper.join(jupyter_sidecar._STOP_GRACE + 5)
+        stopper.join(jupyter_sidecar._stop_grace() + 5)
 
         assert not stopper.is_alive(), "stop() hung on the orphan's pipe"
-        assert time.monotonic() - started < jupyter_sidecar._STOP_GRACE + 5
+        assert time.monotonic() - started < jupyter_sidecar._stop_grace() + 5
         assert pid_alive(orphan), "the orphan is the test's own; stop() must not need it gone"
     finally:
         # The orphan lives in its own session, so neither the group signal nor
@@ -786,7 +788,10 @@ def _spawn_stand_in(
 def test_stop_ends_a_member_of_the_sidecars_group_that_ignores_sigterm(
     shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(jupyter_sidecar, "_STOP_GRACE", 0.5)
+    # The stop reads its grace off the registry entry; shorten it there.
+    monkeypatch.setitem(
+        SIDECAR_PANELS, JUPYTER_PANEL_ID, replace(SIDECAR_PANELS[JUPYTER_PANEL_ID], stop_grace_s=1)
+    )
     sidecar, pid = _spawn_stand_in(shared_root, tmp_path, monkeypatch, _STUBBORN_GROUP_SCRIPT)
     try:
         sidecar.stop()

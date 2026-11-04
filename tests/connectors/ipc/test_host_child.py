@@ -794,11 +794,19 @@ def test_scrub_removes_every_epics_variable_and_nothing_else():
     assert environ == {"CA_CLIENT_LIBRARY": "/opt/libca.dylib", "PATH": "/usr/bin"}
 
 
-def test_installed_endpoint_reads_back_name_server_mode(monkeypatch):
-    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "cagw.example.org:5074")
+@pytest.mark.parametrize(
+    ("name_servers", "endpoint"),
+    [
+        ("cagw.example.org:5074", ("name_server", "cagw.example.org", 5074)),
+        ("cagw.example.org", ("name_server", "cagw.example.org", None)),
+    ],
+    ids=["with-port", "with-no-port-as-a-bare-host"],
+)
+def test_installed_endpoint_reads_back_name_server_mode(monkeypatch, name_servers, endpoint):
+    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", name_servers)
     monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
 
-    assert host._installed_endpoint() == ("name_server", "cagw.example.org", 5074)
+    assert host._installed_endpoint() == endpoint
 
 
 def test_installed_endpoint_reads_back_address_list_mode(monkeypatch):
@@ -814,13 +822,6 @@ def test_installed_endpoint_is_empty_when_nothing_was_configured(monkeypatch):
     monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
 
     assert host._installed_endpoint() == (None, None, None)
-
-
-def test_installed_endpoint_reads_a_name_server_with_no_port_as_a_bare_host(monkeypatch):
-    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "cagw.example.org")
-    monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
-
-    assert host._installed_endpoint() == ("name_server", "cagw.example.org", None)
 
 
 @pytest.mark.parametrize(

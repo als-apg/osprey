@@ -10,7 +10,10 @@
  *
  * The reader is store-free, so its wiring lives here: it reads `sel` and
  * `att`, writes `att` from the lightbox callbacks, `sel` from thread links and
- * `compose` from the Follow up action.
+ * `compose` from the Follow up action. Reader features join through the
+ * reader seam in `registerReaderFeatures`, and their keys reach the shown
+ * entry through `wireReaderKeys`, so a feature edits neither `reader.js` nor
+ * `keyboard.js`.
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
@@ -25,13 +28,20 @@ import { initLayout } from './layout.js';
 import { initRail } from './rail.js';
 import { initFacets } from './facets.js';
 import { initList } from './list.js';
-import { showInReader, clearReader, closeLightbox } from './reader.js';
+import { initListActivity } from './list-activity.js';
+import { showInReader, clearReader, closeLightbox, runReaderKey } from './reader.js';
 import { initEntries } from './entries.js';
 import { initDashboard } from './dashboard.js';
 import { initKeyboard } from './keyboard.js';
 import { initHeader } from './header.js';
 import { initRouter } from './router.js';
+import { registerAskAgent } from './ask-agent.js';
+import { registerRelated } from './related.js';
+import { registerInspector } from './inspector.js';
 import { getState, setState, subscribe } from './store.js';
+
+/** Text-entry controls, where keys type rather than act (as in `keyboard.js`). */
+const TYPING_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 // Embedded, the host tile bar is the one header; applied before initTheme,
 // which needs to know which surface this is.
@@ -113,6 +123,35 @@ function wireReader(container) {
 }
 
 /**
+ * Register the reader's seam features (`reader.js` `registerReader*`), once,
+ * before the reader first renders. The thread section is the reader's own
+ * first section; each feature module adds its registration call here.
+ */
+function registerReaderFeatures() {
+  // One call per feature, in display order.
+  registerAskAgent();
+  registerRelated();
+  registerInspector();
+}
+
+/**
+ * Route keys registered through the reader seam to the shown entry. Runs
+ * after `keyboard.js`, whose own keys are `defaultPrevented` by then, under
+ * its guards: this document's keydowns only, no modifier, not while typing.
+ * @param {Document} doc
+ * @param {HTMLElement} container - `#ariel-reader-body`
+ */
+function wireReaderKeys(doc, container) {
+  doc.defaultView?.addEventListener('keydown', (event) => {
+    const el = /** @type {HTMLElement|null} */ (event.target);
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (el?.ownerDocument && el.ownerDocument !== doc) return;
+    if (el?.isContentEditable || el?.closest?.(TYPING_SELECTOR)) return;
+    if (runReaderKey(container, event.key)) event.preventDefault();
+  });
+}
+
+/**
  * Boot the panel. Module init is non-fatal so the router still runs, and the
  * page still navigates, without a backend.
  */
@@ -138,12 +177,16 @@ async function init() {
     if (facets instanceof HTMLElement) initFacets(facets, { capabilities });
     const list = document.getElementById('ariel-list');
     if (list) initList(list, { capabilities });
+    // After the list: its pill sits above the list body.
+    if (list) initListActivity({ capabilities });
+    registerReaderFeatures();
     const reader = document.getElementById('ariel-reader-body');
     if (reader) wireReader(reader);
 
     initEntries(document);
     initDashboard(document);
     initKeyboard(document, { embedded: isEmbedded() });
+    if (reader) wireReaderKeys(document, reader);
     initHeader({ capabilities });
   } catch (e) {
     console.error('Module initialization failed (non-fatal):', e);

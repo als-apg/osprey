@@ -11,6 +11,11 @@
  * properties they animate.
  */
 
+/* The design system's agent-activity glow (`.agent-flash`), which list rows
+   fire when the agent creates, publishes or opens an entry. index.html links
+   only tokens, base and primitives, so it comes in here. */
+@import url('/design-system/css/highlight.css');
+
 /* === Main Layout === */
 /* The panel is one viewport-high screen: the header (standalone only) over
    the pane row. Panes scroll inside themselves, never the page. */
@@ -428,7 +433,9 @@ body.embedded .header {
 
 /* Icon strip: rows keep their icons; row names and the saved-search caption go.
    Reached through ARIEL's own containers so no design-system primitive is restyled. */
-.app-container[data-rail-collapsed] .ariel-rail :is([data-box] > span, .ariel-rail-saved-head > div) {
+.app-container[data-rail-collapsed]
+  .ariel-rail
+  :is([data-box] > span, .ariel-rail-saved-head > div) {
   display: none;
 }
 
@@ -548,6 +555,15 @@ body.embedded .header {
   overflow: hidden auto;
 }
 
+/* The "n new" pill: rows the agent created above where the list is scrolled
+   to. A click scrolls to the top and refreshes. */
+.ariel-new-pill {
+  flex: none;
+  align-self: center;
+  margin: var(--space-1) auto;
+  border-radius: var(--radius-full);
+}
+
 .ariel-rows {
   display: flex;
   flex-direction: column;
@@ -609,7 +625,7 @@ body.embedded .header {
   font-weight: var(--weight-semibold);
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wide);
 }
 
 /* === Compose sheet (Decisions 10, 11) ===
@@ -789,4 +805,107 @@ body.embedded .header {
   justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+}
+
+/* === Reader "Enhancements" tab (inspector.js) === */
+/* One card per enhancement module, in execution order. The state chip reuses
+   the badge strip's state colours (.ariel-strip-cell-*). */
+.entry-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+
+.inspector-card {
+  border: 1px solid var(--border-subtle, var(--neutral-tint-10));
+  border-radius: var(--radius-md, 6px);
+  padding: var(--space-3);
+}
+
+.inspector-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.inspector-card-title {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.inspector-chip {
+  display: inline-block;
+  width: auto;
+  height: auto;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs, var(--text-sm));
+  line-height: var(--leading-relaxed);
+}
+
+/* The strip's filled "complete" cell would hide the chip's text. */
+.inspector-chip.ariel-strip-cell-complete {
+  background: transparent;
+  color: var(--color-success);
+}
+
+.inspector-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+}
+
+.inspector-fields dt,
+.inspector-muted,
+.inspector-note,
+.inspector-empty {
+  color: var(--text-muted);
+}
+
+.inspector-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.inspector-command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.inspector-command code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+
+.inspector-note {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.inspector-detail {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle, var(--neutral-tint-10));
+}
+
+.inspector-rows {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+.inspector-text {
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: var(--text-sm);
 }

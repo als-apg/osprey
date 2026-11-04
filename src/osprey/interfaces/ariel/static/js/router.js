@@ -22,12 +22,26 @@
  * takes effect. After any hash is applied the canonical hash is written back
  * with `history.replaceState`, which fires no `hashchange`; a repeated alias
  * therefore always arrives as a real fragment change.
+ *
+ * Embedded, the router also takes the host's `canopy-host-navigate` (main's
+ * panel-navigate contract): it says `canopy-host-navigate-ready` once its
+ * listener is installed and again on every probe, and accepts navigate and
+ * probe messages only from `window.parent`, same origin, for urls under the
+ * page's own mount. A url with the current path and a sel-only hash (`sel`,
+ * optional `att`) is an intent for `selectEntry`, which keeps the search; an
+ * alias keeps its alias meaning; any other canonical hash applies its full
+ * state; a different path under the mount reloads there. All are forced, so
+ * the same message twice takes effect twice. `hashchange`, `parseHash` and
+ * fresh loads do not take this path: a sel-only hash there is still the full
+ * canonical state.
  */
 
 import { getState, setState, subscribe, mailboxKey, parseMailboxKey, savedName } from './store.js';
 import { normalizeFilter, sanitizeFilter, mergeFilter } from './filter-state.js';
 import { findSaved } from './saved-searches.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
+import { showToast } from '/design-system/js/toast.js';
+import { flashElement } from '/design-system/js/highlight.js';
 
 /** @typedef {import('./store.js').State} State */
 
@@ -212,6 +226,22 @@ function writeHash() {
   lastHash = window.location.hash;
 }
 
+/**
+ * Apply a patch as the router, so the store subscriber does not write the
+ * hash mid-patch, then write the canonical hash once.
+ * @param {Partial<State>} patch
+ * @param {boolean} force
+ */
+function applyPatch(patch, force) {
+  applying = true;
+  try {
+    if (Object.keys(patch).length > 0) setState(patch, { force });
+  } finally {
+    applying = false;
+  }
+  writeHash();
+}
+
 /** Apply the current location hash to the store, then write the canonical hash once. */
 function applyLocationHash() {
   const hash = window.location.hash;
@@ -223,15 +253,102 @@ function applyLocationHash() {
       patch.compose = null;
     }
   }
-  applying = true;
-  try {
-    if (Object.keys(patch).length > 0) {
-      setState(patch, { force: classify(hash).alias !== null });
-    }
-  } finally {
-    applying = false;
+  applyPatch(patch, classify(hash).alias !== null);
+}
+
+const NAVIGATE = 'canopy-host-navigate';
+const NAVIGATE_PROBE = 'canopy-host-navigate-probe';
+const NAVIGATE_READY = 'canopy-host-navigate-ready';
+const ROW_SELECTOR = '#ariel-list [data-entry-id]';
+
+/**
+ * A path without its trailing slashes, so `/panel/ariel/` and `/panel/ariel`
+ * compare equal; the root is the empty string.
+ * @param {string} path
+ * @returns {string}
+ */
+function trimPath(path) {
+  return path.replace(/\/+$/, '');
+}
+
+/**
+ * Show one entry without leaving the current search: `sel` and `att` are
+ * applied forced (the same entry twice re-selects), `q/mode/box/f`, the list
+ * and its scroll stay, and the painted row for `sel` flashes. When the list
+ * paints no row for it the reader still opens, and a toast says so.
+ * @param {{sel: string, att?: string|null}} intent
+ */
+export function selectEntry({ sel, att = null }) {
+  applyPatch({ sel, att: att || null, narrowView: 'reader' }, true);
+  const rows = /** @type {HTMLElement[]} */ (Array.from(document.querySelectorAll(ROW_SELECTOR)));
+  const row = rows.find((el) => el.dataset.entryId === sel);
+  if (row) {
+    row.scrollIntoView?.({ block: 'nearest' });
+    flashElement(row);
+  } else {
+    showToast('This entry is not shown in the list.');
   }
-  writeHash();
+}
+
+/**
+ * Whether a parsed hash is an intent: canonical, with `sel` and at most `att`.
+ * @param {{alias: string|null, params: URLSearchParams}} parsed
+ * @returns {boolean}
+ */
+function isIntent({ alias, params }) {
+  if (alias !== null || !params.get('sel')) return false;
+  return [...params.keys()].every((key) => key === 'sel' || key === 'att');
+}
+
+/**
+ * Handle one `canopy-host-navigate` url: ignored unless it is same origin and
+ * under this page's mount, a reload when its path differs from the current
+ * one (keeping `location.search`), else its hash classified and applied.
+ * @param {unknown} raw
+ */
+function navigateTo(raw) {
+  if (typeof raw !== 'string') return;
+  /** @type {URL} */
+  let url;
+  try {
+    url = new URL(raw, window.location.href);
+  } catch {
+    return;
+  }
+  if (url.origin !== window.location.origin) return;
+  const mount = trimPath(window.location.pathname);
+  const path = trimPath(url.pathname);
+  if (path !== mount && !path.startsWith(`${mount}/`)) return;
+  if (path !== mount) {
+    window.location.assign(url.pathname + window.location.search + url.hash);
+    return;
+  }
+  const parsed = classify(url.hash);
+  if (isIntent(parsed)) {
+    selectEntry({
+      sel: /** @type {string} */ (parsed.params.get('sel')),
+      att: parsed.params.get('att'),
+    });
+    return;
+  }
+  applyPatch(parseHash(url.hash), true);
+}
+
+/** Tell the host this page handles `canopy-host-navigate`. */
+function sayReady() {
+  window.parent.postMessage({ type: NAVIGATE_READY }, window.location.origin);
+}
+
+/**
+ * The embedded navigate listener: probes and navigates from the parent,
+ * same origin, only.
+ * @param {MessageEvent} event
+ */
+function onMessage(event) {
+  if (event.source !== window.parent || event.origin !== window.location.origin) return;
+  const type = event.data?.type;
+  if (type === NAVIGATE_PROBE) sayReady();
+  else if (type === NAVIGATE) navigateTo(event.data.url);
 }
 
 /**
@@ -252,4 +369,10 @@ export function initRouter(opts = {}) {
   });
   window.addEventListener('hashchange', applyLocationHash);
   applyLocationHash();
+  // After the initial hash, so a navigate never races the fresh load. A probe
+  // the host sent before this point is answered by the unsolicited ready.
+  if (isEmbedded()) {
+    window.addEventListener('message', onMessage);
+    sayReady();
+  }
 }

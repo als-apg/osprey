@@ -1096,7 +1096,7 @@ class TestMarkerStatus:
         assert "image_caption" not in sql
         assert "vis-a" not in sql
         body = _sql_body(sql)
-        assert "IS DISTINCT FROM %(marker_0)s THEN 'pending'" in body
+        assert "IS DISTINCT FROM %(marker_0)s) THEN 'pending'" in body
         assert params == {"module_0": "image_caption", "marker_0": "vis-a"}
 
     async def test_stats_with_markers_adds_gave_up_to_marker_modules_only(

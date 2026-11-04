@@ -249,6 +249,37 @@ _CONTROL_ASSISTANT_RENDERS = (
 )
 
 
+#: The control-assistant renders that show the CANOPY panel and open on it: the
+#: root and its login tiers. The apps render the panel's block switched off and
+#: keep their own default tab.
+_CANOPY_RENDERS = ("root", "admin", "readonly", "readwrite")
+
+
+def _canopy_panel_deltas(document: str) -> tuple[Delta, ...]:
+    """The leaves the CANOPY panel adds to one control-assistant render."""
+    shown = document in _CANOPY_RENDERS
+    deltas = [
+        Delta(document=document, path="web.panels.canopy.enabled", fixture=ABSENT, live=shown),
+        Delta(
+            document=document,
+            path="web.panels.canopy.home_screen",
+            fixture=ABSENT,
+            live="facility/overview",
+        ),
+        Delta(
+            document=document,
+            path="web.panels.canopy.vole_bytes_max",
+            fixture=ABSENT,
+            live=268435456,
+        ),
+    ]
+    if shown:
+        deltas.append(
+            Delta(document=document, path="web.default_panel", fixture=ABSENT, live="canopy")
+        )
+    return tuple(deltas)
+
+
 def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
     """The ``api.providers`` delta each of *documents* gains from the catalog additions.
 
@@ -268,6 +299,7 @@ def _control_assistant_deltas() -> tuple[Delta, ...]:
     deltas: list[Delta] = []
     for document in _CONTROL_ASSISTANT_RENDERS:
         deltas.extend(_retired_governed_policies(document))
+        deltas.extend(_canopy_panel_deltas(document))
         if document in _ASKED_RENDERS:
             deltas.append(
                 Delta(

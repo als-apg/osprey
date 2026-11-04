@@ -294,42 +294,37 @@ class TestPvaGatewayEnv:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
-    async def test_addr_list_branch_appends_no_port_unless_set(self, monkeypatch):
-        """EPICS_PVA_ADDR_LIST entries are UDP search targets (default 5076).
-
-        5075 is the PVA TCP port. Appending it here made p4p search on the
-        wrong port and every read time out, so an unset port appends nothing
-        and p4p's own default applies.
-        """
+    @pytest.mark.parametrize(
+        ("channels", "address"),
+        [
+            # EPICS_PVA_ADDR_LIST entries are UDP search targets (default 5076).
+            # 5075 is the PVA TCP port. Appending it here made p4p search on the
+            # wrong port and every read time out, so an unset port appends nothing
+            # and p4p's own default applies.
+            pytest.param(["SR:CAM1:IMAGE"], "pvagw.example.com", id="no-port-appended-unless-set"),
+            # A many-server facility lists its hosts in ``address``; passed verbatim.
+            pytest.param(
+                ["*:image"],
+                "10.0.0.1 10.0.0.2 cam3.example.com",
+                id="space-separated-host-list",
+            ),
+        ],
+    )
+    async def test_addr_list_branch_passes_the_address_through_as_given(
+        self, monkeypatch, channels, address
+    ):
         patch_writes_enabled(monkeypatch, False)
         install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
             {
-                "pva_channels": ["SR:CAM1:IMAGE"],
-                "pva_gateway": {"address": "pvagw.example.com"},
+                "pva_channels": channels,
+                "pva_gateway": {"address": address},
             }
         )
 
-        assert os.environ["EPICS_PVA_ADDR_LIST"] == "pvagw.example.com"
-
-    @pytest.mark.asyncio
-    @pytest.mark.usefixtures("clean_epics_env")
-    async def test_addr_list_accepts_a_space_separated_host_list(self, monkeypatch):
-        """A many-server facility lists its hosts in ``address``; passed verbatim."""
-        patch_writes_enabled(monkeypatch, False)
-        install_fake_p4p(monkeypatch)
-
-        connector = EPICSConnector()
-        await connector.connect(
-            {
-                "pva_channels": ["*:image"],
-                "pva_gateway": {"address": "10.0.0.1 10.0.0.2 cam3.example.com"},
-            }
-        )
-
-        assert os.environ["EPICS_PVA_ADDR_LIST"] == "10.0.0.1 10.0.0.2 cam3.example.com"
+        assert os.environ["EPICS_PVA_ADDR_LIST"] == address
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")

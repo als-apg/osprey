@@ -125,13 +125,15 @@ The web panel's attachment display does not depend on this setting.
 
 ``entry_open`` takes an ``entry_id`` and an optional ``attachment_id`` and asks
 the web terminal to bring the ARIEL panel forward at
-``#entry?id=<entry_id>``, with ``&attachment=<attachment_id>`` when that
-attachment is one of the entry's and is viewable. It returns ``entry_id``,
+``#sel=<entry_id>``, with ``&att=<attachment_id>`` when that attachment is
+one of the entry's and is viewable. It returns ``entry_id``,
 ``attachment_id``, ``opened`` (``entry`` or ``entry_and_picture``), the panel
 ``url`` and a ``message``; without a web terminal the ``url`` is the link to
 follow. An unknown entry, or an attachment that is not the entry's, is
 ``not_found``. The panel route also works in a browser on the standalone ARIEL
-web page.
+web page. The web terminal relays each ARIEL tool call to the panel's iframe
+and pop-out as ``osprey-agent-activity`` ``{tool, detail, ts}``; on
+``entry_create`` and ``entry_publish`` the list refreshes or counts the new row.
 
 ``attachment_to_artifact`` takes the ``attachment_id`` of a viewable attachment
 and saves its display rendition, never the original upload, to the artifact
@@ -381,7 +383,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - Download an attachment binary
             * - GET
               - ``/api/status``
-              - Service health, module status, and statistics
+              - Service health, module status, statistics and ``enhancement_coverage``
             * - GET
               - ``/api/config``
               - Read the current ARIEL configuration block
@@ -405,7 +407,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - List unexpired drafts, newest first
             * - GET
               - ``/api/drafts/{draft_id}``
-              - Read a draft entry
+              - Read a draft entry (422 when its file is not a readable draft)
             * - DELETE
               - ``/api/drafts/{draft_id}``
               - Discard a draft (204); its staged attachments are kept
@@ -414,8 +416,20 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - Download a draft's attachment
             * - GET
               - ``/api/entries/{entry_id}/thread``
-              - The entry's parent and follow-ups, as rows (follow-ups oldest
-                first; ``parent`` null when ARIEL does not hold it)
+              - ``{parent_id, parent, children, truncated}``: the parent and the
+                newest 200 follow-ups as rows, oldest first; ``parent`` null when
+                ARIEL does not hold it; ``truncated`` true, else omitted, when
+                older follow-ups were left out
+            * - GET
+              - ``/api/entries/{entry_id}/enhancements``
+              - ``{entry_id, modules}``: one card per enabled module in execution
+                order, with its ``state``, stored status fields, ``detail`` and,
+                when failed or stale, the re-run ``command`` (404 for an unknown entry)
+            * - GET
+              - ``/api/entries/{entry_id}/related``
+              - ``{state, entries}``: up to ``limit`` (default 5, at most 10)
+                nearest rows by text embedding, never the entry itself;
+                ``state`` is ``ok``, ``no_embedding`` or ``disabled``
 
          **Entry fields.** ``GET /api/publish-info`` returns
          ``{supports_write, requires_auth, source_system, entry_fields}``.
@@ -437,9 +451,9 @@ The web interface discovers its search modes and tunable parameters dynamically 
          stored as ``fields``; ``POST /api/drafts`` does not accept them. A
          draft id that is not ``draft-<12 hex>`` is 422.
 
-         **Follow-ups.** ``metadata.follows_up`` on ``POST /api/entries`` and
-         ``/upload``, and on a draft ``entry_publish`` publishes, names the
-         entry this one follows up. It must be an entry ARIEL holds and not the
+         **Follow-ups.** ``metadata.follows_up`` names the entry this one
+         follows up, on ``POST /api/entries`` and ``/upload`` and in the draft
+         that ``entry_publish`` publishes. It must be an entry ARIEL holds and not the
          entry itself; otherwise the refusal names ``follows_up`` (REST:
          ``invalid_entry_field``; MCP: ``validation_error``). ``follows_up`` is
          reserved: an adapter cannot declare it. Both create endpoints return
@@ -564,8 +578,17 @@ The web interface discovers its search modes and tunable parameters dynamically 
               "enabled_search_modules": ["keyword", "semantic"],
               "enabled_enhancement_modules": ["text_embedding", "semantic_processor"],
               "last_ingestion": "2025-01-15T06:00:00Z",
-              "errors": []
+              "errors": [],
+              "enhancement_coverage": {
+                "text_embedding": {"label": "Text embedding", "complete": 15102, "pending": 120, "stale": 0, "failed": 8, "n/a": 0}
+              }
             }
+
+         ``enhancement_coverage`` counts, per enabled module, the entries in each
+         state; ``osprey ariel status --json`` reports it as ``coverage``. A
+         failed or stale card's ``command`` is
+         ``osprey ariel enhance --module <name> --entry <entry_id>``, or the
+         ``osprey ariel reembed`` line for a stale ``text_embedding``.
 
          See :mod:`osprey.interfaces.ariel.api.schemas` for the full Pydantic model definitions.
 

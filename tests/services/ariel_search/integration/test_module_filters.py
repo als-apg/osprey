@@ -21,7 +21,10 @@ import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import ARIELRepository
-from osprey.services.ariel_search.enhancement.status import EnhancementContext, enhancement_context
+from osprey.services.ariel_search.enhancement.status import (
+    EnhancementContext,
+    store_enhancement_context,
+)
 from osprey.services.ariel_search.filters import EntryFilter
 from osprey.services.ariel_search.search.base import ModuleOutput
 from osprey.services.ariel_search.search.keyword import keyword_search
@@ -101,7 +104,7 @@ async def repo(
 
 
 async def _ctx(repo: ARIELRepository, config: ARIELConfig) -> EnhancementContext:
-    return enhancement_context(config, has_copy_state=(await repo.schema_facts()).has_copy_state)
+    return await store_enhancement_context(config, repo)
 
 
 async def _assert_confined(

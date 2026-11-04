@@ -182,7 +182,7 @@ jobs:
     # they merely cost time. The 40-minute step cap below sat at the healthy
     # runtime for a day and did exactly that: main timed out on the macOS cell
     # at 99% three times on 2026-09-01 with zero test failures.
-    timeout-minutes: 60
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -284,8 +284,10 @@ jobs:
       # runs about half of it or less and the trimmed macOS sweep about as
       # long as that cell, so the same cap leaves room for the slowest runner
       # in the pool AND the tail. The previous 40 was sized for
-      # a ~18 min cell and became the healthy runtime itself.
-      timeout-minutes: 55
+      # a ~18 min cell and became the healthy runtime itself. 70 because the
+      # macOS sweep then grew past 55: it was cut off at 97% and 99% with zero
+      # test failures on 2026-11-02.
+      timeout-minutes: 70
       env:
         # Switches on _harness/ci_diagnostics.py: a continuously flushed event log
         # and stack-dump file per xdist worker, written here and uploaded below.
@@ -350,8 +352,8 @@ jobs:
       # this invocation and the conftest override, so the flag cannot outlive
       # the scheduler that makes it safe.
       #
-      # -m "not pty and not wallclock": "not pty" hands the real-terminal suite
-      # to the serial step below.
+      # -m "not pty and not wallclock and not canopy": "not pty" hands the
+      # real-terminal suite to the serial step below.
       # Those scenarios assert on repaint cadence and on a spinner ADVANCING
       # between two frames, so they measure the box as much as the code, and
       # three other xdist workers competing for it is exactly the load that
@@ -366,9 +368,13 @@ jobs:
       # reason: a budget timed beside three loaded workers measures them. Each
       # is timed in a serial step that selects the marker: the qmd panel
       # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
+      #
+      # `not canopy` leaves the CANOPY contract to its own lane: this lane
+      # installs no CANOPY, and a `canopy`-marked test never skips. The run's
+      # summary says the contract was not exercised here.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov=packages/dock-engine/src/dock_engine --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -462,6 +468,9 @@ jobs:
         # $COV_ARGS splits into its flags on purpose: it is empty or several words.
         # shellcheck disable=SC2086
         uv run python scripts/check.py run pytest --shard "${{ matrix.shard }}" -- --durations=50 --timeout=600 --timeout-method=signal -n 4 $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          grep -m1 '^CANOPY contract not exercised here' ci-diag/pytest.log >> "$GITHUB_STEP_SUMMARY" || true
+        fi
 
     - name: Readonly gate under Python 3.14
       # The readonly gate refuses every shared-library load once user code
@@ -1085,8 +1094,7 @@ jobs:
 
     # One step: the check builds the framework, twine-checks dist/ while it
     # holds only the framework's own artifacts, builds the lean connectors
-    # wheel and import-walks it on a bare venv, asserts the framework wheel
-    # carries dock_engine and its package data, and builds pyaml-cs-osprey and
+    # wheel and import-walks it on a bare venv, and builds pyaml-cs-osprey and
     # import-walks it beside the other two wheels. The order is declared once,
     # in PACKAGE_STEPS of scripts/repo_checks.py.
     - name: Build and check the packages
@@ -1441,8 +1449,12 @@ jobs:
           tests/interfaces/web_terminal/test_opaque_panel_browser.py \
           tests/interfaces/web_terminal/test_facility_time_browser.py \
           tests/interfaces/web_terminal/test_panels_collab_browser.py \
+          tests/interfaces/web_terminal/test_dock_tiles_browser.py \
+          tests/interfaces/web_terminal/test_dock_perf_browser.py \
+          tests/interfaces/web_terminal/test_dock_agent_parity_browser.py \
           tests/interfaces/web_terminal/test_jupyter_panel_browser.py \
           tests/interfaces/web_terminal/test_agent_activity_browser.py \
+          tests/interfaces/web_terminal/test_ariel_embedded_agent_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
           tests/interfaces/web_terminal/test_logout_resume_browser.py \
           tests/interfaces/web_terminal/test_auth_login_browser.py \
@@ -1455,6 +1467,7 @@ jobs:
           tests/interfaces/web_terminal/test_first_contact_browser.py \
           tests/interfaces/web_terminal/test_chat_browser.py \
           tests/interfaces/web_terminal/test_session_persistence_browser.py \
+          tests/interfaces/web_terminal/test_canopy_host_themes.py \
           tests/interfaces/web_terminal/test_osprey_drawer.py \
           tests/interfaces/web_terminal/test_scaffold_detail.py \
           tests/interfaces/web_terminal/test_session_page.py \
@@ -1583,15 +1596,6 @@ jobs:
 
     - name: Run JS tests (vitest)
       run: python3 scripts/check.py run vitest
-
-    # The dock engine's committed bundle, declarations and manifest are build
-    # outputs of its TypeScript; --check rebuilds them in memory and fails when
-    # a committed file differs, so a source edit cannot land without its build.
-    - name: Check the dock-engine bundle is current
-      run: python3 scripts/check.py run dock-engine-bundle
-
-    - name: Run dock-engine tests (vitest)
-      run: python3 scripts/check.py run dock-engine-tests
 
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)
@@ -1828,6 +1832,14 @@ jobs:
     timeout-minutes: 50
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2158,6 +2170,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       # Full history: `uv sync` builds the package from source and the version
       # backend cannot derive a version without the tags.
@@ -2287,6 +2307,14 @@ jobs:
     # cap so a hang fails the run step and the capture step still runs.
     timeout-minutes: 135
     steps:
+    # The project image's deps layer ran the runner out of disk: uv reported
+    # "No space left on device" installing into the image. Drop the preinstalled
+    # SDKs this job never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       # Full history: `uv sync` builds the package from source and the version
       # backend cannot derive a version without the tags.
@@ -2680,6 +2708,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2786,6 +2822,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -2892,6 +2936,14 @@ jobs:
     timeout-minutes: 60
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3020,6 +3072,14 @@ jobs:
     timeout-minutes: 60
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3119,6 +3179,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # The project image's deps layer ran the runner out of disk: uv reported
+    # "No space left on device" installing into the image. Drop the preinstalled
+    # SDKs this job never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3181,6 +3249,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3261,6 +3337,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3359,6 +3443,13 @@ jobs:
     timeout-minutes: 100
 
     steps:
+    # The qmd, VA, bridge and Tiled images fill the runner's ~14 GB; drop the
+    # preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3476,6 +3567,14 @@ jobs:
     timeout-minutes: 75
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3571,6 +3670,14 @@ jobs:
     timeout-minutes: 75
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -3869,6 +3976,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4116,6 +4231,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4248,6 +4371,14 @@ jobs:
       OSPREY_E2E_RUNTIME: docker
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4512,6 +4643,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -4962,6 +5101,14 @@ jobs:
     timeout-minutes: 40
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5034,6 +5181,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5121,6 +5276,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5238,6 +5401,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5640,6 +5811,14 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5757,6 +5936,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
+    # The project image's deps layer, the dispatch image beside it and the uv
+    # and pip caches overrun the ~14 GB a hosted runner starts with free: a run
+    # ended at 89 % with a dangling 4.47 GB layer and no tagged image, and
+    # podman-compose 1.0.6 answered `up -d` 0 with no container created. Drop
+    # the preinstalled SDKs this job never uses, as the other image-building
+    # E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5977,6 +6167,14 @@ jobs:
     timeout-minutes: 60
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -6417,6 +6615,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # Image-building E2E lanes run the hosted runner out of disk ("No space left
+    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
+    # never uses, as the other image-building E2E jobs do.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       # Full history, not a shallow clone: the image build below stages a tree
       # with no .git in it and passes the version in from the host, and
@@ -6970,9 +7176,213 @@ jobs:
       if: always()
       uses: ./.github/actions/remove-virtual-accelerator-images
 
+  # The CANOPY contract: `scripts/check.py run canopy-contract` against
+  # CANOPY and PyDMConverter installed at the commits the package pins.
+  #
+  #   * Always started, with no job-level `if:`. The job decides inside
+  #     itself whether the change needs the proof, so it ends `success` or
+  #     `failure` and never `skipped`, and the gate reads it as always-on.
+  #   * Every same-repository pull request and push into an integration base
+  #     runs the contract, whatever it touches, and fails closed without the
+  #     read credential: an integration base takes no change the contract did
+  #     not run against. Which checks a range touches is the check command's
+  #     question on a laptop and on a gate, not this job's.
+  #   * A pull request from a fork gets no secrets, so the job skips the
+  #     contract there with a line in the run summary; a maintainer runs it
+  #     on the fork's branch through a workflow dispatch before merging.
+  #   * The check command is the contract's one spelling. It refuses an
+  #     installation at any commit other than the ones the package declares
+  #     in PROVEN_COMMITS, and its verdict line, copied into the run summary,
+  #     names the two commits and the platform the contract ran on. No
+  #     commit is written in this file.
+  #   * The read credential never shares a step with code the change
+  #     controls. One step holds it and runs git alone, to clone the two
+  #     repositories; the sync, the install and the tests run afterwards
+  #     with no secret, from those local clones.
+  #   * Nothing the job downloads or builds reaches the shared Actions cache.
+  #
+  # The repository names come from Actions variables and the credential from
+  # a secret; both reach the shell through `env:` only.
+  canopy-contract:
+    name: CANOPY contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        # Later steps run the change's code: the checkout leaves no token in
+        # the clone's git configuration.
+        persist-credentials: false
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        # The cache is shared across the repository's runs; the CANOPY
+        # sources and wheels this job builds stay out of it.
+        enable-cache: false
+
+    - name: Decide whether the change needs the contract
+      id: decide
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_REF: ${{ github.base_ref }}
+        REF_NAME: ${{ github.ref_name }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        REPO: ${{ github.repository }}
+      # The integration bases are the ones the pull_request trigger names. A
+      # change into one runs the contract; a dispatch runs it on its ref. A
+      # pull request from a fork has no read credential and is skipped.
+      run: |
+        set -euo pipefail
+        case "$EVENT_NAME" in
+          pull_request) base="$BASE_REF" ;;
+          push) base="$REF_NAME" ;;
+          *) base="" ;;
+        esac
+        run=true
+        reason=""
+        case "$base" in
+          ""|main|epic/*) ;;
+          *) run=false; reason="$base is not an integration base" ;;
+        esac
+        if [[ "$run" == "true" && "$EVENT_NAME" == "pull_request" && "$HEAD_REPO" != "$REPO" ]]; then
+          run=false
+          reason="a pull request from a fork has no CANOPY read credential; a maintainer runs the contract through a workflow dispatch"
+        fi
+        echo "run=$run" >> "$GITHUB_OUTPUT"
+        if [[ "$run" == "false" ]]; then
+          echo "CANOPY contract not run: $reason" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Require the CANOPY read credential
+      id: credential
+      if: steps.decide.outputs.run == 'true'
+      env:
+        TOKEN: ${{ secrets.CANOPY_READ_TOKEN }}
+        BRANCH: ${{ github.head_ref || github.ref_name }}
+      run: |
+        if [[ -z "$TOKEN" ]]; then
+          echo "::error::this change needs the CANOPY contract, which needs the CANOPY read credential: a maintainer re-runs it with gh workflow run ci.yml --ref $BRANCH"
+          exit 1
+        fi
+
+    - name: Read the proven commits from the package
+      id: pin
+      if: steps.decide.outputs.run == 'true'
+      # The pins are read by running the stdlib-only module that declares
+      # them with the runner's own python3, before anything is installed.
+      # Each value reaches `git fetch` beside the credential, so this shell
+      # accepts only 40 lower-case hex before writing any output.
+      run: |
+        python3 src/osprey/integrations/canopy/proven.py --pins > pins
+        canopy="$(sed -n 's/^canopy=//p' pins)"
+        pydm="$(sed -n 's/^PyDMConverter=//p' pins)"
+        for value in "$canopy" "$pydm"; do
+          if [[ ! "$value" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::proven.py --pins names a value that is not a 40-hex commit: $value"
+            exit 1
+          fi
+        done
+        {
+          echo "canopy=$canopy"
+          echo "pydm=$pydm"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Fetch CANOPY and PyDMConverter at the proven commits
+      id: fetch
+      if: steps.decide.outputs.run == 'true'
+      env:
+        TOKEN: ${{ secrets.CANOPY_READ_TOKEN }}
+        CANOPY_REPOSITORY: ${{ vars.CANOPY_REPOSITORY }}
+        PYDMCONVERTER_REPOSITORY: ${{ vars.PYDMCONVERTER_REPOSITORY }}
+        CANOPY_COMMIT: ${{ steps.pin.outputs.canopy }}
+        PYDM_COMMIT: ${{ steps.pin.outputs.pydm }}
+        SOURCES: ${{ runner.temp }}/canopy-sources
+      # The one step that uses the read credential, and it runs git alone:
+      # nothing the change controls executes beside it. The credential
+      # reaches the clone and the fetch through an askpass helper named on
+      # those two command lines. Git's configuration is never written, the
+      # helper file holds no secret, and a clone stores its remote without
+      # one.
+      run: |
+        set -euo pipefail
+        askpass="$RUNNER_TEMP/canopy-askpass"
+        # The helper answers git from this step's environment, which no
+        # other step shares.
+        # The single quotes are the point: $1 and ${TOKEN} expand when git
+        # runs the written helper, not here.
+        # shellcheck disable=SC2016
+        printf '%s\n' '#!/bin/sh' 'case "$1" in Username*) echo x-access-token ;; *) printf "%s\n" "${TOKEN}" ;; esac' > "$askpass"
+        chmod 700 "$askpass"
+        fetch_at() {
+          # $1 = clone directory, $2 = owner/name, $3 = commit
+          GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git clone --quiet "https://github.com/$2" "$1"
+          if ! git -C "$1" cat-file -e "$3^{commit}" 2>/dev/null; then
+            GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git -C "$1" fetch --quiet origin "$3"
+          fi
+          git -C "$1" checkout --quiet --detach "$3"
+          # The install asks the clone for the commit by its id.
+          git -C "$1" config uploadpack.allowAnySHA1InWant true
+        }
+        fetch_at "$SOURCES/canopy" "$CANOPY_REPOSITORY" "$CANOPY_COMMIT"
+        fetch_at "$SOURCES/pydmconverter" "$PYDMCONVERTER_REPOSITORY" "$PYDM_COMMIT"
+        {
+          echo "canopy=$SOURCES/canopy"
+          echo "pydm=$SOURCES/pydmconverter"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Install CANOPY and PyDMConverter at the proven commits
+      id: install
+      if: steps.decide.outputs.run == 'true'
+      env:
+        CANOPY_CLONE: ${{ steps.fetch.outputs.canopy }}
+        PYDM_CLONE: ${{ steps.fetch.outputs.pydm }}
+        CANOPY_COMMIT: ${{ steps.pin.outputs.canopy }}
+        PYDM_COMMIT: ${{ steps.pin.outputs.pydm }}
+      # No secret here: the sync and the builds run the change's code and
+      # CANOPY's, from the local clones. A `git+file://` install rather than
+      # a path: the installed distribution then records the commit it was
+      # built from, which the contract reads.
+      run: |
+        set -euo pipefail
+        if git config --global --get-regexp '^url\..*\.insteadof$' > /dev/null; then
+          echo "::error::a git URL rewrite is still configured; refusing to run the build beside it"
+          exit 1
+        fi
+        uv sync --extra dev
+        # CANOPY names a source of its own for PyDMConverter. The override
+        # makes the local clone the one source, so the resolver sees a single
+        # URL for it and the install reaches no remote.
+        pydm="PyDMConverter @ git+file://${PYDM_CLONE}@${PYDM_COMMIT}"
+        printf '%s\n' "$pydm" > "$RUNNER_TEMP/canopy-overrides.txt"
+        uv pip install --override "$RUNNER_TEMP/canopy-overrides.txt" \
+          "canopy[mcp,convert] @ git+file://${CANOPY_CLONE}@${CANOPY_COMMIT}" \
+          "PyDMConverter @ git+file://${PYDM_CLONE}@${PYDM_COMMIT}"
+
+    - name: Run the CANOPY contract
+      id: contract
+      if: steps.decide.outputs.run == 'true'
+      # The check probes the installed pair before any test and runs the
+      # contract's directories whole through `uv run --no-sync`, so the tests
+      # see the environment the install step built. `pipefail` keeps the
+      # check's exit status through the tee.
+      run: |
+        set -o pipefail
+        python3 scripts/check.py run canopy-contract 2>&1 | tee canopy-contract.log
+
+    - name: Name the proven commits
+      id: summary
+      if: always() && (steps.contract.outcome == 'success' || steps.contract.outcome == 'failure')
+      # The check's last line is its verdict, which names the pair and the
+      # platform the contract ran on.
+      run: |
+        grep '^check: ' canopy-contract.log | tail -n 1 >> "$GITHUB_STEP_SUMMARY"
+
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-cache-warmup, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke]
+    needs: [test, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-cache-warmup, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # The gate runs whenever the run was not cancelled, so a failed, cancelled
@@ -7076,6 +7486,12 @@ jobs:
         fi
         if [[ "${{ needs.build-boot-smoke.result }}" != "success" ]]; then
           echo "❌ Tier 1 build + boot smoke failed"
+          exit 1
+        fi
+        if [[ "${{ needs.canopy-contract.result }}" != "success" ]]; then
+          # The lane reports success itself when the change does not need
+          # the contract, so a skip is never a pass here.
+          echo "❌ CANOPY contract failed"
           exit 1
         fi
         check_pr_lane() {

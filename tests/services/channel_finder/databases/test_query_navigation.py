@@ -28,6 +28,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.hierarchical import (
         HierarchicalChannelDatabase,
@@ -177,21 +179,25 @@ class TestInstanceLevelDescent:
 
         assert options == [{"name": "X", "description": "Horizontal position"}]
 
-    def test_absent_container_leaves_the_cursor_in_place(
-        self, optional_instance_level_db: HierarchicalChannelDatabase
+    @pytest.mark.parametrize(
+        ("system", "expected"),
+        [
+            # ``BR`` has no ``DEVICE`` container, so ``signal`` sees ``BR``'s own children.
+            pytest.param("BR", [{"name": "Status", "description": ""}], id="absent-container"),
+            # The same optional level does descend under ``SR``, which has the container.
+            pytest.param(
+                "SR",
+                [{"name": "X", "description": "Horizontal position"}],
+                id="sibling-branch-with-a-container",
+            ),
+        ],
+    )
+    def test_an_optional_instance_level_descends_only_where_its_container_exists(
+        self, optional_instance_level_db: HierarchicalChannelDatabase, system, expected
     ):
-        """``BR`` has no ``DEVICE`` container, so ``signal`` sees ``BR``'s own children."""
-        options = optional_instance_level_db.get_options_at_level("signal", {"system": "BR"})
+        options = optional_instance_level_db.get_options_at_level("signal", {"system": system})
 
-        assert options == [{"name": "Status", "description": ""}]
-
-    def test_sibling_branch_with_a_container_still_descends(
-        self, optional_instance_level_db: HierarchicalChannelDatabase
-    ):
-        """The same optional level does descend under ``SR``, which has the container."""
-        options = optional_instance_level_db.get_options_at_level("signal", {"system": "SR"})
-
-        assert options == [{"name": "X", "description": "Horizontal position"}]
+        assert options == expected
 
 
 # ---------------------------------------------------------------------------

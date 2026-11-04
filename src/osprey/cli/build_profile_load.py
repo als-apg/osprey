@@ -190,13 +190,14 @@ _PROFILE_SCHEMA_MIN_OSPREY = "2026.10.0"
 #: The release from which the retired roster spellings (the ``RETIRED_*``
 #: constants of :mod:`osprey.cli.build_profile_document`: the tier pin, the
 #: default tier, the role target and the render catalog) are refused rather than rewritten to their ``tier``
-#: successors at parse time. The rewrite is a one-release migration window:
-#: the release that carries the tiers/apps vocabulary
-#: (:data:`_PROFILE_SCHEMA_MIN_OSPREY`) still reads the old spellings, and the
-#: minor release after it does not. A test asserts the running release sits
-#: below this value, so the release that reaches it fails until the rewrite is
-#: removed.
-RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.11.0"
+#: successors at parse time. The rewrite is a two-release migration window
+#: (owner ruling 2026-11-02, moved from 2026.11.0 so the first stable release
+#: after the tiers/apps vocabulary still reads the old spellings): the release
+#: that carries the vocabulary (:data:`_PROFILE_SCHEMA_MIN_OSPREY`) and the
+#: minor release after it read them, and the second minor release after it
+#: does not. A test asserts the running release sits below this value, so the
+#: release that reaches it fails until the rewrite is removed.
+RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.12.0"
 
 #: The one sunset of the write-posture migration windows: the retired write
 #: keys, undeclared write-looking facility tools, ``control_system.write_tools``
@@ -210,9 +211,10 @@ RETIRED_WRITE_KEYS_REFUSED_FROM = RETIRED_ROSTER_KEYS_REFUSED_FROM
 #: The release from which ``approval.tools.<tool>`` for a tool the write switch
 #: governs is refused rather than dropped with a warning
 #: (:func:`~osprey.cli.build_profile_document.normalize_retired_approval_policies`).
-#: Its own window, one minor after the write-posture sunset, because the
-#: policies retire in the release that refuses the write keys. A test tripwire
-#: like the others, not a runtime version compare.
+#: Its own constant, but since the write-posture sunset moved to 2026.12.0
+#: (owner ruling 2026-11-02) it closes on that same release, the date already
+#: promised for it, so the policies retire with the write keys. A test
+#: tripwire like the others, not a runtime version compare.
 RETIRED_APPROVAL_POLICY_REFUSED_FROM = "2026.12.0"
 
 

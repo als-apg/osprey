@@ -183,6 +183,8 @@ def _status_repo(
     )
     repo.get_embedding_tables = AsyncMock(return_value=list(tables))
     repo.has_input_key_column = AsyncMock(return_value=True)
+    repo.text_input_key_column = AsyncMock(return_value=True)
+    repo.get_enhancement_coverage = AsyncMock(return_value={})
     repo.get_embedding_build_counts = AsyncMock(return_value={"r1": 7})
     repo.get_image_embedding_tables = AsyncMock(return_value=[])
     repo.get_last_ingestion = AsyncMock(return_value=last_ingestion)
@@ -392,14 +394,21 @@ class TestGetStatus:
         assert out["status"] == "error"
         assert "boom-ingestion" in out["message"]
 
-    async def test_registered_module_with_no_rows_owes_every_entry(self, monkeypatch):
-        """One table over every registered module, whether the store knows it or not.
-
-        A module that has never run has written no status key, so every entry is
-        still pending for it: the same count a module that processed one entry
-        reports as the rest, never a zero that reads as "nothing to do".
-        """
-        repo = _status_repo(stats={"total_entries": 3})
+    @pytest.mark.parametrize(
+        "entries",
+        [
+            # One table over every registered module, whether the store knows it or not.
+            #
+            # A module that has never run has written no status key, so every entry is
+            # still pending for it: the same count a module that processed one entry
+            # reports as the rest, never a zero that reads as "nothing to do".
+            pytest.param(3, id="entries-present"),
+            # No entries, nothing owed: a never-run module reads all zeros.
+            pytest.param(0, id="empty-store"),
+        ],
+    )
+    async def test_registered_module_with_no_rows_owes_every_entry(self, monkeypatch, entries):
+        repo = _status_repo(stats={"total_entries": entries})
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         out = await ops.get_status(dict(_DB))
@@ -408,22 +417,7 @@ class TestGetStatus:
             "enabled": False,
             "complete": 0,
             "failed": 0,
-            "pending": 3,
-            "gave_up": 0,
-        }
-
-    async def test_registered_module_on_an_empty_store_reports_zeros(self, monkeypatch):
-        """No entries, nothing owed: a never-run module reads all zeros."""
-        repo = _status_repo(stats={"total_entries": 0})
-        _patch_service(monkeypatch, _StubService(repository=repo))
-
-        out = await ops.get_status(dict(_DB))
-
-        assert out["enhancement_modules"]["text_embedding"] == {
-            "enabled": False,
-            "complete": 0,
-            "failed": 0,
-            "pending": 0,
+            "pending": entries,
             "gave_up": 0,
         }
 
@@ -2091,3 +2085,256 @@ class TestGetStatusEmbeddingVerdicts:
             for t in out["embedding_tables"]
         ]
         assert stale_is_dict == [(None, True), ("unconfigured", False)]
+
+
+# ---------------------------------------------------------------------------
+# get_status: enhancement coverage
+# ---------------------------------------------------------------------------
+
+#: A store whose text completions were all written before P4: no build-key
+#: marker on any of them, so the legacy counts below are what the pre-P4 code
+#: reported and operators script against.
+_LEGACY_STATS = {
+    "total_entries": 4,
+    "text_embedding": {"complete": 3, "failed": 0, "pending": 1},
+    "semantic_processor": {"complete": 2, "failed": 1, "pending": 1},
+}
+
+#: What ``get_enhancement_coverage`` answers for that store: an unmarked legacy
+#: completion reads ``complete``, never ``stale``.
+_LEGACY_COVERAGE = {
+    "text_embedding": {
+        "label": "Text Embedding",
+        "n/a": 0,
+        "pending": 1,
+        "stale": 0,
+        "failed": 0,
+        "complete": 3,
+    },
+    "semantic_processor": {
+        "label": "Semantic Processor",
+        "n/a": 0,
+        "pending": 1,
+        "stale": 0,
+        "failed": 1,
+        "complete": 2,
+    },
+}
+
+_LEGACY_CONFIG = {
+    **_DB,
+    "enhancement_modules": {
+        "text_embedding": {"enabled": True, "models": [{"name": "nomic", "dimension": 768}]},
+        "semantic_processor": {"enabled": True},
+    },
+}
+
+#: Every ``status --json`` key and value the pre-P4 code produced for the legacy
+#: fixture, captured by running that code on it. ``coverage`` is the only
+#: addition P4 may make; nothing here may change.
+_PRE_P4_STATUS = {
+    "status": "healthy",
+    "message": "connected",
+    "errors": [],
+    "database": {"uri": "postgresql://localhost/test", "connected": True},
+    "entries": 4,
+    "last_ingestion": "2026-10-01T12:00:00+00:00",
+    "embedding_tables": [
+        {
+            "table": "text_embeddings_nomic",
+            "entries": 3,
+            "dimension": 768,
+            "active": True,
+            "built_with": {"r1": 7},
+            "stale": {},
+            "verdict_unavailable": None,
+            "model": {"name": "nomic", "dimension": 768},
+        }
+    ],
+    "image_embedding_tables": [],
+    "enhancement_modules": {
+        "image_caption": {"enabled": False, "complete": 0, "failed": 0, "pending": 4, "gave_up": 0},
+        "semantic_processor": {
+            "enabled": True,
+            "complete": 2,
+            "failed": 1,
+            "pending": 1,
+            "gave_up": 0,
+            "health": {"reachable": True, "reason": None, "probed_from": "this process"},
+        },
+        "text_embedding": {
+            "enabled": True,
+            "complete": 3,
+            "failed": 0,
+            "pending": 1,
+            "gave_up": 0,
+            "health": {"reachable": True, "reason": None, "probed_from": "this process"},
+        },
+        "image_embedding": {
+            "enabled": False,
+            "complete": 0,
+            "failed": 0,
+            "pending": 4,
+            "gave_up": 0,
+        },
+        "qmd_export": {"enabled": False, "complete": 0, "failed": 0, "pending": 4, "gave_up": 0},
+    },
+    "orphaned_enhancement_modules": {},
+    "search_modules": {"keyword": False, "semantic": False, "hybrid": False},
+    "vocabulary": {
+        "status": "disabled",
+        "concepts": 0,
+        "errors": [],
+        "entry_expansion": {"configured": False, "active": False, "key": None},
+    },
+    "attachments": {
+        "copy_on_ingest": "images",
+        "formats": {
+            "viewable": ["png", "jpeg", "gif", "webp", "bmp", "tiff"],
+            "reserved": ["svg", "pdf", "text", "heif", "video", "audio", "archive"],
+        },
+        "view": True,
+        "captions": False,
+        "picture_search": False,
+        "picture_search_unavailable": None,
+        "bytes": 0,
+        "pending": 0,
+        "skipped": {},
+        "render": "ok",
+        "render_unavailable": None,
+    },
+    "captions": None,
+}
+
+
+def _legacy_status_repo():
+    repo = _status_repo(
+        stats=dict(_LEGACY_STATS),
+        tables=[_embedding_table(count=3)],
+        last_ingestion=datetime(2026, 10, 1, 12, 0, tzinfo=UTC),
+    )
+    repo.get_enhancement_coverage = AsyncMock(return_value=_LEGACY_COVERAGE)
+    return repo
+
+
+def _patch_legacy_health(monkeypatch):
+    from osprey.models.providers.health import HealthResult
+
+    ok = HealthResult(True, "OK", None)
+    _patch_modules(
+        monkeypatch,
+        {
+            "text_embedding": _HealthModule("text_embedding", ok),
+            "semantic_processor": _HealthModule("semantic_processor", ok),
+        },
+    )
+
+
+class TestGetStatusCoverage:
+    """``status --json`` carries the badge-strip coverage beside its legacy keys."""
+
+    async def test_status_json_pre_p4_keys_and_values_are_unchanged(self, monkeypatch):
+        repo = _legacy_status_repo()
+        _patch_service(monkeypatch, _StubService(repository=repo, health=(True, "connected")))
+        _patch_legacy_health(monkeypatch)
+
+        out = await ops.get_status(dict(_LEGACY_CONFIG))
+
+        legacy = {key: value for key, value in out.items() if key != "coverage"}
+        assert legacy == _PRE_P4_STATUS
+
+    async def test_coverage_is_the_repository_count_under_the_store_context(self, monkeypatch):
+        repo = _legacy_status_repo()
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        _patch_legacy_health(monkeypatch)
+
+        out = await ops.get_status(dict(_LEGACY_CONFIG))
+
+        assert out["coverage"] == _LEGACY_COVERAGE
+        repo.get_enhancement_coverage.assert_awaited_once()
+        (context,), _ = repo.get_enhancement_coverage.await_args
+        assert set(context.enabled) == {"text_embedding", "semantic_processor"}
+
+    async def test_coverage_uses_the_badge_strip_vocabulary(self, monkeypatch):
+        from osprey.services.ariel_search.enhancement.status import STATES
+
+        repo = _legacy_status_repo()
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        _patch_legacy_health(monkeypatch)
+
+        out = await ops.get_status(dict(_LEGACY_CONFIG))
+
+        for counts in out["coverage"].values():
+            assert set(counts) == {"label", *STATES}
+
+    async def test_coverage_is_empty_when_no_module_is_enabled(self, monkeypatch):
+        repo = _status_repo(stats={"total_entries": 2})
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["coverage"] == {}
+
+    async def test_coverage_is_null_when_no_registry_can_answer(self, monkeypatch):
+        """Outside a project the rest of the report still assembles, as before."""
+        import osprey.services.ariel_search.enhancement.status as status_mod
+
+        def _no_registry(_config):
+            raise RuntimeError("Registry creation failed: No config.yml found")
+
+        monkeypatch.setattr(status_mod, "enabled_modules", _no_registry)
+        repo = _status_repo(stats={"total_entries": 2})
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["status"] == "healthy"
+        assert out["coverage"] is None
+        repo.get_enhancement_coverage.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "config",
+        [pytest.param({}, id="unconfigured"), pytest.param(dict(_DB), id="connection-error")],
+    )
+    async def test_coverage_absent_on_error_paths(self, monkeypatch, config):
+        _patch_service_raises(monkeypatch, RuntimeError("connection refused"))
+
+        out = await ops.get_status(config)
+
+        assert out["status"] == "error"
+        assert "coverage" not in out
+
+    async def test_coverage_query_failure_lands_in_the_error_branch(self, monkeypatch):
+        repo = _legacy_status_repo()
+        repo.get_enhancement_coverage = AsyncMock(side_effect=DatabaseQueryError("boom"))
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        _patch_legacy_health(monkeypatch)
+
+        out = await ops.get_status(dict(_LEGACY_CONFIG))
+
+        assert out["status"] == "error"
+        assert "coverage" not in out
+
+
+class TestStatusTextCoverage:
+    """``osprey ariel status`` prints one coverage line per enabled module."""
+
+    def test_status_text_prints_one_coverage_line_per_module(self, monkeypatch):
+        from click.testing import CliRunner
+
+        from osprey.cli.ariel import ariel_group
+
+        _patch_service(monkeypatch, _StubService(repository=_legacy_status_repo()))
+        _patch_legacy_health(monkeypatch)
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value", lambda *a, **kw: dict(_LEGACY_CONFIG)
+        )
+
+        result = CliRunner().invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Enhancement coverage:" in result.output
+        assert "- Text Embedding: 3 complete, 1 pending, 0 stale, 0 failed, 0 n/a" in result.output
+        assert (
+            "- Semantic Processor: 2 complete, 1 pending, 0 stale, 1 failed, 0 n/a" in result.output
+        )

@@ -105,35 +105,28 @@ class TestRefusals:
     """``refused`` — nothing was written -> ChannelWriteBlockedError."""
 
     @pytest.mark.asyncio
-    async def test_writes_disabled_result_raises_blocked(self):
+    @pytest.mark.parametrize(
+        ("refusal_reason", "error_message"),
+        [
+            pytest.param("WRITES_DISABLED", "writes are disabled", id="writes-disabled"),
+            pytest.param("VALIDATION_ERROR", "validate() raised", id="validation-error"),
+        ],
+    )
+    async def test_a_refused_result_raises_blocked_with_its_reason(
+        self, refusal_reason, error_message
+    ):
         connector = _FakeConnector(
             result=_result(
                 outcome=WriteOutcome.REFUSED,
-                refusal_reason="WRITES_DISABLED",
-                error_message="writes are disabled",
+                refusal_reason=refusal_reason,
+                error_message=error_message,
             )
         )
 
         with pytest.raises(ChannelWriteBlockedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "WRITES_DISABLED"
-        assert excinfo.value.channel_address == "TEST:PV"
-
-    @pytest.mark.asyncio
-    async def test_validation_error_result_raises_blocked(self):
-        connector = _FakeConnector(
-            result=_result(
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason="VALIDATION_ERROR",
-                error_message="validate() raised",
-            )
-        )
-
-        with pytest.raises(ChannelWriteBlockedError) as excinfo:
-            await connector.write_channel_checked("TEST:PV", 42.0)
-
-        assert excinfo.value.reason == "VALIDATION_ERROR"
+        assert excinfo.value.reason == refusal_reason
         assert excinfo.value.channel_address == "TEST:PV"
 
     def test_refusal_without_a_reason_names_none(self):

@@ -58,19 +58,17 @@ import { initEntries } from '../../../src/osprey/interfaces/ariel/static/js/entr
 import { entryFieldsRendered } from '../../../src/osprey/interfaces/ariel/static/js/entry-fields.js';
 
 /**
- * Single-quote-based payload: breaks out of any `"`-quoted HTML attribute
- * and would inject a live element if reflected unescaped, but — unlike a
- * double-quote payload — stays inert if it round-trips through the
- * addTag() duplicate-check selector (`[data-value="${value}"]`), so the
- * same constant is safe to drive through every sink in this file.
+ * Single-quote-based payload: would inject a live element if reflected
+ * unescaped into markup or a `'`-quoted attribute. One constant drives every
+ * sink in this file.
  */
 const PAYLOAD = "'><img src=x onerror=alert(1)>";
 
 /**
  * The payload that demonstrates the JS-string-context breakout the onclick
- * conversion (Task 4.3) fixes: reflected unescaped into
- * `onclick="window.app.showEntry('${id}')"`, the browser HTML-decodes the
- * attribute *before* the JS parser runs, so this closes the string early and
+ * conversion (Task 4.3) fixes: reflected unescaped into an inline `onclick`
+ * that interpolates an entry id, the browser HTML-decodes the attribute
+ * *before* the JS parser runs, so this closes the string early and
  * executes `alert(1)` on click — see the module docstring above. Every
  * converted sink must now carry it inertly as a `data-*` attribute instead.
  */
@@ -126,6 +124,7 @@ function mountFixture() {
     <div id="ariel-reader-body"></div>
     <section id="ariel-compose" hidden>
       <form id="create-entry-form">
+        <div id="ariel-compose-banner" hidden></div>
         <div id="entry-tags"></div>
         <div id="file-preview"></div>
       </form>

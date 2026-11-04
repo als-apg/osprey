@@ -179,8 +179,10 @@ def _standin_config(
 
     Three top-level facts beyond :func:`_config`: the stand-in's own connector
     block, the ``services.live_standin.port`` the build projects when a profile
-    asked for a stand-in, and the ``deployed_services`` list whose
-    ``archiver_recorder`` entry is what makes the store this deployment's own.
+    asked for a stand-in, and the ``deployed_services`` list. ``recorder``
+    lists the ``archiver_recorder`` there — the store is then written, and it
+    is the virtual accelerator's; no gate reads it, which the tests that pass
+    it are there to show.
     """
     connector = kwargs.pop("connector", None)
     if connector is None:
@@ -693,61 +695,39 @@ def test_switching_to_the_standin_needs_no_operator_acknowledgment() -> None:
     assert verdict.reason is None
 
 
-def test_live_is_refused_while_the_archive_belongs_to_the_standin() -> None:
-    """Recording your own store beside a stand-in records the stand-in, and a
-    real machine's readings must not land in that store."""
-    config = _standin_config(control_system_type=STANDIN_TYPE, recorder=True, ack=True)
+def test_live_is_not_gated_on_the_archive() -> None:
+    """The archive belongs to the machine, and nothing a session does changes
+    whose it is. The deployment's store is the virtual accelerator's — the
+    recorder samples the simulator whether or not a stand-in is built — and the
+    live machine and its stand-in share the facility's appliance. So a
+    deployment that records its own store beside a stand-in offers ``live``
+    exactly as one that records nothing does."""
+    recording = _standin_config(control_system_type=STANDIN_TYPE, recorder=True, ack=True)
+    silent = _standin_config(control_system_type=STANDIN_TYPE, recorder=False, ack=True)
 
-    verdict = _eligibility(config, LIVE)
-
-    assert verdict.eligible is False
-    assert verdict.reason == te.REASON_ARCHIVE_BELONGS_TO_STANDIN
-    assert "archiver_recorder" in verdict.detail
-    assert "virtual_accelerator.live_standin" in verdict.detail
-
-
-def test_live_beside_a_standin_nobody_records_is_eligible() -> None:
-    """No recorder, so this deployment writes no store, so no past is its own."""
-    config = _standin_config(control_system_type=STANDIN_TYPE, recorder=False, ack=True)
-
-    assert _eligibility(config, LIVE).eligible is True
+    assert _eligibility(recording, LIVE).eligible is True
+    assert _eligibility(silent, LIVE).eligible is True
 
 
-def test_a_render_session_is_refused_live_on_the_projected_recorder_fact() -> None:
-    """The multi-user half of the same gate, and it has to answer identically.
-
-    A web-terminal render is an attached render: it lists no services, so the
-    host's `deployed_services` spelling of "we record" never reaches it. The
-    build projects the recorder's own block instead (the `archiver_recorder`
-    Reach Contract), and the render reads the very store the fact is about —
-    so a session behind a render is refused the live machine exactly as a
-    single-user session on the same deployment is.
-    """
+def test_a_render_session_is_not_gated_on_the_archive_either() -> None:
+    """A web-terminal render is an attached render that lists no services; it
+    carries nothing about the recorder and needs nothing, because no gate reads
+    the recorder on the host's render either."""
     config = _standin_config(control_system_type=STANDIN_TYPE, recorder=False, ack=True)
     config["deployed_services"] = []
-    config["services"]["archiver_recorder"] = {"path": "./services/archiver_recorder"}
 
-    verdict = _eligibility(config, LIVE)
-
-    assert verdict.eligible is False
-    assert verdict.reason == te.REASON_ARCHIVE_BELONGS_TO_STANDIN
-    assert "archiver_recorder" in verdict.detail
-    # ... and the same render with nothing projected keeps `live` open, so it is
-    # the fact that decides and not the render shape.
-    del config["services"]["archiver_recorder"]
     assert _eligibility(config, LIVE).eligible is True
 
 
-def test_the_missing_acknowledgment_is_reported_before_the_archive_ownership() -> None:
-    """Both are true; the operator is told the one that is theirs to answer."""
+def test_the_missing_acknowledgment_is_the_live_machines_last_gate() -> None:
+    """Acknowledged and strict is all the live machine asks; recording a store
+    beside the stand-in adds nothing to answer."""
     config = _standin_config(control_system_type=STANDIN_TYPE, recorder=True, ack=False)
 
     assert _eligibility(config, LIVE).reason == te.REASON_OPERATOR_ACK_MISSING
 
 
-def test_the_archive_ownership_gate_is_the_live_machines_alone() -> None:
-    """The store holding the stand-in's history is no reason to refuse the
-    stand-in — it is exactly the machine that history belongs to."""
+def test_the_standin_is_not_gated_on_the_archive() -> None:
     config = _standin_config(control_system_type=STANDIN_TYPE, recorder=True, ack=True)
 
     assert _eligibility(config, STANDIN, direction=te.DIRECTION_AWAY).eligible is True
@@ -786,14 +766,15 @@ def test_the_return_exemption_does_not_excuse_the_standins_deployed_check() -> N
 
 # The roster on a live_standin baseline, written out per row rather than
 # computed: session on the stand-in it was built for, and the two other machines
-# judged from there. The ``live`` row is the one that moves, and it moves for a
-# different reason in each cell.
+# judged from there. The ``live`` row is the one that moves, and it moves on
+# the acknowledgment alone: the recorder writes the virtual accelerator's store
+# and is no fact about the live machine.
 STANDIN_BASELINE_ROSTER = [
     # ack, recorder, live_available, live_reason
     (False, False, False, te.REASON_OPERATOR_ACK_MISSING),
     (False, True, False, te.REASON_OPERATOR_ACK_MISSING),
     (True, False, True, None),
-    (True, True, False, te.REASON_ARCHIVE_BELONGS_TO_STANDIN),
+    (True, True, True, None),
 ]
 
 
@@ -1867,3 +1848,146 @@ def test_an_unreadable_use_name_server_is_ineligible_and_names_the_key() -> None
     assert verdict.eligible is False
     assert verdict.reason == te.REASON_TARGET_UNRESOLVABLE
     assert "use_name_server" in verdict.detail
+
+
+# ---------------------------------------------------------------------------
+# The simulator judge the archiver recorder gates on
+# ---------------------------------------------------------------------------
+
+
+def _simulator_config(port: int = 5064) -> dict[str, Any]:
+    return {"services": {"virtual_accelerator": {"port": port}}}
+
+
+def test_the_deployments_own_simulator_is_judged_on_loopback_and_its_published_port() -> None:
+    """The twin of the stand-in judge, for the ``va`` target's derived endpoint."""
+    assert te.endpoint_is_virtual_accelerator(
+        _simulator_config(), Endpoint("localhost", 5064, "name_server")
+    )
+    assert te.endpoint_is_virtual_accelerator(
+        _simulator_config(), Endpoint("127.0.0.1", "5064", "name_server")
+    )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        pytest.param(Endpoint("va.example.org", 5064, "name_server"), id="off-the-host"),
+        pytest.param(Endpoint("localhost", 5074, "name_server"), id="another-port"),
+        pytest.param(Endpoint("localhost", "not-a-port", "name_server"), id="unreadable-port"),
+        pytest.param(None, id="no-endpoint"),
+    ],
+)
+def test_anything_else_is_a_real_machine_until_proven_otherwise(endpoint: Any) -> None:
+    assert not te.endpoint_is_virtual_accelerator(_simulator_config(), endpoint)
+
+
+def test_a_deployment_that_built_no_simulator_vouches_for_no_endpoint() -> None:
+    assert not te.endpoint_is_virtual_accelerator({}, Endpoint("localhost", 5064, "name_server"))
+
+
+# ---------------------------------------------------------------------------
+# A display-only report is not a member of the fleet the gate asks
+# ---------------------------------------------------------------------------
+
+#: The pid of a DATA process: odd enough that finding it in a sentence is proof.
+DATA_PID = 48213
+
+
+def _display_only_report_on_disk(tmp_path, monkeypatch) -> None:
+    """Lay down DATA's report, and nothing else, in a scratch state directory."""
+    import json
+
+    from osprey_connectors import control_context, posture_store
+
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    control_context.invalidate_cache()
+    path = control_context.report_path(DATA_PID)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "server_pid": DATA_PID,
+                "session": None,
+                "applied_target": LIVE,
+                "applied_generation": 1,
+                "children": [],
+                "reachability": {},
+                "last_switch": None,
+                "last_posture_realign": None,
+                "targets": {},
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "statement": {
+                    "reachable": {"state": "yes", "since": None, "reason": None},
+                    "writes": {
+                        "allowed": True,
+                        "position": "allowed",
+                        "reason": None,
+                        "kind": "real",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_with_only_a_display_only_report_live_a_switch_takes_the_no_server_path(
+    tmp_path, monkeypatch
+) -> None:
+    """The gate is fed ``live_reports()``, which leaves DATA out at the source."""
+    from osprey_connectors import control_context
+
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    _display_only_report_on_disk(tmp_path, monkeypatch)
+    try:
+        reports = control_context.live_reports(is_alive=lambda pid: True)
+        assert control_context.live_statement_reports(is_alive=lambda pid: True)
+    finally:
+        control_context.invalidate_cache()
+
+    verdict = te.evaluate_switch(
+        _config(),
+        VA,
+        current_target=LIVE,
+        baseline=LIVE,
+        reports=reports,
+        writes_enabled=False,
+    )
+
+    assert reports == []
+    assert verdict.allowed is True
+    assert verdict.reason == ""
+    assert verdict.reachability == te.REACHABILITY_NOT_PROBED
+    assert str(DATA_PID) not in verdict.detail
+    assert str(DATA_PID) not in " ".join(verdict.suggestions)
+    assert str(DATA_PID) not in repr(verdict.details)
+    assert str(DATA_PID) not in te._server_pids(reports)
+
+
+def test_an_unfiltered_display_only_report_would_be_named_by_the_gate(
+    tmp_path, monkeypatch
+) -> None:
+    """Why the filter sits at the source: the gate itself cannot tell DATA apart."""
+    from osprey_connectors import control_context
+
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    _display_only_report_on_disk(tmp_path, monkeypatch)
+    try:
+        unfiltered = control_context.live_statement_reports(is_alive=lambda pid: True)
+    finally:
+        control_context.invalidate_cache()
+
+    verdict = te.evaluate_switch(
+        _config(),
+        VA,
+        current_target=LIVE,
+        baseline=LIVE,
+        reports=unfiltered,
+        writes_enabled=False,
+    )
+
+    assert verdict.allowed is False
+    assert verdict.reason == te.REASON_REACHABILITY_UNKNOWN
+    assert str(DATA_PID) in verdict.detail

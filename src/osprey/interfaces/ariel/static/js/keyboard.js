@@ -11,6 +11,10 @@
  *   c       open the compose sheet on a new entry (`compose:{draft:null}`)
  *   r       open the compose sheet on a follow-up of the selection
  *           (`compose:{draft:null, followsUp:sel}`); nothing without a `sel`
+ *   a       embedded only: cite the shown entry in the host's assistant prompt
+ *           (`ask-agent.js`, a reader-seam key routed by `app.js`, not here)
+ *   e       open the reader's "Enhancements" tab (`inspector.js`, a reader-seam
+ *           tab key routed by `app.js`, not here)
  *   Esc     close one layer: the lightbox (`att:null`), else the compose sheet
  *           (`compose:null`; its autosaved draft is kept), else Back in the
  *           stacked layout

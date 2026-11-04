@@ -116,7 +116,12 @@ class TestProxiedPanels:
             headers={"content-type": "text/html", "content-security-policy": attachment_csp},
         )
         resp = client.get("/panel/my-dash/attachments/1")
-        assert resp.headers.get_list("content-security-policy") == [attachment_csp]
+        # The attachment's own policy is kept as written; the terminal's panel
+        # sandbox is appended beside it as a policy of its own, never merged.
+        assert resp.headers.get_list("content-security-policy") == [
+            attachment_csp,
+            OPAQUE_CSP,
+        ]
 
     def test_non_html_panel_response_untouched(self, app_and_client):
         app, client = app_and_client

@@ -1048,33 +1048,28 @@ class TestUserOwnedSkipBehavior:
         content = (project_dir / "CLAUDE.md").read_text()
         assert "OSPREY" in content
 
-    def test_claude_project_md_not_generated(self, tmp_path):
-        """CLAUDE-project.md is NOT generated (retired)."""
+    @pytest.mark.parametrize(
+        ("project_name", "absent"),
+        [
+            # CLAUDE-project.md is retired and is not generated.
+            ("no-project-md-test", "CLAUDE-project.md"),
+            # Init does not create an overrides/ directory.
+            ("no-overrides-dir", "overrides"),
+        ],
+        ids=["claude-project-md", "overrides-directory"],
+    )
+    def test_retired_user_owned_paths_are_not_generated(self, tmp_path, project_name, absent):
         manager = TemplateManager()
         project_dir = create_project_with_manifest(
             manager,
-            project_name="no-project-md-test",
+            project_name=project_name,
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
             data_root=bundle_data_root("control_assistant"),
         )
 
-        assert not (project_dir / "CLAUDE-project.md").exists()
-
-    def test_no_overrides_directory_created(self, tmp_path):
-        """Init does not create an overrides/ directory."""
-        manager = TemplateManager()
-        project_dir = create_project_with_manifest(
-            manager,
-            project_name="no-overrides-dir",
-            output_dir=tmp_path,
-            data_bundle="control_assistant",
-            context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
-        )
-
-        assert not (project_dir / "overrides").exists()
+        assert not (project_dir / absent).exists()
 
 
 class TestProviderEnvBlock:
@@ -1520,17 +1515,15 @@ class TestFacilityPermissions:
         assert "control_system.writes: allowed" in message
         assert repr(tool) in message
 
-    def test_facility_extra_allow(self, tmp_path):
-        """Extra allow entries from facility config appear in allow list."""
-        data = self._settings(tmp_path, {"allow": ["Bash(echo *)"]})
-        allow = data["permissions"]["allow"]
-        assert "Bash(echo *)" in allow
-
-    def test_facility_extra_ask(self, tmp_path):
-        """Extra ask entries from facility config appear in ask list."""
-        data = self._settings(tmp_path, {"ask": ["Write"]})
-        ask = data["permissions"]["ask"]
-        assert "Write" in ask
+    @pytest.mark.parametrize(
+        ("key", "entry"),
+        [("allow", "Bash(echo *)"), ("ask", "Write")],
+    )
+    def test_facility_extra_entries_appear_in_their_list(self, tmp_path, key, entry):
+        """Extra entries from facility config appear in the matching list."""
+        data = self._settings(tmp_path, {key: [entry]})
+        entries = data["permissions"][key]
+        assert entry in entries
 
     def test_default_deny_unchanged_without_config(self, tmp_path):
         """Without permissions config, deny list matches the 6 framework defaults."""

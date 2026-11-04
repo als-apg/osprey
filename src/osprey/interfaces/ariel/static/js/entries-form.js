@@ -131,7 +131,7 @@ export function resetCreateForm() {
   followsUp = null;
   setParentRow(null);
   document.getElementById('session-info-panel')?.remove();
-  document.getElementById('draft-banner')?.remove();
+  hideProvenance();
   clearEntryFieldErrors();
 }
 
@@ -415,10 +415,7 @@ function renderSessionInfoPanel(meta) {
     </div>
   `;
 
-  const banner = document.getElementById('draft-banner');
-  if (banner) {
-    banner.after(panel);
-  }
+  document.getElementById('ariel-compose-banner')?.after(panel);
 }
 
 /**
@@ -572,21 +569,26 @@ function draftLoadFailed(draftId, error) {
 
 /**
  * Show the provenance banner and session panel of a draft that records
- * `session_metadata`.
+ * `session_metadata`. The banner is the sheet's one `#ariel-compose-banner`.
  * @param {string} draftId
  * @param {any} meta - The draft's `session_metadata`
  */
 function showProvenance(draftId, meta) {
-  const form = document.getElementById('create-entry-form');
-  if (!form) return;
-  document.getElementById('draft-banner')?.remove();
-  const banner = document.createElement('div');
-  banner.id = 'draft-banner';
-  banner.className = 'ariel-compose-banner';
+  const banner = document.getElementById('ariel-compose-banner');
+  if (!banner) return;
   banner.dataset.draftId = draftId;
   banner.textContent = 'Draft loaded from the OSPREY agent — review and submit';
-  form.prepend(banner);
+  banner.hidden = false;
   renderSessionInfoPanel(meta);
+}
+
+/** Hide and empty the provenance banner. */
+function hideProvenance() {
+  const banner = document.getElementById('ariel-compose-banner');
+  if (!banner) return;
+  banner.hidden = true;
+  banner.textContent = '';
+  delete banner.dataset.draftId;
 }
 
 /**

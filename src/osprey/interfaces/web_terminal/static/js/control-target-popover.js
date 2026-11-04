@@ -83,6 +83,8 @@ import {
   bannerNote,
   SKIP_KEY_MOVE,
   SKIP_KEY_SWITCH,
+  SWITCH_APPLIED,
+  displayName,
   reasonPhrase,
   switchConfirm,
   TURN_ON_SENTENCE,
@@ -91,6 +93,7 @@ import {
 import { confirmSkipped, rememberConfirmSkip } from './confirm-skip.js';
 import { el, focusOption, focusedOption } from './control-target-popover-switch.js';
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
+import { showToast } from './toast.js';
 import {
   closePopover as closeShellPopover,
   openPopover as openShellPopover,
@@ -100,6 +103,7 @@ import {
   CHIP_TOGGLE_EVENT,
   getChipElement,
   getState,
+  isPending,
   kindAttr,
   markPending,
   postSwitch,
@@ -144,6 +148,9 @@ let closeWatch = null;
  * @type {string|null}
  */
 let pendingTarget = null;
+/** The request id that switch was accepted under; its terminus settles it. */
+/** @type {string|null} */
+let pendingRequestId = null;
 
 /**
  * What the last gesture on a row did, when the ROUTE cannot say.
@@ -263,6 +270,7 @@ export function teardownControlTargetPopover() {
   posting = false;
   queuedStop = null;
   pendingTarget = null;
+  pendingRequestId = null;
   confirmingMove = null;
   statusNote = null;
   gestureNotes.clear();
@@ -359,6 +367,35 @@ function rowContext() {
 /* ---- render ---- */
 
 /**
+ * The moment the switch this popover asked for stops being outstanding.
+ *
+ * The chip owns the wait (`isPending`: the record's terminus AND every live
+ * controls server at the new generation); once it is over, the record's
+ * `last_switch` names the request's terminus. A switch that LANDED
+ * (`applied` for the request this browser sent) is said once, under the chip:
+ * "Switched to <machine>" — the popover stays, re-rendered with the machine
+ * on its card. A refusal, a failure or an expiry leaves the outcome on the
+ * row (control-target-rows.js); either way the row stops reading
+ * `switching…`.
+ * @param {any} state
+ */
+function settleSwitch(state) {
+  const target = pendingTarget;
+  const last = state?.last_switch;
+  if (target === null || isPending() || !last || !pendingRequestId) return;
+  if (last.request_id !== pendingRequestId) return;
+  pendingTarget = null;
+  pendingRequestId = null;
+  if (last.status !== SWITCH_APPLIED) return;
+  const rows = Array.isArray(state.targets) ? state.targets : [];
+  const row = rows.find((/** @type {any} */ r) => r.target === target) ?? null;
+  const host = getChipElement()?.closest('.ctc-anchor');
+  if (host instanceof HTMLElement) {
+    showToast(host, `Switched to ${row ? displayName(row, kindAttr(row)) : target}`);
+  }
+}
+
+/**
  * Repaint the popover from the chip's current answer.
  *
  * Whole-subtree, on every render: the card and rows are a projection of one
@@ -375,6 +412,7 @@ function render() {
   const option = focusedOption(popover);
   const focused = option ? null : focusKey();
   const state = getState();
+  settleSwitch(state);
   popover.replaceChildren();
   if (!state) return;
   const rows = Array.isArray(state.targets) ? state.targets : [];
@@ -641,9 +679,11 @@ function requestSwitch(row, state, ui) {
     const held = row.target === state.control_target;
     if (held && generation !== null && generation === state.generation) {
       pendingTarget = null;
+      pendingRequestId = null;
       return;
     }
     pendingTarget = row.target;
+    pendingRequestId = String(body?.request_id || '') || null;
     markPending(String(body?.request_id || ''), row.target, generation);
   });
 }

@@ -207,7 +207,28 @@ def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
         (facility / name).write_text(text, encoding="utf-8")
     import_mml(export_files("synthetic"), facility)
     for name, text in authored.items():
-        assert (facility / name).read_text(encoding="utf-8") == text, name
+        if name == "classes.yaml":
+            assert (facility / name).read_text(encoding="utf-8").startswith(text), name
+        else:
+            assert (facility / name).read_text(encoding="utf-8") == text, name
+
+
+def test_an_existing_classes_file_gains_only_the_classes_it_lacks(tmp_path: Path) -> None:
+    facility = mapped_facility(tmp_path, "nsls2")
+    fresh = mapped_facility(tmp_path / "fresh", "nsls2")
+    import_mml(export_files("nsls2"), fresh)
+    derived = [row["class"] for row in _load(fresh / "classes.yaml")]
+    held = f"# kept\n- {{class: {derived[-1]}, parent: Instrumentation}}\n"
+    (facility / "classes.yaml").write_text(held, encoding="utf-8")
+
+    import_mml(export_files("nsls2"), facility)
+
+    text = (facility / "classes.yaml").read_text(encoding="utf-8")
+    assert text.startswith(held)
+    rows = [row["class"] for row in _load(facility / "classes.yaml")]
+    assert rows == [derived[-1], *derived[:-1]]
+    import_mml(export_files("nsls2"), facility)
+    assert (facility / "classes.yaml").read_text(encoding="utf-8") == text
 
 
 def test_one_import_judges_each_export_once(

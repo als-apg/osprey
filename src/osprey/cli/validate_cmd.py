@@ -104,6 +104,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         click.UsageError: With every accumulated problem, so the caller exits 2.
     """
     from .build_profile import resolve_build_profile
+    from .build_profile_canopy import profile_home_screen_errors, repo_home_screen_errors
     from .build_profile_deploy import (
         deploy_aware_config_errors,
         deploy_aware_config_warnings,
@@ -173,6 +174,16 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         *limits_block_errors(build_profile.config),
         *system_timezone_errors(build_profile.config),
     ]
+    # The CANOPY home screen, as `osprey build` judges it: a repo's profile
+    # together with every tier and app file the build renders, a file named
+    # directly on its own, against the library under the profile's data root.
+    try:
+        if profile_file.name == PROFILE_FILENAME:
+            web_errors.extend(repo_home_screen_errors(build_profile, profile_root, overlays))
+        else:
+            web_errors.extend(profile_home_screen_errors(build_profile, profile_dir))
+    except BuildProfileError as e:
+        raise click.UsageError(str(e)) from e
     if web_errors:
         # "Profile validation failed", not "Build profile ...": the success line
         # below says "Profile is valid", and `BuildProfile.validate` already owns

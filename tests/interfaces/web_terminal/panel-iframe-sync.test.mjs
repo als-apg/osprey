@@ -163,6 +163,50 @@ describe('the artifacts viewer messages', () => {
   });
 });
 
+describe('the agent-activity notice', () => {
+  const activity = { tool: 'entry_create', detail: 'e-42', ts: 1730668800.25 };
+  const message = {
+    type: 'osprey-agent-activity',
+    tool: 'entry_create',
+    detail: 'e-42',
+    ts: 1730668800.25,
+  };
+
+  test('goes to the panel iframe at the hub origin only', () => {
+    const { iframe, postMessage } = fakeFrame();
+    sync.sendAgentActivityToIframe(iframe, activity);
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith(message, window.location.origin);
+  });
+
+  test('its window twin goes to the pop-out at the hub origin only', () => {
+    const postMessage = vi.fn();
+    const win = /** @type {Window} */ (/** @type {unknown} */ ({ postMessage }));
+    sync.sendAgentActivityToWindow(win, activity);
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith(message, window.location.origin);
+  });
+
+  test('no frame, no window, or a throwing window is skipped', () => {
+    expect(() => sync.sendAgentActivityToIframe(null, activity)).not.toThrow();
+    expect(() => sync.sendAgentActivityToWindow(null, activity)).not.toThrow();
+    const { iframe, postMessage } = fakeFrame();
+    postMessage.mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    expect(() => sync.sendAgentActivityToIframe(iframe, activity)).not.toThrow();
+  });
+
+  test('a frame with no detail relays none', () => {
+    const { iframe, postMessage } = fakeFrame();
+    sync.sendAgentActivityToIframe(iframe, { tool: 'panel_focus', ts: 1 });
+    expect(postMessage.mock.calls[0][0]).toMatchObject({
+      type: 'osprey-agent-activity',
+      tool: 'panel_focus',
+      ts: 1,
+    });
+    expect(postMessage.mock.calls[0][0].detail).toBeUndefined();
+  });
+});
+
 describe('buildEmbedSrc', () => {
   test('stamps embedded and theme and keeps a prefixed path verbatim', () => {
     const src = new URL(sync.buildEmbedSrc('/u/alice/panel/artifacts/?x=1'));

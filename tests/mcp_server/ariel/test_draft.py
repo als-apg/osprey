@@ -192,3 +192,37 @@ async def test_mcp_draft_fields_read_back_through_api(tmp_path, monkeypatch):
 
     assert resp.status_code == 200
     assert resp.json()["fields"] == {"book": "physics", "day": "2026-10-01"}
+
+
+def test_write_draft_is_atomic_and_round_trips(tmp_path, monkeypatch):
+    """write_draft goes through the services-level atomic writer."""
+    import osprey.interfaces.ariel.api.drafts as drafts_mod
+    import osprey.services.ariel_search.atomic_json as atomic_json
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
+    calls: list = []
+    real = atomic_json.atomic_write_json
+
+    def spy(path, obj):
+        calls.append(path)
+        real(path, obj)
+
+    monkeypatch.setattr(drafts_mod, "atomic_write_json", spy)
+
+    draft_id = "draft-abc123abc124"
+    write_draft(draft_id, {"draft_id": draft_id, "subject": "S", "details": "D"})
+
+    assert calls == [drafts_dir / f"{draft_id}.json"]
+    assert read_draft(draft_id)["subject"] == "S"
+
+
+def test_atomic_write_json_replaces_whole(tmp_path):
+    from osprey.services.ariel_search.atomic_json import atomic_write_json
+
+    target = tmp_path / "x.json"
+    atomic_write_json(target, {"a": 1})
+    atomic_write_json(target, {"b": [1, 2]})
+
+    assert json.loads(target.read_text()) == {"b": [1, 2]}
+    assert [p.name for p in tmp_path.iterdir()] == ["x.json"]

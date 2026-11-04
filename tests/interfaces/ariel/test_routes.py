@@ -145,6 +145,7 @@ def mock_ariel_service():
     mock_status.enabled_enhancement_modules = []
     mock_status.last_ingestion = None
     mock_status.errors = []
+    mock_status.enhancement_coverage = {}
     service.get_status = AsyncMock(return_value=mock_status)
 
     return service
@@ -658,30 +659,29 @@ def test_publish_info_requires_auth(client):
 
 
 @pytest.mark.usefixtures("mock_ariel_service")
-def test_publish_info_no_auth(client):
-    """A no-auth write adapter reports requires_auth=False (publishes without creds)."""
+@pytest.mark.parametrize(
+    ("supports_write", "requires_write_auth", "source_system"),
+    [
+        # A no-auth write adapter publishes without creds.
+        pytest.param(True, False, "Generic JSON", id="no-auth"),
+        # A read-only adapter: credentials are irrelevant.
+        pytest.param(False, True, "JLab Logbook", id="read-only"),
+    ],
+)
+def test_publish_info_reports_requires_auth_false(
+    client, supports_write, requires_write_auth, source_system
+):
+    """An adapter that needs no credentials to publish reports requires_auth=False."""
     adapter = _mock_adapter(
-        supports_write=True, requires_write_auth=False, source_system="Generic JSON"
+        supports_write=supports_write,
+        requires_write_auth=requires_write_auth,
+        source_system=source_system,
     )
     with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
         response = client.get("/api/publish-info")
 
     data = response.json()
-    assert data["supports_write"] is True
-    assert data["requires_auth"] is False
-
-
-@pytest.mark.usefixtures("mock_ariel_service")
-def test_publish_info_read_only(client):
-    """A read-only adapter reports requires_auth=False — credentials are irrelevant."""
-    adapter = _mock_adapter(
-        supports_write=False, requires_write_auth=True, source_system="JLab Logbook"
-    )
-    with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
-        response = client.get("/api/publish-info")
-
-    data = response.json()
-    assert data["supports_write"] is False
+    assert data["supports_write"] is supports_write
     assert data["requires_auth"] is False
 
 
@@ -708,6 +708,27 @@ def test_status_endpoint(client):
     assert data["entry_count"] == 100
     assert data["active_embedding_model"] == "text-embedding-3-small"
     assert "keyword" in data["enabled_search_modules"]
+    assert data["enhancement_coverage"] == {}
+
+
+def test_status_endpoint_carries_enhancement_coverage(client, mock_ariel_service):
+    """``enhancement_coverage`` is the service's count, in the badge-strip vocabulary."""
+    coverage = {
+        "text_embedding": {
+            "label": "Text Embedding",
+            "n/a": 0,
+            "pending": 1,
+            "stale": 2,
+            "failed": 0,
+            "complete": 3,
+        }
+    }
+    mock_ariel_service.get_status.return_value.enhancement_coverage = coverage
+
+    response = client.get("/api/status")
+
+    assert response.status_code == 200
+    assert response.json()["enhancement_coverage"] == coverage
 
 
 def test_entry_to_response_helper():
@@ -2956,3 +2977,477 @@ def test_thread_of_unknown_entry_is_404(client, field_service):
     assert response.status_code == 404
     assert "not found" in response.json()["detail"]
     field_service.repository.get_follow_ups.assert_not_awaited()
+
+
+def test_thread_over_the_cap_keeps_the_newest_oldest_first_and_flags_truncated(
+    client, field_service
+):
+    """A17: the repository returns the newest ``limit + 1`` follow-ups oldest
+    first; the route keeps the newest ``limit``, still oldest first, and sets
+    ``truncated``."""
+    from osprey.services.ariel_search.database.repository import FOLLOW_UPS_LIMIT
+
+    entry = _field_entry(entry_id="E-1")
+    children = [_field_entry(entry_id=f"C-{i:04d}") for i in range(FOLLOW_UPS_LIMIT + 1)]
+    _hold_thread(field_service, [entry], children=children)
+
+    data = client.get("/api/entries/E-1/thread").json()
+
+    assert data["truncated"] is True
+    ids = [c["entry_id"] for c in data["children"]]
+    assert len(ids) == FOLLOW_UPS_LIMIT
+    assert ids == [f"C-{i:04d}" for i in range(1, FOLLOW_UPS_LIMIT + 1)]
+
+
+def test_thread_at_the_cap_is_not_truncated(client, field_service):
+    """Exactly ``limit`` follow-ups is the whole thread: no ``truncated`` flag."""
+    from osprey.services.ariel_search.database.repository import FOLLOW_UPS_LIMIT
+
+    entry = _field_entry(entry_id="E-1")
+    children = [_field_entry(entry_id=f"C-{i:04d}") for i in range(FOLLOW_UPS_LIMIT)]
+    _hold_thread(field_service, [entry], children=children)
+
+    data = client.get("/api/entries/E-1/thread").json()
+
+    assert len(data["children"]) == FOLLOW_UPS_LIMIT
+    assert data.get("truncated", False) is False
+
+
+# ---------------------------------------------------------------------------
+# A8: GET /api/entries/{id}/enhancements (the inspector's cards)
+# ---------------------------------------------------------------------------
+
+
+def _inspect_modules(*, caption_inspect=None, caption_configure=None):
+    """Fake ``image_caption`` and ``text_embedding`` classes for the factory.
+
+    ``image_caption`` inspects through ``caption_inspect`` (an async callable)
+    and configures through ``caption_configure``; ``text_embedding`` keeps the
+    base ``inspect``, which answers None.
+    """
+    from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
+
+    class _Caption(BaseEnhancementModule):
+        runs_inline = False
+        bound = None
+
+        @property
+        def name(self):
+            return "image_caption"
+
+        def configure(self, config):
+            if caption_configure is not None:
+                caption_configure(config)
+
+        def bind(self, config):
+            type(self).bound = config
+
+        async def enhance(self, entry, conn):  # pragma: no cover - never driven
+            raise NotImplementedError
+
+        async def inspect(self, entry_id, repository):
+            if caption_inspect is None:
+                return None
+            return await caption_inspect(entry_id, repository)
+
+    class _Embedding(BaseEnhancementModule):
+        @property
+        def name(self):
+            return "text_embedding"
+
+        async def enhance(self, entry, conn):  # pragma: no cover - never driven
+            raise NotImplementedError
+
+    return _Caption, _Embedding
+
+
+@pytest.fixture
+def inspect_service(field_service):
+    """The field service whose registry also hands the factory module classes."""
+    from osprey.registry.base import ArielEnhancementModuleRegistration
+
+    def install(caption_cls, embedding_cls, *, caption_label="Picture captions"):
+        regs = {
+            "image_caption": (
+                caption_cls,
+                ArielEnhancementModuleRegistration(
+                    name="image_caption",
+                    module_path="x",
+                    class_name="C",
+                    description="d",
+                    execution_order=5,
+                    label=caption_label,
+                    feeds=("keyword", "semantic"),
+                ),
+            ),
+            "text_embedding": (
+                embedding_cls,
+                ArielEnhancementModuleRegistration(
+                    name="text_embedding",
+                    module_path="x",
+                    class_name="E",
+                    description="d",
+                    execution_order=20,
+                ),
+            ),
+        }
+        from osprey.registry import get_registry
+
+        get_registry().get_ariel_enhancement_module.side_effect = regs.get
+
+    field_service.install_modules = install
+    return field_service
+
+
+def _cards(client, entry_id="E-1"):
+    response = client.get(f"/api/entries/{entry_id}/enhancements")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["entry_id"] == entry_id
+    return {card["module"]: card for card in data["modules"]}, data
+
+
+def test_enhancements_one_card_per_enabled_module_in_order(client, inspect_service):
+    """Every enabled module gets one card, in execution order, carrying the view
+    state, the registration's label/order/feeds, the stored fields, the re-run
+    command and the module's own detail."""
+    calls = []
+
+    async def caption_inspect(entry_id, repository):
+        calls.append((entry_id, repository))
+        return {"captions": [{"model": "cap-v1", "text": "a beam"}]}
+
+    caption, embedding = _inspect_modules(caption_inspect=caption_inspect)
+    inspect_service.install_modules(caption, embedding)
+    inspect_service.repository.get_entry = AsyncMock(return_value=_field_entry())
+
+    cards, data = _cards(client)
+
+    assert [c["module"] for c in data["modules"]] == ["image_caption", "text_embedding"]
+    first = cards["image_caption"]
+    assert first["label"] == "Picture captions"
+    assert first["order"] == 5
+    assert first["feeds"] == ["keyword", "semantic"]
+    assert first["state"] == "stale"  # cap-v1 stored, cap-v2 current
+    assert first["marker"] == "cap-v1"
+    assert first["command"] == "osprey ariel enhance --module image_caption --entry E-1"
+    assert first["detail"] == {"captions": [{"model": "cap-v1", "text": "a beam"}]}
+    assert calls == [("E-1", inspect_service.repository)]
+    # Built through the factory: configured and bound to the whole config.
+    assert caption.bound is inspect_service.config
+    # The view state is the one the entry routes report.
+    assert cards["text_embedding"]["state"] == "complete"
+
+
+def test_enhancements_status_only_without_inspect(client, inspect_service):
+    """A module without its own ``inspect`` gets a status-only card; a
+    registration without a label or feeds falls back to the name and empty."""
+    caption, embedding = _inspect_modules()
+    inspect_service.install_modules(caption, embedding)
+    inspect_service.repository.get_entry = AsyncMock(return_value=_field_entry())
+
+    cards, _ = _cards(client)
+
+    card = cards["text_embedding"]
+    assert card["detail"] is None
+    assert card["label"] == "text_embedding"
+    assert card["feeds"] == []
+    assert card["order"] == 20
+    assert card["state"] == "complete"
+    assert card["command"] is None
+    assert card["error"] is None and card["failed_at"] is None
+
+
+def test_enhancements_failed_card_carries_stored_fields_and_command(client, inspect_service):
+    """A failed module's card carries the stored failure and its re-run command."""
+    caption, embedding = _inspect_modules()
+    inspect_service.install_modules(caption, embedding)
+    status = {
+        "image_caption": {"status": "complete", "marker": "cap-v2", "completed_at": "T1"},
+        "text_embedding": {
+            "status": "failed",
+            "failed_at": "2025-10-06 10:00:00",
+            "error": "boom",
+            "attempts": 2,
+        },
+    }
+    inspect_service.repository.get_entry = AsyncMock(
+        return_value=_field_entry(enhancement_status=status)
+    )
+
+    cards, _ = _cards(client)
+
+    assert cards["image_caption"]["state"] == "complete"
+    assert cards["image_caption"]["completed_at"] == "T1"
+    assert cards["image_caption"]["command"] is None
+    failed = cards["text_embedding"]
+    assert failed["state"] == "failed"
+    assert failed["failed_at"] == "2025-10-06 10:00:00"
+    assert failed["error"] == "boom"
+    assert failed["attempts"] == 2
+    assert failed["command"] == "osprey ariel enhance --module text_embedding --entry E-1"
+
+
+def test_enhancements_inspect_that_raises_gives_status_only_card(client, inspect_service):
+    """An ``inspect()`` that raises gives ``detail: null`` and a warning, never a 500."""
+
+    async def caption_inspect(_entry_id, _repository):
+        raise RuntimeError("store went away")
+
+    caption, embedding = _inspect_modules(caption_inspect=caption_inspect)
+    inspect_service.install_modules(caption, embedding)
+    inspect_service.repository.get_entry = AsyncMock(return_value=_field_entry())
+
+    with patch.object(routes.logger, "warning") as warning:
+        cards, _ = _cards(client)
+
+    assert cards["image_caption"]["detail"] is None
+    assert cards["image_caption"]["state"] == "stale"
+    assert cards["text_embedding"]["state"] == "complete"
+    assert warning.called
+    assert "image_caption" in str(warning.call_args)
+
+
+def test_enhancements_configure_that_raises_gives_status_only_card(client, inspect_service):
+    """A module whose ``configure()`` raises still gets its status-only card,
+    and the next module is still built and inspected."""
+
+    def caption_configure(_config):
+        raise ValueError("bad caption config")
+
+    caption, embedding = _inspect_modules(caption_configure=caption_configure)
+    inspected = []
+
+    async def embedding_inspect(_self, entry_id, _repository):
+        inspected.append(entry_id)
+        return {"table": "text_embeddings_m"}
+
+    embedding.inspect = embedding_inspect
+    inspect_service.install_modules(caption, embedding)
+    inspect_service.repository.get_entry = AsyncMock(return_value=_field_entry())
+
+    with patch.object(routes.logger, "warning") as warning:
+        cards, _ = _cards(client)
+
+    assert cards["image_caption"]["detail"] is None
+    assert cards["image_caption"]["state"] == "stale"
+    assert cards["text_embedding"]["detail"] == {"table": "text_embeddings_m"}
+    assert inspected == ["E-1"]
+    assert warning.called
+
+
+def test_enhancements_of_unknown_entry_is_404(client, inspect_service):
+    """An id the store does not hold returns 404."""
+    caption, embedding = _inspect_modules()
+    inspect_service.install_modules(caption, embedding)
+    inspect_service.repository.get_entry = AsyncMock(return_value=None)
+
+    response = client.get("/api/entries/NOPE/enhancements")
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+
+
+def test_enhancements_builtins_carry_labels_and_feeds():
+    """The five built-in registrations name a label and the searches they feed."""
+    from osprey.registry.builtins import FrameworkRegistryProvider
+
+    config = FrameworkRegistryProvider().get_registry_config()
+    regs = {r.name: r for r in config.ariel_enhancement_modules}
+    assert set(regs) == {
+        "image_caption",
+        "semantic_processor",
+        "text_embedding",
+        "image_embedding",
+        "qmd_export",
+    }
+    for reg in regs.values():
+        assert reg.label and reg.label != reg.name
+        assert reg.feeds
+
+
+def test_enhancements_base_inspect_answers_none():
+    """``BaseEnhancementModule.inspect`` defaults to None (status-only card)."""
+    import asyncio
+
+    _, embedding = _inspect_modules()
+    assert asyncio.run(embedding().inspect("E-1", MagicMock())) is None
+
+
+# ---------------------------------------------------------------------------
+# Related entries (A9)
+# ---------------------------------------------------------------------------
+
+
+def _related_config(*, text_embedding=True, semantic=True):
+    """A config whose text_embedding module names one model, ``embed-a``."""
+    return ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": semantic},
+            },
+            "enhancement_modules": {
+                "text_embedding": {
+                    "enabled": text_embedding,
+                    "models": [{"name": "embed-a", "dimension": 4}],
+                },
+            },
+        }
+    )
+
+
+def _related_entry(entry_id):
+    return {
+        "entry_id": entry_id,
+        "source_system": "ARIEL Web",
+        "timestamp": datetime(2025, 10, 6, 9, 30),
+        "author": "J. Smith",
+        "raw_text": f"Text of {entry_id}",
+        "attachments": [],
+        "metadata": {},
+        "enhancement_status": {},
+        "has_images": False,
+    }
+
+
+@pytest.fixture
+def related_service(mock_ariel_service):
+    """The mock service with text embedding on, a stored vector for E-1, and
+    semantic search returning E-1 itself plus six neighbours."""
+    service = mock_ariel_service
+    service.config = _related_config()
+    repo = service.repository
+    repo.get_entry = AsyncMock(return_value=_related_entry("E-1"))
+    repo.get_text_embedding = AsyncMock(return_value=[0.1, 0.2, 0.3, 0.4])
+    repo.text_input_key_column = AsyncMock(return_value=False)
+    repo.get_text_build_keys = AsyncMock(return_value={})
+    hits = [(_related_entry("E-1"), 1.0)] + [
+        (_related_entry(f"N-{i}"), 0.9 - i / 10) for i in range(6)
+    ]
+    repo.semantic_search = AsyncMock(side_effect=lambda **kw: hits[: kw["max_results"]])
+    return service
+
+
+def test_related_returns_neighbours_without_self(related_service):
+    """Default limit 5: semantic_search asked for 6, self dropped, five rows back."""
+    client = TestClient(routes_app(related_service))
+
+    response = client.get("/api/entries/E-1/related")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    ids = [row["entry_id"] for row in body["entries"]]
+    assert ids == ["N-0", "N-1", "N-2", "N-3", "N-4"]
+    assert "E-1" not in ids
+    related_service.repository.get_text_embedding.assert_awaited_once_with(
+        "text_embeddings_embed_a", "E-1"
+    )
+    kwargs = related_service.repository.semantic_search.await_args.kwargs
+    assert kwargs["query_embedding"] == [0.1, 0.2, 0.3, 0.4]
+    assert kwargs["model_name"] == "embed-a"
+    assert kwargs["max_results"] == 6
+    assert kwargs["similarity_threshold"] is None
+
+
+def test_related_limit_caps_rows_when_self_absent(related_service):
+    """When self is not among the hits, the limit+1th hit is trimmed off."""
+    hits = [(_related_entry(f"N-{i}"), 0.9) for i in range(4)]
+    related_service.repository.semantic_search = AsyncMock(return_value=hits)
+    client = TestClient(routes_app(related_service))
+
+    response = client.get("/api/entries/E-1/related?limit=3")
+
+    assert response.status_code == 200
+    assert [r["entry_id"] for r in response.json()["entries"]] == ["N-0", "N-1", "N-2"]
+    kwargs = related_service.repository.semantic_search.await_args.kwargs
+    assert kwargs["max_results"] == 4
+
+
+@pytest.mark.parametrize("limit", [0, 11])
+def test_related_limit_out_of_range_is_refused(related_service, limit):
+    """The limit is 1..10."""
+    client = TestClient(routes_app(related_service))
+
+    response = client.get(f"/api/entries/E-1/related?limit={limit}")
+
+    assert response.status_code == 422
+    related_service.repository.semantic_search.assert_not_awaited()
+
+
+def test_related_max_limit_ten(related_service):
+    """limit=10 is accepted and asks semantic_search for 11."""
+    client = TestClient(routes_app(related_service))
+
+    response = client.get("/api/entries/E-1/related?limit=10")
+
+    assert response.status_code == 200
+    assert related_service.repository.semantic_search.await_args.kwargs["max_results"] == 11
+    assert len(response.json()["entries"]) == 6
+
+
+def test_related_disabled_when_text_embedding_off(related_service):
+    """text_embedding off: state disabled, no vector read, no search."""
+    related_service.config = _related_config(text_embedding=False)
+    client = TestClient(routes_app(related_service))
+
+    response = client.get("/api/entries/E-1/related")
+
+    assert response.status_code == 200
+    assert response.json() == {"state": "disabled", "entries": []}
+    related_service.repository.get_text_embedding.assert_not_awaited()
+    related_service.repository.semantic_search.assert_not_awaited()
+
+
+def test_related_disabled_when_semantic_search_off(related_service):
+    """The search the route runs through refuses: reported as disabled, not a 500."""
+    from osprey.services.ariel_search.exceptions import ModuleNotEnabledError
+
+    related_service.repository.semantic_search = AsyncMock(
+        side_effect=ModuleNotEnabledError("off", module_name="semantic")
+    )
+    client = TestClient(routes_app(related_service))
+
+    response = client.get("/api/entries/E-1/related")
+
+    assert response.status_code == 200
+    assert response.json() == {"state": "disabled", "entries": []}
+
+
+def test_related_no_embedding_when_entry_has_no_row(related_service):
+    """No stored vector for the entry: state no_embedding, no search."""
+    related_service.repository.get_text_embedding = AsyncMock(return_value=None)
+    client = TestClient(routes_app(related_service))
+
+    response = client.get("/api/entries/E-1/related")
+
+    assert response.status_code == 200
+    assert response.json() == {"state": "no_embedding", "entries": []}
+    related_service.repository.semantic_search.assert_not_awaited()
+
+
+def test_related_ok_with_no_neighbours(related_service):
+    """Only self comes back: state ok with an empty list."""
+    related_service.repository.semantic_search = AsyncMock(
+        return_value=[(_related_entry("E-1"), 1.0)]
+    )
+    client = TestClient(routes_app(related_service))
+
+    response = client.get("/api/entries/E-1/related")
+
+    assert response.status_code == 200
+    assert response.json() == {"state": "ok", "entries": []}
+
+
+def test_related_unknown_entry_is_404(related_service):
+    """An unknown id gives 404 before any vector read."""
+    related_service.repository.get_entry = AsyncMock(return_value=None)
+    client = TestClient(routes_app(related_service))
+
+    response = client.get("/api/entries/NOPE/related")
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+    related_service.repository.get_text_embedding.assert_not_awaited()

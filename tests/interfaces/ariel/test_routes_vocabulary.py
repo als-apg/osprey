@@ -297,6 +297,7 @@ def test_entries_and_status_stay_200_while_search_is_degraded():
     status.enabled_enhancement_modules = []
     status.last_ingestion = None
     status.errors = []
+    status.enhancement_coverage = {}
     service.get_status = AsyncMock(return_value=status)
     app = _make_app(
         ariel_service=service,

@@ -86,7 +86,9 @@ describe('wireActivityStrip: subscription', () => {
 
     const handle = Session.wireActivityStrip(strip);
 
-    expect(es.opened.map((src) => src.url)).toEqual(['/api/files/events']);
+    // The page's one events URL, tagged with its client id (api.js pageEventsUrl).
+    expect(es.opened).toHaveLength(1);
+    expect(es.opened[0].url).toMatch(/^\/api\/files\/events\?client_id=[^&]+$/);
     handle.stop();
     expect(es.opened[0].closed).toBe(true);
   });

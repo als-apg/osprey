@@ -270,22 +270,21 @@ async def test_a_protected_key_is_refused_even_when_the_file_is_unparseable(rend
 
 
 @pytest.mark.usefixtures("render")
-async def test_the_file_allowlist_still_answers_first(recorded_entries):
-    """A file no writer may patch is a validation error, whatever the key says."""
+@pytest.mark.parametrize(
+    ("file", "key_path", "value"),
+    [
+        # A file no writer may patch is a validation error, whatever the key says.
+        pytest.param(".claude/settings.json", "permissions.deny", "[]", id="file-allowlist"),
+        # A malformed path is not a protected key — it is not a key at all.
+        pytest.param("config.yml", "", "x", id="empty-key-path"),
+        pytest.param("config.yml", "control_system..writes_enabled", "x", id="empty-segment"),
+        pytest.param("config.yml", "/control_system", "x", id="leading-slash"),
+    ],
+)
+async def test_validation_still_answers_first(file, key_path, value, recorded_entries):
     fn = _get_setup_patch()
     with _notify(), assert_raises_error(error_type="validation_error"):
-        await fn(file=".claude/settings.json", key_path="permissions.deny", value="[]")
-
-    assert _audit_records(recorded_entries) == []
-
-
-@pytest.mark.usefixtures("render")
-@pytest.mark.parametrize("key_path", ["", "control_system..writes_enabled", "/control_system"])
-async def test_key_path_validation_still_answers_first(key_path, recorded_entries):
-    """A malformed path is not a protected key — it is not a key at all."""
-    fn = _get_setup_patch()
-    with _notify(), assert_raises_error(error_type="validation_error"):
-        await fn(file="config.yml", key_path=key_path, value="x")
+        await fn(file=file, key_path=key_path, value=value)
 
     assert _audit_records(recorded_entries) == []
 

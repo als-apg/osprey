@@ -56,19 +56,23 @@ def test_runbook_runs_one_matlab_per_sub_machine_with_setpathmml_first(runbook: 
     assert "mml_export(" in runbook
 
 
-def test_runbook_compiles_the_bundled_at(runbook: str) -> None:
-    assert "atmexall" in runbook
-    assert "simulators/at2.0" in runbook
-
-
-def test_runbook_names_the_two_spear3_symlinks(runbook: str) -> None:
-    assert "machine/SPEAR3 -> Spear3" in runbook
-    assert "SPEAR3physdata.mat -> Spear3physdata.mat" in runbook
-
-
-def test_runbook_names_the_labca_warning_and_simulator_mode(runbook: str) -> None:
-    assert "LabCA" in runbook
-    assert "simulator mode" in runbook
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param("atmexall", "simulators/at2.0", id="compiles-the-bundled-at"),
+        pytest.param(
+            "machine/SPEAR3 -> Spear3",
+            "SPEAR3physdata.mat -> Spear3physdata.mat",
+            id="two-spear3-symlinks",
+        ),
+        pytest.param("LabCA", "simulator mode", id="labca-warning-and-simulator-mode"),
+    ],
+)
+def test_runbook_names_the_setup_an_export_run_depends_on(
+    runbook: str, first: str, second: str
+) -> None:
+    assert first in runbook
+    assert second in runbook
 
 
 def test_runbook_names_the_six_files(runbook: str) -> None:

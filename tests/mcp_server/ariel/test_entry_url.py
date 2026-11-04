@@ -50,11 +50,23 @@ def test_native_source_system_constant():
     assert server.ARIEL_NATIVE_SOURCE_SYSTEM == "ARIEL MCP"
 
 
-def test_build_entry_url_renders_with_template():
-    """FR1/FR2: a facility entry renders the template with its id."""
+@pytest.mark.parametrize(
+    ("entry_id", "expected"),
+    [
+        # FR1/FR2: a facility entry renders the template with its id.
+        pytest.param("175353", "https://logbook.example/olog.php?id=175353", id="renders-id"),
+        # FR4: entry_id is URL-encoded with safe='' when substituted.
+        pytest.param(
+            "a b/c?d&e",
+            "https://logbook.example/olog.php?id=a%20b%2Fc%3Fd%26e",
+            id="url-encodes-id",
+        ),
+    ],
+)
+def test_build_entry_url_substitutes_the_id_into_the_template(entry_id, expected):
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        url = server.build_entry_url("175353", "Facility eLog")
-    assert url == "https://logbook.example/olog.php?id=175353"
+        url = server.build_entry_url(entry_id, "Facility eLog")
+    assert url == expected
 
 
 def test_build_entry_url_source_system_defaults_to_facility():
@@ -62,13 +74,6 @@ def test_build_entry_url_source_system_defaults_to_facility():
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         url = server.build_entry_url("42")
     assert url == "https://logbook.example/olog.php?id=42"
-
-
-def test_build_entry_url_url_encodes_id():
-    """FR4: entry_id is URL-encoded with safe='' when substituted."""
-    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        url = server.build_entry_url("a b/c?d&e", "Facility eLog")
-    assert url == "https://logbook.example/olog.php?id=a%20b%2Fc%3Fd%26e"
 
 
 def test_build_entry_url_none_when_template_unset():
@@ -396,6 +401,164 @@ async def test_entry_create_emits_no_entry_url(ariel_registry):
     ):
         fn = get_tool_fn(_import_entry_create())
         result = await fn(subject="s", details="d", draft=False)
+
+    assert "entry_url" not in json.loads(result)
+
+
+# ---------------------------------------------------------------------------
+# Local-only entries get no URL from any tool (A15): entry_get and
+# entry_publish pass the sync status, sql_query resolves it in one batch.
+# ---------------------------------------------------------------------------
+
+
+async def _entry_get(entry):
+    mock_service = AsyncMock()
+    mock_service.repository.get_entry.return_value = entry
+    attach_fake_attachment_reader(mock_service)
+    with (
+        patch_ariel_service(mock_service),
+        patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
+    ):
+        return json.loads(await get_tool_fn(_import_entry_get())(entry_id=entry["entry_id"]))
+
+
+async def test_entry_get_omits_entry_url_for_local_only_web_entry(ariel_registry):
+    """A local-only ARIEL Web save has no facility page, so entry_get emits no URL."""
+    ariel_registry()
+    entry = make_mock_entry(entry_id="w-local", source_system="ARIEL Web")
+    entry["metadata"] = {"sync_status": "local_only"}
+
+    assert "entry_url" not in await _entry_get(entry)
+
+
+async def test_entry_get_keeps_entry_url_for_synced_web_entry(ariel_registry):
+    """A synced ARIEL Web entry is in the facility logbook and keeps its URL."""
+    ariel_registry()
+    entry = make_mock_entry(entry_id="w-synced", source_system="ARIEL Web")
+    entry["metadata"] = {"sync_status": "synced"}
+
+    data = await _entry_get(entry)
+    assert data["entry_url"] == "https://logbook.example/olog.php?id=w-synced"
+
+
+async def _sql_rows(mock_rows, resolved, sql="SELECT entry_id FROM enhanced_entries"):
+    """Run sql_query over ``mock_rows`` with the batch lookup returning ``resolved``."""
+    mock_service = AsyncMock()
+    mock_service.pool = AsyncMock()
+    mock_service.readonly_pool = None
+    if isinstance(resolved, Exception):
+        mock_service.repository.get_entries_by_ids.side_effect = resolved
+    else:
+        mock_service.repository.get_entries_by_ids.return_value = resolved
+    with (
+        patch_ariel_service(mock_service),
+        patch(
+            "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
+            new=AsyncMock(return_value=mock_rows),
+        ),
+        patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
+    ):
+        result = await get_tool_fn(_import_sql_query())(sql=sql)
+    return json.loads(result)["rows"], mock_service.repository.get_entries_by_ids
+
+
+async def test_sql_query_id_only_rows_resolve_sync_status_in_one_batch(ariel_registry):
+    """A query selecting neither metadata nor source_system: the local-only row
+    gets no URL, the facility row keeps one, and both resolve in one lookup."""
+    ariel_registry()
+    rows, lookup = await _sql_rows(
+        [{"entry_id": "w-local"}, {"entry_id": "f-1"}, {"count": 2}],
+        [
+            {
+                "entry_id": "w-local",
+                "source_system": "ARIEL Web",
+                "metadata": {"sync_status": "local_only"},
+            },
+            {"entry_id": "f-1", "source_system": "Facility eLog", "metadata": {}},
+        ],
+    )
+
+    assert "entry_url" not in rows[0]
+    assert rows[1]["entry_url"] == "https://logbook.example/olog.php?id=f-1"
+    assert "entry_url" not in rows[2]
+    lookup.assert_awaited_once()
+    assert sorted(lookup.await_args.args[0]) == ["f-1", "w-local"]
+    # The lookup only feeds the URL; the rows the query selected are unchanged.
+    assert set(rows[0]) == {"entry_id"}
+
+
+async def test_sql_query_source_system_without_metadata_resolves_metadata(ariel_registry):
+    """A row selecting source_system but not metadata still learns it is local-only."""
+    ariel_registry()
+    rows, lookup = await _sql_rows(
+        [{"entry_id": "w-local", "source_system": "ARIEL Web"}],
+        [
+            {
+                "entry_id": "w-local",
+                "source_system": "ARIEL Web",
+                "metadata": {"sync_status": "local_only"},
+            }
+        ],
+    )
+
+    assert "entry_url" not in rows[0]
+    lookup.assert_awaited_once()
+
+
+async def test_sql_query_rows_with_both_columns_skip_the_lookup(ariel_registry):
+    """Rows that already carry metadata and source_system need no lookup."""
+    ariel_registry()
+    rows, lookup = await _sql_rows(
+        [
+            {
+                "entry_id": "w-local",
+                "source_system": "ARIEL Web",
+                "metadata": {"sync_status": "local_only"},
+            },
+            {"entry_id": "f-1", "source_system": "Facility eLog", "metadata": {}},
+        ],
+        [],
+    )
+
+    assert "entry_url" not in rows[0]
+    assert rows[1]["entry_url"] == "https://logbook.example/olog.php?id=f-1"
+    lookup.assert_not_awaited()
+
+
+async def test_sql_query_failed_lookup_omits_unresolved_urls(ariel_registry):
+    """When the batch lookup fails the tool still answers, and rows whose sync
+    status is unknown get no URL rather than a possibly wrong one."""
+    ariel_registry()
+    rows, _ = await _sql_rows(
+        [
+            {"entry_id": "x-1"},
+            {"entry_id": "f-1", "source_system": "Facility eLog", "metadata": {}},
+        ],
+        RuntimeError("db down"),
+    )
+
+    assert "entry_url" not in rows[0]
+    assert rows[1]["entry_url"] == "https://logbook.example/olog.php?id=f-1"
+
+
+async def test_entry_publish_omits_entry_url_when_local_only(ariel_registry):
+    """A publish that ends local-only has no facility page, so no URL."""
+    from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
+
+    ariel_registry()
+    mock_service = AsyncMock()
+    mock_service.publish_entry.return_value = FacilityEntryCreateResult(
+        entry_id="w-local",
+        source_system="ARIEL Web",
+        sync_status=SyncStatus.LOCAL_ONLY,
+        message="Saved locally",
+    )
+
+    with (
+        patch_ariel_service(mock_service),
+        patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
+    ):
+        result = await get_tool_fn(_import_entry_publish())(entry_id="w-local", logbook="Ops")
 
     assert "entry_url" not in json.loads(result)
 

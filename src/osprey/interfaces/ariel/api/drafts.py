@@ -7,7 +7,10 @@ in _agent_data/drafts/ and expire after 1 hour.
 A draft is ``<store>/<id>.json``; the artifact gallery may add a
 ``<store>/<id>-metadata.json`` sidecar beside it. Every route that takes an id
 checks it against ``DRAFT_ID_PATTERN`` before touching the store, so a sidecar
-id or a traversal id is refused with 422.
+id or a traversal id is refused with 422. A draft file that is not valid
+JSON, not an object, or not a draft's shape is refused with 422 as well.
+Writes are atomic; their temporary files (``.<id>.json.<random>.tmp``) never
+match ``draft-*.json``, and the TTL sweep removes the ones a crash left behind.
 """
 
 from __future__ import annotations
@@ -18,13 +21,14 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from osprey.interfaces.ariel.api.attachment_response import attachment_response
+from osprey.services.ariel_search.atomic_json import atomic_write_json
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import resolve_shared_data_root
 
@@ -102,6 +106,18 @@ DRAFT_ID_PATTERN = re.compile(r"draft-[0-9a-f]{12}")
 
 SIDECAR_SUFFIX = "-metadata"
 
+#: The temporary files ``atomic_write_json`` leaves behind only when a writer dies.
+TEMP_PATTERN = re.compile(rf"\.{DRAFT_ID_PATTERN.pattern}\.json\.[^/]+\.tmp")
+
+
+class DraftCorrupt(ValueError):
+    """A draft file exists but is not a readable draft."""
+
+    def __init__(self, draft_id: str, reason: str) -> None:
+        super().__init__(f"Draft {draft_id} is unreadable: {reason}")
+        self.draft_id = draft_id
+        self.reason = reason
+
 
 def is_draft_id(value: str) -> bool:
     """Return whether ``value`` is a well-formed draft id."""
@@ -138,7 +154,9 @@ def _cleanup_expired_drafts() -> None:
     """Delete drafts older than DRAFT_TTL_SECONDS together with their sidecars.
 
     A sidecar follows its draft; a sidecar with no draft expires on its own
-    mtime. Files whose name does not follow the draft-id contract are left alone.
+    mtime, and so does a write's temporary file left behind by a crash (a
+    younger one may be a write in flight). Files whose name does not follow the
+    draft-id contract are left alone.
     """
     drafts_dir = _drafts_dir()
     if not drafts_dir.exists():
@@ -154,6 +172,9 @@ def _cleanup_expired_drafts() -> None:
             draft_path, _ = _draft_paths(drafts_dir, stem[: -len(SIDECAR_SUFFIX)])
             if not draft_path.exists() and _is_expired(path, now):
                 path.unlink(missing_ok=True)
+    for path in drafts_dir.glob(".draft-*.json.*.tmp"):
+        if TEMP_PATTERN.fullmatch(path.name) and _is_expired(path, now):
+            path.unlink(missing_ok=True)
 
 
 def _summary(path: Path) -> DraftSummary | None:
@@ -196,19 +217,50 @@ def generate_draft_id() -> str:
 
 
 def write_draft(draft_id: str, data: dict[str, Any]) -> Path:
-    """Write a draft JSON file to the drafts directory."""
+    """Write a draft JSON file to the drafts directory, whole or not at all."""
     drafts_dir = _ensure_drafts_dir()
     filepath = drafts_dir / f"{draft_id}.json"
-    filepath.write_text(json.dumps(data, indent=2))
+    atomic_write_json(filepath, data)
     return filepath
 
 
 def read_draft(draft_id: str) -> dict[str, Any] | None:
-    """Read a draft JSON file. Returns None if not found."""
+    """Read a draft JSON file. Returns None if not found.
+
+    Raises :class:`DraftCorrupt` when the file is not UTF-8 JSON, not an
+    object, or not a draft's shape (``DraftResponse``).
+    """
     filepath = _drafts_dir() / f"{draft_id}.json"
-    if not filepath.exists():
+    try:
+        text = filepath.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return None
-    return cast(dict[str, Any], json.loads(filepath.read_text()))
+    except UnicodeDecodeError as exc:
+        raise DraftCorrupt(draft_id, "not UTF-8") from exc
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise DraftCorrupt(draft_id, "not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise DraftCorrupt(draft_id, "not a JSON object")
+    try:
+        DraftResponse.model_validate(data)
+    except ValidationError as exc:
+        fields = ", ".join(".".join(str(p) for p in err["loc"]) for err in exc.errors())
+        raise DraftCorrupt(draft_id, f"wrong shape ({fields})") from exc
+    return data
+
+
+def _read_draft_or_http(draft_id: str) -> dict[str, Any]:
+    """``read_draft`` for a route: 404 when missing, 422 when corrupt."""
+    try:
+        data = read_draft(draft_id)
+    except DraftCorrupt as exc:
+        logger.warning("%s", exc)
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
+    return data
 
 
 @draft_router.post("/drafts", response_model=DraftCreateResponse)
@@ -252,12 +304,7 @@ async def get_draft(draft_id: str) -> DraftResponse:
     """Retrieve a draft by ID. Triggers cleanup of expired drafts."""
     _require_draft_id(draft_id)
     _cleanup_expired_drafts()
-
-    data = read_draft(draft_id)
-    if data is None:
-        raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
-
-    return DraftResponse(**data)
+    return DraftResponse.model_validate(_read_draft_or_http(draft_id))
 
 
 @draft_router.get("/drafts/{draft_id}/attachments/{filename}")
@@ -268,9 +315,7 @@ async def get_draft_attachment(draft_id: str, filename: str) -> Response:
     (prevents path-traversal attacks).
     """
     _require_draft_id(draft_id)
-    data = read_draft(draft_id)
-    if data is None:
-        raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
+    data = _read_draft_or_http(draft_id)
 
     attachment_paths = data.get("attachment_paths") or []
     # Find the path whose basename matches the requested filename

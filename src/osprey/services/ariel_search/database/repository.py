@@ -87,6 +87,10 @@ def _pattern_timeout_error(pattern_timeout_seconds: float | None) -> SearchTimeo
 #: Matches counted for a search total (C-MODOUT); past this the total is inexact.
 SEARCH_COUNT_CAP = 1000
 
+# The most follow-ups one thread returns (A17). ``get_follow_ups`` fetches one
+# more than this so a caller can tell the thread was cut short.
+FOLLOW_UPS_LIMIT = 200
+
 
 class SearchRows(list):
     """One page of search rows, plus the capped match count when it was asked for.
@@ -295,17 +299,28 @@ def attachment_text_md5(entry: Mapping[str, Any]) -> str:
     return hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
+def marker_kwargs(module_name: str, markers: Mapping[str, str | None] | None) -> dict[str, str]:
+    """The ``marker`` keyword of a complete or failed mark; none without a current marker."""
+    marker = (markers or {}).get(module_name)
+    return {} if marker is None else {"marker": marker}
+
+
 def text_mark_kwargs(
-    module_name: str, entry: Mapping[str, Any], has_copy_state: bool
+    module_name: str,
+    entry: Mapping[str, Any],
+    has_copy_state: bool,
+    markers: Mapping[str, str | None] | None = None,
 ) -> dict[str, str]:
     """Return the keyword arguments of :meth:`ARIELRepository.mark_enhancement_complete`.
 
     A text module on a store with copy state is marked under the md5 of the
-    ``attachment_text`` it read from ``entry``; every other mark takes no keyword.
+    ``attachment_text`` it read from ``entry``. A module with a current marker in
+    ``markers`` is marked under it too (``qmd_export`` may take both).
     """
+    kwargs = marker_kwargs(module_name, markers)
     if has_copy_state and module_name in TEXT_MD5_MODULES:
-        return {"md5": attachment_text_md5(entry)}
-    return {}
+        kwargs["md5"] = attachment_text_md5(entry)
+    return kwargs
 
 
 #: The ``enhancement_status`` keys of the two image modules. A picture whose
@@ -340,15 +355,65 @@ def image_not_done_sql(module_name: str, marker: str) -> str | None:
     return None
 
 
-#: The marker-aware "still owed" predicate over ``enhanced_entries e``: no key, a
-#: key written under another marker, or a pending or failed status not given up.
-#: Binds ``%(module)s`` and ``%(marker)s``.
-_MARKER_INCOMPLETE_SQL = (
-    "(NOT (e.enhancement_status ? %(module)s)"
-    " OR e.enhancement_status->%(module)s->>'marker' IS DISTINCT FROM %(marker)s"
-    " OR (e.enhancement_status->%(module)s->>'status' IN ('pending', 'failed')"
-    " AND NOT COALESCE((e.enhancement_status->%(module)s->>'gave_up')::boolean, false)))"
-)
+def _named_fragment(
+    fragment: str, values: Sequence[Any], names: Mapping[Any, str], params: dict[str, Any]
+) -> str:
+    """Rebind a positional (``%s``) SQL fragment to named parameters.
+
+    Each ``%s`` in ``fragment`` becomes ``%(<names[value]>)s`` and the value is
+    bound under that name in ``params``, so a fragment built for positional
+    binding can join a query bound by name. Two equal values may share a name,
+    because they bind identically. ``fragment`` must hold no other ``%``.
+    """
+    parts = fragment.split("%s")
+    if len(parts) != len(values) + 1:
+        raise ValueError("fragment placeholders do not match its values")
+    sql = parts[0]
+    for value, rest in zip(values, parts[1:], strict=True):
+        name = names[value]
+        params[name] = value
+        sql += f"%({name})s{rest}"
+    return sql
+
+
+def _marker_stale_named(
+    module: str,
+    marker: str,
+    alias: str,
+    *,
+    module_param: str,
+    marker_param: str,
+    params: dict[str, Any],
+) -> str:
+    """The shared "marker stale" fragment (``status.marker_stale_sql``), bound by name.
+
+    For an image module a missing stored marker is stale; for a text module it
+    is not, so a text status written before markers existed is never owed or
+    counted pending on its marker alone.
+    """
+    from osprey.services.ariel_search.enhancement.status import marker_stale_sql
+
+    fragment, values = marker_stale_sql(module, alias, marker=marker)
+    names = {module: module_param, marker: marker_param}
+    return _named_fragment(fragment, values, names, params)
+
+
+def _marker_incomplete_sql(module: str, marker: str, params: dict[str, Any]) -> str:
+    """The marker-aware "still owed" predicate over ``enhanced_entries e``.
+
+    No key, a stale marker (the shared fragment), or a pending or failed status
+    not given up. Binds ``%(module)s`` and ``%(marker)s`` into ``params``.
+    """
+    stale = _marker_stale_named(
+        module, marker, "e", module_param="module", marker_param="marker", params=params
+    )
+    return (
+        "(NOT (e.enhancement_status ? %(module)s)"
+        f" OR {stale}"
+        " OR (e.enhancement_status->%(module)s->>'status' IN ('pending', 'failed')"
+        " AND NOT COALESCE((e.enhancement_status->%(module)s->>'gave_up')::boolean, false)))"
+    )
+
 
 #: Entries the set-based image-module mark selects and locks per batch.
 IMAGE_MARK_BATCH_SIZE = 1000
@@ -590,6 +655,15 @@ async def image_embedding_table_names(cur: Any) -> list[str]:
     return [row[0] for row in await cur.fetchall()]
 
 
+def _module_label(module: str) -> str:
+    """The registration's ``label`` for enhancement ``module``, else its name."""
+    from osprey.registry import get_registry
+
+    found = get_registry().get_ariel_enhancement_module(module)
+    reg = found[1] if found else None
+    return getattr(reg, "label", None) or module
+
+
 class CopyRendition(NamedTuple):
     """A prepared rendition of a stored picture, as written to ``attachment_files``.
 
@@ -649,6 +723,8 @@ class ARIELRepository:
         self.config = config
         self._schema_facts: SchemaFacts | None = None
         self._schema_probed_at: float | None = None
+        #: ``table -> (has input_key, probed at)`` for :meth:`text_input_key_column`.
+        self._input_key_columns: dict[str, tuple[bool, float]] = {}
         #: Monotonic clock the negative-probe TTL is measured on; tests replace it.
         self._clock: Callable[[], float] = time.monotonic
 
@@ -768,18 +844,24 @@ class ARIELRepository:
                 query=f"SELECT entry_id={entry_id}",
             ) from e
 
-    async def get_follow_ups(self, entry_id: str) -> list[EnhancedLogbookEntry]:
-        """List the entries whose ``metadata.follows_up`` names ``entry_id``.
+    async def get_follow_ups(
+        self, entry_id: str, limit: int = FOLLOW_UPS_LIMIT
+    ) -> list[EnhancedLogbookEntry]:
+        """List the newest entries whose ``metadata.follows_up`` names ``entry_id``.
 
-        Oldest first (``timestamp``, then ``entry_id``), with the same columns as
-        the entry list. An entry naming itself is not its own follow-up. The
-        predicate matches the ``follows_up_index`` expression index.
+        Selects the newest ``limit + 1`` follow-ups and returns them oldest first
+        (``timestamp``, then ``entry_id``), with the same columns as the entry
+        list; more than ``limit`` rows back means older follow-ups were left out.
+        An entry naming itself is not its own follow-up. The predicate matches
+        the ``follows_up_index`` expression index.
 
         Args:
             entry_id: The parent entry ID
+            limit: The most follow-ups the caller shows
 
         Returns:
-            The follow-ups, empty when there are none or the ID is unknown
+            Up to ``limit + 1`` follow-ups, empty when there are none or the ID
+            is unknown
 
         Raises:
             DatabaseQueryError: If the query fails
@@ -795,10 +877,11 @@ class ARIELRepository:
                 await cur.execute(
                     f"SELECT e.*, {images} AS has_images FROM enhanced_entries e"
                     " WHERE e.metadata->>'follows_up' = %s AND e.entry_id <> %s"
-                    " ORDER BY e.timestamp ASC, e.entry_id ASC",
-                    [entry_id, entry_id],
+                    " ORDER BY e.timestamp DESC, e.entry_id DESC LIMIT %s",
+                    [entry_id, entry_id, max(limit, 0) + 1],
                 )
-                return [enhanced_entry_from_row(row) for row in await cur.fetchall()]
+                rows = await cur.fetchall()
+                return [enhanced_entry_from_row(row) for row in reversed(rows)]
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to get follow-ups of {entry_id}: {e}",
@@ -2312,9 +2395,11 @@ class ARIELRepository:
                             AND {viewable_sql("f")}
                             AND {not_done}
                       )"""
+        params: dict[str, Any] = {"module": module_name, "marker": marker, "limit": limit}
+        incomplete = _marker_incomplete_sql(module_name, marker, params)
         sql = f"""
                     SELECT e.* FROM enhanced_entries e
-                    WHERE {_MARKER_INCOMPLETE_SQL}
+                    WHERE {incomplete}
                       {picture_clause}
                     ORDER BY {_EFFECTIVE_STATUS_SQL} = 'failed',
                              {_EFFECTIVE_ATTEMPTS_SQL},
@@ -2322,7 +2407,6 @@ class ARIELRepository:
                              e.entry_id
                     LIMIT %(limit)s
                     """
-        params: dict[str, Any] = {"module": module_name, "marker": marker, "limit": limit}
         if module_name == "image_caption":
             params["model"] = marker
         try:
@@ -2439,15 +2523,16 @@ class ARIELRepository:
         current_arms: list[str] = []
         for i, (module, marker) in enumerate(markers.items()):
             params[f"module_{i}"] = module
-            params[f"marker_{i}"] = marker
-            stale_arms.append(
-                f"WHEN status.key = %(module_{i})s"
-                f" AND status.value->>'marker' IS DISTINCT FROM %(marker_{i})s THEN 'pending'"
+            stale = _marker_stale_named(
+                module,
+                marker,
+                "enhanced_entries",
+                module_param=f"module_{i}",
+                marker_param=f"marker_{i}",
+                params=params,
             )
-            current_arms.append(
-                f"(status.key = %(module_{i})s"
-                f" AND status.value->>'marker' IS NOT DISTINCT FROM %(marker_{i})s)"
-            )
+            stale_arms.append(f"WHEN status.key = %(module_{i})s AND {stale} THEN 'pending'")
+            current_arms.append(f"(status.key = %(module_{i})s AND NOT {stale})")
         sql = f"""
                     WITH total AS (
                         SELECT COUNT(*) AS entries FROM enhanced_entries
@@ -2506,6 +2591,72 @@ class ARIELRepository:
             stats[module] = counts
         return stats
 
+    async def get_enhancement_coverage(
+        self, context: "EnhancementContext"
+    ) -> dict[str, dict[str, Any]]:
+        """Count the entries in each enhancement state, per enabled module.
+
+        One statement: every entry is crossed with one row per enabled module
+        carrying that module's state (:func:`enhancement_state_case_sql`, the
+        same decision table :func:`enhancement_view` applies to one entry), and
+        a single ``GROUP BY`` tallies the pairs. A module's counts therefore sum
+        to the number of entries, and equal the per-entry states the reader's
+        badge strip shows under the same ``context``.
+
+        Unlike :meth:`get_enhancement_stats`, which stays as it is for the
+        existing ``status`` fields, this reports ``stale`` and ``n/a`` and
+        lists a module before its first entry lands.
+
+        Args:
+            context: The enhancement context (:func:`store_enhancement_context`);
+                its ``enabled`` modules are counted, in that order.
+
+        Returns:
+            ``{module: {"label", "complete", "pending", "stale", "failed",
+            "n/a"}}`` in execution order. ``label`` is the registration's label,
+            or the module name when it has none.
+
+        Raises:
+            DatabaseQueryError: If the query fails.
+        """
+        from osprey.services.ariel_search.enhancement.status import STATES
+
+        modules = list(context.enabled)
+        coverage: dict[str, dict[str, Any]] = {}
+        for module in modules:
+            coverage[module] = {"label": _module_label(module), **dict.fromkeys(STATES, 0)}
+        if not modules:
+            return coverage
+
+        rows_sql: list[str] = []
+        params: list[Any] = []
+        for index, module in enumerate(modules):
+            case, case_params = context.case_sql(module, "e")
+            rows_sql.append(f"({index}, {case})")
+            params += case_params
+
+        statement = (
+            "SELECT s.idx, s.state, COUNT(*) AS entries"
+            " FROM enhanced_entries e"
+            f" CROSS JOIN LATERAL (VALUES {', '.join(rows_sql)}) AS s(idx, state)"
+            " GROUP BY s.idx, s.state"
+        )
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(statement, params)
+                rows = await result.fetchall()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to count enhancement coverage: {e}",
+                query="SELECT enhancement coverage",
+            ) from e
+
+        for idx, state, entries in rows:
+            counts = coverage[modules[int(idx)]]
+            if state in counts:
+                counts[state] += int(entries)
+        return coverage
+
     async def mark_enhancement_complete(
         self,
         entry_id: str,
@@ -2524,59 +2675,43 @@ class ARIELRepository:
             md5: The md5 of the ``attachment_text`` the module read (optional). When
                 given, the entry is marked only while its ``attachment_text`` still
                 hashes to it; otherwise nothing is written and the module stays owed.
-
-        Raises:
-            ValueError: If both ``marker`` and ``md5`` are given.
+                It combines with ``marker``: ``qmd_export`` completes under both on a
+                store with copy state.
         """
-        if md5 is not None:
-            if marker is not None:
-                raise ValueError("mark_enhancement_complete takes marker or md5, not both")
-            try:
-                async with self.pool.connection() as conn:
-                    await conn.execute(
-                        """
-                        UPDATE enhanced_entries
-                        SET enhancement_status = jsonb_set(
-                            enhancement_status,
-                            ARRAY[%(module)s::text],
-                            jsonb_build_object('status', 'complete', 'completed_at', NOW()::text)
-                        )
-                        WHERE entry_id = %(entry_id)s
-                          AND md5(COALESCE(attachment_text, '')) = %(md5)s
-                        """,
-                        {"module": module_name, "entry_id": entry_id, "md5": md5},
-                    )
-            except Exception as e:
-                raise DatabaseQueryError(
-                    f"Failed to mark enhancement complete: {e}",
-                    query=f"UPDATE entry_id={entry_id} module={module_name}",
-                ) from e
+        if marker is None and md5 is None:
+            await self._mark_complete_plain(entry_id, module_name)
             return
+        fields = "'status', 'complete', 'completed_at', NOW()::text"
+        params: dict[str, Any] = {"path": [module_name], "entry_id": entry_id}
         if marker is not None:
-            try:
-                async with self.pool.connection() as conn:
-                    await conn.execute(
-                        """
-                        UPDATE enhanced_entries
-                        SET enhancement_status = jsonb_set(
-                            enhancement_status,
-                            %(path)s::text[],
-                            jsonb_build_object(
-                                'status', 'complete',
-                                'completed_at', NOW()::text,
-                                'marker', %(marker)s::text
-                            )
-                        )
-                        WHERE entry_id = %(entry_id)s
-                        """,
-                        {"path": [module_name], "entry_id": entry_id, "marker": marker},
+            fields += ", 'marker', %(marker)s::text"
+            params["marker"] = marker
+        guard = ""
+        if md5 is not None:
+            guard = " AND md5(COALESCE(attachment_text, '')) = %(md5)s"
+            params["md5"] = md5
+        try:
+            async with self.pool.connection() as conn:
+                await conn.execute(
+                    f"""
+                    UPDATE enhanced_entries
+                    SET enhancement_status = jsonb_set(
+                        enhancement_status,
+                        %(path)s::text[],
+                        jsonb_build_object({fields})
                     )
-            except Exception as e:
-                raise DatabaseQueryError(
-                    f"Failed to mark enhancement complete: {e}",
-                    query=f"UPDATE entry_id={entry_id} module={module_name}",
-                ) from e
-            return
+                    WHERE entry_id = %(entry_id)s{guard}
+                    """,
+                    params,
+                )
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to mark enhancement complete: {e}",
+                query=f"UPDATE entry_id={entry_id} module={module_name}",
+            ) from e
+
+    async def _mark_complete_plain(self, entry_id: str, module_name: str) -> None:
+        """The complete mark with neither a marker nor an md5 guard."""
         try:
             async with self.pool.connection() as conn:
                 await conn.execute(
@@ -2596,6 +2731,80 @@ class ARIELRepository:
                 f"Failed to mark enhancement complete: {e}",
                 query=f"UPDATE entry_id={entry_id} module={module_name}",
             ) from e
+
+    async def stamp_baseline_markers(self, markers: Mapping[str, str | None]) -> dict[str, int]:
+        """Give text statuses written before markers existed the current marker, once.
+
+        For each text marker module in ``markers`` (image modules, ``text_embedding``
+        and None markers are ignored), every ``complete`` or ``failed`` status with no
+        stored marker gets ``marker``; a ``failed`` one also gets
+        ``gave_up = attempts >= MAX_ENHANCEMENT_ATTEMPTS``, so a legacy failure that
+        had used up its attempts is not re-queued. A later marker change then makes
+        the stamped statuses stale. Statuses that already carry a marker, and
+        ``pending`` ones, are untouched, so a second stamp writes nothing. All
+        modules are stamped in one transaction.
+
+        Args:
+            markers: The current marker per module (``current_markers``).
+
+        Returns:
+            The statuses stamped per text module stamped.
+
+        Raises:
+            DatabaseQueryError: If the stamp failed; nothing is written then.
+        """
+        from osprey.services.ariel_search.enhancement.status import (
+            IMAGE_MODULES,
+            MARKER_MODULES,
+        )
+
+        todo = {
+            module: marker
+            for module, marker in markers.items()
+            if marker is not None and module in MARKER_MODULES and module not in IMAGE_MODULES
+        }
+        stamped: dict[str, int] = {}
+        if not todo:
+            return stamped
+        try:
+            async with self.pool.connection() as conn, conn.transaction():
+                for module, marker in todo.items():
+                    result = await conn.execute(
+                        """
+                        UPDATE enhanced_entries
+                        SET enhancement_status = jsonb_set(
+                            enhancement_status,
+                            %(path)s::text[],
+                            (enhancement_status->%(module)s)
+                            || jsonb_build_object('marker', %(marker)s::text)
+                            || CASE WHEN enhancement_status->%(module)s->>'status' = 'failed'
+                                    THEN jsonb_build_object(
+                                        'gave_up',
+                                        CASE WHEN enhancement_status->%(module)s->>'attempts'
+                                                  ~ '^[0-9]{1,9}$'
+                                             THEN (enhancement_status->%(module)s->>'attempts')::int
+                                             ELSE 0 END >= %(max_attempts)s
+                                    )
+                                    ELSE '{}'::jsonb END
+                        )
+                        WHERE jsonb_typeof(enhancement_status->%(module)s) = 'object'
+                          AND enhancement_status->%(module)s->>'status' IN ('complete', 'failed')
+                          AND enhancement_status->%(module)s->>'marker' IS NULL
+                        """,
+                        {
+                            "path": [module],
+                            "module": module,
+                            "marker": marker,
+                            "max_attempts": MAX_ENHANCEMENT_ATTEMPTS,
+                        },
+                    )
+                    stamped[module] = result.rowcount
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to stamp baseline markers: {e}",
+                query=f"UPDATE baseline markers modules={sorted(todo)}",
+            ) from e
+        return stamped
 
     async def mark_image_module_complete(
         self,
@@ -2683,12 +2892,13 @@ class ARIELRepository:
         """
         completion = image_completion_sql(module_name, marker)
         params = {**image_mark_params(module_name, marker), "after": after, "limit": limit}
+        incomplete = _marker_incomplete_sql(module_name, marker, params)
         try:
             async with self._connection(conn) as c, c.transaction():
                 result = await c.execute(
                     f"""
                     SELECT e.entry_id FROM enhanced_entries e
-                    WHERE {_MARKER_INCOMPLETE_SQL}
+                    WHERE {incomplete}
                       AND {completion}
                       AND e.entry_id > %(after)s
                     ORDER BY e.entry_id
@@ -2927,6 +3137,102 @@ class ARIELRepository:
                 query=f"SELECT {table} GROUP BY input_key",
             ) from e
         return {str(key): int(count) for key, count in rows}
+
+    async def text_input_key_column(self, table: str) -> bool:
+        """Whether ``table`` has an ``input_key`` column, cached like :meth:`schema_facts`.
+
+        A positive answer stays for the life of the repository; a negative one
+        is re-probed at most once every :data:`SCHEMA_FACTS_NEGATIVE_TTL_SECONDS`.
+        A failed probe is logged and counts as negative, so the enhancement
+        context degrades to "never stale" rather than failing a read.
+
+        Args:
+            table: Text-embedding table name, e.g. ``text_embeddings_nomic``.
+        """
+        cached = self._input_key_columns.get(table)
+        now = self._clock()
+        if cached is not None and (
+            cached[0] or now - cached[1] < SCHEMA_FACTS_NEGATIVE_TTL_SECONDS
+        ):
+            return cached[0]
+        try:
+            present = await self.has_input_key_column(table)
+        except DatabaseQueryError as e:
+            logger.warning(f"input_key probe of {table} failed, treating it as absent: {e}")
+            present = False
+        self._input_key_columns[table] = (present, now)
+        return present
+
+    async def get_text_build_keys(self, table: str, entry_ids: Sequence[str]) -> dict[str, str]:
+        """Read the build key of each given entry's row in ``table``, in one query.
+
+        A NULL ``input_key`` reads as ``r1``, as in :meth:`get_embedding_build_counts`.
+        The caller has probed ``table`` for its ``input_key`` column
+        (:meth:`has_input_key_column`).
+
+        Args:
+            table: Text-embedding table name, e.g. ``text_embeddings_nomic``.
+            entry_ids: The entries of one page or one entry read.
+
+        Returns:
+            ``{entry_id: build_key}``; an entry with no row is absent.
+
+        Raises:
+            DatabaseQueryError: If the read fails.
+        """
+        from psycopg import sql
+
+        if not entry_ids:
+            return {}
+        query = sql.SQL(
+            "SELECT entry_id, COALESCE(input_key, 'r1') FROM {} WHERE entry_id = ANY(%s)"
+        ).format(sql.Identifier(table))
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(query, [list(entry_ids)])
+                rows = await result.fetchall()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to read the build keys of {table}: {e}",
+                query=f"SELECT {table} input_key",
+            ) from e
+        return {str(entry_id): str(key) for entry_id, key in rows}
+
+    async def get_text_embedding(self, table: str, entry_id: str) -> list[float] | None:
+        """Read one entry's stored vector from the text-embedding table ``table``.
+
+        The vector is read as pgvector text, so no vector adapter is needed.
+
+        Args:
+            table: Text-embedding table name, e.g. ``text_embeddings_nomic``.
+            entry_id: The entry whose vector to read.
+
+        Returns:
+            The stored vector; None when the entry has no row, its row holds no
+            vector, or ``table`` does not exist.
+
+        Raises:
+            DatabaseQueryError: If the read fails for any other reason.
+        """
+        from psycopg import errors, sql
+
+        query = sql.SQL("SELECT embedding::text FROM {} WHERE entry_id = %s LIMIT 1").format(
+            sql.Identifier(table)
+        )
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(query, [entry_id])
+                row = await result.fetchone()
+        except errors.UndefinedTable:
+            return None
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to read the {table} vector of {entry_id}: {e}",
+                query=f"SELECT {table} embedding",
+            ) from e
+        if not row or row[0] is None:
+            return None
+        return [float(x) for x in json.loads(row[0])]
 
     async def get_image_embedding_tables(self) -> list[EmbeddingTableInfo]:
         """Discover every image-embedding table in the database.
@@ -3592,11 +3898,15 @@ class ARIELRepository:
         """
         if entry_filter is None or entry_filter.is_empty():
             return [], []
-        from osprey.services.ariel_search.enhancement.status import store_enhancement_context
-
-        clauses, params = entry_filter.to_sql(
-            alias, await store_enhancement_context(self.config, self)
+        from osprey.services.ariel_search.enhancement.status import (
+            filter_needs_build_keys,
+            store_enhancement_context,
         )
+
+        context = await store_enhancement_context(
+            self.config, self, text_embedding=filter_needs_build_keys(entry_filter)
+        )
+        clauses, params = entry_filter.to_sql(alias, context)
         return list(clauses), list(params)
 
     @requires_module("search", "keyword")
@@ -3706,7 +4016,7 @@ class ARIELRepository:
         query_embedding: list[float],
         model_name: str,
         max_results: int = 10,
-        similarity_threshold: float = 0.5,
+        similarity_threshold: float | None = 0.5,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         author: str | None = None,
@@ -3722,7 +4032,7 @@ class ARIELRepository:
             query_embedding: Query embedding vector
             model_name: Model name for table lookup
             max_results: Maximum results to return
-            similarity_threshold: Minimum similarity threshold
+            similarity_threshold: Minimum similarity threshold; None applies none
             start_date: Filter entries after this time
             end_date: Filter entries before this time
             author: Filter by author name (ILIKE match)
@@ -3752,8 +4062,11 @@ class ARIELRepository:
                 self.pool.connection() as conn,
                 conn.cursor(row_factory=dict_row) as cur,
             ):
-                where_clauses = ["1 - (emb.embedding <=> %s::vector) >= %s"]
-                params: list[Any] = [embedding_str, similarity_threshold]
+                where_clauses: list[str] = []
+                params: list[Any] = []
+                if similarity_threshold is not None:
+                    where_clauses.append("1 - (emb.embedding <=> %s::vector) >= %s")
+                    params.extend([embedding_str, similarity_threshold])
 
                 if start_date:
                     where_clauses.append("e.timestamp >= %s")
@@ -3770,7 +4083,7 @@ class ARIELRepository:
                 where_clauses.extend(filter_clauses)
                 params.extend(filter_params)
 
-                where_sql = " AND ".join(where_clauses)
+                where_sql = " AND ".join(where_clauses) or "TRUE"
 
                 query = f"""
                         SELECT e.*, 1 - (emb.embedding <=> %s::vector) AS similarity,
