@@ -65,13 +65,13 @@ from osprey.services.bluesky_bridge.queue_backend import (
 )
 from osprey.services.bluesky_bridge.session_upload import (
     SESSION_PLAN_MODULE,
-    set_session_uploader,
     upload_after_validation,
 )
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from tests._control_system import IN_PROCESS, section_for
+from tests.services.bluesky_bridge._bridge_state import reset_bridge_state
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -421,10 +421,9 @@ class MockQueueServer:
 def _isolated_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """A bridge process with no inherited state: no backend, no draft, no records.
 
-    The backend singleton is cleared rather than left alone so a test that
-    forgets to install a mock gets a managerless (fail-closed) backend instead
-    of the previous test's. `validation_records` is a process-wide singleton
-    the whole suite shares, so its contents are saved and restored.
+    The bridge state is reset by the shared bridge reset, `reset_bridge_state`,
+    before and after each test. `validation_records` is a process-wide
+    singleton the whole suite shares, so its contents are saved and restored.
     """
     monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
     monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
@@ -436,17 +435,9 @@ def _isolated_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
         saved_hashes = set(validation_records._passing_hashes)
         validation_records._passing_hashes.clear()
 
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    app_module.set_queue_backend(None)
-    set_session_uploader(None)
+    reset_bridge_state()
     yield
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    app_module.set_queue_backend(None)
-    set_session_uploader(None)
+    reset_bridge_state()
     with validation_records.lock:
         validation_records._passing_hashes.clear()
         validation_records._passing_hashes.update(saved_hashes)
