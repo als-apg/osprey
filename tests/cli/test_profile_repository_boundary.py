@@ -239,6 +239,27 @@ def test_a_second_hop_that_resolves_outside_is_refused_at_its_path_under_the_inp
     )
 
 
+def test_a_two_hop_link_out_of_a_convention_directory_is_refused_by_the_loader(
+    repo: Path,
+) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
+    outside = repo.parent / "elsewhere"
+    outside.mkdir()
+    hop = repo / "hop"
+    hop.mkdir()
+    (hop / "c").symlink_to(outside, target_is_directory=True)
+    (repo / "rules").mkdir(exist_ok=True)
+    (repo / "rules" / "a").symlink_to(hop, target_is_directory=True)
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == (
+        f"rules/a/c resolves to {outside.resolve().as_posix()}, outside the repository. {REMEDY}"
+    )
+
+
 def test_a_directory_link_back_to_its_own_parent_is_refused(repo: Path) -> None:
     from osprey.cli.build_profile_load import load_profile
 
