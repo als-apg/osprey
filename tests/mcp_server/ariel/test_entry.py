@@ -281,6 +281,50 @@ async def test_entry_create_draft_default(tmp_path, monkeypatch):
     assert contents["subject"] == "Beam lost"
 
 
+async def test_entry_create_draft_writes_atomically_under_redirected_dir(tmp_path, monkeypatch):
+    """The MCP draft write goes through atomic_write_json into the redirected dir."""
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+    written: list = []
+    real = entry_mod.atomic_write_json
+
+    def spy(path, obj):
+        written.append(path)
+        real(path, obj)
+
+    monkeypatch.setattr(entry_mod, "atomic_write_json", spy)
+
+    fn = _get_entry_create()
+    data = json.loads(await fn(subject="Beam lost", details="D"))
+
+    expected = drafts_dir / f"{data['draft_id']}.json"
+    assert written == [expected]
+    assert [p.name for p in drafts_dir.iterdir()] == [expected.name]
+    assert json.loads(expected.read_text())["subject"] == "Beam lost"
+
+
+async def test_entry_create_draft_interrupted_write_leaves_no_file(tmp_path, monkeypatch):
+    """A write interrupted before the replace leaves neither a draft nor a temp."""
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+    import osprey_connectors.safety_file as safety_file
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    def boom(_src, _dst):
+        raise OSError("interrupted before the replace")
+
+    monkeypatch.setattr(safety_file.os, "replace", boom)
+
+    fn = _get_entry_create()
+    with assert_raises_error(error_type="internal_error"):
+        await fn(subject="Beam lost", details="D")
+
+    assert list(drafts_dir.iterdir()) == []
+
+
 async def test_entry_create_draft_all_fields(tmp_path, monkeypatch):
     """Draft mode with all optional fields populates them."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod

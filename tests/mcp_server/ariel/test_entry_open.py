@@ -42,7 +42,7 @@ def _panel_base(monkeypatch):
 async def test_opens_the_entry_and_focuses_the_panel(keyset_harness):  # noqa: ARG001
     result, focus = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
 
-    url = f"/panel/ariel/#entry?id={KEYSET_SECOND_ENTRY_ID}"
+    url = f"/panel/ariel/#sel={KEYSET_SECOND_ENTRY_ID}"
     assert result["url"] == url
     assert result["opened"] == "entry"
     assert result["entry_id"] == KEYSET_SECOND_ENTRY_ID
@@ -54,7 +54,7 @@ async def test_opens_the_entry_and_focuses_the_panel(keyset_harness):  # noqa: A
 async def test_opens_a_viewable_picture_enlarged(keyset_harness):  # noqa: ARG001
     result, focus = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=PNG_ID)
 
-    url = f"/panel/ariel/#entry?id={KEYSET_ENTRY_ID}&attachment={PNG_ID}"
+    url = f"/panel/ariel/#sel={KEYSET_ENTRY_ID}&att={PNG_ID}"
     assert result["url"] == url
     assert result["opened"] == "entry_and_picture"
     assert result["attachment_id"] == PNG_ID
@@ -99,7 +99,7 @@ async def test_the_attachment_id_is_required_and_nullable():
 async def test_a_picture_that_is_not_viewable_opens_the_entry_only(keyset_harness):  # noqa: ARG001
     result, focus = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=PDF_ID)
 
-    url = f"/panel/ariel/#entry?id={KEYSET_ENTRY_ID}"
+    url = f"/panel/ariel/#sel={KEYSET_ENTRY_ID}"
     assert result["url"] == url
     assert result["opened"] == "entry"
     assert "not viewable" in result["message"]
@@ -116,14 +116,26 @@ async def test_the_entry_id_is_url_encoded(keyset_harness, monkeypatch):
     monkeypatch.setattr(keyset_harness.repository, "get_entry", get_entry)
     result, _ = await _open(entry_id=odd, attachment_id=None)
 
-    assert result["url"] == "/panel/ariel/#entry?id=elog%2F42%20%231%26x%3D2"
+    assert result["url"] == "/panel/ariel/#sel=elog%2F42%20%231%26x%3D2"
 
 
 async def test_ariel_web_url_sets_the_base(keyset_harness, monkeypatch):  # noqa: ARG001
     monkeypatch.setenv("ARIEL_WEB_URL", "https://ariel.example")
     result, _ = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
 
-    assert result["url"] == f"https://ariel.example/#entry?id={KEYSET_SECOND_ENTRY_ID}"
+    assert result["url"] == f"https://ariel.example/#sel={KEYSET_SECOND_ENTRY_ID}"
+
+
+@pytest.mark.parametrize("attachment", [None, PNG_ID])
+async def test_the_url_is_admitted_as_a_navigation_of_the_ariel_panel(keyset_harness, attachment):  # noqa: ARG001
+    """The host's panel-navigate guard admits the built URL for ARIEL's mount, unchanged."""
+    from osprey.interfaces.panel_urls import member_navigation_url
+
+    result, _ = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=attachment)
+
+    admitted, refusal = member_navigation_url(result["url"], mount="/panel/ariel", upstream=None)
+    assert refusal is None
+    assert admitted == result["url"]
 
 
 async def test_without_a_web_terminal_the_result_still_carries_the_url(keyset_harness):  # noqa: ARG001
@@ -135,7 +147,7 @@ async def test_without_a_web_terminal_the_result_still_carries_the_url(keyset_ha
             await get_tool_fn(entry_open)(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
         )
 
-    assert result["url"] == f"/panel/ariel/#entry?id={KEYSET_SECOND_ENTRY_ID}"
+    assert result["url"] == f"/panel/ariel/#sel={KEYSET_SECOND_ENTRY_ID}"
 
 
 async def test_unknown_entry_is_not_found(keyset_harness):  # noqa: ARG001

@@ -27,6 +27,7 @@ from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.tools.search_envelope import serialize_page
 from osprey.mcp_server.errors import MISSING_KEY, refuse_nothing_answered
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.services.ariel_search.atomic_json import atomic_write_json
 from osprey.services.ariel_search.attachments.compose import caption_model_id
 from osprey.services.ariel_search.attachments.summaries import (
     build_attachment_summaries,
@@ -186,7 +187,9 @@ async def entry_get(
         }
         if summaries:
             result["attachment_count"] = len(summaries)
-        entry_url = build_entry_url(entry["entry_id"], entry["source_system"])
+        entry_url = build_entry_url(
+            entry["entry_id"], entry["source_system"], metadata=entry.get("metadata")
+        )
         if entry_url is not None:
             result["entry_url"] = entry_url
         return json.dumps(result, default=str)
@@ -359,7 +362,7 @@ async def entry_open(
             if view_enabled and item.get("viewable") and item.get("attachment_id")
         ]
 
-        route = f"entry?id={quote(entry['entry_id'], safe='')}"
+        route = f"sel={quote(entry['entry_id'], safe='')}"
         opened = "entry"
         message = f"The ARIEL panel shows entry {entry['entry_id']}."
         if attachment_id is None and pictures:
@@ -380,7 +383,7 @@ async def entry_open(
                     ["Read attachment_id values from this entry's attachments in entry_get."],
                 )
             if summary.get("viewable"):
-                route += f"&attachment={attachment_id}"
+                route += f"&att={attachment_id}"
                 opened = "entry_and_picture"
                 message = (
                     f"The ARIEL panel shows entry {entry['entry_id']} with picture "
@@ -605,7 +608,7 @@ async def entry_create(
             if all_file_paths:
                 draft_data["attachment_paths"] = all_file_paths
             filepath = drafts_dir / f"{draft_id}.json"
-            filepath.write_text(json.dumps(draft_data, indent=2))
+            atomic_write_json(filepath, draft_data)
 
             url = ariel_panel_url(f"create?draft={draft_id}")
 
