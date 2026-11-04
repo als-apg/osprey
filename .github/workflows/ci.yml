@@ -3553,21 +3553,14 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
-
     - name: Run Bluesky queue E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
-      # that takes the container logs with it.
+      # that takes the container logs with it. The deployed stack leaves out
+      # the agent's knowledge services (no qmd image to build); the module's
+      # first test renders the preset with them and checks that is the only
+      # difference.
       timeout-minutes: 70
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner

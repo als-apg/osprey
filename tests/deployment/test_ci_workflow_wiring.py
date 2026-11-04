@@ -14103,7 +14103,6 @@ QMD_DEPLOYING_STEPS: dict[str, tuple[str, ...]] = {
         "Run the multi-user shared-bundle sidecar E2E",
     ),
     "scan-agentic-e2e": ("Run scan stack agentic E2E",),
-    "bluesky-queue-e2e": ("Run Bluesky queue E2E",),
     "single-user-narrowing-e2e": ("Run single-user narrowing E2E",),
     "dispatch-overlay-e2e": ("Run dispatch overlay visibility E2E",),
     "dispatch-deploy-e2e": ("Run dispatch deploy E2E",),
@@ -14324,10 +14323,10 @@ def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_va
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_build() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)["bluesky-queue-e2e"]["steps"]
-    steps.remove(_find_named_step(mutated, "bluesky-queue-e2e", "Build the qmd sidecar image"))
+    steps = _jobs(mutated)["dispatch-deploy-e2e"]["steps"]
+    steps.remove(_find_named_step(mutated, "dispatch-deploy-e2e", "Build the qmd sidecar image"))
     assert _qmd_deploy_problems(mutated) == [
-        f"bluesky-queue-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
+        f"dispatch-deploy-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
     ]
 
 

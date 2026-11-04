@@ -24,8 +24,18 @@ host-hygiene only -- drop the event-dispatcher/web-terminal stacks this proof
 never touches, and move every published port off the defaults so this can run
 on a shared dev machine beside an already-deployed tutorial stack.
 
+The one edit that is not host hygiene: the deployed stack leaves out the
+agent's knowledge services (``_orm_stack.KNOWLEDGE_SERVICES_OFF``: qmd, the
+graph store, ARIEL's Postgres, the record's ClickHouse). Nothing here reads
+them, and with them the stack runs a 72 GB runner out of disk. Stage 0 keeps
+the claim about the shipped preset without deploying it.
+
 Stages, in order, each an independently-reportable test:
 
+0. ``test_0_the_shipped_preset_*`` -- the preset with only the host edits
+   renders, and its services are the deployed stack's plus the knowledge
+   services, nothing else. Render only; qmd with its models is proven in
+   the ``qmd-sidecar-e2e`` CI lane.
 1. ``test_1_capability_*``       -- bridge ``/health`` and the sidecar's
    ``/bridge/health`` relay both report ``can_execute: true`` / ``executable``.
 2. ``test_2_shipped_preset_*``   -- the preset arms the queue at boot
@@ -130,6 +140,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.services.bluesky_bridge.analysis import REASON_RUN_IN_PROGRESS
 from osprey.services.bluesky_bridge.app import PREVIEW_REASON_UNKNOWN_PLAN
@@ -785,17 +796,15 @@ def _drain_leftover_queue_items() -> None:
     assert remaining == 0, f"queue still holds {remaining} item(s) after draining leftovers"
 
 
-@pytest.fixture(scope="module")
-def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
-    """Init + build + ``osprey up --dev`` the whole queue stack; tear it down after."""
-    osprey_bin = _orm_stack.find_osprey_console_script()
-    base = tmp_path_factory.mktemp("bluesky_queue_e2e")
-    # The deployment repo. Its directory name IS the deployment name, so the
-    # container/image names derived above still hold.
-    repo = base / PROJECT_NAME
+def _init_and_build(repo: Path, edits: dict[str, Any]) -> None:
+    """``osprey init`` the preset with ``edits`` and the ports below, then ``osprey build``.
 
-    # Two steps, because the surface has two: `init` writes the repo's source
-    # zone from the preset plus these edits, `build` renders build/ from it.
+    Two steps, because the surface has two: ``init`` writes the repo's source
+    zone from the preset plus these edits, ``build`` renders build/ from it.
+    Shared by the deployed stack and the shipped-preset render check, so the
+    two differ only by the edits each passes.
+    """
+    osprey_bin = _orm_stack.find_osprey_console_script()
     init = run_command(
         [
             str(osprey_bin),
@@ -804,7 +813,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             "--preset",
             "control-assistant",
             "--no-git",
-            *set_pairs(_profile_edits()),
+            *set_pairs(edits),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
@@ -822,7 +831,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             "--set",
             "port_base=22000",
         ],
-        cwd=base,
+        cwd=repo.parent,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if init.returncode != 0:
@@ -830,11 +839,37 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
     build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
-        cwd=base,
+        cwd=repo.parent,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
         pytest.fail(format_failure("osprey build", build))
+
+
+def _compose_services(repo: Path) -> set[str]:
+    """Every service the render at ``repo`` would start."""
+    services: set[str] = set()
+    for compose in (repo / "build").rglob("docker-compose*.yml"):
+        services |= set((yaml.safe_load(compose.read_text()) or {}).get("services") or {})
+    return services
+
+
+@pytest.fixture(scope="module")
+def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
+    """Init + build + ``osprey up --dev`` the whole queue stack; tear it down after.
+
+    Deployed without the agent's knowledge services
+    (``_orm_stack.KNOWLEDGE_SERVICES_OFF``): nothing in the queue stack reads
+    them, and with them the stack does not fit a 72 GB runner.
+    ``test_0_the_shipped_preset_differs_only_by_the_knowledge_services`` keeps
+    the claim that this is the shipped preset's queue stack.
+    """
+    osprey_bin = _orm_stack.find_osprey_console_script()
+    base = tmp_path_factory.mktemp("bluesky_queue_e2e")
+    # The deployment repo. Its directory name IS the deployment name, so the
+    # container/image names derived above still hold.
+    repo = base / PROJECT_NAME
+    _init_and_build(repo, _orm_stack.knowledge_services_off(_profile_edits()))
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without. It is also where `up` mints
@@ -920,6 +955,40 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # `osprey down` keeps volumes by design; drop this project's own so a
         # rerun cannot inherit their state (see tests/e2e/_volumes.py).
         remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
+
+
+# ===========================================================================
+# Stage 0 -- the deployed stack is the shipped preset's
+# ===========================================================================
+
+#: The services the shipped preset deploys and the stack above leaves out: the
+#: agent's knowledge services (qmd for the docs and for ARIEL, the graph store,
+#: ARIEL's Postgres, and the record's ClickHouse).
+KNOWLEDGE_SERVICES = {"qmd-okf", "qmd-ariel", "graphdb", "postgresql", "agent_record_clickhouse"}
+
+
+def test_0_the_shipped_preset_differs_only_by_the_knowledge_services(
+    tmp_path: Path,
+) -> None:
+    """The preset with only this module's host edits renders, and is the stack plus
+    the knowledge services.
+
+    Render only, no images: the queue stages deploy the trimmed stack, and this
+    is what keeps them about the shipped preset. A queue-stack service the
+    preset drops or adds when its knowledge services are on, or a preset whose
+    full render the build refuses, fails here.
+    """
+    shipped = tmp_path / "shipped" / PROJECT_NAME
+    trimmed = tmp_path / "trimmed" / PROJECT_NAME
+    shipped.parent.mkdir()
+    trimmed.parent.mkdir()
+    _init_and_build(shipped, _profile_edits())
+    _init_and_build(trimmed, _orm_stack.knowledge_services_off(_profile_edits()))
+
+    shipped_services = _compose_services(shipped)
+    trimmed_services = _compose_services(trimmed)
+    assert trimmed_services <= shipped_services, trimmed_services - shipped_services
+    assert shipped_services - trimmed_services == KNOWLEDGE_SERVICES
 
 
 # ===========================================================================
