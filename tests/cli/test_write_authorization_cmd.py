@@ -121,9 +121,10 @@ class TestLaptop:
 
     def test_list_shows_pending_then_in_force_and_revoke_ends_it(self, laptop):
         write_control_context(laptop, switch={})
-        request = ask()
+        request = ask(label=":warning:")
         listed = json.loads(run("list", "--json").output)
         assert [r["id"] for r in listed["requests"]] == [request.id]
+        assert ":warning:" in run("list").output  # a label is text, not an emoji code
         assert run("approve", request.id, "--yes").exit_code == 0
         listed = json.loads(run("list", "--json").output)
         assert listed["requests"] == []
@@ -373,3 +374,34 @@ class TestDeployment:
         assert result.exit_code == 0, result.output
         (stored,) = wa.list_grants(ledger)[0]
         assert stored.revoked is not None and stored.revoked.by == acting_identity()
+
+
+def test_the_card_prints_a_channel_name_as_written(capsys) -> None:
+    """`SR:MAG:...` is a channel, not markup: `:MAG:` must not become an emoji."""
+    from osprey.cli.write_authorization_cmd import _show_card
+
+    _show_card(
+        {
+            "holder": "optimizer",
+            "target": "va",
+            "owner": "alice",
+            "label": "",
+            "channels": [
+                {
+                    "address": "SR:MAG:QF:01:CURRENT:SP",
+                    "min": 10.0,
+                    "max": 60.0,
+                    "limit_min": 0.0,
+                    "limit_max": 300.0,
+                    "problem": None,
+                }
+            ],
+            "steps": 6,
+            "completion": "apply_best",
+            "expires_at": "2026-11-04T16:00:00+00:00",
+            "lease_s": 60.0,
+        }
+    )
+    out = capsys.readouterr().out
+    assert "SR:MAG:QF:01:CURRENT:SP" in out
+    assert "\N{LEFT-POINTING MAGNIFYING GLASS}" not in out
