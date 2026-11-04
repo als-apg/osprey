@@ -459,6 +459,25 @@ class TestCheck:
         refusal = pv.not_newer("2026.9.1", "2026.9.1", "main") + "\n"
         assert check(repo, capsys, "main") == (1, refusal, "")
 
+    def test_a_second_landing_under_the_landed_version_is_refused_against_the_first_parent(
+        self, repo, capsys
+    ):
+        """On a push to main the base is the first parent: two branches that each
+        minted the same number from the same tip land once, and the second is refused."""
+        for branch in ("a", "b"):
+            git(repo, "checkout", "-q", "-b", branch, "main")
+            write(repo, SKILL, f"changed by {branch}\n")
+            assert run(repo, "bump", "--today", "2026-09-15") == 0
+            commit(repo, branch)
+        git(repo, "checkout", "-q", "main")
+        git(repo, "merge", "-q", "--no-ff", "--no-edit", "a")
+        assert check(repo, capsys, "HEAD^1") == (0, "plugin version 2026.9.0 -> 2026.9.1\n", "")
+        git(repo, "merge", "-q", "--no-ff", "--no-edit", "-X", "theirs", "b")
+        assert len(git(repo, "rev-list", "--parents", "-n", "1", "HEAD").split()) == 3
+        assert (repo / SKILL).read_text(encoding="utf-8") == "changed by b\n"
+        refusal = pv.not_newer("2026.9.1", "2026.9.1", "HEAD^1") + "\n"
+        assert check(repo, capsys, "HEAD^1") == (1, refusal, "")
+
     def test_uncommitted_plugin_edits_are_not_judged(self, repo, capsys):
         """Without ``--worktree`` the range is committed state, which a pull request carries."""
         git(repo, "checkout", "-q", "-b", "work")
