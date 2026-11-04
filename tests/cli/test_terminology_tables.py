@@ -42,6 +42,7 @@ import yaml
 from osprey.cli.templates.claude_code import _middle_layer_families, build_claude_code_context
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import FACILITY_FILE
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.channel_finder import hierarchical_document, middle_layer_families
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from tests._preset_data import bundle_data_root
@@ -197,7 +198,7 @@ def test_every_alias_and_class_reaches_the_table(tmp_path, built_control_assista
     )
     section = _terminology_section(project_dir)
     # The middle-layer index files and names its families itself.
-    indexed = middle_layer_families(built_control_assistant.facility)
+    indexed = middle_layer_families(FacilityRecords(built_control_assistant.facility))
     backticked = set(re.findall(r"`([^`]+)`", section))
 
     for name, entry in _device_classes(project_dir).items():
@@ -237,13 +238,15 @@ def test_every_middle_layer_family_cell_names_a_family_of_the_index(
     """
     from osprey.facility.views.channel_finder import middle_layer_document
 
-    index, _left_out, _by_address = middle_layer_document(built_control_assistant.facility)
+    index, _left_out, _by_address = middle_layer_document(
+        FacilityRecords(built_control_assistant.facility)
+    )
     listed = {
         system: {family for family in node if not family.startswith("_")}
         for system, node in index.items()
         if isinstance(node, dict)
     }
-    indexed = middle_layer_families(built_control_assistant.facility)
+    indexed = middle_layer_families(FacilityRecords(built_control_assistant.facility))
     _manager, project_dir = _project(
         tmp_path, "cf-ml-families", "middle_layer", _demo_facts_path(built_control_assistant)
     )
@@ -319,7 +322,7 @@ def _hierarchical_keys(tree: dict[str, Any]) -> set[str]:
 def test_the_hierarchical_table_names_only_what_the_tree_holds(tmp_path, built_control_assistant):
     """Every backticked token of the table is a level, an option, a leaf or a leaf's signal."""
     facility = built_control_assistant.facility
-    document = hierarchical_document(facility)
+    document = hierarchical_document(FacilityRecords(facility))
     levels = [level["name"] for level in document["hierarchy"]["levels"]]
     keys = _hierarchical_keys(document["tree"])
     classes = {str(device["class"]) for device in facility["devices"] if device.get("class")}

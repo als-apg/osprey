@@ -38,6 +38,12 @@ _HIGHEST_EPHEMERAL_START = 49152
 #: set to a literal, in Python, YAML or an ``osprey set`` argument.
 _PINNED_BASE = re.compile(r"port_base\W{1,4}(\d{4,5})\b", re.IGNORECASE)
 
+#: A store's host port an e2e stack publishes at a literal, as a module constant.
+_PINNED_HOST_PORT = re.compile(r"^(?:MONGO\w*|QMD)_PORT\w*\s*=\s*(\d{4,5})\b", re.MULTILINE)
+
+#: The suites whose stacks publish those ports on the host.
+_STACK_SUITES = ("tests/e2e", "tests/va/e2e")
+
 #: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
 _HOLDER_GRACE_S = 1.0
 
@@ -110,6 +116,32 @@ def test_every_block_a_test_pins_is_skipped():
     }
     assert not uncovered, (
         "test(s) pin a deployment block that reservations may hand out; widen "
+        f"_ports.BOOKED_BLOCKS to cover it: {uncovered}"
+    )
+
+
+def test_every_store_port_a_stack_pins_is_skipped():
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", *_STACK_SUITES],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+        timeout=60,
+    )
+    pinned: dict[int, list[str]] = {}
+    for name in listed.stdout.decode("utf-8").split("\0"):
+        if name.endswith(".py") and (REPO_ROOT / name).is_file():
+            text = (REPO_ROOT / name).read_text(encoding="utf-8")
+            for match in _PINNED_HOST_PORT.finditer(text):
+                pinned.setdefault(int(match.group(1)), []).append(name)
+    assert pinned, "the scan found no pinned store port at all; its pattern no longer matches"
+    uncovered = {
+        port: files
+        for port, files in sorted(pinned.items())
+        if _ports.PORT_FLOOR <= port < _HIGHEST_EPHEMERAL_START and not _pinned(port)
+    }
+    assert not uncovered, (
+        "e2e stack(s) publish a store port that reservations may hand out; widen "
         f"_ports.BOOKED_BLOCKS to cover it: {uncovered}"
     )
 

@@ -2,10 +2,12 @@
 /*
  * OKF Knowledge Panel — pure DOM-leaf helpers.
  *
- * No imports: every function here is self-contained and side-effect-free
- * apart from DOM node construction / reading `location.hash`. Keep it that
- * way so this module stays trivially testable in isolation.
+ * One import, the shared facility-reference view; every function here is
+ * side-effect-free apart from DOM node construction / reading `location.hash`.
+ * Keep it that way so this module stays trivially testable in isolation.
  */
+
+import { facilityReferenceView } from '/design-system/js/facility-references.js';
 
 // History marker for the structure overview (B.3): a hash distinct from any
 // concept id so popstate can tell the overview apart from a concept view.
@@ -138,17 +140,5 @@ export function facilityLinkView(href, references) {
         return entry.target === text;
       })
     : undefined;
-  const records = span ? span.records : undefined;
-  if (!Array.isArray(records)) {
-    return { text, title: text + ' · facility file not loaded', dangling: false };
-  }
-  if (records.length === 0) {
-    return { text, title: text + ' · not in the facility file', dangling: true };
-  }
-  const title = records
-    .map(function (record) {
-      return [record.kind, record.unit, record.description].filter(Boolean).join(' · ');
-    })
-    .join('\n');
-  return { text, title, dangling: false };
+  return { text, ...facilityReferenceView(text, span ? span.records : undefined) };
 }

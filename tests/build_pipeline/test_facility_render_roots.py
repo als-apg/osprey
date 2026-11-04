@@ -22,6 +22,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.facility import TEXTURE
 from osprey.facility.render import FACILITY_FILE, facility_digest
+from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -82,6 +83,7 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
         assert [
             path for path in render.files if path not in ("data/bluesky_devices.yml", CHANNEL_INDEX)
         ] == [
+            BENCHMARK_DATASET_PATH,
             "data/channel_limits.json",
             "data/facility_facts.json",
             "data/facility_facts.md",

@@ -7,7 +7,7 @@
 
 import { escapeHtml } from '/design-system/js/dom.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
-import { parseEntryText } from './entries-helpers.js';
+import { parseEntryText, renderEntryText } from './entries-helpers.js';
 import { messageOf } from './utils.js';
 
 /**
@@ -36,6 +36,7 @@ export function applyFacilityTimezone(capabilities) {
  * @property {string[]} [keywords]
  * @property {string[]} [highlights]
  * @property {string[]|null} [matched_via]
+ * @property {Array<{start: number, end: number, target: string, records?: Array<*>|null}>|null} [facility_references]
  */
 
 /**
@@ -184,7 +185,8 @@ export function renderEntryCard(entry, isCited = false) {
   const pictureMatch = Array.isArray(entry.matched_via) && entry.matched_via.includes('image');
 
   // Extract preview from raw_text
-  const { details: preview } = parseEntryText(entry.raw_text);
+  const rawText = entry.raw_text || '';
+  const { details: preview, detailsStart } = parseEntryText(rawText);
 
   // Use highlighted snippet if available, otherwise fall back to plain-text preview
   const highlights = entry.highlights || [];
@@ -192,7 +194,10 @@ export function renderEntryCard(entry, isCited = false) {
   if (highlights.length > 0) {
     contentHtml = highlights.map((h) => sanitizeHighlight(h)).join(' &hellip; ');
   } else {
-    contentHtml = `${escapeHtml(preview).slice(0, 300)}${preview.length > 300 ? '...' : ''}`;
+    const previewLength = Array.from(preview).length;
+    const previewEnd = detailsStart + Math.min(previewLength, 300);
+    const html = renderEntryText(rawText, entry.facility_references, detailsStart, previewEnd);
+    contentHtml = `${html}${previewLength > 300 ? '...' : ''}`;
   }
 
   return `

@@ -113,6 +113,8 @@ class EnhancedLogbookEntry(TypedDict):
     enhancement_status: NotRequired[dict[str, Any]]
     attachment_text: NotRequired[str | None]
     attachment_captions: NotRequired[dict[str, Any] | None]
+    # The ids raw_text quotes, as FacilityReference JSON; None = not checked.
+    facility_refs: NotRequired[list[dict[str, Any]] | None]
 
 
 def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
@@ -150,6 +152,8 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
         entry["attachment_text"] = row_dict["attachment_text"]
     if row_dict.get("attachment_captions") is not None:
         entry["attachment_captions"] = row_dict["attachment_captions"]
+    if "facility_refs" in row_dict:
+        entry["facility_refs"] = row_dict["facility_refs"]
 
     return entry
 

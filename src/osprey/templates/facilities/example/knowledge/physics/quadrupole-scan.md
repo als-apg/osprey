@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: PhysicsNote
 title: Quadrupole Scan
 description: Beam optics measurement technique using quadrupole current variation and BPM response to determine beta functions and emittance.

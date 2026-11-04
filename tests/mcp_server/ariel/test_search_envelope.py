@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel.tools.search_envelope import (
     ResultWindow,
     advanced_params,
@@ -66,6 +67,17 @@ async def _serialize(entries, repository, **overrides):
     }
     kwargs.update(overrides)
     return await serialize_entries(entries, **kwargs)
+
+
+async def test_serialize_entries_passes_the_repository_facility_records():
+    entry = make_mock_entry(entry_id="e1", raw_text="DEV-7 swapped")
+    entry["facility_refs"] = [{"start": 0, "end": 5, "target": "DEV-7", "kinds": ["device"]}]
+    repository = _repository(rows={})
+    repository.facility_records = FacilityRecords({"devices": [{"id": "DEV-7"}]})
+
+    (out,) = await _serialize([entry], repository)
+
+    assert out["facility_references"][0]["records"] == [{"kind": "device", "id": "DEV-7"}]
 
 
 async def test_serialize_entries_cuts_at_the_given_text_budget():

@@ -63,9 +63,9 @@ def test_still_composes_with_overrides_and_faults_on_the_same_address() -> None:
     assert validate_composition(view, ["quiet", "logged"]) == []
 
 
-def test_still_all_overlaps_a_noise_scenario() -> None:
+def test_a_still_overlaps_a_noise_scenario_on_each_reading_they_share() -> None:
     view = _targets(
-        quiet={"still": "all"},
+        quiet={"still": ["SR:BPM1:X", "SR:BPM2:X", "SR:BPM3:X"]},
         loud={"noise": {"SR:BPM1:X": {"absolute": 0.1}, "SR:BPM2:X": {"absolute": 0.1}}},
     )
 
@@ -101,7 +101,7 @@ def test_a_channel_fault_and_an_override_on_one_address_overlap() -> None:
         frozen={"channel_faults": {"SR:BPM1:X": "frozen"}},
         pinned={"overrides": {"SR:BPM1:X": 1.0}},
         disconnected={"channel_faults": {"SR:BPM1:X": "disconnected"}},
-        quiet={"still": "all"},
+        quiet={"still": ["SR:BPM1:X"]},
     )
 
     assert validate_composition(view, ["frozen", "pinned"]) == [
@@ -114,7 +114,11 @@ def test_a_channel_fault_and_an_override_on_one_address_overlap() -> None:
 
 
 def test_two_stills_on_one_reading_compose() -> None:
-    view = _targets(a={"still": ["SR:BPM1:X"]}, b={"still": "all"}, c={"still": ["SR:BPM1:X"]})
+    view = _targets(
+        a={"still": ["SR:BPM1:X"]},
+        b={"still": ["SR:BPM1:X", "SR:BPM2:X"]},
+        c={"still": ["SR:BPM1:X"]},
+    )
 
     assert validate_composition(view, ["nominal", "a", "b", "c"]) == []
 

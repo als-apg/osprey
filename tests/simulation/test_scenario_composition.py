@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility.records import FacilityRecords
 from osprey.simulation.apply import apply_scenarios
 from osprey_connectors.simulation.state import read_active_state
 from osprey_connectors.workspace import resolve_simulation_state_dir
@@ -36,10 +37,10 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     write_simulator_view(
         root / "data" / "simulator",
         ViewInputs(
-            doc=doc,
+            records=FacilityRecords(doc),
             rendered_config=VIEW_CONFIG,
             facility_dir=TEMPLATE_FACILITY,
-            served=resolve_served(VIEW_CONFIG, doc),
+            served=resolve_served(VIEW_CONFIG, FacilityRecords(doc)),
             reported=None,
         ),
     )
