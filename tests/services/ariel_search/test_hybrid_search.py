@@ -754,6 +754,83 @@ class TestRankingAndHydration:
     @pytest.mark.asyncio
     async def test_snippet_is_carried_as_the_highlight(self, search_calls):
         client = StubClient([make_hit("1", snippet="7: water leak")])
+        repo = StubRepository([{**make_entry("1"), "raw_text": "Cooling\n\nwater leak"}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["water leak"]
+
+    @pytest.mark.asyncio
+    async def test_highlight_is_entry_text_without_the_mirror_scaffolding(self, search_calls):
+        """qmd quotes the mirror document: a diff-style hunk header, line numbers,
+        the ``# Entry`` heading and the provenance lines the writer adds. The
+        highlight keeps only what the entry itself says, minus its subject line
+        (the row already shows it)."""
+        snippet = (
+            "5: @@ -4,6 @@ (3 before, 3 after)\n"
+            "6: Source: Example eLog.\n"
+            "7: title: Linac gun cathode replacement.\n"
+            "8: \n"
+            "9: Linac gun cathode replacement\n"
+            "10: \n"
+            "11: Replaced the thermionic cathode after 12,000 hours."
+        )
+        raw = "Linac gun cathode replacement\n\nReplaced the thermionic cathode after 12,000 hours."
+        client = StubClient([make_hit("1", snippet=snippet)])
+        repo = StubRepository([{**make_entry("1"), "raw_text": raw}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["Replaced the thermionic cathode after 12,000 hours."]
+
+    @pytest.mark.asyncio
+    async def test_an_excerpt_of_only_the_subject_yields_no_highlight(self, search_calls):
+        """The row already shows the subject; it previews the body instead."""
+        snippet = "8: \n9: Linac gun cathode replacement\n10: "
+        raw = "Linac gun cathode replacement\n\nReplaced the thermionic cathode."
+        client = StubClient([make_hit("1", snippet=snippet)])
+        repo = StubRepository([{**make_entry("1"), "raw_text": raw}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == []
+
+    @pytest.mark.asyncio
+    async def test_a_one_line_entry_keeps_its_only_line(self, search_calls):
+        client = StubClient([make_hit("1", snippet="9: water leak in sector 3")])
+        repo = StubRepository([{**make_entry("1"), "raw_text": "water leak in sector 3"}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["water leak in sector 3"]
+
+    @pytest.mark.asyncio
+    async def test_a_snippet_of_scaffolding_only_yields_no_highlight(self, search_calls):
+        """A hit centred on the heading carries no entry text; the row then falls
+        back to the entry's own text rather than showing the heading."""
+        snippet = (
+            "1: @@ -1,3 @@ (0 before, 7 after)\n"
+            "2: # Entry 1\n"
+            "3: \n"
+            "4: Logged by operator on 2024-06-01T12:00:00+00:00."
+        )
+        client = StubClient([make_hit("1", snippet=snippet)])
         repo = StubRepository([make_entry("1")])
 
         _, _, highlights = (
@@ -762,7 +839,7 @@ class TestRankingAndHydration:
             )
         )[0]
 
-        assert highlights == ["7: water leak"]
+        assert highlights == []
 
     @pytest.mark.asyncio
     async def test_missing_snippet_yields_no_highlights(self, search_calls):
