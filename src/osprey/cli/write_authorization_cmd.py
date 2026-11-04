@@ -242,6 +242,25 @@ def _find_request(scope: _Scope, request: str, logins: list[str]) -> Path:
     return places[0] / f"{request}.json"
 
 
+def _no_request(scope: _Scope, request: str, path: Path, logins: list[str]) -> str:
+    """Why *request* names no pending request, as the operator can act on it.
+
+    A request named by its file is reported by its file. One named by id is
+    looked up among the owners' authorizations: an approved request's grant
+    carries its id, so a grant there means it was approved already.
+    """
+    if Path(request).suffix == ".json" or os.sep in request:
+        return f"No request at {path}."
+    for login in logins:
+        directory = scope.grants_dir(login)
+        if directory is not None and (directory / f"{request}.json").exists():
+            return f"Request {request} was already approved."
+    return (
+        f"No pending request {request}: it was already approved, withdrawn when its run "
+        "ended, or never filed. `osprey write-authorization list` shows what is pending."
+    )
+
+
 def _show_card(card: dict[str, Any]) -> None:
     from osprey.write_authorization import LIMITS_COST_SENTENCE
 
@@ -306,11 +325,12 @@ def approve(
     from osprey_connectors.identity import acting_identity
 
     scope = _scope(repo, config_option)
-    path = _find_request(scope, request, [owner] if owner else _owners(scope, None))
+    logins = [owner] if owner else _owners(scope, None)
+    path = _find_request(scope, request, logins)
     try:
         wanted = wa.read_request(path)
     except FileNotFoundError:
-        raise click.ClickException(f"No request at {path}.") from None
+        raise click.ClickException(_no_request(scope, request, path, logins)) from None
     except (OSError, ValueError) as exc:
         raise click.ClickException(f"The request at {path} cannot be read: {exc}") from None
     login = owner or wanted.owner
