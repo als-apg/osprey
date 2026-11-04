@@ -227,7 +227,7 @@ except Exception:  # pragma: no cover - older render without the reader
 try:
     import osprey_plan_mode as _plan_mode
 except Exception:  # pragma: no cover - render without the plan-mode rule
-    _plan_mode = None
+    _plan_mode = None  # type: ignore[assignment]  # the sibling is absent
 
 # The shared, stdlib-only file helper the stamps are written through, a sibling
 # script like the reader above. Guarded the same way: without it no stamp is
