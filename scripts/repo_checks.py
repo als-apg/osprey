@@ -1285,7 +1285,17 @@ LANES: tuple[Lane, ...] = (
     Lane(
         "qmd-sidecar-e2e",
         "containers",
-        ("tests/integration/test_qmd_models_mount.py", "tests/e2e/test_deploy_lifecycle.py"),
+        (
+            "src/osprey/templates/services/qmd/**",
+            "tests/_container_support.py",
+            "tests/e2e/test_deploy_lifecycle.py",
+            "tests/integration/_qmd_ariel_support.py",
+            "tests/integration/_qmd_okf_support.py",
+            "tests/integration/test_qmd_ariel_resync_paths.py",
+            "tests/integration/test_qmd_ariel_search_sidecar.py",
+            "tests/integration/test_qmd_models_mount.py",
+            "tests/integration/test_qmd_okf_search_sidecar.py",
+        ),
     ),
     Lane(
         "qmd-cache-warmup",
