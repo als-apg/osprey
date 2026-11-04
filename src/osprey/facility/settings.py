@@ -25,6 +25,7 @@ from osprey.facility.served import SIMULATION_MODELS_KEY, _served_scope, resolve
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.utils.config_paths import resolve_config_relative_path
+from osprey_connectors.simulation import STILL_SCENARIO
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -272,16 +273,17 @@ def _check_start_set(inputs: _Inputs) -> None:
     stated = inputs.stated(DEFAULT_SCENARIOS_KEY)
     if not isinstance(stated, list):
         return
-    known = sorted(str(s["name"]) for s in inputs.records.document.get("scenarios", []))
+    # The scenarios view adds the built-in still to every file that defines none.
+    known = sorted(
+        {str(s["name"]) for s in inputs.records.document.get("scenarios", [])} | {STILL_SCENARIO}
+    )
     unknown = sorted({str(name) for name in stated} - set(known))
     if unknown:
-        remedy = f"set `{DEFAULT_SCENARIOS_KEY}` to `[]`"
-        if known:
-            remedy += f" or to scenarios of the facility file: {quoted_slots(known)}"
         raise _refusal(
             DEFAULT_SCENARIOS_KEY,
-            f"{quoted_slots(unknown)} is not a scenario of the facility file",
-            remedy,
+            f"{quoted_slots(unknown)} is not a scenario the facility serves",
+            f"set `{DEFAULT_SCENARIOS_KEY}` to `[]` or to scenarios it serves: "
+            f"{quoted_slots(known)}",
         )
 
 
