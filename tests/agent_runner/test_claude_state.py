@@ -47,6 +47,7 @@ from osprey.agent_runner.claude_state import (
     CLAUDE_STATE_FILENAME,
     is_untrusted_allow_rules_notice,
     seed_claude_state,
+    seed_workspace_trust,
 )
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
@@ -116,6 +117,13 @@ def test_home_fallback_when_config_dir_unset(render_dir, tmp_path):
     home.mkdir()
     seed_claude_state(render_dir, env={"HOME": str(home)})
     assert (home / CLAUDE_STATE_FILENAME).is_file()
+
+
+def test_the_entrypoint_call_reads_the_process_environment(render_dir, config_dir, monkeypatch):
+    """The entrypoint passes no env: both lookups fall back to ``os.environ``."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    assert seed_claude_state(render_dir)
+    assert _state(config_dir)["projects"][str(render_dir)]["hasTrustDialogAccepted"] is True
 
 
 def test_no_target_dir_is_a_reported_noop(render_dir):
@@ -242,6 +250,68 @@ def test_render_without_config_still_seeds_onboarding_and_trust(config_dir, tmp_
     assert state["hasCompletedOnboarding"] is True
     assert "lastOnboardingVersion" not in state
     assert state["projects"][str(render)]["hasTrustDialogAccepted"] is True
+
+
+# ── host web terminal: workspace trust only ─────────────────────────────────
+
+
+def test_host_trust_marks_only_the_render_and_keeps_every_other_key(render_dir, config_dir):
+    """A developer's own state file gains one key; nothing else is seeded or rewritten."""
+    before = {
+        "hasCompletedOnboarding": False,
+        "oauthAccount": {"email": "dev@example.org"},
+        "projects": {"/somewhere/else": {"hasTrustDialogAccepted": False}},
+    }
+    (config_dir / CLAUDE_STATE_FILENAME).write_text(json.dumps(before))
+
+    assert seed_workspace_trust(render_dir, env={"CLAUDE_CONFIG_DIR": str(config_dir)}) is True
+
+    state = _state(config_dir)
+    assert state.pop("projects") == {
+        "/somewhere/else": {"hasTrustDialogAccepted": False},
+        str(render_dir): {"hasTrustDialogAccepted": True},
+    }
+    before.pop("projects")
+    assert state == before
+    assert (config_dir / CLAUDE_STATE_FILENAME).stat().st_mode & 0o777 == 0o600
+
+
+def test_host_trust_overrides_a_recorded_false_for_the_render(render_dir, config_dir):
+    (config_dir / CLAUDE_STATE_FILENAME).write_text(
+        json.dumps({"projects": {str(render_dir): {"hasTrustDialogAccepted": False, "x": 1}}})
+    )
+
+    assert seed_workspace_trust(render_dir, env={"CLAUDE_CONFIG_DIR": str(config_dir)}) is True
+
+    assert _state(config_dir)["projects"][str(render_dir)] == {
+        "hasTrustDialogAccepted": True,
+        "x": 1,
+    }
+
+
+def test_host_trust_already_in_place_writes_nothing(render_dir, config_dir):
+    state_file = config_dir / CLAUDE_STATE_FILENAME
+    state_file.write_text(
+        json.dumps({"projects": {str(render_dir): {"hasTrustDialogAccepted": True}}})
+    )
+    before = state_file.stat().st_mtime_ns
+
+    assert seed_workspace_trust(render_dir, env={"CLAUDE_CONFIG_DIR": str(config_dir)}) is False
+    assert state_file.stat().st_mtime_ns == before
+
+
+def test_host_trust_falls_back_to_home_and_leaves_a_corrupt_file_alone(render_dir, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    assert seed_workspace_trust(render_dir, env={"HOME": str(home)}) is True
+    assert json.loads((home / CLAUDE_STATE_FILENAME).read_text()) == {
+        "projects": {str(render_dir): {"hasTrustDialogAccepted": True}}
+    }
+
+    corrupt = '{"oauthAccount": '
+    (home / CLAUDE_STATE_FILENAME).write_text(corrupt)
+    assert seed_workspace_trust(render_dir, env={"HOME": str(home)}) is False
+    assert (home / CLAUDE_STATE_FILENAME).read_text() == corrupt
 
 
 # ── the per-user volume that holds this state ────────────────────────────────

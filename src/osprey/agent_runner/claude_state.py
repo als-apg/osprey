@@ -17,7 +17,10 @@ Code's own state, which is why it lives in the harness adapter.
 The seed is for the interactive terminals only. An unattended agent run uses
 a config dir this module never seeds, so its project allow rules stay off by
 design; :func:`is_untrusted_allow_rules_notice` names the line the CLI prints
-about it.
+about it. A web terminal on a host has no entrypoint, so the server marks its
+own render trusted at startup (:func:`seed_workspace_trust`) and nothing else:
+the operator still approves every ask, but without trust the render's allow
+list is dropped and every read-only tool reaches the approval card.
 
 This module writes the state Claude Code would have recorded had the operator
 answered, once, from the container entrypoint's root phase — the same phase
@@ -135,17 +138,11 @@ def seed_claude_state(
     if env is None:
         env = os.environ
 
-    base = env.get("CLAUDE_CONFIG_DIR", "").strip() or env.get("HOME", "").strip()
-    if not base:
-        logger.warning(
-            "Neither CLAUDE_CONFIG_DIR nor HOME is set; cannot locate Claude Code's "
-            "state file, so the first session will show the interactive setup prompts."
-        )
+    target = _state_file(env)
+    if target is None:
         return []
-
+    base_dir = target.parent
     render_dir = Path(render_dir).resolve()
-    base_dir = Path(base)
-    target = base_dir / CLAUDE_STATE_FILENAME
 
     state, ok = _load_state(target)
     if not ok:
@@ -180,20 +177,42 @@ def seed_claude_state(
     if not seeded:
         return []
 
-    base_dir.mkdir(parents=True, exist_ok=True)
-
-    # Replaced whole: a torn write would trip Claude Code's corrupt-config
-    # recovery on the very first launch this seed exists to smooth. Owner-only,
-    # because it holds account state and approved API-key digests.
-    atomic_replace(
-        target,
-        (json.dumps(state, indent=2) + "\n").encode("utf-8"),
-        mode=0o600,
-        sync="best_effort",
-    )
-
+    _write_state(target, state)
     _hand_ownership(target, base_dir, owner_user)
     return seeded
+
+
+def seed_workspace_trust(project_dir: Path, *, env: Mapping[str, str] | None = None) -> bool:
+    """Mark *project_dir* trusted in Claude Code's state file, and nothing else.
+
+    The host web terminal's half of :func:`seed_claude_state`: a developer's own
+    state file keeps its onboarding and key choices, and gains trust for exactly
+    the render the server launches Claude Code in. A recorded ``false`` for that
+    path is overwritten — the render's allow list is the deployment's decision —
+    while every other key and project entry is left as it was. Never clobbers a
+    file that does not parse.
+
+    Args:
+        project_dir: The render directory the agent CLI runs in.
+        env: The environment to resolve ``CLAUDE_CONFIG_DIR``/``HOME`` from.
+            Defaults to ``os.environ``.
+
+    Returns:
+        ``True`` when the file was written; ``False`` when trust was already in
+        place or nothing could be done, the latter having logged why.
+    """
+    target = _state_file(env)
+    if target is None:
+        return False
+    state, ok = _load_state(target)
+    if not ok:
+        return False
+    entry = state.setdefault("projects", {}).setdefault(str(Path(project_dir).resolve()), {})
+    if entry.get("hasTrustDialogAccepted") is True:
+        return False
+    entry["hasTrustDialogAccepted"] = True
+    _write_state(target, state)
+    return True
 
 
 def is_untrusted_allow_rules_notice(line: str) -> bool:
@@ -211,6 +230,34 @@ def is_untrusted_allow_rules_notice(line: str) -> bool:
         ``True`` when the line is that notice.
     """
     return _UNTRUSTED_ALLOW_RULES_NOTICE.match(line) is not None
+
+
+def _state_file(env: Mapping[str, str] | None) -> Path | None:
+    """Claude Code's state file under ``CLAUDE_CONFIG_DIR`` or ``HOME``; ``None`` if neither."""
+    if env is None:
+        env = os.environ
+    base = env.get("CLAUDE_CONFIG_DIR", "").strip() or env.get("HOME", "").strip()
+    if not base:
+        logger.warning(
+            "Neither CLAUDE_CONFIG_DIR nor HOME is set; cannot locate Claude Code's "
+            "state file, so the first session will show the interactive setup prompts."
+        )
+        return None
+    return Path(base) / CLAUDE_STATE_FILENAME
+
+
+def _write_state(target: Path, state: dict) -> None:
+    """Replace the state file whole, creating its directory if needed."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Replaced whole: a torn write would trip Claude Code's corrupt-config
+    # recovery on the very first launch this seed exists to smooth. Owner-only,
+    # because it holds account state and approved API-key digests.
+    atomic_replace(
+        target,
+        (json.dumps(state, indent=2) + "\n").encode("utf-8"),
+        mode=0o600,
+        sync="best_effort",
+    )
 
 
 def _load_state(target: Path) -> tuple[dict, bool]:

@@ -17,6 +17,7 @@ lifespan:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -144,6 +145,41 @@ def test_marker_absent_regenerates_and_restores_as_before(project, startup_spies
     assert startup_spies["restore"] == [Path(app.state.project_cwd)]
     # No dry-run preview is taken on the writable path.
     assert startup_spies["dry_run"] == []
+
+
+@pytest.mark.usefixtures("startup_spies", "real_host_trust_seed")
+def test_host_startup_trusts_exactly_the_render_before_any_session(project, monkeypatch, tmp_path):
+    """On a host the server marks its render trusted, so the render's allow list applies.
+
+    The container entrypoint seeds this as root before the server starts; a host
+    has no entrypoint, and an untrusted render makes the CLI drop every
+    ``permissions.allow`` entry, sending read-only tools to the approval card.
+    """
+    monkeypatch.delenv("OSPREY_RENDER_ZONE_READONLY", raising=False)
+    config_dir = tmp_path / "claude-config"
+    config_dir.mkdir()
+    state_file = config_dir / ".claude.json"
+    state_file.write_text(
+        json.dumps({"oauthAccount": {"email": "dev@example.org"}, "projects": {"/x": {}}})
+    )
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+
+    app = _run_lifespan(project)
+
+    assert json.loads(state_file.read_text()) == {
+        "oauthAccount": {"email": "dev@example.org"},
+        "projects": {"/x": {}, app.state.project_cwd: {"hasTrustDialogAccepted": True}},
+    }
+
+
+@pytest.mark.usefixtures("startup_spies", "real_host_trust_seed")
+def test_container_startup_leaves_trust_to_the_entrypoint(project, monkeypatch, tmp_path):
+    monkeypatch.setenv("OSPREY_RENDER_ZONE_READONLY", "1")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
+
+    _run_lifespan(project)
+
+    assert not (tmp_path / "claude-config" / ".claude.json").exists()
 
 
 def test_regen_failure_does_not_block_startup(project, monkeypatch, caplog):
