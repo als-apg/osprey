@@ -81,7 +81,7 @@ def _get(url: str) -> tuple[int, bytes]:
 
     request = urllib.request.Request(url)  # loopback
     request.add_header(OPERATOR_SECRET_HEADER, get_web_credentials().operator_secret)
-    with urllib.request.urlopen(request, timeout=10) as resp:  # loopback
+    with urllib.request.urlopen(request, timeout=_NAV_TIMEOUT_MS / 1000) as resp:  # loopback
         return resp.status, resp.read()
 
 
