@@ -239,7 +239,10 @@ class OptimizationEngine:
                         evaluations=n_initial + self.config.n_iterations,
                         on_complete=self.config.on_complete,
                         fixed=optimizer.fixed_features,
-                        label=self.job_id or "",
+                        # What the run is, for the approver; the job id is how
+                        # an operator finds the job it belongs to.
+                        label=f"{environment_name} optimization"
+                        + (f" ({self.job_id})" if self.job_id else ""),
                         limits=deployment_limits(self.config.control_target),
                     )
                 )

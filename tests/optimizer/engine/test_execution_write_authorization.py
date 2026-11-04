@@ -128,7 +128,8 @@ def test_the_budget_is_the_resolved_evaluations_plus_the_completion_write(
     # and one for the completion.
     assert len(writes) == plan.steps
     assert plan.target == "va"
-    assert plan.label == "auth-job"
+    # What the run is, and the job id the operator correlates it by.
+    assert plan.label == "test_plugin optimization (auth-job)"
     metadata = mock_plugin_env.variables
     assert set(plan.channels) == {metadata[name].setpoint_pv for name in VARIABLES}
     overrides = _config(mock_plugin_env).variable_overrides or {}

@@ -276,6 +276,14 @@ class RunAuthorization:
         if reason == _RELEASED:
             if self._grant_id is not None:
                 self._publish(state="released")
+            elif self._state.get("state") in ("requesting", "awaiting"):
+                # The run is over before anything was granted (a cancel while it
+                # waited): its request is withdrawn, so the job no longer awaits.
+                self._publish(
+                    state="ended",
+                    reason=_RELEASED,
+                    detail="The run ended before its request was approved; the request is withdrawn.",
+                )
             return
         logger.warning("The run's write authorization ended: %s %s", reason, detail or "")
         self._publish(state="ended", reason=reason, detail=detail)
