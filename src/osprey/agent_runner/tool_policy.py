@@ -200,7 +200,7 @@ def make_backstop(
         *(surface for surface in agent_surfaces.values() if surface is not None)
     )
 
-    async def can_use_tool(tool_name, _tool_input, context):  # type: ignore[no-untyped-def]
+    async def can_use_tool(tool_name, _tool_input, context):
         if matches_denylist(tool_name, denied_tuple):
             return PermissionResultDeny(
                 message=f"Tool {tool_name!r} is blocked by the dispatch server denylist",

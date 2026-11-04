@@ -217,7 +217,7 @@ def serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
 
     # --- Plotly Figure ---
     try:
-        import plotly.graph_objects as go  # type: ignore[import-untyped]
+        import plotly.graph_objects as go
 
         if isinstance(obj, go.Figure):
             html = obj.to_html(include_plotlyjs=False, full_html=True)
@@ -227,7 +227,7 @@ def serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
 
     # --- Bokeh Model (layout, figure, widget, ...) ---
     try:
-        import bokeh.model  # type: ignore[import-untyped]
+        import bokeh.model
 
         if isinstance(obj, bokeh.model.Model):
             from bokeh.embed import file_html
@@ -240,7 +240,7 @@ def serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
 
     # --- Matplotlib Figure ---
     try:
-        import matplotlib.figure  # type: ignore[import-untyped]
+        import matplotlib.figure
 
         if isinstance(obj, matplotlib.figure.Figure):
             import io
@@ -254,7 +254,7 @@ def serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
 
     # --- Pandas DataFrame ---
     try:
-        import pandas as pd  # type: ignore[import-untyped]
+        import pandas as pd
 
         if isinstance(obj, pd.DataFrame):
             html = obj.to_html(classes="artifact-table", border=0)

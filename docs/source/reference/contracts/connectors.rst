@@ -317,6 +317,140 @@ boundary (the approval hook, the launch token for plans), which gates the
 *intent* once rather than every put. Neither substitutes for the other. See
 :doc:`/architecture/safety-chain` for the order the layers run in.
 
+.. _write-authorization-contract:
+
+A Program's Write Authorization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A process that names an authorization (``OSPREY_WRITE_AUTHORIZATION``, set by
+the connector pool for a key that names one) has every write call judged
+against it by the connector's write guard, after the write verdict: the
+authorization is consulted whenever that verdict allows or refuses only
+``switch_off``, so it never lifts a tier, an owner, a record, a pin or a hold,
+and a switch moved to *asked* or *allowed* does not widen it. The how-to is
+:ref:`how-to-write-from-a-program`; the module is
+``osprey_connectors.write_authorization``.
+
+**Three files, three writers.** Each is read the fail-closed way: no symbolic
+link followed, a bounded read, a regular file, exactly the fields below, no
+repeated key, every number finite. A file that is there and cannot be read
+refuses; an absent grant is no authorization (``switch_off``).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 30 48
+
+   * - File
+     - Where, written by
+     - Fields (``schema: 1``)
+   * - request
+     - ``<ledger dir>/requests/<id>.json``, the holder
+     - ``id``, ``owner``, ``holder``, ``target``, ``channels``
+       (``{address: {min, max}}``), ``steps``, ``requested_at_ns``,
+       ``expires_at_ns``, ``lease_s``, ``label``, ``completion``
+       (``none`` | ``apply_best`` | ``restore``)
+   * - grant
+     - ``<owner's state dir>/authorizations/<id>.json``, the approver (chip or
+       CLI); a self-issued one in the holder's ledger dir
+     - the request's fields but ``requested_at_ns`` and ``completion``, plus
+       ``switch_epoch``, ``issued_at_ns``, ``approver``
+       (``{identity, surface: chip | cli | write_switch, at_ns}``) and
+       ``revoked`` (``null`` or ``{at_ns, by}``)
+   * - ledger
+     - ``<ledger dir>/<id>.ledger.json``, the holder's connector child
+     - ``authorization``, ``holder_pid``, ``holder_start``, ``pid_ns``,
+       ``lease_until_ns``, ``steps`` (``[{n, at_ns, channels}]``)
+
+The grant's id is the request's, so a holder waits for exactly that id. The
+ledger directory is ``OSPREY_WRITE_LEDGER_DIR`` (on a deployment,
+``var/write_ledger/``). The ledger is written by the holder (it opens and
+renews the lease) and by its connector child (it appends one step per write
+call), so a holder's container needs ``OSPREY_WRITE_LEDGER_DIR`` bound
+writable and ``OSPREY_CONTROL_OWNER`` naming the login it stands in for. An
+approver that is not the holder reads the requests from
+``OSPREY_WRITE_REQUESTS_DIR``, and the holders' self-issued grants and ledgers
+from ``OSPREY_WRITE_LEDGER_VIEW_DIR``; it reads no other login's grants.
+``control_context.json`` is not touched and keeps its schema.
+
+**Approval.** :func:`~osprey_connectors.write_authorization.approve_request`
+acts as the owner (``approver.identity`` is the acting identity, ``surface``
+the place). It takes the owner's record lock, then the
+grants directory's — the one lock order every writer of both keeps — stamps
+the record's ``switch_epoch`` on the grant, and refuses ``auth_overlap`` when
+a live grant of another holder lists one of the channels on the same machine:
+one in the owner's own directory, or a self-issued one in the ledger directory
+the approver sees. Another owner's directory is not read. A grant file that
+cannot be read is logged and left out of that check; it refuses every write
+under it already. The approving surface checks what the module cannot, and
+refuses before calling it: an acting person who is not the owner, a target the
+deployment does not configure, a ceiling of ``never`` or ``unknown``, a range
+outside the limits database, and a channel without a numeric range there.
+
+An approval is the confirmation for every write the run makes inside it, a
+batch included, for a login whose ceiling is ``asked`` as much as ``allowed``:
+the person confirms the channels, ranges and step count once, and the
+program's writes are not prompted one by one.
+
+**What the bounds guard.** The channels, ranges and the grant itself are the
+approver's, written where the holder cannot write them. The step budget and
+the lease are the holder's own record: the ledger directory is writable by the
+holder, so they bound a program that runs as written, not one that sets out
+to forge its ledger. The boundary for a program that must not write at all is
+the gateway it can reach.
+
+**How a grant ends.** Every step spent (``auth_exhausted``); its expiry
+(``auth_expired``); its lease lapsing — not renewed in time, or its holder
+gone (``auth_lease_lapsed``); a stop (``auth_revoked``); for a self-issued
+grant, its owner's switch leaving ``allowed``. None of these is undone:
+nothing renews a budget or revives a lease, and the program asks again.
+:func:`~osprey_connectors.write_authorization.listed_grants` reads the
+holder's ledger and reports a grant whose steps are spent or whose lease
+lapsed as ended, with its steps used of its total.
+
+**Stop.** :func:`~osprey_connectors.control_context.set_switch` with ``off``
+marks every grant on the named machines (every grant for ``"all"``) revoked
+inside its record lock; ``"all"`` also moves the epoch, which ends every grant
+issued under the old one. A stop whose marks cannot be written moves the epoch
+as well, so it ends every grant of that owner rather than none. A self-issued
+grant ends once its owner's switch leaves ``allowed``.
+
+**Reasons.** Each ``auth_*`` reason is a member of
+``osprey_connectors.refusals.REASONS`` with its phrase, and arrives as
+``verdict_reason`` on a refused write. In the order the terms are judged:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Reason
+     - Refused when
+   * - ``auth_unreadable``
+     - the named id is not an id, the grant or the ledger is there and cannot
+       be read, or the process has no ledger directory.
+   * - ``auth_holder``
+     - the grant names another owner, or another holder than the writing
+       process's acting identity.
+   * - ``auth_channel``
+     - the grant covers another machine, the write names no channel, or a
+       channel the grant does not list.
+   * - ``auth_revoked``
+     - the grant is marked revoked, the record's epoch has moved past it, or a
+       self-issued grant's switch is no longer at ``allowed``.
+   * - ``auth_expired``
+     - its expiry has passed.
+   * - ``auth_range``
+     - a value is not a finite number inside its channel's range.
+   * - ``auth_lease_lapsed``
+     - no lease was started, the lease ran out, or its holder is gone.
+   * - ``auth_exhausted``
+     - every step has been spent.
+   * - ``auth_overlap``
+     - (approval only) another program holds a listed channel on the machine,
+       under the same owner or self-issued.
+
+A grant that ended — revoked or expired — more than an hour ago is removed by
+:func:`~osprey_connectors.write_authorization.prune_grants`.
+
 .. _write-safety-upgrade:
 
 Upgrading from a deployment-wide write flag
@@ -333,7 +467,7 @@ Earlier releases armed writes per connector type, with
   ``writes: allowed`` --- for every machine, not only the type it named; any
   other value reads ``never``. An app always reads ``never``. A file that
   spells both the retired and the new key is refused. The retired keys are
-  refused from 2026.11.0.
+  refused from 2026.12.0.
 - **A render built before this release** is not reread with the old rule: at
   run time it has no tier key and reads ``never`` until it is rebuilt.
 - **Every machine starts at off.** After the rebuild, nothing writes until a
@@ -343,7 +477,7 @@ Earlier releases armed writes per connector type, with
   ``claude_code.permissions.remove_deny`` that lifts ``Bash`` or ``Monitor``
   fails the build: a shell reaches the switch and the connectors around every
   gate. On a ``never`` render it stays a warning.
-- **Two countdowns, warn now, refused from 2026.11.0.** A facility tool that
+- **Two countdowns, warn now, refused from 2026.12.0.** A facility tool that
   a server lists under ``permissions.ask``, or whose name carries a
   destructive marker, and that is missing from that server's
   ``mcp_servers.<server>.writes`` list, is a build warning.

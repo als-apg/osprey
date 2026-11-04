@@ -214,7 +214,7 @@ from osprey_hook_log import (
 try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
-    _target_state = None
+    _target_state = None  # type: ignore[assignment]  # the sibling is absent
 
 # The shared, stdlib-only file helper the stamps are written through, a sibling
 # script like the reader above. Guarded the same way: without it no stamp is
@@ -222,7 +222,7 @@ except Exception:  # pragma: no cover - older render without the reader
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 #: When this hook process entered, as a `time.monotonic` instant.
 #:
@@ -304,7 +304,7 @@ try:
 
 except ImportError:
 
-    def has_write_patterns(code: str, config: dict | None = None) -> bool:  # type: ignore[misc]
+    def has_write_patterns(code: str, config: dict | None = None) -> bool:
         """Check if code contains control system write patterns (fallback)."""
         patterns = list(_FALLBACK_WRITE_PATTERNS)
         if config:
@@ -448,7 +448,7 @@ def _record_reader(hook_input=None):
     hook process renders one prompt, and a memo any wider would hand a later
     call an answer taken before a switch it should have seen.
     """
-    cell = []
+    cell: list = []
 
     def read():
         if not cell:
@@ -879,8 +879,8 @@ def _stamp_binding(record):
     if not isinstance(target, str) or not target:
         return None, None
     try:
-        return target, int(record.get("generation"))
-    except (TypeError, ValueError):
+        return target, int(record["generation"])
+    except (KeyError, TypeError, ValueError):
         return None, None
 
 
@@ -3058,7 +3058,7 @@ def _review_before_ask(hook_input, tool_name, short_name, tool_input):
     for itself; a render that leaves no room (one from before the review existed)
     reviews nothing here and leaves it to the executor.
     """
-    nothing = [], {}, None
+    nothing: tuple[list, dict, None] = [], {}, None
     if short_name not in _REVIEWED_TOOLS:
         return nothing
     try:

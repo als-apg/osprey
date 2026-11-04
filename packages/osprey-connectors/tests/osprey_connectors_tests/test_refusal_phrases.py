@@ -37,6 +37,15 @@ LIFTERS = {
     "target_unknown": "retry, then ask the deployment admin",
     "record_unavailable": "retry, then ask the deployment admin",
     "switching": "retry, then ask the deployment admin",
+    "auth_unreadable": "retry, then ask the deployment admin",
+    "auth_holder": "ask the operator to approve one for this program",
+    "auth_channel": "ask the operator to approve one that lists it",
+    "auth_range": "ask the operator to approve a wider range",
+    "auth_exhausted": "ask the operator to approve a new authorization",
+    "auth_lease_lapsed": "ask the operator to approve a new authorization",
+    "auth_expired": "ask the operator to approve a new authorization",
+    "auth_revoked": "ask the operator to approve a new authorization",
+    "auth_overlap": "wait for that run to end, or stop it from the chip",
 }
 
 

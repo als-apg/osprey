@@ -47,6 +47,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from osprey.services.bluesky_bridge.plan_fields import resolve_column
 
@@ -182,8 +183,8 @@ def fit_probe_response(
 
 
 def solve_offsets(
-    response: np.ndarray,
-    desired: np.ndarray,
+    response: ArrayLike,
+    desired: ArrayLike,
     *,
     rcond: float = 1e-10,
 ) -> np.ndarray:
@@ -276,9 +277,9 @@ def solve_offsets(
 
 
 def demand_is_negligible(
-    desired: np.ndarray,
-    response: np.ndarray,
-    sigma: np.ndarray,
+    desired: ArrayLike,
+    response: ArrayLike,
+    sigma: ArrayLike,
     tolerance: float,
 ) -> bool:
     """Is this run asking for an orbit change at all?
@@ -353,7 +354,7 @@ def demand_is_negligible(
     return bool(np.all(np.abs(demand) <= band))
 
 
-def band_violations(measured: np.ndarray, desired: np.ndarray, tolerance: float) -> list[int]:
+def band_violations(measured: ArrayLike, desired: ArrayLike, tolerance: float) -> list[int]:
     """Indices of rows sitting outside the `±tolerance` band around *desired*.
 
     The elementwise form of `band_converged`: a row is flagged when
@@ -404,7 +405,7 @@ def band_violations(measured: np.ndarray, desired: np.ndarray, tolerance: float)
     return [int(index) for index in np.flatnonzero(unreadable | outside)]
 
 
-def band_converged(measured: np.ndarray, desired: np.ndarray, tolerance: float) -> bool:
+def band_converged(measured: ArrayLike, desired: ArrayLike, tolerance: float) -> bool:
     """Did the machine land inside the tolerance band at every constraint row?
 
     `True` when `|measured - desired| <= tolerance` at every one of them --
@@ -444,7 +445,7 @@ def band_converged(measured: np.ndarray, desired: np.ndarray, tolerance: float) 
     return not band_violations(measured, desired, tolerance)
 
 
-def noise_floor_violations(sigma: np.ndarray, tolerance: float) -> list[int]:
+def noise_floor_violations(sigma: ArrayLike, tolerance: float) -> list[int]:
     """Indices of BPMs whose noise makes the requested band unverifiable.
 
     A BPM is flagged when `tolerance < 2σ`, with σ the per-BPM standard

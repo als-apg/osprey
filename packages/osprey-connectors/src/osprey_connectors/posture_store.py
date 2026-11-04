@@ -1142,6 +1142,10 @@ class WriteVerdict:
             :func:`backstop_verdict`.
         detail: Words the refusal adds after its phrase, such as what raised a
             session's hold. Not part of the decision, so verdicts compare without it.
+        authorization: The id of the program's write authorization the verdict
+            was decided by (:mod:`~osprey_connectors.write_authorization`), or
+            ``None`` for a verdict no authorization took part in. An authorized
+            write carries no ``position``: the switch did not decide it.
     """
 
     allowed: bool
@@ -1150,6 +1154,7 @@ class WriteVerdict:
     kind: Literal["real", "rehearsal", "simulator"] | None
     position: Literal["asked", "allowed"] | None = None
     detail: str | None = field(default=None, compare=False)
+    authorization: str | None = None
 
 
 def write_verdict(
@@ -1217,24 +1222,63 @@ def write_verdict(
         A :class:`WriteVerdict`. Never raises: an exception anywhere in the
         terms refuses rather than allows.
     """
+    return _write_verdict(section, target, owner, ignore_launch_pin, None)
+
+
+class _RecordSeen:
+    """The record one verdict read, for a caller that judges more on that same read.
+
+    Filled by :func:`_write_refusal` once the record governing the write has
+    been read and found usable: ``read`` is then ``True`` and ``record`` the
+    record, or ``None`` for one that is absent (every switch off). A verdict
+    refused before the record was reached leaves ``read`` ``False``. The write
+    authorization's verdict takes it so one authorized write is judged on one
+    read of the record rather than two that a person's gesture could fall
+    between.
+    """
+
+    __slots__ = ("read", "record")
+
+    def __init__(self) -> None:
+        self.read = False
+        self.record: Any = None
+
+
+def _write_verdict(
+    section: Any,
+    target: str | None,
+    owner: str | NoOwner | None,
+    ignore_launch_pin: bool,
+    seen: _RecordSeen | None,
+) -> WriteVerdict:
+    """:func:`write_verdict`, recording the record it read into *seen* when given."""
     named = target if isinstance(target, str) else None
-    try:
-        # The name decides whether the target resolves at all; the published
-        # report decides what it is (C-KIND), so a stand-in the controls server
-        # has not vouched for is the real machine in the refusal's words.
-        kind = None if machine_kind(section, target) is None else published_machine_kind(target)
-    except Exception:  # the kind is a word in a refusal; it must not decide one
-        logger.debug("Could not name the machine kind of %r", target, exc_info=True)
-        kind = None
+    kind = _verdict_kind(section, target)
     position: Literal["asked", "allowed"] | None = None
     try:
-        reason, position = _write_refusal(section, target, owner, ignore_launch_pin)
+        reason, position = _write_refusal(section, target, owner, ignore_launch_pin, seen)
     except Exception:  # a verdict that cannot be reached refuses; it never raises
         logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
         reason = "record_unavailable"
+        if seen is not None:
+            seen.read = False
     return WriteVerdict(
         allowed=reason is None, reason=reason, target=named, kind=kind, position=position
     )
+
+
+def _verdict_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "simulator"] | None:
+    """The machine kind a verdict on *target* names, or ``None``. Never raises.
+
+    The name decides whether the target resolves at all; the published report
+    decides what it is (C-KIND), so a stand-in the controls server has not
+    vouched for is the real machine in the refusal's words.
+    """
+    try:
+        return None if machine_kind(section, target) is None else published_machine_kind(target)
+    except Exception:  # the kind is a word in a refusal; it must not decide one
+        logger.debug("Could not name the machine kind of %r", target, exc_info=True)
+        return None
 
 
 def backstop_verdict(section: Any) -> WriteVerdict:
@@ -1354,6 +1398,13 @@ def execution_verdict(
         :func:`write_verdict`. Never raises.
     """
     verdict = write_verdict(section, target, owner=owner, ignore_launch_pin=ignore_launch_pin)
+    return _with_hold(section, verdict, session_keys)
+
+
+def _with_hold(
+    section: Any, verdict: WriteVerdict, session_keys: Sequence[str] | None
+) -> WriteVerdict:
+    """*verdict* as :func:`execution_verdict` answers it: the hold after the backstop."""
     if not backstop_verdict(section).allowed:
         return verdict
     held = session_hold_refusal(session_keys=session_keys)
@@ -1363,11 +1414,16 @@ def execution_verdict(
 
 
 def _write_refusal(
-    section: Any, target: Any, owner: str | NoOwner | None, ignore_launch_pin: bool
+    section: Any,
+    target: Any,
+    owner: str | NoOwner | None,
+    ignore_launch_pin: bool,
+    seen: _RecordSeen | None = None,
 ) -> tuple[str | None, Literal["asked", "allowed"] | None]:
     """The first term of :func:`write_verdict` that refuses, else the position.
 
-    Answers ``(reason, None)`` or ``(None, position)``. May raise.
+    Answers ``(reason, None)`` or ``(None, position)``. May raise. The usable
+    record it read, if it got that far, is left in *seen*.
     """
     # Imported here, not at module scope: ``control_context`` imports this module.
     from osprey_connectors import control_context
@@ -1414,6 +1470,8 @@ def _write_refusal(
             return "record_unavailable", None
         if status != "ok":
             record = None
+    if seen is not None:
+        seen.read, seen.record = True, record
 
     stored = control_context.switch_position(record, target)
     if stored == "off":

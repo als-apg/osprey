@@ -650,6 +650,6 @@ class ImageCaptionModule(BaseEnhancementModule):
             )
             if text != old_text:
                 await ARIELRepository.clear_text_status_keys(conn, entry_id)
-        entry["attachment_captions"] = captions  # type: ignore[typeddict-unknown-key]
-        entry["attachment_text"] = text  # type: ignore[typeddict-unknown-key]
+        entry["attachment_captions"] = captions
+        entry["attachment_text"] = text
         return True
