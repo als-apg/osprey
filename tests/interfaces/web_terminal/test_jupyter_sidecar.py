@@ -221,7 +221,9 @@ def test_stop_leaves_no_process_and_removes_the_tempdir(shared_root: Path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_a_stop_during_wait_ready_ends_the_wait(shared_root: Path) -> None:
+def test_a_stop_during_wait_ready_ends_the_wait(
+    shared_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A stop that lands while the sidecar is still coming up ends the wait at once.
 
     No Jupyter is spawned: a sleeping interpreter stands in for a server that
@@ -232,6 +234,13 @@ def test_a_stop_during_wait_ready_ends_the_wait(shared_root: Path) -> None:
         [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
     )
     failures: list[BaseException] = []
+    polling = threading.Event()
+
+    def _probe(process: subprocess.Popen[bytes], runtime_dir: Path | None) -> int | None:
+        polling.set()
+        return JupyterSidecar._read_port(process, runtime_dir)
+
+    monkeypatch.setattr(sidecar, "_read_port", _probe)
 
     def _wait() -> None:
         try:
@@ -242,12 +251,13 @@ def test_a_stop_during_wait_ready_ends_the_wait(shared_root: Path) -> None:
     waiter = threading.Thread(target=_wait, daemon=True)
     waiter.start()
     try:
-        time.sleep(0.2)
+        assert polling.wait(READY_TIMEOUT), "wait_ready never polled"
         stopper = threading.Thread(target=sidecar.stop, daemon=True)
         stopper.start()
-        waiter.join(2.0)
+        waiter.join(READY_TIMEOUT)
         assert not waiter.is_alive(), "wait_ready kept waiting after stop()"
-        stopper.join(10.0)
+        stopper.join(READY_TIMEOUT)
+        assert not stopper.is_alive(), "stop() did not return"
     finally:
         sidecar.stop()
 
