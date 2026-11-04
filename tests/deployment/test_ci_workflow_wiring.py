@@ -8192,7 +8192,7 @@ def test_lint_runs_the_changelog_fragment_guard(workflow: dict[str, Any]) -> Non
     assert "${{" not in step["run"], (
         f"{CHANGELOG_STEP} interpolates an expression into `run:`: {step['run']!r}"
     )
-    assert "github.event.pull_request.base.ref" in step["env"]["BASE_REF"]
+    assert "github.event.pull_request.base.ref" in step["env"]["BASE"]
     assert "!cancelled()" in step["if"]
     assert "pull_request" in step["if"]
 
@@ -8214,9 +8214,9 @@ def test_lint_runs_the_changelog_fragment_guard__mutation_interpolates_the_base_
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, LINT_JOB, CHANGELOG_STEP)
     step["run"] = step["run"].replace(
-        '"origin/$BASE_REF"', '"origin/${{ github.event.pull_request.base.ref }}"'
+        '"$BASE"', '"origin/${{ github.event.pull_request.base.ref }}"'
     )
-    assert "${{" in step["run"], "the run line no longer uses $BASE_REF; this mutation is stale"
+    assert "${{" in step["run"], "the run line no longer uses $BASE; this mutation is stale"
     with pytest.raises(AssertionError):
         test_lint_runs_the_changelog_fragment_guard(mutated)
 
@@ -8336,7 +8336,7 @@ def test_lint_runs_the_plugin_version_check__mutation_restates_the_rule_inline()
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
     original = step["run"]
-    step["run"] += '\ngit diff --name-only "origin/$BASE_REF...HEAD" -- plugins'
+    step["run"] += '\ngit diff --name-only "$BASE...HEAD" -- plugins'
     assert step["run"] != original
     with pytest.raises(AssertionError):
         test_lint_runs_the_plugin_version_check(mutated)
@@ -8370,9 +8370,9 @@ def test_the_quick_tier_runs_the_plugin_version_check__mutation_drops_the_line()
 
 FRONTEND_JS_JOB = "frontend-js"
 DOCS_JOB = "docs"
-#: How a caller step names the comparison base of the two diff checks: the
-#: pull request's base ref, read from ``env:``.
-CI_BASE = "origin/$BASE_REF"
+#: How a caller step names the comparison base of the diff checks: the
+#: event's base, read from ``env:``.
+CI_BASE = "$BASE"
 
 
 def _first_index(commands: list[str], predicate: Callable[[str], bool]) -> int:
@@ -13649,7 +13649,7 @@ def test_no_caller_step_spells_a_check__mutation_spells_actionlint() -> None:
 def test_no_caller_step_spells_a_check__mutation_spells_the_secret_scan() -> None:
     mutated = _load_raw_workflow()
     step = _find_named_step(mutated, LINT_JOB, GITLEAKS_SCAN_STEP)
-    step["run"] = 'gitleaks git --log-opts="origin/$BASE_REF..HEAD" --no-banner --redact'
+    step["run"] = 'gitleaks git --log-opts="$BASE..HEAD" --no-banner --redact'
     assert _spelled_checks(mutated) == [
         f"lint: '{GITLEAKS_SCAN_STEP}' is neither a setup step nor a call of {CHECK_SCRIPT}",
         f"lint: '{GITLEAKS_SCAN_STEP}' spells ['gitleaks git']",

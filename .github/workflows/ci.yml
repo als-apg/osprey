@@ -949,14 +949,14 @@ jobs:
       # release branch is diffed against that branch. It reaches the command
       # through `env:` and never through `${{ }}` inside `run:`: a branch name
       # is attacker-controlled text, and interpolating it into the shell line
-      # would execute it. By the time the shell sees `$BASE_REF` it is a
+      # would execute it. By the time the shell sees `$BASE` it is a
       # variable, so the quoting holds. Pull requests only — on a push there
       # is no base ref to diff against. The checkout above is fetch-depth: 0,
-      # which is what makes `origin/$BASE_REF` and the merge-base resolvable.
+      # which is what makes `$BASE` and the merge-base resolvable.
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
-        BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: python3 scripts/check.py run changelog --base "origin/$BASE_REF"
+        BASE: ${{ format('origin/{0}', github.event.pull_request.base.ref) }}
+      run: python3 scripts/check.py run changelog --base "$BASE"
 
     - name: Run plugin version-bump gate
       # A PR that edits the plugin tree must also bump the plugin version.
@@ -1009,8 +1009,8 @@ jobs:
       # reasons the changelog step gives.
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
-        BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: python3 scripts/check.py run gitleaks --base "origin/$BASE_REF"
+        BASE: ${{ format('origin/{0}', github.event.pull_request.base.ref) }}
+      run: python3 scripts/check.py run gitleaks --base "$BASE"
 
     - name: Run mypy (type checking)
       run: uv run python scripts/check.py run mypy
