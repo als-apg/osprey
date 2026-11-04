@@ -259,6 +259,40 @@ export function statePhrase(word) {
 }
 
 /**
+ * What is said after a machine's state word while a program's write
+ * authorization of this login is in force there (`program_hold`): ` · program`,
+ * else nothing. The word itself stays this login's switch, so `off · program`
+ * reads as what it is — the switch off, a program allowed to write.
+ * @param {any} row
+ * @returns {string}
+ */
+export function programQualifier(row) {
+  return row?.program_hold === true ? ' · program' : '';
+}
+
+/** What a machine a program's authorization holds says on hover, beside its off control. */
+export const PROGRAM_HOLD_SENTENCE =
+  'A program holds an approved write authorization here. Turning writes off revokes it: its next write is refused.';
+
+/**
+ * Who holds a machine's authorizations, for the row's hover title: holder,
+ * label and steps of each, or `null` when none is in force.
+ * @param {any} row
+ * @returns {string|null}
+ */
+export function programHolders(row) {
+  const programs = Array.isArray(row?.programs) ? row.programs : [];
+  if (row?.program_hold !== true || programs.length === 0) return null;
+  const each = programs.map(
+    (/** @type {any} */ p) =>
+      `${String(p.holder)}${p.label ? ` (${String(p.label)})` : ''}, ` +
+      (p.used == null ? `${Number(p.steps)} steps` : `${Number(p.used)}/${Number(p.steps)} steps`) +
+      (p.self_issued === true ? ', self-issued at allowed' : '')
+  );
+  return `${PROGRAM_HOLD_SENTENCE} Held by ${each.join('; ')}.`;
+}
+
+/**
  * Refusal code → the short phrase the operator reads.
  *
  * The route publishes the switch tool's machine codes so the popover and the

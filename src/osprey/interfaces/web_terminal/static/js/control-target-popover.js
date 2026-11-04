@@ -114,6 +114,7 @@ import {
   targetRequest,
 } from './control-target-chip.js';
 import { renderCard, renderFoot, renderRow } from './control-target-rows.js';
+import { programsSection, refreshPrograms, resetPrograms } from './write-authorization-panel.js';
 
 /**
  * The `target` value that turns every machine in this login's record off at
@@ -300,6 +301,10 @@ function openPopover() {
   if (!popover || !chip || isOpen()) return;
   statusNote = null;
   render();
+  // The programs' section reads its own route; it joins the panel when it lands.
+  void refreshPrograms().then(() => {
+    if (isOpen()) render();
+  });
   const sidebar = chip.closest('#sidebar');
   openShellPopover(
     popover,
@@ -319,6 +324,7 @@ function closePopover() {
 /** What every close leaves behind: no confirm, no status line. */
 function onClosed() {
   statusNote = null;
+  resetPrograms();
   dismissConfirm();
 }
 
@@ -452,6 +458,12 @@ function render() {
     const status = el('div', 'ctc-outcome ctc-status', statusNote);
     status.dataset.status = 'notice';
     popover.append(status);
+  }
+
+  const programs = programsSection(state.session_id ?? null, render);
+  if (programs) {
+    popover.append(separator());
+    popover.append(programs);
   }
 
   popover.append(separator());
@@ -627,6 +639,12 @@ function setSwitch(target, to, state, ui, waived = false) {
     ui,
     () => {
       if (waived) statusNote = TURN_ON_SENTENCE;
+      // A stop revokes the programs' authorizations on the machine: re-read them.
+      if (to === 'off') {
+        void refreshPrograms().then(() => {
+          if (isOpen()) render();
+        });
+      }
     },
     (err) => switchRefusal(err, to),
     to === 'off'
@@ -634,8 +652,9 @@ function setSwitch(target, to, state, ui, waived = false) {
 }
 
 /**
- * Route one committed option: the stored position is a no-op, a widening goes
- * through its confirm, and anything else POSTs at once. `off` is always a
+ * Route one committed option: the stored position is a no-op (except `off`
+ * while a program holds the machine), a widening goes through its confirm,
+ * and anything else POSTs at once. `off` is always a
  * narrowing, including from a record nobody can read.
  * @param {any} row
  * @param {'off'|'asked'|'allowed'} to
@@ -643,7 +662,9 @@ function setSwitch(target, to, state, ui, waived = false) {
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
 function moveSwitch(row, to, state, reshow = false) {
-  if (to === row.switch) return;
+  // Off is never a no-op while a program's authorization holds the machine:
+  // the stop is what revokes it, whatever the switch beside it says.
+  if (to === row.switch && !(to === 'off' && row.program_hold === true)) return;
   if (to === 'off' || POSITIONS.indexOf(to) < POSITIONS.indexOf(row.switch)) {
     void setSwitch(row.target, to, state);
   } else {

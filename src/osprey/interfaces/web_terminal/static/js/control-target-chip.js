@@ -66,6 +66,7 @@ import {
   displayName,
   isPosition,
   machineKind,
+  programQualifier,
   reasonPhrase,
   resolvePendingSwitch,
   statePhrase,
@@ -97,6 +98,13 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  *   sentence for that code — the popover's tooltip, never its row text
  * @property {'off'|'asked'|'allowed'|null} switch  this login's stored position
  *   for the machine; `null` when the record cannot be read
+ * @property {boolean} [program_hold]  a program's write authorization of this
+ *   login is in force on the machine, whatever `switch` says; the row's off
+ *   control revokes it with the switch
+ * @property {Array<{id: string, holder: string, label: string, steps: number,
+ *             expires_in_s: number, self_issued?: boolean}>} [programs]  each one
+ *   in force; `self_issued` when the program issued it itself at `allowed`,
+ *   which moving the switch off `allowed` ends
  * @property {boolean} prompt  whether this login's next write here prompts: the
  *   effective position, so a stored `allowed` capped at `asked` answers true
  * @property {boolean} write_allowed  the verdict a new write by this login
@@ -959,6 +967,10 @@ export function kindAttr(row) {
  * `asked` reads `asked`: the word says what the next write meets, not what was
  * stored. A row that does not say reads `allowed`, the louder of the two.
  *
+ * A program's write authorization in force on the machine (`program_hold`)
+ * does not change the word: it is said beside it ({@link programQualifier}),
+ * so this login's own switch stays readable.
+ *
  * Exported for the popover, whose rows and confirms have to name the state in
  * the same words the chip does — the confirm for a switch tells the operator
  * the state they will land in, and it must be the word the chip shows a
@@ -1010,7 +1022,7 @@ export function targetReading() {
   const word = stateWord(row);
   return {
     name: displayName(row, kind),
-    state: pending ? 'switching…' : statePhrase(word),
+    state: pending ? 'switching…' : statePhrase(word) + programQualifier(row),
     kind,
     word,
   };
@@ -1040,6 +1052,7 @@ function render() {
       chip.hidden = false;
       chip.dataset.targetKind = reading.kind;
       chip.dataset.state = reading.word;
+      chip.dataset.program = String(row.program_hold === true);
       const held = state.held === true;
       chip.dataset.held = String(held);
       // A question about the CONTEXT, not about the switch: whether a target

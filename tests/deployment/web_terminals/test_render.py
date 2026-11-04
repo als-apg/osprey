@@ -1708,6 +1708,8 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
         "./var/simulator:/app/dls-gui/var/simulator",
         "./var/guarded_run:/app/dls-gui/var/guarded_run",
+        "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+        "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
@@ -1725,16 +1727,18 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         ),
         "./var/simulator:/app/dls_controls-assistant/var/simulator",
         "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
+        "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+        "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A render with no `extra_mounts` emits exactly the eight
+    """A render with no `extra_mounts` emits exactly the
     framework per-user volume lines — claude-config, the transcripts volume
     nested in it, agent-data, this user's own
     spool and state subdirectories, its own control-context record directory, the simulator
-    logs of its mock target and the guarded-run directory — and the extra_mounts
-    loop adds nothing."""
+    logs of its mock target, the guarded-run directory, and the programs' write
+    requests and write ledger — and the extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1756,6 +1760,8 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
             ),
             "./var/simulator:/app/dls_controls-assistant/var/simulator",
             "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
+            "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+            "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
         ]
 
 

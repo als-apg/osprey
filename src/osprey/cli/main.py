@@ -84,6 +84,8 @@ class LazyGroup(click.Group):
             "users": "osprey.cli.users_cmd",  # Web-terminal roster
             "feedback": "osprey.cli.feedback_cmd",  # Web-terminal feedback store
             "watchdog": "osprey.cli.watchdog_cmd",  # Replay labelled prompts through watchdogs
+            # Approve, list, revoke a program's bounded write authorization
+            "write-authorization": "osprey.cli.write_authorization_cmd",
         }
 
         if cmd_name not in commands:
@@ -111,6 +113,8 @@ class LazyGroup(click.Group):
             cmd_func = mod.scaffold
         elif cmd_name == "profile":
             cmd_func = mod.profile
+        elif cmd_name == "write-authorization":
+            cmd_func = mod.write_authorization
         elif cmd_name in ("up", "down", "restart", "status", "logs"):
             # Every lifecycle verb in deploy_cmd is defined as `<name>_verb`,
             # so it is resolved by that name rather than by the bare one. The
@@ -161,6 +165,7 @@ class LazyGroup(click.Group):
             "users",
             "feedback",
             "watchdog",
+            "write-authorization",
         ]
 
 

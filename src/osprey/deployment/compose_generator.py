@@ -4012,6 +4012,79 @@ def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
     return gid
 
 
+#: The holders' write-ledger directory under the state zone: where a program's
+#: connector child spends its authorization's steps, and where the holder
+#: writes the requests a person approves. One directory per deployment; a
+#: program container binds it read-write as ``OSPREY_WRITE_LEDGER_DIR``.
+WRITE_LEDGER_DIR_NAME = "write_ledger"
+
+#: Where a web terminal sees the holders' requests: a READ-ONLY bind of
+#: ``var/write_ledger/requests``, named to it as ``OSPREY_WRITE_REQUESTS_DIR``.
+#: Outside the container's ``var/``, so the entrypoint's hand-back sweep never
+#: reaches a read-only bind.
+WRITE_REQUESTS_CONTAINER_DIR = "/opt/osprey/write_authorization/requests"
+
+#: Where a web terminal sees the holders' whole ledger directory: a READ-ONLY
+#: bind of ``var/write_ledger``, named as ``OSPREY_WRITE_LEDGER_VIEW_DIR``. The
+#: programs' self-issued grants are there (with their ledgers and requests,
+#: nothing else): an approval refuses a channel one of them holds, the chip
+#: lists the ones that name its login, and a grant whose ledger shows its lease
+#: lapsed or its steps spent is shown ended. Never the holder's
+#: ``OSPREY_WRITE_LEDGER_DIR``: a terminal writes nothing there.
+WRITE_LEDGER_VIEW_CONTAINER_DIR = "/opt/osprey/write_authorization/ledger_view"
+
+
+def write_ledger_relpath():
+    """``var/write_ledger``, the holders' ledger directory relative to the repo root.
+
+    :return: The repo-relative POSIX path
+    :rtype: str
+    """
+    from osprey.utils.workspace import STATE_DIR_NAME
+
+    return f"{STATE_DIR_NAME}/{WRITE_LEDGER_DIR_NAME}"
+
+
+def write_requests_relpath():
+    """``var/write_ledger/requests``: the requests every web terminal reads.
+
+    :return: The repo-relative POSIX path
+    :rtype: str
+    """
+    from osprey_connectors.write_authorization import REQUESTS_DIR_NAME
+
+    return f"{write_ledger_relpath()}/{REQUESTS_DIR_NAME}"
+
+
+def ensure_write_ledger_dirs(repo_root, relative_to=None):
+    """Provision the holders' ledger directory and its requests directory.
+
+    ``var/write_ledger/`` and ``var/write_ledger/requests/``, setgid and
+    group-writable (see :func:`ensure_shared_corpus_dir`): a program's
+    container writes its ledgers, requests and self-issued grants there under
+    its own uid, and every web terminal reads them through read-only binds
+    under another. Created here, before compose runs, for the root-owned-mount-source
+    reason every provisioned bind has.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param relative_to: Root to spell the directories against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The group id of ``var/write_ledger/``, or ``None`` when it could
+        not be provisioned or the platform reports none
+    :rtype: int | None
+    """
+    provision = {
+        "relative_to": relative_to,
+        "label": "Write-ledger dir",
+        "noun": "write-ledger directory",
+        "consequence": "A program may be unable to ask for or spend a write authorization.",
+    }
+    gid = _ensure_group_shared_dir(Path(repo_root) / write_ledger_relpath(), **provision)
+    _ensure_group_shared_dir(Path(repo_root) / write_requests_relpath(), **provision)
+    return gid
+
+
 def _ensure_agent_data_structure(config):
     """Ensure the agent-data directory and subdirectories exist before deployment.
 
@@ -4089,6 +4162,10 @@ def _ensure_agent_data_structure(config):
     # The guarded-run directories, bound read-write into every container that
     # runs the agent, whatever the deployment's targets are.
     ensure_guarded_run_dirs(project_root, config, relative_to=project_root)
+
+    # The holders' write ledger and its requests, bound read-only into every
+    # web terminal (the requests) and read-write into a program that asks.
+    ensure_write_ledger_dirs(project_root, relative_to=project_root)
 
     # The facility-knowledge bundle, for the same root-owned-mount-source reason
     # as the scenario state directory above — the qmd sidecar binds it READ-ONLY
