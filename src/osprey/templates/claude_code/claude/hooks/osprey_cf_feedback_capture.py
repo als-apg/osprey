@@ -64,7 +64,7 @@ from osprey_hook_log import get_hook_input, get_repo_root, log_hook, repo_agent_
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 # The text Claude Code sends in place of an MCP answer past its tool-output
 # limit. The answer itself is saved to the file the notice names.

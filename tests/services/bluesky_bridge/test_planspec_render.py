@@ -15,10 +15,10 @@ Two halves, because the field has two contracts:
   observe that, so it is pinned by running mypy over a fixture snippet.
 
 The snippet check carries its own vacuity guard (see
-`test_the_snippet_check_actually_resolves_planspec`): mypy has
-``ignore_missing_imports = true``, so a snippet that cannot resolve ``osprey``
-silently degrades `PlanSpec` to ``Any`` and every type assertion below it
-passes for the wrong reason. The positive control asserts the revealed type is
+`test_the_snippet_check_actually_resolves_planspec`): a snippet that cannot
+resolve ``osprey``, or a config that silences missing imports again, degrades
+`PlanSpec` to ``Any``, and every type assertion below it passes for the wrong
+reason. The positive control asserts the revealed type is
 the real parameterized class, not ``Any``.
 
 All plan files here are pure pydantic/stdlib — no bluesky import — so this
@@ -360,8 +360,8 @@ def mypy_output(tmp_path_factory: pytest.TempPathFactory) -> str:
     """Both snippets checked in one mypy pass — the process start dominates the cost.
 
     ``MYPYPATH`` is set explicitly: the snippets live outside the source tree, and
-    with ``ignore_missing_imports = true`` an unresolved ``osprey`` would make
-    `PlanSpec` ``Any`` and every assertion here vacuous.
+    an unresolved ``osprey`` would make `PlanSpec` ``Any`` and every assertion
+    here vacuous.
     """
     snippet_dir = tmp_path_factory.mktemp("render_typing")
     (snippet_dir / "well_typed.py").write_text(_WELL_TYPED_SNIPPET)

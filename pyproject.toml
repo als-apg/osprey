@@ -291,6 +291,7 @@ dev = [
     "types-PyYAML",  # `yaml`
     "types-Markdown",  # `markdown`
     "types-aiofiles",  # `aiofiles`
+    "types-psutil",  # `psutil`
     "pre-commit",
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook
@@ -560,7 +561,15 @@ python_version = "3.11"
 # report the same errors. `explicit_package_bases` is the half that makes the
 # roots count: it derives each module's name from them rather than from the
 # directory the file happens to live in.
-mypy_path = "src:packages/osprey-connectors/src:packages/pyaml-cs-osprey/src"
+#
+# The first two roots are directories of scripts deployed side by side, which
+# import one another by bare name (`import osprey_safety_file`, `from validation
+# import ...`). Naming them ahead of `src` resolves those imports, so a call from
+# one script into a sibling is checked rather than taken as `Any`.
+mypy_path = """\
+src/osprey/templates/claude_code/claude/hooks:\
+src/osprey/templates/services/teams_bridge/relay:\
+src:packages/osprey-connectors/src:packages/pyaml-cs-osprey/src"""
 explicit_package_bases = true
 files = [
     "src",
@@ -576,7 +585,6 @@ disallow_untyped_defs = false  # Gradual typing
 # An unannotated function is not required to gain annotations, but its body is
 # still checked against the types it calls into.
 check_untyped_defs = true
-ignore_missing_imports = true
 exclude = [
     "^build/",
     "^dist/",
@@ -605,6 +613,50 @@ module = [
     "jlab_archiver_client.*",
     "tango.*",
 ]
+ignore_missing_imports = true
+
+# Installed with the framework or its dev extra, but shipping no type information
+# (no `py.typed`, no stub distribution). Their values stay `Any`. A package that
+# gains types, or a stub distribution that appears for it, comes off this list.
+[[tool.mypy.overrides]]
+module = [
+    "aioca.*",
+    "at.*",  # pyAT
+    "authlib.*",
+    "bluesky_queueserver.*",
+    "bluesky_queueserver_api.*",
+    "bluesky_tiled_plugins.*",
+    "plotly.*",
+    "pyaml.*",
+    "pySC.*",
+]
+ignore_missing_imports = true
+
+# Imported only where an optional platform or service is present, and not
+# installed by the dev extra: Azure Functions and Service Bus (the Teams relay and
+# receiver), the X11 screen-capture backend (`mss`, `Xlib`), the LUME PVA runner,
+# and the CANOPY repo checks (`check_kit`).
+[[tool.mypy.overrides]]
+module = [
+    "azure.*",
+    "check_kit.*",
+    "lume_pva_apg.*",
+    "mss.*",
+    "Xlib.*",
+]
+ignore_missing_imports = true
+
+# scipy ships no types, and its stub distribution (`scipy-stubs`) is written in
+# Python 3.12 syntax that a check targeting the `python_version` above cannot
+# parse. Until that version is raised, scipy's values stay `Any`.
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true
+
+# The limits hook tries this path second, for a deployed framework older than the
+# connectors package's namespaces. It no longer exists in this tree.
+[[tool.mypy.overrides]]
+module = ["osprey_connectors.control_system.limits_validator"]
 ignore_missing_imports = true
 
 # Bluesky bridge (osprey.services.bluesky_bridge): the bridge's own HTTP core
