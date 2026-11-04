@@ -8257,19 +8257,26 @@ PLUGIN_VERSION_SCRIPT = "scripts/plugin_version.py"
 
 
 def test_lint_runs_the_plugin_version_check(workflow: dict[str, Any]) -> None:
-    """The step calls ``check`` against the pull request's own base, the base
-    reaches the shell through ``env:`` and never through ``${{ }}`` inside
-    ``run:``, ``!cancelled()`` keeps an earlier failure from hiding a missing
-    bump, and the run line restates no part of the rule."""
+    """The step runs on pull requests and on pushes to main and calls ``check``
+    against the event's base: the pull request's own base ref, or on a push the
+    first parent, so a landing that does not raise the version past main's
+    previous tip goes red on the landing commit. The base reaches the shell
+    through ``env:`` and never through ``${{ }}`` inside ``run:``,
+    ``!cancelled()`` keeps an earlier failure from hiding a missing bump, and
+    the run line restates no part of the rule."""
     step = _find_named_step(workflow, LINT_JOB, PLUGIN_VERSION_STEP)
     run = step["run"]
-    assert PLUGIN_VERSION_SCRIPT + ' check --base "origin/$BASE_REF"' in run
+    assert PLUGIN_VERSION_SCRIPT + ' check --base "$BASE"' in run
     assert "${{" not in run, (
         f"{PLUGIN_VERSION_STEP} interpolates an expression into `run:`: {run!r}"
     )
-    assert "github.event.pull_request.base.ref" in step["env"]["BASE_REF"]
+    base = step["env"]["BASE"]
+    assert "github.event.pull_request.base.ref" in base
+    assert "format('origin/{0}'" in base
+    assert "'HEAD^1'" in base, f"{PLUGIN_VERSION_STEP} has no first-parent base on push: {base!r}"
     assert "!cancelled()" in step["if"]
-    assert "pull_request" in step["if"]
+    assert "'pull_request'" in step["if"]
+    assert "'push'" in step["if"], f"{PLUGIN_VERSION_STEP} does not run on push: {step['if']!r}"
     assert "git diff" not in run, f"{PLUGIN_VERSION_STEP} restates the rule inline: {run!r}"
     assert "json.load" not in run, f"{PLUGIN_VERSION_STEP} restates the rule inline: {run!r}"
 
@@ -8286,9 +8293,9 @@ def test_lint_runs_the_plugin_version_check__mutation_drops_the_step() -> None:
     ("replacement", "expected_in_run", "stale_message"),
     [
         (
-            '"origin/${{ github.event.pull_request.base.ref }}"',
+            '"${{ env.BASE }}"',
             "${{",
-            "the run line no longer uses $BASE_REF; this mutation is stale",
+            "the run line no longer uses $BASE; this mutation is stale",
         ),
         ("origin/main", "origin/main", "the run line moved; this mutation is stale"),
     ],
@@ -8299,8 +8306,28 @@ def test_lint_runs_the_plugin_version_check__mutation_replaces_the_base_ref(
 ) -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
-    step["run"] = step["run"].replace('"origin/$BASE_REF"', replacement)
+    step["run"] = step["run"].replace('"$BASE"', replacement)
     assert expected_in_run in step["run"], stale_message
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_plugin_version_check(mutated)
+
+
+def test_lint_runs_the_plugin_version_check__mutation_drops_the_push_event() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
+    original = step["if"]
+    step["if"] = original.replace(" || github.event_name == 'push'", "")
+    assert step["if"] != original, "the push clause moved; this mutation is stale"
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_plugin_version_check(mutated)
+
+
+def test_lint_runs_the_plugin_version_check__mutation_drops_the_first_parent_base() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
+    original = step["env"]["BASE"]
+    step["env"]["BASE"] = original.replace("'HEAD^1'", "'origin/main'")
+    assert step["env"]["BASE"] != original, "the first-parent base moved; this mutation is stale"
     with pytest.raises(AssertionError):
         test_lint_runs_the_plugin_version_check(mutated)
 
