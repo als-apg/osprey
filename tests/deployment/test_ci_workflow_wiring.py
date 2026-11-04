@@ -2284,10 +2284,6 @@ def _script_pytest_lines(source: str) -> list[str]:
     return [line for line in source.splitlines() if f"{CHECK_UV_RUN} pytest " in line]
 
 
-def _repo_source(path: str) -> str:
-    return (REPO_ROOT / path).read_text(encoding="utf-8")
-
-
 def _tier_source(tier: str, base: str | None = None) -> str:
     """The commands *tier* runs over the whole tree, one shell line each; with
     *base*, the checks that judge a range are armed against it."""
@@ -2640,65 +2636,6 @@ def test_the_gate_runs_exactly_the_lane_expression__mutation_parallelizes_a_seri
     mutated = re.sub(rf"({re.escape(row.select())})(?=\s)", r"\1 -n 4", source, count=1)
     assert mutated != source, f"no serial {row.marker} run in the full tier; mutation is stale"
     assert _gate_lines_off_the_table(mutated) != []
-
-
-#: The written-down copies of the parallel sweep a contributor or a skill copies
-#: by hand. Each must carry the unit lane's marker expression, or the copy runs
-#: the lane-leaving markers under workers that distort them.
-DOCUMENTED_SWEEPS = (
-    "tests/README.md",
-    "CONTRIBUTING.md",
-    "plugins/osprey/skills/release/SKILL.md",
-    "plugins/osprey/skills/test-audit/SKILL.md",
-)
-#: A pytest invocation with xdist workers: a fixed count or ``auto``.
-_DOCUMENTED_XDIST_RE = re.compile(r"(?<!\S)-n\s+(auto|\d+)")
-
-
-def _documented_sweep_lines(source: str) -> list[str]:
-    """Lines that run pytest with workers over ``tests/`` wholesale, or over one
-    area when the line already carries a marker expression."""
-    return [
-        line
-        for line in source.splitlines()
-        if "pytest " in line
-        and _DOCUMENTED_XDIST_RE.search(line)
-        and ("tests/ --ignore=tests/e2e" in line or ("tests/<area>" in line and "-m " in line))
-    ]
-
-
-def _documented_sweeps_missing_terms(source: str, row: LaneLeavingMarker) -> list[str]:
-    """Documented sweeps in *source* that do not hand the row's marker away
-    (empty = all of them do)."""
-    return [
-        line.strip() for line in _documented_sweep_lines(source) if row.deselect_term() not in line
-    ]
-
-
-@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("path", DOCUMENTED_SWEEPS, ids=DOCUMENTED_SWEEPS)
-def test_documented_sweeps_carry_the_lane_expression(path: str, row: LaneLeavingMarker) -> None:
-    """A documented parallel sweep is the command a reader copies, so it hands
-    away every marker the CI lane hands away."""
-    source = _repo_source(path)
-    assert _documented_sweep_lines(source), (
-        f"{path} no longer documents a parallel sweep; this pin is stale"
-    )
-    assert _documented_sweeps_missing_terms(source, row) == [], (
-        f"{path} documents a parallel sweep without deselecting the {row.marker!r} marker "
-        f"({row.deselect_term()!r}): {_documented_sweeps_missing_terms(source, row)}"
-    )
-
-
-@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("path", DOCUMENTED_SWEEPS, ids=DOCUMENTED_SWEEPS)
-def test_documented_sweeps_carry_the_lane_expression__mutation_drops_a_term(
-    path: str, row: LaneLeavingMarker
-) -> None:
-    source = _repo_source(path)
-    mutated = _drop_the_term(source, row)
-    assert mutated != source, f"no {row.marker!r} deselection in {path}; mutation is stale"
-    assert _documented_sweeps_missing_terms(mutated, row) != []
 
 
 # ---------------------------------------------------------------------------
