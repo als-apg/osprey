@@ -424,7 +424,8 @@ def test_tab_activate_and_close_reach_memory_gallery(tmp_path, monkeypatch, chro
         # Reopening leaves Memory as the still-active tab (tab state itself
         # isn't reset by close, only gallery-internal .loaded/cache state is),
         # so it re-fires drawer:tab-activate on the same panel without another click.
-        _open_settings_drawer(page)
+        with page.expect_request(lambda r: "/api/claude-memory" in r.url, timeout=5_000):
+            _open_settings_drawer(page)
         expect(page.locator("#tab-memory")).to_have_class("drawer-tab-panel active")
         second_count = sum("/api/claude-memory" in u for u in requests)
         assert second_count > first_count, (

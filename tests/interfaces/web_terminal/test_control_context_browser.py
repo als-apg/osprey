@@ -596,16 +596,10 @@ def test_a_real_handoff_and_the_chat_view_leave_the_deployment_where_it_is(
             # route as it takes the session onto the console. Watching for it
             # is what makes this a hand-off lane —
             # the assertion below is about the request the SHIPPED page makes.
-            handoffs: list[str] = []
-            page.on(
-                "request",
-                lambda request: (
-                    handoffs.append(request.url)
-                    if request.method == "POST" and "/handoff" in request.url
-                    else None
-                ),
-            )
-            back_to_chat(page)
+            with page.expect_request(
+                lambda r: r.method == "POST" and "/handoff" in r.url, timeout=TIMEOUT
+            ) as handoff:
+                back_to_chat(page)
             page.wait_for_function(
                 "() => document.querySelector('#control-target-chip') !== null",
                 timeout=TIMEOUT,
@@ -615,9 +609,8 @@ def test_a_real_handoff_and_the_chat_view_leave_the_deployment_where_it_is(
                 "data-enforceable", "true", timeout=TIMEOUT
             )
             expect(page.locator(CHIP_SHORT)).to_have_text(NAMES[ACTIVE_TARGET], timeout=TIMEOUT)
-            assert handoffs, "going back to chat issued no hand-off"
-            assert all(session_id in url for url in handoffs), (
-                f"the client handed off some other key: {handoffs}"
+            assert session_id in handoff.value.url, (
+                f"the client handed off some other key: {handoff.value.url}"
             )
 
             # --- 3. and Switch works from it -----------------------------

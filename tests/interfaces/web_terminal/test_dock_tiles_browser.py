@@ -1211,14 +1211,17 @@ def test_a_reload_brings_the_stored_layout_back_whole(tmp_path, chromium_browser
         _open_services(page, "a", "b", "c")
         a, b, c = (S(x) for x in "abc")
         before = _restore(page, MATRIX_START)
-        # The debounced persist has written the three-tile arrangement.
+        # The debounced persist has written the restored arrangement, sizes included; a reload that lands first would restore the equal-thirds layout the opens left.
         page.wait_for_function(
-            """() => Object.keys(localStorage).some((k) => {
+            """(sizes) => Object.keys(localStorage).some((k) => {
                  if (!k.includes('osprey-dock-layout-')) return false;
                  try {
-                   return JSON.parse(localStorage.getItem(k)).layout?.items?.length === 3;
+                   const items = JSON.parse(localStorage.getItem(k)).layout?.items ?? [];
+                   return items.length === sizes.length
+                     && items.every((item, i) => Math.abs(item.size - sizes[i]) < 0.01);
                  } catch { return false; }
                })""",
+            arg=[item["size"] for item in MATRIX_START["items"]],
             timeout=5_000,
         )
 
