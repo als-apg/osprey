@@ -15,8 +15,8 @@ new tests.
 ## 1. Running the suite
 
 ```bash
-# Parallel — what CI runs, and what your change has to pass
-pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock and not canopy" -n 4 --dist loadgroup
+# Every check CI runs; `scripts/check.py run pytest -- -n auto` runs the parallel sweep alone
+uv run python scripts/check.py full
 
 # Serial — for debugging one failure, or reading full output in order
 pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests
@@ -650,15 +650,17 @@ Checklist for a new test area:
       pytest's `--timeout`, never a speed budget, and no test or invocation
       lowers it (pinned by `tests/deployment/test_vitest_hang_bound.py`); a JS
       time budget takes the same shape.
-- [ ] **Both gates pass**: serially, and under `-n 4 --dist loadgroup`. Passing
+- [ ] **Both gates pass**: serially, and in the parallel sweep
+      (`uv run python scripts/check.py quick --changed HEAD -- <your test files>`). Passing
       one is not evidence for the other.
 
-### If a new test flakes under `-n 4`
+### If a new test flakes in the parallel sweep
 
 1. Run the file alone, serially. If it passes, the problem is shared state, not
    your assertions.
-2. Run the file alongside its neighbours (`pytest tests/<area> -n 4 --dist loadgroup`)
-   to find the partner.
+2. Run the file alongside its neighbours
+   (`uv run python scripts/check.py quick --changed HEAD -- tests/<area>`) to find
+   the partner.
 3. Ask what is global: an environment variable, a module-level cache, the
    logging setup, the cwd, a port, a container, a singleton.
 4. Fix it with a reset seam plus an autouse fixture. Reach for `xdist_group` only
