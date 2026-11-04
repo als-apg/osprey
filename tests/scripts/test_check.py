@@ -1395,6 +1395,15 @@ def test_a_range_names_the_ci_lanes_it_touches() -> None:
     assert check.select("quick", ["README.md"], (), FILES).lanes == ()
 
 
+def test_a_spending_lane_names_its_prefix() -> None:
+    lane = kit.Lane("agentic", kit.SPENDS, ("tests/e2e/**",), "Agentic E2E")
+    assert kit.spending([lane, kit.Lane("plain", "containers", ())]) == {"agentic": "Agentic E2E"}
+    with pytest.raises(ValueError, match="agentic"):
+        kit.Lane("agentic", kit.SPENDS, ("tests/e2e/**",))
+    with pytest.raises(ValueError, match="plain"):
+        kit.Lane("plain", "containers", (), "Plain E2E")
+
+
 def test_a_named_vitest_file_alone_is_accepted_and_routed_to_vitest() -> None:
     got = selected("quick", named=(TW + "toast.test.mjs",))
     assert got["vitest"] == check.Selection(check.PATHS, (TW + "toast.test.mjs",))
@@ -2778,9 +2787,10 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
     declared = [{**item, "scope": []} if item["id"] in derived else item for item in data["checks"]]
     assert tuple(rebuilt(item) for item in declared) == check.CHECKS
     assert "touched" not in data
-    assert tuple(check.Lane(i["job"], i["why"], tuple(i["scope"])) for i in data["lanes"]) == (
-        check.LANES
+    lanes = tuple(
+        check.Lane(i["job"], i["why"], tuple(i["scope"]), i["prefix"]) for i in data["lanes"]
     )
+    assert lanes == check.LANES
     assert data["tiers"] == ["quick", "full"]
     unit = data["unit_selection"]
     assert [tuple(pair) for pair in unit["ignores"]] == list(fw.UNIT_SELECTION.ignores)
