@@ -56,6 +56,7 @@ if TYPE_CHECKING:
         DispatchConfig,
         GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
+        OptimizerConfig,
         TeamsBridgeProfileConfig,
         VAConfig,
     )
@@ -2263,3 +2264,77 @@ def _inject_limits_database(project_path: Path) -> None:
     config_update_fields(
         config_path, {f"control_system.{leaf}.database_path": LIMITS_DATABASE_PATH}
     )
+
+
+def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
+    """Wire the optimizer service and its Redis job store into a built project.
+
+    1. Copy the bundled ``templates/services/optimizer/`` compose template into
+       ``<project>/services/optimizer/``.
+    2. Write ``services.optimizer`` config and register it in
+       ``deployed_services``, mirroring :func:`_inject_bluesky_web`.
+
+    ``environments_dir`` is omit-when-unset, like bluesky's ``plan_dir``: its
+    absence is what the template's mount guard reads.
+
+    Args:
+        optimizer: Validated optimizer configuration from the build profile.
+        project_path: Root of the built project.
+    """
+    src_dir = _locate_pkg_services() / "optimizer"
+    if not src_dir.is_dir():
+        logger.warning("No package template for the optimizer service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
+    _refresh_service_dir(
+        src_dir,
+        dest_services_root / "optimizer",
+        "optimizer",
+        _user_owned_services(project_path),
+    )
+
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found. Skipping the optimizer config registration.")
+        return
+
+    config = load_config_document(config_path)
+
+    # No ``image`` key: the service builds the local optimizer image on first
+    # ``osprey up``. OSPREY_OPTIMIZER_IMAGE, or ``services.optimizer.image``
+    # here, runs a prebuilt or published image instead.
+    block: dict[str, Any] = {
+        "path": "./services/optimizer",
+        "port": optimizer.port,
+        "targets": list(optimizer.targets),
+    }
+    if optimizer.environments_dir:
+        block["environments_dir"] = optimizer.environments_dir
+    config.setdefault("services", {})
+    anchored_put(
+        config["services"],
+        "optimizer",
+        _carry_authored_keys(config["services"], "optimizer", block),
+    )
+    deployed = config.get("deployed_services", []) or []
+    if "optimizer" not in [str(s) for s in deployed]:
+        anchored_append(deployed, "optimizer")
+    config["deployed_services"] = deployed
+
+    save_config_document(config_path, config)
+
+    logger.debug("  ✓ Injected the optimizer service (port %d)", optimizer.port)
+    logger.debug("    Targets:    %s", ", ".join(optimizer.targets))
+    logger.debug(
+        "    Images:     `osprey up` builds the optimizer image locally (first run is "
+        "slow: the search stack is large). Use `--dev` to bake in your local checkout; "
+        "set OSPREY_OPTIMIZER_IMAGE to use a published image."
+    )
+    if optimizer.environments_dir:
+        logger.debug(
+            "    Envs dir:   %s mounted read-only at /app/environments",
+            optimizer.environments_dir,
+        )

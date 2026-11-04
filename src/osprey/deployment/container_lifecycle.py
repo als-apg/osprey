@@ -207,6 +207,9 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # refuses startup instead of minting a value nothing outside the container
     # can learn — the mint here is what makes the deployed panel reachable.
     "bluesky_web": ("OSPREY_TERMINAL_SECRET",),
+    # The gate on the optimizer's routes that move hardware. The service
+    # refuses those routes while it is empty, so the mint is what arms them.
+    "optimizer": ("OPTIMIZER_LAUNCH_TOKEN",),
     # Two identities on one store: the owner ingestion writes with, and the
     # SELECT-only role the agent's raw-SQL path connects as. Both are read by
     # Postgres only while it initializes a fresh volume, and both fill the
@@ -4250,30 +4253,41 @@ def _podman_network_backend(runtime: str) -> str | None:
     return backend
 
 
-def _preflight_bluesky_network_backend(config: dict) -> None:
-    """Refuse a Bluesky deploy on a podman host still using the ``cni`` backend.
+#: The deployed services whose stacks need container-name DNS across two
+#: networks: each dual-homes one container onto an ``internal: true`` network
+#: that holds the Redis it must resolve. Mapped to that stack's name, the
+#: dual-homed container and the name it resolves, for the refusal to cite.
+_INTERNAL_NETWORK_STACKS: dict[str, tuple[str, str, str]] = {
+    "bluesky": ("Bluesky stack", "bluesky-queueserver", "bluesky-redis"),
+    "optimizer": ("optimizer", "optimizer", "optimizer-redis"),
+}
 
-    The bundled Bluesky template puts the bridge, the RE Manager and Redis on an
-    ``internal: true`` network and dual-homes the queueserver. On rootless
-    podman with the legacy ``cni`` backend there is no aardvark-dns, so the
-    dual-homed queueserver receives only its first network's resolver and can
-    never resolve ``bluesky-redis``. It goes unhealthy, and ``osprey up`` aborts
-    before the web slice renders -- the whole deployment is down, on a DNS fact
-    that is invisible from anything osprey prints.
+
+def _preflight_internal_network_backend(config: dict) -> None:
+    """Refuse a deploy that needs cross-network DNS on a podman ``cni`` host.
+
+    The bundled Bluesky and optimizer templates each put a Redis on an
+    ``internal: true`` network and dual-home the container that uses it. On
+    rootless podman with the legacy ``cni`` backend there is no aardvark-dns, so
+    a dual-homed container receives only its first network's resolver and can
+    never resolve its Redis. It goes unhealthy, and ``osprey up`` aborts -- the
+    whole deployment is down, on a DNS fact that is invisible from anything
+    osprey prints.
 
     Refusing here turns that into one line naming the host setting to change.
     Nothing is started when it fires, so the host is left exactly as it was.
 
-    Skipped unless ``bluesky`` is deployed: the failure is specific to the
-    multi-network shape that service brings, and every other stack in this
-    project runs fine on ``cni``.
+    Skipped unless one of :data:`_INTERNAL_NETWORK_STACKS` is deployed: the
+    failure is specific to the multi-network shape those services bring, and
+    every other stack in this project runs fine on ``cni``.
 
     :param config: Raw deploy config (``deployed_services`` membership).
-    :raises RuntimeError: ``bluesky`` is deployed on a podman host whose network
-        backend is ``cni``.
+    :raises RuntimeError: such a stack is deployed on a podman host whose
+        network backend is ``cni``.
     """
     services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "bluesky" not in services:
+    stacks = [stack for name, stack in _INTERNAL_NETWORK_STACKS.items() if name in services]
+    if not stacks:
         return
 
     try:
@@ -4287,26 +4301,28 @@ def _preflight_bluesky_network_backend(config: dict) -> None:
     if backend is None or backend == _REQUIRED_PODMAN_NETWORK_BACKEND:
         return
 
+    names = " and the ".join(label for label, _, _ in stacks)
+    symptoms = "; ".join(f"{container} cannot resolve {peer}" for _, container, peer in stacks)
+
     if backend != "cni":
         # A backend nobody here has seen. Say so rather than refuse: the known
         # break is cni's missing aardvark-dns, and guessing that some future
         # backend shares it would block a deploy on no evidence.
         _warn_fact(
             f"Unrecognised podman network backend: {backend}",
-            "The bundled Bluesky stack needs container-name DNS across two networks, "
+            f"The bundled {names} needs container-name DNS across two networks, "
             f"which this project has only verified on {_REQUIRED_PODMAN_NETWORK_BACKEND}. "
-            "If bluesky-queueserver comes up unhealthy, resolving bluesky-redis is the "
-            "first thing to check.",
+            "If a container comes up unhealthy, check first whether it resolves its "
+            f"Redis ({symptoms}).",
             None,
         )
         return
 
     raise RuntimeError(
-        "The Bluesky stack requires podman's netavark network backend; this host is "
+        f"The {names} requires podman's netavark network backend; this host is "
         "using the legacy cni backend.\n"
-        "Without aardvark-dns the dual-homed bluesky-queueserver cannot resolve "
-        "bluesky-redis, so it never becomes healthy and the deploy aborts before the "
-        "web slice renders.\n"
+        f"Without aardvark-dns a dual-homed container cannot resolve its Redis "
+        f"({symptoms}), so it never becomes healthy and the deploy aborts.\n"
         "Switch the host over by setting the following in containers.conf "
         "(/etc/containers/containers.conf, or ~/.config/containers/containers.conf for "
         "a rootless deployment), installing aardvark-dns, then re-running osprey up:\n"
@@ -6457,7 +6473,7 @@ def _start_stack(
     # aborted before the web slice renders) names nothing an operator can act
     # on. Ahead of every container-touching command below, so the refusal
     # leaves the host untouched.
-    _preflight_bluesky_network_backend(config)
+    _preflight_internal_network_backend(config)
 
     # Another copy of this repo holding the project name is refused before the
     # first container-touching step: every step below would act on that copy's
