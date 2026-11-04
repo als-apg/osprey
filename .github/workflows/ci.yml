@@ -56,8 +56,9 @@ on:
 # Model-spending lanes: `full-ci` on a pull request, on demand on main.
 #
 # These jobs drive real Claude sessions through the ALS-APG gateway. The set
-# is SPENDING_LANES in tests/deployment/test_ci_workflow_wiring.py, which
-# holds it against the workflow's secret-bearing jobs. Their cost scales as turns x context (an
+# is the LANES table in scripts/repo_checks.py (why="models" plus a prefix); the
+# wiring test holds it against the secret-bearing jobs, the gate notice and
+# release.yml REQUIRED_LANES. Their cost scales as turns x context (an
 # Opus diagnostic session re-reads its cached context every turn) times push
 # volume, and neither driver is a test that should go away. The measured cost
 # is recorded in docs/source/contributing/workflow.rst, "Model-Spending Lanes".

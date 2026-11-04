@@ -262,9 +262,8 @@ re-run.
 
 ### The full-ci run is a hard requirement
 
-The CI lanes named in `SPENDING_LANES`
-(`tests/deployment/test_ci_workflow_wiring.py`), which `release.yml` requires
-by name in `REQUIRED_LANES`, drive real agent sessions against a live model
+The CI lanes the LANES table in `scripts/repo_checks.py` marks `why="models"`,
+which `release.yml` requires by name in `REQUIRED_LANES`, drive real agent sessions against a live model
 endpoint, and they run only on a pull request carrying the `full-ci` label.
 They are the only proof the agentic paths work on the exact tree being tagged:
 `release.yml` runs no tests and never reads the tagged commit's CI status.
