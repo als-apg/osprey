@@ -132,6 +132,14 @@ describe('container rendering', () => {
     );
   });
 
+  test('the Session Context names the agent, not the MCP server it wrote through', () => {
+    const e = entry('e-3');
+    e.metadata = { session_metadata: { operator: 'Ada', created_via: 'ariel-mcp' } };
+    renderEntryDetail(container, e);
+    expect(container.textContent).toContain('Agent');
+    expect(container.textContent).not.toContain('ariel-mcp');
+  });
+
   test('clearReader empties the container and cancels an in-flight load', async () => {
     const d = deferred();
     vi.mocked(entriesApi.get).mockReturnValueOnce(d.promise);

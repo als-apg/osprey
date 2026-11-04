@@ -790,6 +790,23 @@ describe('the compose host', () => {
     expect(document.getElementById('session-info-panel')?.textContent).toContain('Ada');
   });
 
+  test("an agent draft's Session Context says Source: Agent, not ariel-mcp", async () => {
+    const { store } = await boot({
+      draft: {
+        subject: 'From the agent',
+        metadata: { session_metadata: { operator: 'Ada', created_via: 'ariel-mcp' } },
+      },
+    });
+
+    store.setState({ compose: { draft: 'd-8' } });
+    await flush();
+    await flush();
+
+    const panel = document.getElementById('session-info-panel')?.textContent ?? '';
+    expect(panel).toContain('Source:Agent');
+    expect(panel).not.toContain('ariel-mcp');
+  });
+
   test('a compose already set at init is applied', async () => {
     stubFetch({ draft: { subject: 'Early draft' } });
     const mods = await loadModules();

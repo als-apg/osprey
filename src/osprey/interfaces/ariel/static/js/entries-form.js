@@ -13,7 +13,7 @@
  */
 
 import { entriesApi, draftsApi, ApiError } from './api.js';
-import { escapeHtml } from './components.js';
+import { escapeHtml, sourceName } from './components.js';
 import { getState, setState } from './store.js';
 import { rememberAuthor } from './rail.js';
 import {
@@ -401,7 +401,7 @@ function renderSessionInfoPanel(meta) {
     ['Branch', meta.git_branch],
     ['Session', meta.session_id],
     ['Model', meta.model],
-    ['Source', meta.created_via],
+    ['Source', meta.created_via && sourceName(String(meta.created_via))],
   ].filter(([, v]) => v);
 
   if (fields.length === 0) return;

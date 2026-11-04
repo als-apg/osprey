@@ -25,6 +25,7 @@ import {
   renderTags,
   renderErrorState,
   escapeHtml,
+  sourceName,
 } from './components.js';
 import { parseEntryText } from './entries-helpers.js';
 import { seam, place, renderActionButtons, renderTabStrip } from './reader-seam.js';
@@ -435,7 +436,7 @@ function renderSessionCard(session) {
     ['Session', session.session_id, true],
     ['Branch', session.git_branch, true],
     ['Model', session.model_name || session.model],
-    ['Source', session.created_via],
+    ['Source', session.created_via && sourceName(String(session.created_via))],
     ['Started', session.session_start_time],
   ];
   const items = fields

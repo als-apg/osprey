@@ -110,6 +110,36 @@ export function renderBadgeStrip(enhancements, modules) {
  */
 
 /**
+ * What operators call each writer that stamps `created_via` (and a draft's
+ * `staged_by`): the stored value names the program, the screen names who. A
+ * value not listed here is shown as stored.
+ */
+const SOURCE_NAMES = /** @type {Record<string, string>} */ ({
+  'ariel-mcp': 'Agent',
+  'ariel-web': 'Logbook',
+  'gallery-compose': 'Artifact gallery',
+});
+
+/**
+ * The display name of a `created_via` value, e.g. `ariel-mcp` -> `Agent`.
+ * @param {string} createdVia
+ * @returns {string}
+ */
+export function sourceName(createdVia) {
+  return SOURCE_NAMES[createdVia] ?? createdVia;
+}
+
+/**
+ * A draft's "staged by" phrase: `staged by the agent` for the agent's
+ * drafts, else `staged by` and the source's display name.
+ * @param {string} stagedBy - The draft's stored `staged_by`
+ * @returns {string}
+ */
+export function stagedByText(stagedBy) {
+  return stagedBy === 'ariel-mcp' ? 'staged by the agent' : `staged by ${sourceName(stagedBy)}`;
+}
+
+/**
  * Format a timestamp for display, in the facility zone and the viewer's date
  * convention. Falls back to the raw string if the timestamp can't be parsed.
  * @param {string} [timestamp] - ISO timestamp
