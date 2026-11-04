@@ -6,7 +6,7 @@ Request and response models for the ARIEL search interface.
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SerializerFunctionWrapHandler, model_serializer
 
 from osprey.services.ariel_search.models import (
     END_BOUND_DESCRIPTION,
@@ -196,12 +196,66 @@ class ThreadResponse(BaseModel):
 
     ``parent`` is the row the entry follows up, null when it follows nothing or
     the parent is not held; ``parent_id`` stays set in the latter case.
-    ``children`` are the entry's follow-ups as list rows, oldest first.
+    ``children`` are the entry's follow-ups as list rows, oldest first: the
+    newest ``FOLLOW_UPS_LIMIT`` of them. ``truncated`` is true when older
+    follow-ups were left out (A17); it is omitted from the body when false.
     """
 
     parent_id: str | None = None
     parent: RowResponse | None = None
     children: list[RowResponse] = []
+    truncated: bool = False
+
+    @model_serializer(mode="wrap")
+    def _omit_untruncated(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if not data.get("truncated"):
+            data.pop("truncated", None)
+        return data
+
+
+class RelatedResponse(BaseModel):
+    """The nearest entries to one entry by its stored text embedding (A9).
+
+    ``state`` is ``ok`` when the search ran (``entries`` may still be empty),
+    ``no_embedding`` when the entry has no row in the current text-embedding
+    table, and ``disabled`` when text embedding (or semantic search) is off.
+    ``entries`` never include the entry itself.
+    """
+
+    state: Literal["ok", "no_embedding", "disabled"]
+    entries: list[RowResponse] = []
+
+
+class ModuleCard(BaseModel):
+    """One enabled enhancement module's card for one entry (A8).
+
+    ``state`` is the entry's view state (``complete``, ``pending``, ``stale``,
+    ``failed`` or ``n/a``); ``completed_at`` through ``attempts`` are the stored
+    status fields; ``command`` is the re-run command for a failed or stale
+    module; ``detail`` is the module's own ``inspect()`` output, null for a
+    status-only card.
+    """
+
+    module: str
+    label: str
+    order: int
+    feeds: list[str] = []
+    state: str
+    completed_at: str | None = None
+    failed_at: str | None = None
+    marker: str | None = None
+    error: str | None = None
+    attempts: int | None = None
+    command: str | None = None
+    detail: dict[str, Any] | None = None
+
+
+class EnhancementsResponse(BaseModel):
+    """The inspector cards of one entry, in execution order (A8)."""
+
+    entry_id: str
+    modules: list[ModuleCard] = []
 
 
 class FacetValueResponse(BaseModel):
@@ -320,3 +374,7 @@ class StatusResponse(BaseModel):
     enabled_enhancement_modules: list[str] = []
     last_ingestion: datetime | None = None
     errors: list[str] = []
+    #: Per enabled module, in execution order: ``label`` and the count of
+    #: entries in each badge-strip state (``n/a``, ``pending``, ``stale``,
+    #: ``failed``, ``complete``). A plain dict because ``n/a`` is no identifier.
+    enhancement_coverage: dict[str, dict[str, Any]] = {}

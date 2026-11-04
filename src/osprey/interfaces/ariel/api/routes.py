@@ -27,6 +27,7 @@ from osprey.interfaces.ariel.api.schemas import (
     AttachmentResponse,
     DiagnosticResponse,
     EmbeddingTableStatus,
+    EnhancementsResponse,
     EntriesListResponse,
     EntryCreateRequest,
     EntryCreateResponse,
@@ -34,6 +35,8 @@ from osprey.interfaces.ariel.api.schemas import (
     EntryView,
     ExpandedTermResponse,
     FacetsResponse,
+    ModuleCard,
+    RelatedResponse,
     RowResponse,
     SearchRequest,
     SearchResponse,
@@ -347,12 +350,14 @@ async def _entry_responses(
     """
     from osprey.services.ariel_search.attachments.compose import caption_model_id
     from osprey.services.ariel_search.attachments.summaries import file_source_for
-    from osprey.services.ariel_search.enhancement.status import enhancement_context
+    from osprey.services.ariel_search.enhancement.status import store_enhancement_context
 
     mapping = await _attachment_rows_by_entry(service, entries)
     model_id = caption_model_id(service.config)
     file_source = file_source_for(service.config)
-    enhancement = enhancement_context(service.config)
+    enhancement = await store_enhancement_context(
+        service.config, service.repository, entry_ids=[e["entry_id"] for e in entries]
+    )
     return [
         _entry_to_response(
             e,
@@ -406,15 +411,17 @@ async def _row_responses(
     *,
     with_scores: bool = False,
 ) -> list[RowResponse]:
-    """Convert a page of entries to list rows (C-ROW), with no further reads.
+    """Convert a page of entries to list rows (C-ROW), reading no attachment rows.
 
     Unlike :func:`_entry_responses` this reads no attachment rows: the count
     comes from the entry's attachments and ``has_images`` from the boolean the
-    repository selected. The enhancement context and the filter dimensions are
+    repository selected. The enhancement context (with the page's
+    ``text_embedding`` build keys, one read) and the filter dimensions are
     resolved once for the page.
 
     Args:
-        service: The ARIEL service; only its config is read.
+        service: The ARIEL service; its config, and its repository for the
+            enhancement context.
         entries: The entries, in output order.
         with_scores: Carry each entry's ``_score`` and ``_highlights`` across.
 
@@ -422,13 +429,15 @@ async def _row_responses(
         One row per entry, in the given order.
     """
     from osprey.services.ariel_search.enhancement.status import (
-        enhancement_context,
         has_images,
+        store_enhancement_context,
     )
     from osprey.services.ariel_search.filters import filter_dimensions
     from osprey.services.ariel_search.subject import entry_subject
 
-    enhancement = enhancement_context(service.config)
+    enhancement = await store_enhancement_context(
+        service.config, service.repository, entry_ids=[e["entry_id"] for e in entries]
+    )
     dimensions = filter_dimensions(service.config)
     rows = []
     for e in entries:
@@ -1230,18 +1239,174 @@ async def get_entry_thread(request: Request, entry_id: str) -> ThreadResponse:
 
         parent_id = (entry.get("metadata") or {}).get("follows_up") or None
         parent = await service.repository.get_entry(parent_id) if parent_id else None
+        from osprey.services.ariel_search.database.repository import FOLLOW_UPS_LIMIT
+
         children = [
             c
             for c in await service.repository.get_follow_ups(entry_id)
             if c["entry_id"] != entry_id
         ]
+        # The repository returns the newest limit + 1, oldest first (A17).
+        truncated = len(children) > FOLLOW_UPS_LIMIT
+        if truncated:
+            children = children[-FOLLOW_UPS_LIMIT:]
 
         rows = await _row_responses(service, ([parent] if parent else []) + children)
         return ThreadResponse(
             parent_id=parent_id,
             parent=rows[0] if parent else None,
             children=rows[1:] if parent else rows,
+            truncated=truncated,
         )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _stored_text(value: Any) -> str | None:
+    """A stored status field as text, None when absent."""
+    return None if value is None else str(value)
+
+
+def _stored_attempts(value: Any) -> int | None:
+    """The stored attempt count, None when absent or not a number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _module_detail(
+    service: ARIELSearchService, module: str, entry_id: str
+) -> dict[str, Any] | None:
+    """``module``'s own ``inspect()`` output for one entry, None on any failure.
+
+    The module is built alone through the enhancement factory (configured and
+    bound), so one module's bad configuration never costs another its detail.
+    """
+    from osprey.services.ariel_search.enhancement.factory import create_enhancers_from_config
+
+    try:
+        built = create_enhancers_from_config(service.config, stage="all", names=[module])
+        if not built:
+            return None
+        detail = await built[0].inspect(entry_id, service.repository)
+    except Exception as exc:
+        logger.warning("Inspector detail for %s on %s failed: %s", module, entry_id, exc)
+        return None
+    return dict(detail) if isinstance(detail, Mapping) else None
+
+
+@router.get("/entries/{entry_id}/enhancements", response_model=EnhancementsResponse)
+async def get_entry_enhancements(request: Request, entry_id: str) -> EnhancementsResponse:
+    """One card per enabled enhancement module for one entry, in execution order (A8)."""
+    from osprey.registry import get_registry
+    from osprey.services.ariel_search.enhancement.status import (
+        rerun_command,
+        store_enhancement_context,
+    )
+
+    service = _require_service(request)
+
+    try:
+        entry = await service.repository.get_entry(entry_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+
+        context = await store_enhancement_context(
+            service.config, service.repository, entry_ids=[entry_id]
+        )
+        stored = _stored_status(entry.get("enhancement_status"))
+        registry = get_registry()
+        cards = []
+        for index, (module, state) in enumerate(_enhancement_states(entry, context).items()):
+            found = registry.get_ariel_enhancement_module(module)
+            reg = found[1] if found else None
+            obj = stored.get(module)
+            fields = obj if isinstance(obj, Mapping) else {}
+            cards.append(
+                ModuleCard(
+                    module=module,
+                    label=getattr(reg, "label", None) or module,
+                    order=getattr(reg, "execution_order", index),
+                    feeds=list(getattr(reg, "feeds", ()) or ()),
+                    state=state,
+                    completed_at=_stored_text(fields.get("completed_at")),
+                    failed_at=_stored_text(fields.get("failed_at")),
+                    marker=_stored_text(fields.get("marker")),
+                    error=_stored_text(fields.get("error")),
+                    attempts=_stored_attempts(fields.get("attempts")),
+                    command=rerun_command(module, entry_id, state, context),
+                    detail=await _module_detail(service, module, entry_id),
+                )
+            )
+        return EnhancementsResponse(entry_id=entry_id, modules=cards)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/entries/{entry_id}/related", response_model=RelatedResponse)
+async def get_entry_related(
+    request: Request,
+    entry_id: str,
+    limit: int = Query(5, ge=1, le=10),
+) -> RelatedResponse:
+    """The nearest entries to one entry by its stored text embedding, self excluded (A9).
+
+    ``disabled`` when ``text_embedding`` (or the semantic search it runs
+    through) is off; ``no_embedding`` when the entry has no row in the current
+    text-embedding table. Otherwise the stored vector is searched against that
+    table's model with no similarity threshold.
+    """
+    from osprey.services.ariel_search.enhancement.status import (
+        TEXT_EMBEDDING,
+        text_embedding_build,
+    )
+    from osprey.services.ariel_search.exceptions import ModuleNotEnabledError
+
+    service = _require_service(request)
+
+    try:
+        entry = await service.repository.get_entry(entry_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+
+        config = service.config
+        if not config.is_enhancement_module_enabled(TEXT_EMBEDDING):
+            return RelatedResponse(state="disabled")
+        build = text_embedding_build(config)
+        model_name = (build.model or {}).get("name") or config.get_search_model()
+        if build.table is None or not model_name:
+            return RelatedResponse(state="no_embedding")
+
+        vector = await service.repository.get_text_embedding(build.table, entry_id)
+        if not vector:
+            return RelatedResponse(state="no_embedding")
+
+        try:
+            found = await service.repository.semantic_search(
+                query_embedding=vector,
+                model_name=model_name,
+                max_results=limit + 1,
+                similarity_threshold=None,
+            )
+        except ModuleNotEnabledError:
+            return RelatedResponse(state="disabled")
+
+        neighbours = []
+        for hit, similarity in found:
+            if hit["entry_id"] == entry_id:
+                continue
+            neighbours.append({**hit, "_score": similarity})
+        rows = await _row_responses(service, neighbours[:limit], with_scores=True)
+        return RelatedResponse(state="ok", entries=rows)
 
     except HTTPException:
         raise
@@ -1821,6 +1986,7 @@ async def get_status(request: Request) -> StatusResponse:
             enabled_enhancement_modules=status.enabled_enhancement_modules,
             last_ingestion=status.last_ingestion,
             errors=status.errors,
+            enhancement_coverage=status.enhancement_coverage,
         )
 
     except Exception as e:
