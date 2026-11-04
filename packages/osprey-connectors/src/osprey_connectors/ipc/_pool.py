@@ -21,7 +21,17 @@ number of targets from one process without knowing any of that.
 Keys and children
 -----------------
 A child is keyed by ``(target, execution_mode)``: ``live`` and ``live`` in
-``readonly`` mode are two children, each with its own gateway selection.
+``readonly`` mode are two children, each with its own gateway selection. A
+caller may also name the **owner** whose switch the child's writes follow and
+a program's **write authorization**
+(:mod:`~osprey_connectors.write_authorization`) they are judged by; the key is
+then ``(target, execution_mode, owner, authorization)``, and the child's
+environment carries ``OSPREY_CONTROL_OWNER`` and
+``OSPREY_WRITE_AUTHORIZATION`` for it. A key that names neither stays the
+two-part key it always was, and its child is spawned exactly as before but
+without any authorization this process's own environment names: a child is
+authorized only by its key. A new authorization is therefore a new key and a
+new child, which selects its gateway on that authorization.
 :meth:`ConnectorHostPool.connector` brings the key's child up if there is none
 and returns a :class:`PooledConnector` bound to the *key*, not to the process —
 so a handle a caller keeps goes on working across a replacement child. Calls to
@@ -86,6 +96,14 @@ allowed write ``switching`` when a write gateway is configured and was not
 selected. A block with a ``write_access`` gateway and no ``read_only`` one is
 read through the write gateway while writes are off.
 
+A key that names an authorization selects its gateway on the authorization's
+verdict, channels aside (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`),
+here and in the child alike. A child of such a key that came up before its
+authorization could write — its handle taken before the grant was approved or
+the lease started — refuses a write ``switching`` without spending a step, and
+that refusal comes back to the caller like any other: take the handle once the
+lease is open.
+
 Failure
 -------
 Every error the pool raises of its own is a :class:`ConnectorHostError`, which
@@ -133,7 +151,8 @@ A child the pool stopped itself (``cause="stopped"``) is the pool's own answer
 and no recovery.
 
 A failed call is **never retried**: a write may already have reached the IOC,
-and only the caller can decide whether to send it again.
+and only the caller can decide whether to send it again. A refusal is an
+answer, not a failure: the recovery policy never hears of one.
 
 A child that misses a call's deadline but **does** answer the ping is alive and
 merely slow — a batched or confirmed write can legitimately take several of its
@@ -199,7 +218,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors import posture_store
+from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
 from osprey_connectors.errors import ConnectorUnavailableError
@@ -279,7 +298,42 @@ CAUSE_UNAVAILABLE = "unavailable"
 #: in the proxy from ``write_channel``, so its deadline is that write's.
 _WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_channel_checked"})
 
-_Key = tuple[str, str | None]
+#: ``(target, execution_mode)``, or ``(target, execution_mode, owner,
+#: authorization)`` for a key that names an owner or an authorization.
+_Key = tuple[Any, ...]
+
+
+def _make_key(target: str, mode: str | None, owner: str | None, authorization: str | None) -> _Key:
+    """The pool key: two parts when it names neither owner nor authorization."""
+    if owner is None and authorization is None:
+        return (target, mode)
+    return (target, mode, owner, authorization)
+
+
+def _key_parts(key: _Key) -> tuple[str, str | None, str | None, str | None]:
+    """``(target, execution_mode, owner, authorization)`` of any key."""
+    if len(key) == 2:
+        return key[0], key[1], None, None
+    return key[0], key[1], key[2], key[3]
+
+
+def _child_env(key: _Key) -> dict[str, str]:
+    """The environment a child for *key* is spawned with.
+
+    :func:`~osprey_connectors.ipc._launch.host_env`, with the key's owner
+    stamped as ``OSPREY_CONTROL_OWNER`` when it names one, and
+    ``OSPREY_WRITE_AUTHORIZATION`` set to the key's authorization or removed:
+    a child is authorized by its key alone, never by what this process's own
+    environment names.
+    """
+    _target, _mode, owner, authorization = _key_parts(key)
+    env = host_env()
+    if owner is not None:
+        env[posture_store.CONTROL_OWNER_ENV_VAR] = owner
+    env.pop(write_authorization.AUTHORIZATION_ENV_VAR, None)
+    if authorization is not None:
+        env[write_authorization.AUTHORIZATION_ENV_VAR] = authorization
+    return env
 
 
 # ---------------------------------------------------------------------------
@@ -542,8 +596,13 @@ class _WritesMoved(Exception):
 
 
 def _label(key: _Key) -> str:
-    target, mode = key
-    return f"target {target!r}" + (f" ({mode})" if mode else "")
+    target, mode, owner, authorization = _key_parts(key)
+    label = f"target {target!r}" + (f" ({mode})" if mode else "")
+    if owner is not None:
+        label += f" for {owner!r}"
+    if authorization is not None:
+        label += f" under authorization {authorization!r}"
+    return label
 
 
 def _landing(method: str) -> str:
@@ -557,7 +616,10 @@ def _landing(method: str) -> str:
 
 
 class ConnectorHostPool:
-    """One connector-host child per ``(target, execution_mode)``, on demand.
+    """One connector-host child per key, on demand.
+
+    A key is ``(target, execution_mode)``, or ``(target, execution_mode, owner,
+    authorization)`` when the caller names either (see the module docstring).
 
     Args:
         control_system: The ``control_system`` config section, as loaded.
@@ -616,7 +678,14 @@ class ConnectorHostPool:
 
     # -- public surface --------------------------------------------------
 
-    async def connector(self, target: str, *, execution_mode: str | None = None) -> PooledConnector:
+    async def connector(
+        self,
+        target: str,
+        *,
+        execution_mode: str | None = None,
+        owner: str | None = None,
+        authorization: str | None = None,
+    ) -> PooledConnector:
         """The connector for *target*, bringing its child up if there is none.
 
         Args:
@@ -624,16 +693,32 @@ class ConnectorHostPool:
                 :func:`~osprey_connectors.types.resolve_target`.
             execution_mode: ``None``, or ``"readonly"`` for a child that
                 refuses every write whatever the config arms.
+            owner: The login whose switch the child's writes follow, stamped
+                as ``OSPREY_CONTROL_OWNER`` in its environment; ``None`` leaves
+                the owner to the ladder the child inherits.
+            authorization: The id of the program's write authorization the
+                child's writes are judged by, set as
+                ``OSPREY_WRITE_AUTHORIZATION`` in its environment; ``None`` is
+                a child that names none.
 
         Raises:
-            ValueError: *target* does not resolve on this deployment, or
-                *execution_mode* is not one of the two accepted values.
+            ValueError: *target* does not resolve on this deployment,
+                *execution_mode* is not one of the two accepted values, or
+                *owner* or *authorization* is not a non-blank name.
             ConnectorHostStartError: The child could not be brought up.
             Exception: The child's own typed error from ``connect()``.
         """
         if execution_mode not in (None, READONLY):
             raise ValueError(f"execution_mode must be None or {READONLY!r}, got {execution_mode!r}")
-        key: _Key = (target, execution_mode)
+        for name, value in (("owner", owner), ("authorization", authorization)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be None or a non-blank name, got {value!r}")
+        key = _make_key(
+            target,
+            execution_mode,
+            owner.strip() if owner is not None else None,
+            authorization.strip() if authorization is not None else None,
+        )
         await self._ensure(key)
         return PooledConnector(self, key)
 
@@ -801,7 +886,7 @@ class ConnectorHostPool:
         *,
         recovery: tuple[dict[str, str], ...] = (),
     ) -> ConnectorHostLostError:
-        target, mode = child.key
+        target, mode, _owner, _authorization = _key_parts(child.key)
         error_class: type[ConnectorHostLostError] = ConnectorHostLostError
         if cause == CAUSE_UNRESPONSIVE:
             error_class = ConnectorHostUnresponsiveError
@@ -897,7 +982,7 @@ class ConnectorHostPool:
         agrees with the child, so the switch moved in between — is discarded and
         :class:`_WritesMoved` raised for :meth:`_start` to try once more.
         """
-        target, mode = key
+        target, mode, _owner, _authorization = _key_parts(key)
         readonly = mode == READONLY
         section = resolve_env_vars(copy.deepcopy(self._section))
         # Derived once, so the config refusal and the post-connect verification
@@ -933,7 +1018,7 @@ class ConnectorHostPool:
         spawned_at = time.monotonic()
         process = None
         try:
-            process = await spawn_host(self._python, host_env(), start_marks_fd=marks.write_fd)
+            process = await spawn_host(self._python, _child_env(key), start_marks_fd=marks.write_fd)
         except OSError as exc:
             raise ConnectorHostStartError(
                 f"Could not spawn a connector-host child for {_label(key)}: {exc}",
@@ -1036,9 +1121,9 @@ class ConnectorHostPool:
         That posture is what the child will select its gateway on, and the
         derivation's role is :func:`derive_endpoints`'s own: the one gateway rule.
         """
-        target, mode = key
+        target, mode, _owner, _authorization = _key_parts(key)
         readonly_run = mode == READONLY or is_readonly_run()
-        writes = False if readonly_run else self._writes_allowed(section, target)
+        writes = False if readonly_run else self._key_writes_allowed(section, key)
         derivation = derive_endpoints(
             {"control_system": section},
             target,
@@ -1050,15 +1135,32 @@ class ConnectorHostPool:
         )
         return derivation, readonly_run, writes
 
+    def _key_writes_allowed(self, section: dict[str, Any], key: _Key) -> bool:
+        """:meth:`_writes_allowed` for *key*; a two-part key asks it with two arguments."""
+        target, _mode, owner, authorization = _key_parts(key)
+        if owner is None and authorization is None:
+            return self._writes_allowed(section, target)
+        return self._writes_allowed(section, target, owner, authorization)
+
     @staticmethod
-    def _writes_allowed(section: dict[str, Any], target: str) -> bool:
+    def _writes_allowed(
+        section: dict[str, Any],
+        target: str,
+        owner: str | None = None,
+        authorization: str | None = None,
+    ) -> bool:
         """Whether the write verdict allows a write to *target*, launch pin honoured.
 
         The verdict the child's own write guard takes, over the same record: the
         child inherits this process's environment, so it names the same owner
-        and the same agent-data root.
+        and the same agent-data root. A key's *owner* is the one stamped in the
+        child's environment; a key's *authorization* is judged as the child
+        judges its gateway
+        (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`).
         """
-        return posture_store.write_verdict(section, target).allowed
+        return write_authorization.authorized_write_verdict(
+            section, target, authorization=authorization, owner=owner
+        ).allowed
 
     def _writes_moved(
         self,
@@ -1077,7 +1179,7 @@ class ConnectorHostPool:
         """
         if readonly_run or report.get("writes_enabled") is not (not writes):
             return False
-        return self._writes_allowed(section, key[0]) is not writes
+        return self._key_writes_allowed(section, key) is not writes
 
     def _config_refusal(
         self, key: _Key, section: dict[str, Any], derivation: TargetDerivation
@@ -1110,7 +1212,7 @@ class ConnectorHostPool:
         row — derives no rows and dials no gateway, so neither gate applies to
         it.
         """
-        target, _ = key
+        target = _key_parts(key)[0]
         connector_type = derivation.connector_type
         selected = derivation.selected_endpoint()
         block_key = f"control_system.connector.{connector_type}"
@@ -1256,11 +1358,21 @@ class PooledConnector:
 
     @property
     def target(self) -> str:
-        return self._key[0]
+        return _key_parts(self._key)[0]
 
     @property
     def execution_mode(self) -> str | None:
-        return self._key[1]
+        return _key_parts(self._key)[1]
+
+    @property
+    def owner(self) -> str | None:
+        """The owner the key stamps on its child, or ``None`` for the inherited ladder."""
+        return _key_parts(self._key)[2]
+
+    @property
+    def authorization(self) -> str | None:
+        """The write authorization the key's child is judged by, or ``None``."""
+        return _key_parts(self._key)[3]
 
     @property
     def pid(self) -> int | None:
