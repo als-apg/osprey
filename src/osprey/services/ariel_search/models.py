@@ -362,7 +362,7 @@ class ARIELStatusResult:
         errors: List of error messages
         enhancement_coverage: Per enabled module, its registration ``label``
             and the count of entries in each badge-strip state (``n/a``,
-            ``pending``, ``stale``, ``failed``, ``complete``); empty when the
+            ``not_run``, ``pending``, ``stale``, ``failed``, ``complete``); empty when the
             database could not be read
     """
 

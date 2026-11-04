@@ -28,6 +28,8 @@ Coverage:
       and the pill is unchanged (a publish never counts as new).
   (5) "Ask agent" lands the citation in the composer unsent; while a turn
       streams it waits, and lands after the turn, still unsent.
+  (6) after the operator reloads the hub, ``entry_open`` reaches the new page,
+      shows the entry, and its answer says ``shown: true``.
 
 Flashes self-clean on animationend, so they are observed through a
 document-start MutationObserver installed in every frame rather than by
@@ -712,3 +714,26 @@ def test_ariel_ask_agent_lands_in_composer_unsent_and_waits_for_a_streaming_turn
     )
     page.wait_for_timeout(500)
     assert OBSERVED_PROMPTS == [prompt], f"a pending citation was sent: {OBSERVED_PROMPTS}"
+
+
+# ---------------------------------------------------------------------------
+# (6) after the operator reloads the hub, entry_open still opens the entry
+# ---------------------------------------------------------------------------
+
+
+def test_ariel_entry_open_after_a_hub_reload_shows_the_entry(stack_factory):
+    """A reload makes a new dock client; the open reaches it, shows the entry and says so."""
+    stack = stack_factory("")
+    expect(stack.frame_locator.locator(_ROWS).first).to_be_visible(timeout=15_000)
+
+    stack.page.reload(wait_until="domcontentloaded")
+    expect(stack.page.locator(_INPUT)).to_be_visible(timeout=15_000)
+    stack.wait_settled()
+
+    target = stack.entries[3]
+    answer = stack.tool("entry_open", entry_id=target["entry_id"], attachment_id=None)
+
+    assert answer.get("shown") is True, answer
+    expect(stack.frame_locator.locator(_READER_TITLE)).to_contain_text(
+        target["subject"], timeout=10_000
+    )

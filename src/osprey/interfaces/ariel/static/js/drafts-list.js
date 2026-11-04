@@ -24,6 +24,7 @@ import {
   renderEmptyState,
   renderErrorState,
   renderLoading,
+  stagedByText,
 } from './components.js';
 import { getState, setState, subscribe } from './store.js';
 
@@ -70,7 +71,7 @@ const bound = new WeakSet();
 export function renderDraftRow(draft, selected = null) {
   const id = String(draft.draft_id ?? '');
   const created = draft.created_at || '';
-  const staged = draft.staged_by ? `staged by ${draft.staged_by}` : '';
+  const staged = draft.staged_by ? stagedByText(draft.staged_by) : '';
   const count = Number(draft.attachment_count) || 0;
   return `
     <div class="osprey-list-row multiline ariel-row ariel-draft-row" role="option" tabindex="-1"

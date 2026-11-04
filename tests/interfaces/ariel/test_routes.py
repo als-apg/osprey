@@ -432,10 +432,37 @@ def test_create_entry_endpoint_fallback(client, mock_ariel_service):
     data = response.json()
     assert data["entry_id"].startswith("ariel-")
     assert data["sync_status"] == "local_only"
-    assert data["source_system"] == "ARIEL Web"
+    assert data["source_system"] == "OSPREY Logbook Web"
     assert "saved locally" in data["message"]
 
     # Verify fallback path used repository directly
+    mock_ariel_service.repository.upsert_entry.assert_called_once()
+
+
+def test_create_entry_without_an_ingestion_adapter_saves_locally(client, mock_ariel_service):
+    """No ingestion adapter configured is the case /publish-info answers with
+    ``supports_write: False`` ("entries can only be saved locally"), so a submit
+    takes the same local-only path as a read-only adapter instead of a 500."""
+    from osprey.services.ariel_search.exceptions import AdapterNotFoundError
+
+    mock_ariel_service.create_entry = AsyncMock(
+        side_effect=AdapterNotFoundError(
+            "No ingestion configuration found. Set ariel.ingestion.adapter in config.yml",
+            adapter_name="(none)",
+        )
+    )
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    response = client.post(
+        "/api/entries",
+        json={"subject": "Vacuum burst", "details": "Sector 6 spike", "author": "R. Patel"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entry_id"].startswith("ariel-")
+    assert data["sync_status"] == "local_only"
+    assert data["source_system"] == "OSPREY Logbook Web"
     mock_ariel_service.repository.upsert_entry.assert_called_once()
 
 
@@ -548,7 +575,7 @@ def test_upload_falls_back_local_with_attachments(client, mock_ariel_service):
     mock_ariel_service.repository.get_entry = AsyncMock(
         return_value={
             "entry_id": "ariel-xyz",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "timestamp": datetime.now(),
             "author": "Anonymous",
             "raw_text": "Test\n\nBody",
@@ -1427,7 +1454,7 @@ def _local_only(service) -> dict:
     service.repository.get_entry = AsyncMock(
         return_value={
             "entry_id": "ariel-xyz",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "timestamp": datetime.now(),
             "author": "Anonymous",
             "raw_text": "Test\n\nBody",
@@ -1953,7 +1980,7 @@ def _field_entry(**overrides):
     line, a local-only save, a caption written under an older model, a picture."""
     entry = {
         "entry_id": "E-1",
-        "source_system": "ARIEL Web",
+        "source_system": "OSPREY Logbook Web",
         "timestamp": datetime(2025, 10, 6, 9, 30),
         "author": "J. Smith",
         "raw_text": "First line of the text\n\nThe body of the entry.",
@@ -2132,12 +2159,12 @@ def test_row_view_carries_the_c_row_fields(field_service):
         "entry_id": "E-1",
         "timestamp": row.timestamp,
         "author": "J. Smith",
-        "source_system": "ARIEL Web",
+        "source_system": "OSPREY Logbook Web",
         "subject": "Stored subject",
         "snippet": "First line of the text The body of the entry.",
         "facets": {
             "author": "J. Smith",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "tags": ["rf", "Vacuum"],
             "logbook": "Ops",
         },
@@ -3301,7 +3328,7 @@ def _related_config(*, text_embedding=True, semantic=True):
 def _related_entry(entry_id):
     return {
         "entry_id": entry_id,
-        "source_system": "ARIEL Web",
+        "source_system": "OSPREY Logbook Web",
         "timestamp": datetime(2025, 10, 6, 9, 30),
         "author": "J. Smith",
         "raw_text": f"Text of {entry_id}",

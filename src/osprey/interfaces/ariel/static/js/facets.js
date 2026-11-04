@@ -89,6 +89,17 @@ export function initFacets(root, { capabilities = null } = {}) {
   schedule();
 }
 
+/**
+ * Refetch the counts for the current request even though it has not changed:
+ * the entries behind it have (a new row, list-activity.js). It joins the same
+ * settle-a-burst path as a store write, so calls in one tick are one fetch.
+ */
+export function refreshFacets() {
+  if (!mounted) return;
+  mounted.key = null;
+  schedule();
+}
+
 // ---------------------------------------------------------------------------
 // Fetching
 

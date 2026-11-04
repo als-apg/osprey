@@ -442,3 +442,70 @@ describe('two-phase search: the busy flag', () => {
     expect(results().textContent, 'the cleared search never paints').not.toContain('LATE-FAST');
   });
 });
+
+describe('search issues on the mode chip', () => {
+  const PICTURE_DIAGNOSTIC = {
+    level: 'warning',
+    source: 'hybrid',
+    message: 'Picture search unavailable',
+  };
+
+  /** @returns {HTMLButtonElement} */
+  function chip() {
+    return /** @type {HTMLButtonElement} */ (document.getElementById('ariel-mode-chip'));
+  }
+
+  test('a diagnostic is a dot on the chip, not a banner over the results', async () => {
+    const { store, searchMock } = await loadModules(hybridCapabilities(false));
+    searchMock.mockResolvedValue(
+      searchResponse({ entries: [entry('E1')], diagnostics: [PICTURE_DIAGNOSTIC] })
+    );
+
+    search(store, 'quench');
+    await settled();
+
+    expect(results().querySelector('.diagnostics-bar'), 'no banner in the list').toBeNull();
+    const dot = chip().querySelector('.ariel-mode-chip-dot');
+    expect(dot, 'the chip carries the dot').not.toBeNull();
+    expect(dot?.getAttribute('data-level')).toBe('warning');
+    expect(chip().getAttribute('aria-description')).toContain('Picture search unavailable');
+    expect(chip().title).toContain('Picture search unavailable');
+  });
+
+  test('the chip popover lists the issue, so a keyboard user reaches it', async () => {
+    const { store, searchMock } = await loadModules(hybridCapabilities(false));
+    searchMock.mockResolvedValue(
+      searchResponse({ entries: [entry('E1')], diagnostics: [PICTURE_DIAGNOSTIC] })
+    );
+
+    search(store, 'quench');
+    await settled();
+
+    const issues = /** @type {HTMLElement} */ (
+      document.querySelector('#ariel-filters-popover [data-search-issues]')
+    );
+    expect(issues.hidden).toBe(false);
+    expect(issues.textContent).toContain('Picture search unavailable');
+  });
+
+  test('a clean search clears the dot and the popover issues', async () => {
+    const { store, searchMock } = await loadModules(hybridCapabilities(false));
+    searchMock
+      .mockResolvedValueOnce(
+        searchResponse({ entries: [entry('E1')], diagnostics: [PICTURE_DIAGNOSTIC] })
+      )
+      .mockResolvedValueOnce(searchResponse({ entries: [entry('E2')] }));
+
+    search(store, 'quench');
+    await settled();
+    search(store, 'vacuum');
+    await settled();
+
+    expect(chip().querySelector('.ariel-mode-chip-dot')).toBeNull();
+    expect(chip().hasAttribute('aria-description')).toBe(false);
+    const issues = /** @type {HTMLElement} */ (
+      document.querySelector('#ariel-filters-popover [data-search-issues]')
+    );
+    expect(issues.hidden).toBe(true);
+  });
+});

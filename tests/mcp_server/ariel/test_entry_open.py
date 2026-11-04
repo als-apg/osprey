@@ -26,10 +26,14 @@ PNG_ID = attachment_id_for(KEYSET_ENTRY_ID, _PNG)
 PDF_ID = attachment_id_for(KEYSET_ENTRY_ID, _PDF)
 
 
+#: What ``panel_op`` returns when the dock client applied the open.
+APPLIED = {"ok": True, "status": 200, "layout": None, "popouts": [], "rev": 1}
+
+
 async def _open(**kwargs):
     from osprey.mcp_server.ariel.tools.entry import entry_open
 
-    with patch("osprey.mcp_server.http.panel_op") as focus:
+    with patch("osprey.mcp_server.http.panel_op", return_value=APPLIED) as focus:
         raw = await get_tool_fn(entry_open)(**kwargs)
     return json.loads(raw), focus
 
@@ -148,6 +152,71 @@ async def test_without_a_web_terminal_the_result_still_carries_the_url(keyset_ha
         )
 
     assert result["url"] == f"/panel/ariel/#sel={KEYSET_SECOND_ENTRY_ID}"
+
+
+async def test_an_applied_open_says_the_logbook_panel_shows_the_entry(keyset_harness):  # noqa: ARG001
+    result, _ = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
+
+    assert result["shown"] is True
+    assert "status" not in result
+    assert result["message"].startswith(f"The Logbook panel shows entry {KEYSET_SECOND_ENTRY_ID}.")
+    assert "ARIEL" not in result["message"]
+
+
+_UNCONFIRMED = [
+    pytest.param(
+        {
+            "return_value": {
+                "ok": False,
+                "status": 409,
+                "reason": "no_dock_client",
+                "detail": "no dock client is showing the workspace",
+            }
+        },
+        "no_dock_client",
+        id="refused",
+    ),
+    pytest.param(
+        {
+            "return_value": {
+                "ok": False,
+                "status": None,
+                "reason": "no_web_terminal",
+                "detail": "Web Terminal is not running.",
+            }
+        },
+        "no_web_terminal",
+        id="no-web-terminal",
+    ),
+    pytest.param({"side_effect": OSError("connection refused")}, "error", id="raised"),
+    pytest.param({"return_value": None}, "unconfirmed", id="no-answer"),
+]
+
+
+@pytest.mark.parametrize(("op", "reason"), _UNCONFIRMED)
+async def test_an_unconfirmed_open_never_claims_the_entry_is_on_screen(
+    keyset_harness,  # noqa: ARG001
+    caplog,
+    op,
+    reason,
+):
+    """The tool reports what happened: an op the dock did not confirm is ``not_shown``."""
+    from osprey.mcp_server.ariel.tools.entry import entry_open
+
+    url = f"/panel/ariel/#sel={KEYSET_SECOND_ENTRY_ID}"
+    with caplog.at_level("WARNING"), patch("osprey.mcp_server.http.panel_op", **op):
+        result = json.loads(
+            await get_tool_fn(entry_open)(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
+        )
+
+    assert result["shown"] is False
+    assert result["status"] == "not_shown"
+    assert result["reason"] == reason
+    assert result["url"] == url
+    assert "shows entry" not in result["message"]
+    assert "not on screen" in result["message"]
+    assert url in result["message"]
+    assert any("Logbook panel" in r.getMessage() for r in caplog.records), caplog.text
 
 
 async def test_unknown_entry_is_not_found(keyset_harness):  # noqa: ARG001

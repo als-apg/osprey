@@ -13,7 +13,7 @@
  */
 
 import { entriesApi, draftsApi, ApiError } from './api.js';
-import { escapeHtml } from './components.js';
+import { escapeHtml, sourceName } from './components.js';
 import { getState, setState } from './store.js';
 import { rememberAuthor } from './rail.js';
 import {
@@ -26,6 +26,7 @@ import { formatFileSize } from './entries-helpers.js';
 import { messageOf } from './utils.js';
 import { loadCompose } from './compose-autosave.js';
 import { showToast } from '/design-system/js/toast.js';
+import { ENTRY_CREATED_EVENT } from './list-activity.js';
 
 // Draft metadata (populated when loading a draft)
 /** @type {any} */
@@ -184,6 +185,11 @@ export async function handleCreateEntry(e) {
     resetCreateForm();
     rememberAuthor(String(entryData.author ?? ''));
     setState({ compose: null, sel: result.entry_id, narrowView: 'reader' });
+    // The list picks the new row up the way it does an agent's create
+    // (list-activity.js): refresh and flash at the top, else the "n new" pill.
+    window.dispatchEvent(
+      new CustomEvent(ENTRY_CREATED_EVENT, { detail: { entryId: result.entry_id } })
+    );
     if (result.attachments_published === false) {
       showToast('Entry saved, but its attachments stayed local: they were not published.', WARN);
     }
@@ -395,7 +401,7 @@ function renderSessionInfoPanel(meta) {
     ['Branch', meta.git_branch],
     ['Session', meta.session_id],
     ['Model', meta.model],
-    ['Source', meta.created_via],
+    ['Source', meta.created_via && sourceName(String(meta.created_via))],
   ].filter(([, v]) => v);
 
   if (fields.length === 0) return;
@@ -626,6 +632,29 @@ export async function loadDraft(draftId, isCurrent = () => true) {
   if (draftMetadata?.session_metadata) showProvenance(draftId, draftMetadata.session_metadata);
   applyDraftFields(draft);
   loadedDraft = draftId;
+  // A draft the agent staged as a follow-up carries `metadata.follows_up`,
+  // which the submit forwards with the rest of the draft's metadata; the row
+  // names the parent as the sheet's own Follow up does.
+  const parentId = draftMetadata?.follows_up;
+  if (typeof parentId === 'string' && parentId) await showDraftParent(parentId, isCurrent);
+}
+
+/**
+ * Name a draft's parent in the "Follows up" row: its id at once, its subject
+ * once it loads. An unloadable parent stays named by id.
+ * @param {string} parentId
+ * @param {() => boolean} isCurrent
+ */
+async function showDraftParent(parentId, isCurrent) {
+  setParentRow(parentId);
+  try {
+    const parent = await entriesApi.get(parentId);
+    if (isCurrent() && typeof parent?.subject === 'string' && parent.subject) {
+      setParentRow(parent.subject);
+    }
+  } catch (error) {
+    console.error('Failed to load the parent entry:', error);
+  }
 }
 
 /**

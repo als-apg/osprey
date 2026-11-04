@@ -1559,8 +1559,11 @@ async def _publish_or_local(
 ) -> FacilityEntryCreateResult:
     """Publish an entry via the facility adapter, or save local-only if read-only.
 
-    Only ``NotImplementedError`` (the adapter genuinely cannot write) falls back
-    to a direct local DB insert — this is the legitimate use of the fallback.
+    Only an adapter that genuinely cannot write falls back to a direct local DB
+    insert — this is the legitimate use of the fallback: ``NotImplementedError``
+    (a read-only adapter) and ``AdapterNotFoundError`` (no adapter configured),
+    the two cases ``/publish-info`` reports as ``supports_write: False``, "saved
+    locally".
     ``AuthenticationRequiredError`` (credentials needed) and ``IngestionError``
     (the publish attempt failed) propagate to the caller so nothing is silently
     saved.
@@ -1578,6 +1581,8 @@ async def _publish_or_local(
             ``resolve_entry_write``. Copied, never mutated.
         attachments: The entry's validated files.
     """
+    from osprey.services.ariel_search.entry_url import LOGBOOK_WEB_SOURCE_SYSTEM
+    from osprey.services.ariel_search.exceptions import AdapterNotFoundError
     from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
 
     files = attachments or []
@@ -1585,8 +1590,11 @@ async def _publish_or_local(
         return await service.create_entry(
             facility_request, local_metadata=local_metadata, attachments=files
         )
-    except NotImplementedError:
-        logger.warning("Facility adapter does not support writes, falling back to direct DB insert")
+    except (NotImplementedError, AdapterNotFoundError) as exc:
+        logger.warning(
+            f"No facility logbook write path ({type(exc).__name__}), "
+            "falling back to direct DB insert"
+        )
 
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
@@ -1595,7 +1603,7 @@ async def _publish_or_local(
 
         entry: EnhancedLogbookEntry = {
             "entry_id": entry_id,
-            "source_system": "ARIEL Web",
+            "source_system": LOGBOOK_WEB_SOURCE_SYSTEM,
             "timestamp": now,
             "author": facility_request.author or "Anonymous",
             "raw_text": f"{facility_request.subject}\n\n{facility_request.details}",
@@ -1610,7 +1618,7 @@ async def _publish_or_local(
 
         return FacilityEntryCreateResult(
             entry_id=entry_id,
-            source_system="ARIEL Web",
+            source_system=LOGBOOK_WEB_SOURCE_SYSTEM,
             sync_status=SyncStatus.LOCAL_ONLY,
             message=f"Entry {entry_id} created (saved locally, not published to external logbook)",
             attachment_count=attachment_count,

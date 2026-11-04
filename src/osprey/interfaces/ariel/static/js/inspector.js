@@ -17,22 +17,13 @@
 
 import { showToast } from '/design-system/js/toast.js';
 import { entriesApi } from './api.js';
-import { escapeHtml, formatTimestamp } from './components.js';
+import { escapeHtml, formatTimestamp, stateLabel, stateToken } from './components.js';
 import { registerReaderTab } from './reader.js';
 
 /** @typedef {import('./api.js').ModuleCard} ModuleCard */
 /** @typedef {import('./api.js').EnhancementsResponse} EnhancementsResponse */
 
 const DASH = '—';
-
-/** States with a chip style (`n/a` maps to the `na` token, as in the badge strip). */
-const CHIP_TOKENS = /** @type {Record<string, string>} */ ({
-  complete: 'complete',
-  pending: 'pending',
-  stale: 'stale',
-  failed: 'failed',
-  'n/a': 'na',
-});
 
 /**
  * A value, escaped, or an em dash when there is none.
@@ -154,7 +145,7 @@ const DETAIL_RENDERERS =
  */
 export function renderModuleCard(card) {
   const state = String(card.state ?? 'n/a');
-  const token = CHIP_TOKENS[state] ?? 'na';
+  const token = stateToken(state);
   const feeds = Array.isArray(card.feeds) ? card.feeds.map(String).join(', ') : '';
   const fields = [
     field('Feeds', show(feeds)),
@@ -187,7 +178,7 @@ export function renderModuleCard(card) {
   return `<article class="inspector-card" data-inspector-card data-module="${escapeHtml(card.module)}" data-state="${escapeHtml(state)}">
       <header class="inspector-card-head">
         <h4 class="inspector-card-title">${escapeHtml(card.label || card.module)}</h4>
-        <span class="inspector-chip ariel-strip-cell-${token}" data-inspector-chip>${escapeHtml(state)}</span>
+        <span class="inspector-chip ariel-strip-cell-${token}" data-inspector-chip>${escapeHtml(stateLabel(state))}</span>
       </header>
       <dl class="inspector-fields">${fields}</dl>
       ${command}${detail}

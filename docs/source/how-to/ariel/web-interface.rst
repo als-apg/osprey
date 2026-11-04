@@ -55,7 +55,7 @@ reopens the same search, mailbox, filter, entry, attachment and open draft. Old 
 ``#browse`` are rewritten to that form.
 
 When the logbook adapter is read-only (the common case for the standalone
-interface), new entries are saved locally with ``source_system: "ARIEL Web"``
+interface), new entries are saved locally with ``source_system: "OSPREY Logbook Web"``
 and an ``entry_id`` of the form ``ariel-<12-hex>``; a write-capable facility
 adapter publishes them to that logbook. Created entries are searchable
 immediately.

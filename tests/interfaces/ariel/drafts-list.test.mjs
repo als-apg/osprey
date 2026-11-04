@@ -150,6 +150,13 @@ describe('rows', () => {
     expect(body().getAttribute('aria-busy')).toBe('false');
   });
 
+  test('a draft the agent staged says so, never the MCP server name', async () => {
+    await mount({ listed: { drafts: [draft('d1', 1, { staged_by: 'ariel-mcp' })] } });
+    const text = rows()[0].textContent ?? '';
+    expect(text).toContain('staged by the agent');
+    expect(text).not.toContain('ariel-mcp');
+  });
+
   test('rows never carry data-entry-id, so list selection and j/k skip them', async () => {
     await mount({ listed: { drafts: [draft('d1', 1)] } });
     expect(rows()).toHaveLength(1);

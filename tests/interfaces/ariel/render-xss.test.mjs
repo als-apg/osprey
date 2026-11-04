@@ -281,7 +281,9 @@ describe('list rows (list.js, via the empty-query listing)', () => {
             source_system: 's',
             subject: 'subject',
             snippet: 'body',
-            enhancements: { [PAYLOAD]: PAYLOAD, image_caption: 'stale' },
+            // A hostile state reads n/a and renders no cell, so the hostile module
+            // name rides on a real state to reach the markup.
+            enhancements: { [PAYLOAD]: 'pending', image_caption: 'stale' },
             keywords: [],
             highlights: [],
           },
@@ -300,7 +302,7 @@ describe('list rows (list.js, via the empty-query listing)', () => {
         PAYLOAD,
         'image_caption',
       ]);
-      expect(cells[0].getAttribute('aria-label')).toBe(`${PAYLOAD}: n/a`);
+      expect(cells[0].getAttribute('aria-label')).toBe(`${PAYLOAD}: pending`);
       expect(cells[1].getAttribute('title')).toBe(`${PAYLOAD}: stale`);
     } finally {
       setEnhancementModules([]);

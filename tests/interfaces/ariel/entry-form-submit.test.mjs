@@ -790,6 +790,23 @@ describe('the compose host', () => {
     expect(document.getElementById('session-info-panel')?.textContent).toContain('Ada');
   });
 
+  test("an agent draft's Session Context says Source: Agent, not ariel-mcp", async () => {
+    const { store } = await boot({
+      draft: {
+        subject: 'From the agent',
+        metadata: { session_metadata: { operator: 'Ada', created_via: 'ariel-mcp' } },
+      },
+    });
+
+    store.setState({ compose: { draft: 'd-8' } });
+    await flush();
+    await flush();
+
+    const panel = document.getElementById('session-info-panel')?.textContent ?? '';
+    expect(panel).toContain('Source:Agent');
+    expect(panel).not.toContain('ariel-mcp');
+  });
+
   test('a compose already set at init is applied', async () => {
     stubFetch({ draft: { subject: 'Early draft' } });
     const mods = await loadModules();
@@ -907,6 +924,41 @@ describe('the compose host', () => {
     expect(composeEl().hidden).toBe(true);
     expect(window.alert).not.toHaveBeenCalled();
     expect(field('subject').value).toBe(field('subject').defaultValue);
+  });
+
+  test('a successful create announces the new entry to the list', async () => {
+    const { store, form } = await boot({ create: { status: 200, body: { entry_id: 'e-42' } } });
+    store.setState({ compose: { draft: null } });
+    field('subject').value = 'Typed subject';
+    /** @type {string[]} */
+    const announced = [];
+    const listener = (/** @type {Event} */ e) =>
+      announced.push(/** @type {CustomEvent} */ (e).detail?.entryId);
+    window.addEventListener('ariel:entry-created', listener);
+    try {
+      await submit(form);
+    } finally {
+      window.removeEventListener('ariel:entry-created', listener);
+    }
+
+    expect(announced).toEqual(['e-42']);
+  });
+
+  test('a failed create announces nothing', async () => {
+    const { store, form } = await boot({
+      create: { status: 502, body: { detail: 'Publish failed' } },
+    });
+    store.setState({ compose: { draft: null } });
+    field('subject').value = 'Typed subject';
+    const listener = vi.fn();
+    window.addEventListener('ariel:entry-created', listener);
+    try {
+      await submit(form);
+    } finally {
+      window.removeEventListener('ariel:entry-created', listener);
+    }
+
+    expect(listener).not.toHaveBeenCalled();
   });
 
   test('a successful create from a draft forgets the draft attachments', async () => {
@@ -1403,6 +1455,25 @@ describe('the compose host', () => {
       ).map((t) => t.dataset.value);
     const isCreate = (/** @type {Call} */ c) =>
       c.url.endsWith('/api/entries') || c.url.endsWith('/api/entries/upload');
+
+    test("an agent's follow-up draft names its parent and submits follows_up", async () => {
+      const { store, form, calls } = await boot({
+        parent: PARENT,
+        draft: { subject: 'Cathode check', details: 'Stable', metadata: { follows_up: 'p-1' } },
+      });
+
+      store.setState({ compose: { draft: 'd-9' } });
+      await flush();
+      await flush();
+
+      expect(parentRow().hidden).toBe(false);
+      expect(parentRef()).toBe('RF trip');
+      expect(field('subject').value, 'the draft subject is kept').toBe('Cathode check');
+
+      await submit(form);
+      const create = calls.find(isCreate);
+      expect(JSON.parse(create?.init.body).metadata.follows_up).toBe('p-1');
+    });
 
     test('prefills subject, logbook, tags and the parent row, and nothing auto-submits', async () => {
       const { store, calls } = await boot({ parent: PARENT });

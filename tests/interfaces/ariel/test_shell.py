@@ -141,6 +141,7 @@ HEALTHY_STATUS: dict[str, Any] = {
         "text_embedding": {
             "label": "Text Embedding",
             "complete": 1200,
+            "not_run": 7,
             "pending": 30,
             "stale": 3,
             "failed": 1,
@@ -149,6 +150,7 @@ HEALTHY_STATUS: dict[str, Any] = {
         "figure_caption": {
             "label": "Figure Caption",
             "complete": 400,
+            "not_run": 0,
             "pending": 0,
             "stale": 0,
             "failed": 2,
@@ -849,7 +851,8 @@ def test_req3_unfetchable_draft_leaves_the_form_empty_with_an_error(
 def test_req4_search_shows_diagnostics_and_no_answer_box(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
-    """Diagnostics, counts and rows render; a response's ``answer`` is never shown."""
+    """Diagnostics ride on the mode chip, counts and rows render; a response's
+    ``answer`` is never shown."""
     backend = FakeBackend(
         search=search_response(
             [DEFAULT_ENTRIES[1]],
@@ -864,8 +867,16 @@ def test_req4_search_shows_diagnostics_and_no_answer_box(
 
     expect(page.locator("#ariel-list .ariel-row")).to_have_count(1)
     expect(row(page, "E2")).to_be_visible()
-    expect(page.locator("#ariel-list .diagnostics-bar")).to_contain_text("1 issue detected")
-    expect(page.locator("#ariel-list .diagnostics-messages")).to_contain_text("model offline")
+    expect(page.locator("#ariel-list .diagnostics-bar")).to_have_count(0)
+    chip = page.locator("#ariel-mode-chip")
+    expect(chip.locator(".ariel-mode-chip-dot")).to_have_attribute("data-level", "warning")
+    expect(chip).to_have_attribute("aria-description", re.compile("model offline"))
+    chip.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator("#ariel-filters-popover [data-search-issues]")).to_contain_text(
+        "model offline"
+    )
+    page.keyboard.press("Escape")
     expect(page.locator("#ariel-list .results-count")).to_contain_text("1")
     expect(page.locator("body")).not_to_contain_text("THE GENERATED ANSWER")
     wait_for_hash(page, canonical(q="vacuum"))
@@ -918,6 +929,12 @@ def test_req5_create_selects_the_new_entry_and_remembers_the_author(
     body = backend.calls("POST", "/api/entries")[-1].json()
     assert body["subject"] == "New entry subject"
     assert body["author"] == "bob"
+
+    # The list shows the new row, selected, with the new count, without a reload.
+    expect(row(page, "NEW-1")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#ariel-list [data-list-total]")).to_have_text(
+        str(len(DEFAULT_ENTRIES) + 1)
+    )
 
     # The name just used is Mine's: no prompt, the listing is scoped to it.
     page.click('#ariel-rail button[data-box="mine"]')
@@ -1815,7 +1832,7 @@ def test_badge_strip_is_on_by_default_and_its_switch_persists(
     expect(
         row(page, "E1").locator('.ariel-strip-cell[data-module="text_embedding"]')
     ).to_have_attribute("data-state", "failed")
-    expect(cells).to_have_count(6)  # two modules on each of three rows
+    expect(cells).to_have_count(1)  # only E1 has a state; n/a cells render nothing
     expect(toggle).to_have_attribute("aria-checked", "true")
 
     page.click("osprey-display-menu .display-menu-trigger")
@@ -2616,6 +2633,10 @@ def test_status_drawer_lists_every_enabled_module_with_its_coverage(
     expect(rows.nth(0).locator('td[data-state="complete"]')).to_have_text("1,200")
     expect(rows.nth(0).locator('td[data-state="failed"]')).to_have_text("1")
     expect(rows.nth(1).locator('td[data-state="n/a"]')).to_have_text("832")
+    # Never ran and ran-but-unfinished are two columns, never one "pending".
+    expect(rows.nth(0).locator('td[data-state="not_run"]')).to_have_text("7")
+    expect(rows.nth(0).locator('td[data-state="pending"]')).to_have_text("30")
+    expect(page.locator("#status-content table.coverage-table thead")).to_contain_text("Not run")
     page.close()
 
 

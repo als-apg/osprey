@@ -419,7 +419,7 @@ def _stored(repository: DictRepository, response) -> dict:
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["sync_status"] == "local_only"
-    assert body["source_system"] == "ARIEL Web"
+    assert body["source_system"] == "OSPREY Logbook Web"
     return repository.entries[body["entry_id"]]
 
 

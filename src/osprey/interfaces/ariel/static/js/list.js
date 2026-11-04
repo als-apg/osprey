@@ -29,6 +29,8 @@ import {
   renderDayGroupedRows,
   renderRerankStatus,
   renderDiagnosticsBar,
+  diagnosticsLevel,
+  diagnosticsText,
   renderExpansionBanner,
   renderConfigBanner,
   renderLoading,
@@ -158,10 +160,8 @@ function paintResults(results, status) {
   const modesUsed = results.search_modes_used?.join(', ') || 'none';
   const execTime = results.execution_time_ms || 0;
 
+  paintIssues(results.diagnostics ?? []);
   let html = '';
-  if ((results.diagnostics?.length ?? 0) > 0) {
-    html += renderDiagnosticsBar(results.diagnostics ?? []);
-  }
   html += renderRerankStatus(status);
   html += `
     <div class="results-header">
@@ -217,6 +217,7 @@ function repaintLoadMore() {
  */
 async function runListing(seq, state) {
   if (!view) return;
+  paintIssues([]);
   lastDay = null;
   view.body.innerHTML = renderLoading('Loading entries...');
   setBusy(true);
@@ -370,6 +371,44 @@ export function refresh() {
 
 // --- Pane head ---
 
+/** The mode chip's own tooltip, before any search issue is appended. */
+const CHIP_TITLE = 'Search mode, filters and options';
+
+/**
+ * A search's diagnostics, off the result list: a dot on the mode chip, the
+ * issue text as the chip's tooltip and accessible description, and the full
+ * list at the top of the chip's popover, which the keyboard reaches through
+ * the chip. An empty list clears all three.
+ * @param {import('./components.js').Diagnostic[]} diagnostics
+ */
+function paintIssues(diagnostics) {
+  if (!view) return;
+  const { chip, popover } = view;
+  const issues = /** @type {HTMLElement|null} */ (popover.querySelector('[data-search-issues]'));
+  chip.querySelector('.ariel-mode-chip-dot')?.remove();
+  if (diagnostics.length === 0) {
+    chip.title = CHIP_TITLE;
+    chip.removeAttribute('aria-description');
+    if (issues) {
+      issues.hidden = true;
+      issues.innerHTML = '';
+    }
+    return;
+  }
+  const text = diagnosticsText(diagnostics);
+  const dot = document.createElement('span');
+  dot.className = 'ariel-mode-chip-dot';
+  dot.dataset.level = diagnosticsLevel(diagnostics);
+  dot.setAttribute('aria-hidden', 'true');
+  chip.append(dot);
+  chip.title = `${CHIP_TITLE}\n${text}`;
+  chip.setAttribute('aria-description', text);
+  if (issues) {
+    issues.innerHTML = renderDiagnosticsBar(diagnostics, { open: true });
+    issues.hidden = false;
+  }
+}
+
 /**
  * The mode chip's text: the effective mode's label.
  */
@@ -458,7 +497,7 @@ function buildHead() {
   chip.type = 'button';
   chip.className = 'osprey-btn ariel-mode-chip';
   chip.id = 'ariel-mode-chip';
-  chip.title = 'Search mode, filters and options';
+  chip.title = CHIP_TITLE;
   chip.setAttribute('aria-haspopup', 'dialog');
   const chipLabel = document.createElement('span');
   chipLabel.className = 'osprey-btn-label ariel-mode-chip-label';
@@ -492,6 +531,7 @@ function buildFiltersPopover() {
   popover.setAttribute('aria-label', 'Search mode, filters and options');
   popover.hidden = true;
   popover.innerHTML = `
+    <div class="ariel-search-issues" data-search-issues hidden></div>
     <div class="ariel-mode-choices" data-mode-choices></div>
     <div class="advanced-sections ariel-filters" data-filters></div>
   `;

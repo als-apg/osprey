@@ -226,3 +226,45 @@ def test_atomic_write_json_replaces_whole(tmp_path):
 
     assert json.loads(target.read_text()) == {"b": [1, 2]}
     assert [p.name for p in tmp_path.iterdir()] == ["x.json"]
+
+
+async def test_an_agent_follow_up_draft_reaches_the_compose_sheet_with_its_parent(
+    tmp_path, monkeypatch
+):
+    """Through the API: GET /api/drafts/{id} serves the agent's ``metadata.follows_up``,
+    which the compose sheet forwards on submit, as its own Follow up does."""
+    from unittest.mock import AsyncMock, patch
+
+    import osprey.interfaces.ariel.api.drafts as drafts_mod
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+    from osprey.mcp_server.ariel.server_context import initialize_ariel_context
+    from osprey.mcp_server.ariel.tools.entry import entry_create
+    from tests.mcp_server.ariel.conftest import get_tool_fn
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(
+        json.dumps({"ariel": {"database": {"uri": "postgresql://localhost/test"}}})
+    )
+    initialize_ariel_context()
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
+    service = AsyncMock()
+    service.repository.get_entry.return_value = {"entry_id": "DEMO-025"}
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=service),
+    ):
+        result = await get_tool_fn(entry_create)(
+            subject="Cathode check", details="Stable", follows_up="DEMO-025"
+        )
+    draft_id = json.loads(result)["draft_id"]
+
+    app = FastAPI()
+    app.include_router(draft_router)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(f"/api/drafts/{draft_id}")
+
+    assert resp.status_code == 200
+    assert resp.json()["metadata"]["follows_up"] == "DEMO-025"

@@ -502,6 +502,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "FollowsUpIndexMigration",
         None,  # Always runs
     ),
+    (
+        "logbook_web_source_system",
+        "osprey.services.ariel_search.database.logbook_web_source_migration",
+        "LogbookWebSourceMigration",
+        None,  # Always runs
+    ),
 ]
 
 

@@ -370,6 +370,7 @@ def _report_coverage(coverage: dict | None) -> None:
     for name, counts in coverage.items():
         output.note(
             f"- {counts.get('label') or name}: {counts['complete']} complete, "
+            f"{counts.get('not_run', 0)} not run, "
             f"{counts['pending']} pending, {counts['stale']} stale, "
             f"{counts['failed']} failed, {counts['n/a']} n/a"
         )

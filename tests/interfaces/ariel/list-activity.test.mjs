@@ -24,6 +24,7 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
     searchApi: { ...actual.searchApi, search: vi.fn() },
     entriesApi: { ...actual.entriesApi, list: vi.fn(), get: vi.fn() },
     draftsApi: { ...actual.draftsApi, list: vi.fn() },
+    facetsApi: { ...actual.facetsApi, get: vi.fn() },
   };
 });
 
@@ -300,6 +301,103 @@ describe('entry_create', () => {
     expect(pillText()).toBe('');
     expect(listCalls()).toBe(2);
     expect(row('e3')).not.toBeNull();
+  });
+});
+
+describe('an entry submitted from this panel', () => {
+  /** @param {string} entryId */
+  function submitted(entryId) {
+    window.dispatchEvent(new CustomEvent('ariel:entry-created', { detail: { entryId } }));
+  }
+
+  test('at the top of page 1 it refreshes the list, updates the count and flashes the row', async () => {
+    await mount();
+    vi.mocked(api.entriesApi.list).mockResolvedValue(listPage(['e3', 'e2', 'e1']));
+    submitted('e3');
+    await flush();
+
+    expect(listCalls()).toBe(2); // side fetch, then refresh()
+    expect(row('e3')?.classList.contains('agent-flash')).toBe(true);
+    expect(body().querySelector('[data-list-total]')?.textContent).toBe('3');
+    expect(pillText()).toBe('');
+  });
+
+  test('while scrolled it counts on the n-new pill, like an agent create', async () => {
+    await mount();
+    scrollTo(300);
+    vi.mocked(api.entriesApi.list).mockResolvedValue(listPage(['e3', 'e2', 'e1']));
+    submitted('e3');
+    await flush();
+
+    expect(pillText()).toBe('1 new');
+  });
+});
+
+describe('rail facet counts', () => {
+  /** Mount the rail facets beside the list, as app.js does. */
+  async function mountFacets() {
+    const facets = await import(`${JS}/facets.js`);
+    vi.mocked(api.facetsApi.get).mockResolvedValue({
+      available: true,
+      dimensions: [],
+      histogram: [],
+      exact: true,
+    });
+    const mountPoint = document.createElement('div');
+    document.body.append(mountPoint);
+    facets.initFacets(mountPoint, { capabilities: CAPABILITIES });
+    await flush();
+    vi.mocked(api.facetsApi.get).mockClear();
+  }
+
+  /** @returns {number} */
+  function facetCalls() {
+    return vi.mocked(api.facetsApi.get).mock.calls.length;
+  }
+
+  test('a submitted entry refetches the facet counts once', async () => {
+    await mount();
+    await mountFacets();
+    vi.mocked(api.entriesApi.list).mockResolvedValue(listPage(['e3', 'e2', 'e1']));
+    window.dispatchEvent(new CustomEvent('ariel:entry-created', { detail: { entryId: 'e3' } }));
+    await flush();
+
+    expect(facetCalls()).toBe(1);
+  });
+
+  test('an agent create while scrolled refetches them too', async () => {
+    await mount();
+    await mountFacets();
+    scrollTo(300);
+    vi.mocked(api.entriesApi.list).mockResolvedValue(listPage(['e3', 'e2', 'e1']));
+    frame('entry_create', 'e3');
+    await flush();
+
+    expect(pillText()).toBe('1 new');
+    expect(facetCalls()).toBe(1);
+  });
+
+  test('a burst of creates is one refetch per page-1 check, not one per create', async () => {
+    await mount();
+    await mountFacets();
+    vi.mocked(api.entriesApi.list).mockResolvedValue(listPage(['e5', 'e4', 'e3', 'e2', 'e1']));
+    frame('entry_create', 'e3');
+    frame('entry_create', 'e4');
+    frame('entry_create', 'e5');
+    await flush();
+    await flush();
+
+    expect(facetCalls()).toBeLessThanOrEqual(2);
+    expect(facetCalls()).toBeGreaterThanOrEqual(1);
+  });
+
+  test('a create that is not in the view leaves the counts alone', async () => {
+    await mount();
+    await mountFacets();
+    frame('entry_create', 'elsewhere');
+    await flush();
+
+    expect(facetCalls()).toBe(0);
   });
 });
 

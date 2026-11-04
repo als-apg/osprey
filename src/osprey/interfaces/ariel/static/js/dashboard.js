@@ -210,6 +210,7 @@ function renderStatus(container, status) {
 /** Coverage columns, in display order: [state key, column heading]. */
 const COVERAGE_COLUMNS = /** @type {const} */ ([
   ['complete', 'Complete'],
+  ['not_run', 'Not run'],
   ['pending', 'Pending'],
   ['stale', 'Stale'],
   ['failed', 'Failed'],

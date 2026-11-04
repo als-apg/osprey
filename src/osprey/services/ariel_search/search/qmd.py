@@ -60,8 +60,9 @@ from __future__ import annotations
 
 import asyncio
 import math
+import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypeVar, cast
@@ -88,6 +89,7 @@ from osprey.services.ariel_search.search.base import (
     SearchToolDescriptor,
     module_result,
 )
+from osprey.services.ariel_search.subject import entry_subject
 from osprey.services.qmd import QMDClient, QMDUnavailableError
 from osprey_connectors.logger import get_logger
 
@@ -829,7 +831,7 @@ async def _ranked_search(
             continue
         if not filters.accepts(entry):
             continue
-        results.append((entry, hit.score, [hit.snippet] if hit.snippet else []))
+        results.append((entry, hit.score, _entry_highlights(hit.snippet, entry)))
         if paging is None and len(results) >= max_results:
             break
     if paging is not None:
@@ -896,7 +898,7 @@ async def _fused_results(
         if not filters.accepts(entry):
             continue
         text_hits.append((hit.entry_id, hit.score))
-        snippets[hit.entry_id] = [hit.snippet] if hit.snippet else []
+        snippets[hit.entry_id] = _entry_highlights(hit.snippet, entry)
 
     accepted_images = {
         entry_id: hit
@@ -1186,6 +1188,47 @@ def _fetch_limit(max_results: int, has_filters: bool) -> int:
     if not has_filters:
         return wanted
     return max(wanted, min(wanted * OVERFETCH_FACTOR, MAX_FETCH_LIMIT))
+
+
+#: qmd's per-line prefix in a snippet (``"12: "``), the line number in the
+#: excerpt it numbers itself.
+_SNIPPET_LINE_NUMBER = re.compile(r"^\d+: ?")
+
+
+def _entry_highlights(snippet: str, entry: Mapping[str, Any]) -> list[str]:
+    """Turn qmd's excerpt of an entry's mirror document into the entry's own words.
+
+    qmd quotes the markdown mirror, not the entry: a diff-style hunk header
+    (``@@ -4,4 @@ (3 before, 3 after)``), a line-number prefix on every line,
+    and the ``# Entry`` heading and provenance lines the mirror writer adds
+    around the text. A highlight is shown to the operator as entry text, so it
+    keeps only the excerpt's lines that the entry's ``raw_text`` itself
+    contains. The subject line is left out, since the row already shows it,
+    unless the subject is all the entry says.
+
+    Args:
+        snippet: qmd's line-numbered, match-centred excerpt.
+        entry: The hydrated row the hit decoded to.
+
+    Returns:
+        One highlight joining the kept lines, or ``[]`` when the excerpt held
+        none of the entry's text (the row then previews the text itself).
+    """
+    if not snippet:
+        return []
+    raw_text = entry.get("raw_text")
+    if not isinstance(raw_text, str):
+        return []
+    body = " ".join(raw_text.split())
+    subject = " ".join(entry_subject(entry).split())
+    kept: list[str] = []
+    for line in snippet.splitlines():
+        text = " ".join(_SNIPPET_LINE_NUMBER.sub("", line, count=1).split())
+        if text and text in body and text not in kept:
+            kept.append(text)
+    if body != subject:
+        kept = [text for text in kept if text != subject]
+    return [" ".join(kept)] if kept else []
 
 
 def _decode_hits(hits: list[QMDSearchResult]) -> list[_RankedTextHit]:

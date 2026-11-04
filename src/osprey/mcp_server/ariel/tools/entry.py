@@ -34,9 +34,11 @@ from osprey.services.ariel_search.attachments.summaries import (
     file_source_for,
 )
 from osprey.services.ariel_search.entry_fields import (
+    FOLLOWS_UP_KEY,
     MAX_LISTED_CHOICES,
     EntryFieldDeclarationError,
     EntryFieldError,
+    check_follows_up,
     entry_field_descriptors,
     resolve_entry_write,
     validate_entry_fields,
@@ -65,21 +67,38 @@ def ariel_panel_url(route: str) -> str:
     return f"{base_url}/#{route}"
 
 
-async def _focus_ariel_panel(url: str) -> None:
-    """Ask the web terminal to open the ARIEL panel at ``url``; non-fatal without one.
+async def _focus_ariel_panel(url: str) -> tuple[bool, str, str]:
+    """Ask the web terminal to open the Logbook (ARIEL) panel at ``url``.
 
     An ``open {member: "ariel", url}`` op through the op helper, run off the
-    event loop because it waits for the dock to apply it. A refusal or a missing
-    web terminal leaves the result's ``url`` as the operator's way in.
+    event loop because it waits for the dock to apply it. Only the dock
+    client's confirmation counts as shown: a refusal, a missing web terminal,
+    an error or an answer that is not a confirmation is logged and returned as
+    not shown, and the caller's ``url`` is then the operator's way in.
+
+    Returns:
+        ``(shown, reason, detail)``: ``(True, "", "")`` when the dock applied
+        the open, else ``False`` with the refusal's reason (``no_dock_client``,
+        ``no_web_terminal``, ...), ``"error"`` or ``"unconfirmed"``, and its text.
     """
     try:
         from osprey.mcp_server.http import panel_op
 
-        await anyio.to_thread.run_sync(panel_op, "open", {"member": "ariel", "url": url})
+        outcome = await anyio.to_thread.run_sync(panel_op, "open", {"member": "ariel", "url": url})
     except ToolError:
         raise
-    except Exception:
-        pass  # Non-fatal — web terminal may not be running
+    except Exception as exc:
+        logger.warning("Logbook panel open of %s failed: %s", url, exc, exc_info=True)
+        return False, "error", str(exc)
+    if isinstance(outcome, dict) and outcome.get("ok") is True:
+        return True, "", ""
+    if isinstance(outcome, dict):
+        reason = str(outcome.get("reason") or "unconfirmed")
+        detail = str(outcome.get("detail") or "")
+    else:
+        reason, detail = "unconfirmed", "the web terminal gave no answer"
+    logger.warning("Logbook panel open of %s was not confirmed: %s %s", url, reason, detail)
+    return False, reason, detail
 
 
 def _get_drafts_dir() -> Path:
@@ -279,9 +298,9 @@ async def entry_open(
     entry_id: str,
     attachment_id: str | None,
 ) -> str:
-    """Show a logbook entry to the operator in the ARIEL panel.
+    """Show a logbook entry to the operator in the Logbook panel.
 
-    Opens the entry's detail card in the ARIEL web panel and brings the panel
+    Opens the entry's detail card in the Logbook (ARIEL) web panel and brings the panel
     to the front. With `attachment_id` it also opens that picture enlarged,
     when the picture is one of this entry's and `viewable`. Use it whenever
     the operator asks to see an entry or one of its pictures; it reads no
@@ -298,7 +317,10 @@ async def entry_open(
 
     Returns:
         JSON with `entry_id`, `attachment_id`, `opened` ("entry" or
-        "entry_and_picture"), `pictures` (the `attachment_id` and `filename`
+        "entry_and_picture"), `shown` (true only when the web terminal
+        confirmed the panel shows it; false with `status: "not_shown"` and a
+        `reason` otherwise, and then the operator opens `url`), `pictures`
+        (the `attachment_id` and `filename`
         of each viewable picture of the entry; absent while the attachment
         view is off), the panel `url` (a link the
         operator can follow when no web terminal is running) and a `message`.
@@ -364,7 +386,7 @@ async def entry_open(
 
         route = f"sel={quote(entry['entry_id'], safe='')}"
         opened = "entry"
-        message = f"The ARIEL panel shows entry {entry['entry_id']}."
+        message = f"The Logbook panel shows entry {entry['entry_id']}."
         if attachment_id is None and pictures:
             listed = ", ".join(f"{p['filename']} ({p['attachment_id']})" for p in pictures)
             message += (
@@ -386,7 +408,7 @@ async def entry_open(
                 route += f"&att={attachment_id}"
                 opened = "entry_and_picture"
                 message = (
-                    f"The ARIEL panel shows entry {entry['entry_id']} with picture "
+                    f"The Logbook panel shows entry {entry['entry_id']} with picture "
                     f"{attachment_id} enlarged."
                 )
             else:
@@ -396,14 +418,23 @@ async def entry_open(
                 )
 
         url = ariel_panel_url(route)
-        await _focus_ariel_panel(url)
+        shown, reason, detail = await _focus_ariel_panel(url)
         result: dict = {
             "entry_id": entry["entry_id"],
             "attachment_id": attachment_id,
             "opened": opened,
+            "shown": shown,
             "url": url,
-            "message": f"{message} If no ARIEL panel is in view, open {url}",
+            "message": f"{message} If no Logbook panel is in view, open {url}",
         }
+        if not shown:
+            why = f" ({detail})" if detail else ""
+            result["status"] = "not_shown"
+            result["reason"] = reason
+            result["message"] = (
+                f"Entry {entry['entry_id']} is not on screen: the Logbook panel did not "
+                f"confirm opening it{why}. Tell the operator to open {url}"
+            )
         if view_enabled:
             result["pictures"] = pictures
         return json.dumps(result)
@@ -478,6 +509,27 @@ async def _check_entry_fields(
     return descriptors, declared
 
 
+async def _check_parent(follows_up: str | None) -> str | None:
+    """The checked parent id of a follow-up, or ``None`` for a standalone entry.
+
+    The same check every write path runs (:func:`check_follows_up`): the id
+    must name an entry ARIEL holds. A refusal is a validation error naming
+    ``follows_up``.
+    """
+    if follows_up is None or follows_up == "":
+        return None
+    service = await get_ariel_context().service()
+    try:
+        return await check_follows_up({FOLLOWS_UP_KEY: follows_up}, service.repository.get_entry)
+    except EntryFieldError as exc:
+        return make_error(
+            "validation_error",
+            exc.message,
+            ["Pass the entry_id of an existing entry, as listed by a search or entry_get."],
+            details={"field": exc.field},
+        )
+
+
 @mcp.tool()
 async def entry_create(
     subject: str,
@@ -490,12 +542,17 @@ async def entry_create(
     artifact_ids: list[str] | None = None,
     draft: bool = True,
     fields: dict[str, Any] | None = None,
+    follows_up: str | None = None,
 ) -> str:
     """Create a new logbook entry, optionally with file attachments.
 
     By default (draft=True), this creates a draft that pre-fills the ARIEL
     web form so a human can review, edit, and submit. Set draft=False to
     write directly to the database without human review.
+
+    When the new entry follows up an existing one (a reply, a later
+    observation, a fix for a reported fault), pass that entry's id as
+    `follows_up`: the Logbook threads it under its parent.
 
     Args:
         subject: Entry subject/title (required).
@@ -513,6 +570,12 @@ async def entry_create(
             ``capabilities`` lists under ``entry_fields``. An undeclared name or
             a wrong value is refused naming the field. A draft may leave a
             required field empty; a direct write may not.
+        follows_up: The entry_id of the entry this one follows up (a reply,
+            a later observation, a resolution). Set it whenever the new entry
+            continues an existing one: the Logbook threads it under that
+            parent ("Follows up" / "Follow-ups"), exactly as the operator's own
+            Follow up does. An id ARIEL does not hold is refused naming
+            follows_up. Omit it for a standalone entry.
 
     Returns:
         JSON with draft_id and URL (draft mode), or entry_id and confirmation (direct mode).
@@ -535,6 +598,9 @@ async def entry_create(
     declared: dict[str, Any] = {}
     if fields or not draft:
         descriptors, declared = await _check_entry_fields(fields, partial=draft)
+
+    # --- Check the parent before anything is written, in both modes ---
+    parent_id = await _check_parent(follows_up)
 
     # --- Resolve artifact_ids to file paths (both modes) ---
     artifact_paths: list[str] = []
@@ -603,6 +669,10 @@ async def entry_create(
                     "session_metadata": gather_session_metadata("ariel-mcp"),
                 },
             }
+            if parent_id:
+                # The compose sheet forwards the draft's metadata on submit, so
+                # the entry threads under its parent as a Follow up does.
+                draft_data["metadata"][FOLLOWS_UP_KEY] = parent_id
             if fields:
                 draft_data["fields"] = declared
             if all_file_paths:
@@ -651,6 +721,7 @@ async def entry_create(
             tags=tags or [],
             created_via="ariel-mcp",
             session_metadata=gather_session_metadata("ariel-mcp"),
+            follows_up=parent_id,
         )
 
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"

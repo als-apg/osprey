@@ -212,6 +212,14 @@ describe('cards', () => {
     expect(completed?.nextElementSibling?.textContent).toBe('—');
   });
 
+  test('a module that never ran shows a "not run" chip', () => {
+    const el = document.createElement('div');
+    el.innerHTML = renderModuleCard(card({ module: 'text_embedding', state: 'not_run' }));
+    const chip = /** @type {HTMLElement} */ (el.querySelector('[data-inspector-chip]'));
+    expect(chip.textContent).toBe('not run');
+    expect(chip.className).toContain('ariel-strip-cell-not-run');
+  });
+
   test('escape server text', () => {
     const html = renderModuleCard(
       card({ label: '<img src=x onerror=alert(1)>', error: '<script>x</script>', state: 'failed' })

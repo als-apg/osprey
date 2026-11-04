@@ -736,7 +736,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
 
         ``coverage`` is the count :class:`ARIELSearchService.get_status` puts
         in ``enhancement_coverage``: per enabled module, its ``label`` and the
-        entries in each badge-strip state (``n/a``, ``pending``, ``stale``,
+        entries in each badge-strip state (``n/a``, ``not_run``, ``pending``, ``stale``,
         ``failed``, ``complete``), or None when no registry can answer
         (:func:`_coverage`). It sits beside, never inside, the legacy
         ``enhancement_modules`` counts, which keep their pre-coverage values.
@@ -1897,10 +1897,15 @@ def entry_rerun_refusal(module: str, entry_id: str, state: str | None, context: 
             f"{module} on entry {entry_id} is complete; nothing to re-run "
             f"(osprey ariel enhance --module {module} --force re-runs the newest entries)"
         )
-    if state == "pending":
+    if state == "not_run":
         return (
             f"{module} on entry {entry_id} has not run yet; osprey ariel enhance --module "
             f"{module} (or osprey ariel watch) runs it"
+        )
+    if state == "pending":
+        return (
+            f"{module} on entry {entry_id} has a run that has not completed; osprey ariel "
+            f"enhance --module {module} (or osprey ariel watch) runs it again"
         )
     if state == "n/a":
         return f"{module} does not apply to entry {entry_id}: it has no viewable picture"
