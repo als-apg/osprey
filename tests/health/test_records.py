@@ -65,6 +65,7 @@ class TestPolicySets:
                 "web_terminals",
                 "reach",
                 "archive",
+                "simulator",
             }
         )
 

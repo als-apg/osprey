@@ -234,7 +234,15 @@ view. A model whose engine raises while building or reading it (over a deck
 that does not load, say) is left failed: its status channel carries the
 engine's error text, and every other model and every texture channel is still
 served. ``osprey sim status`` prints one ``<model>: <status>`` line per served
-model, ``ok`` or that text, and names each model's log.
+model, ``ok`` or ``FAILED:`` and that text, exits 1 when a model failed, and
+names each model's log. ``osprey health`` reads the same channels on every
+simulator the deployment serves from a container (the ``va`` and ``standin``
+targets) and reports a failed model as an ``error`` row of its ``simulator``
+category, since the container itself keeps serving and stays healthy.
+
+A model that names no deck and wires no channel is not a failure: nothing is
+built for it, its status is ``no deck``, and every channel of that machine is
+the texture's.
 
 How the composite serves the models over Channel Access and PVAccess is in
 :doc:`virtual-accelerator`.
