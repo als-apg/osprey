@@ -102,6 +102,8 @@ from tests.e2e._deploy_support import (
 )
 from tests.integration._qmd_ariel_support import (
     SIDECAR_HEALTH_CEILING,
+    SIDECAR_REINDEX_CEILING,
+    SIDECAR_ROUND_S,
     sidecar_log_mark,
     wait_for_reindex_settled,
 )
@@ -138,6 +140,15 @@ _BASE_MD_MARKER = "osprey-e2e-mus-p3 fixture CLAUDE.md base"
 _BASE_MD_CONTENT = f"# {_BASE_MD_MARKER}\n\nSeeded by tests/e2e/test_deploy_lifecycle.py.\n"
 
 DEPLOY_UP_TIMEOUT_SEC = 180
+#: Seconds the shared-bundle qmd test may take, setup included. Its longest
+#: chain of waits is the ``osprey up`` (:data:`DEPLOY_UP_TIMEOUT_SEC`), the
+#: sidecar's ``/health`` wait (:data:`SIDECAR_HEALTH_CEILING`) and the re-index
+#: wait after the corpus marker (:data:`SIDECAR_REINDEX_CEILING`); each of the
+#: two ``wait_until_ready`` waits may run one :data:`SIDECAR_ROUND_S` past its
+#: ceiling, so the wait's own failure lands before this mark kills the test.
+DEPLOY_LIFECYCLE_QMD_TIMEOUT = (
+    DEPLOY_UP_TIMEOUT_SEC + SIDECAR_HEALTH_CEILING + SIDECAR_REINDEX_CEILING + 2 * SIDECAR_ROUND_S
+)
 DEPLOY_VERB_TIMEOUT_SEC = 60
 REGISTRY_READY_TIMEOUT_SEC = 30.0
 
@@ -1723,6 +1734,7 @@ def _wait_for_qmd_health(timeout: float) -> None:
 
 
 @pytest.mark.qmd
+@pytest.mark.timeout(DEPLOY_LIFECYCLE_QMD_TIMEOUT)
 @pytest.mark.usefixtures("stub_image")
 def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     """One shared knowledge bundle across two web terminals and the sidecar.
