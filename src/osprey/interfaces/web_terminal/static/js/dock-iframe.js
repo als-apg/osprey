@@ -268,10 +268,9 @@ function concealEntry(entry) {
 /**
  * Settle the managed set after a whole-layout apply (a default rebuild, a
  * stored-layout restore): orphaned placeholders leave the layout, geometry is
- * re-synced — which conceals every managed panel the applied layout lacks,
- * since a tile holds one panel and putting them all back would evict one
- * another — and panel-manager's placeholders-applied handler runs. Registered
- * with dock-workspace's setServiceRedock.
+ * re-synced — which shows every managed panel the applied layout docks and
+ * conceals every one it lacks — and panel-manager's placeholders-applied
+ * handler runs. Registered with dock-workspace's setServiceRedock.
  */
 function reconcilePlaceholders() {
   const api = getDockApi();
@@ -414,13 +413,14 @@ function syncGeometry() {
 
 /**
  * Copy each managed placeholder's group content rectangle onto its overlay
- * iframe (inline geometry, relative to the overlay's own origin). An iframe is
- * shown only when its panel is visible AND its placeholder is live in its
- * group; anything closed or lacking a live placeholder is display:none. A
- * visible panel the held layout no longer holds was replaced in its tile
- * (the open rule) or left with a layout the holder applied whole: it is
- * concealed here — its iframe stays cached for its sidebar row, and nothing
- * puts it back on its own.
+ * iframe (inline geometry, relative to the overlay's own origin). The held
+ * layout decides what shows: a managed panel it docks is visible — even one
+ * concealed earlier, when a later layout (a restore, a reset, a preset, an
+ * agent arrangement) gives it a tile again — and a panel it no longer holds
+ * was replaced in its tile (the open rule) or left out by a layout applied
+ * whole, so it is concealed, its iframe cached for its sidebar row. An
+ * iframe is shown only when its panel is visible AND its placeholder is live
+ * in its group; anything else is display:none.
  */
 function applyGeometry() {
   const api = getDockApi();
@@ -435,7 +435,8 @@ function applyGeometry() {
     el.style.height = Math.round(r.height) + 'px';
   };
   for (const [panelId, entry] of managed) {
-    if (entry.visible && !docked.has(panelId)) concealEntry(entry);
+    if (docked.has(panelId)) entry.visible = true;
+    else if (entry.visible) concealEntry(entry);
     const { iframe } = entry;
     const panel = entry.visible ? api.getPanel(entry.placeholderId) : null;
     const group = panel?.group;

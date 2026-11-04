@@ -319,7 +319,7 @@ describe('one panel per tile — the regressions Kirk saw', () => {
     expect(groups(api)).toEqual({ t1: ['iframe:artifacts'], t2: ['iframe:okf'], tt: ['terminal'] });
   });
 
-  test('a whole-layout apply that lacks a visible panel conceals it and never re-docks it', async () => {
+  test('a whole-layout apply conceals a panel it lacks, and a later layout that docks it shows it', async () => {
     const { mod, api, holder } = await freshAdapter(
       row(tile('t1', ['artifacts']), tile('t2', ['ariel']), TERMINAL)
     );
@@ -342,16 +342,16 @@ describe('one panel per tile — the regressions Kirk saw', () => {
     expect(ariel.style.display).toBe('none');
     expect(inOverlay(ariel)).toBe(true);
 
-    // Concealed, not merely without a tile: a layout that gives ariel a tile
-    // again does not show its iframe on its own; its next open does.
+    // Concealed while it has no tile, and shown as soon as a layout gives it
+    // one again: here a layout the holder takes directly, as an agent
+    // arrangement or a preset does, with no whole-layout hook after it. A tile
+    // the layout holds never stays a blank card.
     expect(holder.restore(row(tile('t1', ['artifacts']), tile('t2', ['ariel']), TERMINAL))).toBe(
       true
     );
-    redock.fn();
     await settle();
-    expect(ariel.style.display).toBe('none');
-    mod.focusPanel('ariel');
     expect(drawn(ariel)).toEqual(over(holder, 't2'));
+    expect(drawn(artifacts)).toEqual(over(holder, 't1'));
   });
 });
 
