@@ -842,7 +842,7 @@ body.embedded .header {
   padding: 0 var(--space-2);
   border-radius: var(--radius-full);
   font-size: var(--text-xs, var(--text-sm));
-  line-height: 1.6;
+  line-height: var(--leading-relaxed);
 }
 
 /* The strip's filled "complete" cell would hide the chip's text. */
