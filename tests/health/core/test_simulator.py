@@ -214,3 +214,10 @@ def test_the_child_does_not_import_from_the_working_directory(
 
     assert not marker.exists()
     assert "No module named" not in str(failure.value)
+
+
+def test_the_no_deck_text_is_the_one_the_composite_sends() -> None:
+    from osprey.simulation.status import STATUS_NO_DECK
+    from osprey_connectors.simulation import composite
+
+    assert composite.STATUS_NO_DECK == STATUS_NO_DECK

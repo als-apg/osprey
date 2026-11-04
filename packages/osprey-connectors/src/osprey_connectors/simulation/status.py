@@ -3,10 +3,8 @@
 :func:`model_status` answers from the composite a connector serves in process.
 :func:`read_model_status` reads a model's status channel through any
 connector, the way a target served by a separate process reports it.
-:func:`model_state` sorts a status text into one of three states: the model
-serves (:data:`MODEL_OK`), the model names no deck and wires nothing, so it is
-not built on purpose (:data:`MODEL_NO_DECK`), or the model failed
-(:data:`MODEL_FAILED`, its text the error). The module imports nothing beyond
+:data:`STATUS_OK` and :data:`STATUS_NO_DECK` are the two texts that are not
+an error. The module imports nothing beyond
 the standard library, so a status lookup loads no model: the composite is
 reached through the connector when asked.
 """
@@ -16,12 +14,8 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
-    "MODEL_FAILED",
-    "MODEL_NO_DECK",
-    "MODEL_OK",
     "STATUS_NO_DECK",
     "STATUS_OK",
-    "model_state",
     "model_status",
     "read_model_status",
 ]
@@ -33,11 +27,6 @@ STATUS_OK = "ok"
 #: built for it, by design: the facility describes the machine, and every
 #: channel of it is the texture's.
 STATUS_NO_DECK = "no deck"
-
-#: The states :func:`model_state` sorts a status text into.
-MODEL_OK = "ok"
-MODEL_NO_DECK = "no_deck"
-MODEL_FAILED = "failed"
 
 _COMPOSITE_ATTRIBUTE = "_composite"
 
@@ -64,25 +53,6 @@ def model_status(connector: Any, model: str) -> str:
         raise ValueError(f"{type(connector).__name__} serves no simulator in process")
     status: str = composite.status(model)
     return status
-
-
-def model_state(status: str) -> str:
-    """The state a model's status text reports.
-
-    Args:
-        status: A model's status, as :func:`model_status` or
-            :func:`read_model_status` returns it.
-
-    Returns:
-        :data:`MODEL_OK` for :data:`STATUS_OK`, :data:`MODEL_NO_DECK` for
-        :data:`STATUS_NO_DECK`, and :data:`MODEL_FAILED` for any other text,
-        which is the error the model failed with.
-    """
-    if status == STATUS_OK:
-        return MODEL_OK
-    if status == STATUS_NO_DECK:
-        return MODEL_NO_DECK
-    return MODEL_FAILED
 
 
 async def read_model_status(connector: Any, address: str) -> str:

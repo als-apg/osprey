@@ -140,7 +140,7 @@ def _require_simulator_view(repo_root: Path) -> SimulatorView:
 
 def format_model_status(status: str) -> str:
     """A model's status as one line reads it: ``ok``, ``no deck …`` or ``FAILED: <error>``."""
-    from osprey_connectors.simulation import MODEL_NO_DECK, MODEL_OK, model_state
+    from osprey.simulation.status import MODEL_NO_DECK, MODEL_OK, model_state
 
     state = model_state(status)
     if state == MODEL_OK:
@@ -250,8 +250,7 @@ def status_command(repo: Path | None, target: str | None) -> None:
     and wires nothing (it is not built, by design), and ``FAILED`` with its
     error otherwise. The command exits 1 when any model failed.
     """
-    from osprey.simulation.status import target_model_statuses
-    from osprey_connectors.simulation import MODEL_FAILED, model_state
+    from osprey.simulation.status import MODEL_FAILED, model_state, target_model_statuses
     from osprey_connectors.types import (
         STANDIN_TYPES,
         TRANSPORT_IN_PROCESS,

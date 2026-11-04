@@ -5,6 +5,10 @@ reads each model's status through it: from the composite a simulator served in
 process holds, or from each model's status channel on a simulator served by a
 process of its own. ``osprey sim status`` and the ``simulator`` health category
 read it the same way, so the two can never disagree about a model.
+:func:`model_state` sorts a status text into one of three states: the model
+serves (:data:`MODEL_OK`), names no deck and wires nothing, so it is not built
+on purpose (:data:`MODEL_NO_DECK`), or failed (:data:`MODEL_FAILED`, its text
+the error).
 
 :func:`read_in_child` makes that read in a process of its own. A process has one
 Channel Access context, and connecting to a target repoints it, closing every
@@ -24,7 +28,45 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-__all__ = ["read_in_child", "target_model_statuses"]
+__all__ = [
+    "MODEL_FAILED",
+    "MODEL_NO_DECK",
+    "MODEL_OK",
+    "STATUS_NO_DECK",
+    "model_state",
+    "read_in_child",
+    "target_model_statuses",
+]
+
+#: The status the composite gives a model that names no deck and wires no
+#: channel. Spelled here rather than imported: the framework runs against
+#: every connectors release down to its floor, and one older than the text
+#: never sends it, so a match is never missed, only never made.
+STATUS_NO_DECK = "no deck"
+
+#: The states :func:`model_state` sorts a status text into.
+MODEL_OK = "ok"
+MODEL_NO_DECK = "no_deck"
+MODEL_FAILED = "failed"
+
+
+def model_state(status: str) -> str:
+    """The state a model's status text reports.
+
+    Args:
+        status: A model's status, as :func:`target_model_statuses` returns it.
+
+    Returns:
+        :data:`MODEL_OK` for ``ok``, :data:`MODEL_NO_DECK` for
+        :data:`STATUS_NO_DECK`, and :data:`MODEL_FAILED` for any other text,
+        which is the error the model failed with.
+    """
+    if status == "ok":
+        return MODEL_OK
+    if status == STATUS_NO_DECK:
+        return MODEL_NO_DECK
+    return MODEL_FAILED
+
 
 #: Prefixes the child's answer: a loaded logger may also write to its stdout.
 _ANSWER_MARK = "OSPREY_MODEL_STATUSES "

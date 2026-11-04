@@ -28,11 +28,7 @@ from osprey_connectors.simulation.state import (
     write_active_state,
 )
 from osprey_connectors.simulation.status import (
-    MODEL_FAILED,
-    MODEL_NO_DECK,
-    MODEL_OK,
     STATUS_NO_DECK,
-    model_state,
     model_status,
     read_model_status,
 )
@@ -44,9 +40,6 @@ __all__ = [
     "DEFAULT_TICK_S",
     "GATED_TYPES",
     "LABELLED_TYPES",
-    "MODEL_FAILED",
-    "MODEL_NO_DECK",
-    "MODEL_OK",
     "OVERLAP_EVENT",
     "STILL_ALL",
     "STATUS_NO_DECK",
@@ -57,7 +50,6 @@ __all__ = [
     "composed_set",
     "decode_char_waveform",
     "format_overlap_record",
-    "model_state",
     "model_status",
     "overlap_record",
     "parse_active_state",

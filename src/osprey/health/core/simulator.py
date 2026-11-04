@@ -125,8 +125,7 @@ async def _probe(
     section: Any, target: str, models: list[str], addresses: Mapping[str, str], config_path: Path
 ) -> list[CheckResult]:
     """Read every model's status on one target and turn each into a row."""
-    from osprey.simulation.status import read_in_child
-    from osprey_connectors.simulation import MODEL_NO_DECK, MODEL_OK, model_state
+    from osprey.simulation.status import MODEL_NO_DECK, MODEL_OK, model_state, read_in_child
 
     start = perf_counter()
     try:
