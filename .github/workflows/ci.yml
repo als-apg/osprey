@@ -852,10 +852,11 @@ jobs:
     # pairs it with the workspace's own connectors, so nothing else ever ran the
     # floor. This installs the framework with the connectors as published
     # metadata states them (`--no-sources`: the floor release from PyPI, not the
-    # workspace member; pyaml-cs-osprey stays the workspace's, named by its path
-    # because `--no-sources-package osprey-connectors` alone leaves the root's
-    # `pyaml-cs-osprey = { workspace = true }` source, which a `uv pip install`
-    # of the root refuses as not a workspace member) and runs the framework
+    # workspace member; pyaml-cs-osprey and osprey-optimizer stay the
+    # workspace's, named by their paths because `--no-sources-package
+    # osprey-connectors` alone leaves the root's `{ workspace = true }` sources,
+    # which a `uv pip install` of the root refuses as not workspace members, and
+    # the dev extra's osprey-optimizer is not on PyPI) and runs the framework
     # suites that drive the connectors against it. Stands down until the floor is an independent release (see
     # the plan job).
     env:
@@ -887,7 +888,7 @@ jobs:
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
       run: |
         uv venv --python 3.11
-        uv pip install --no-sources -e ".[dev]" -e ./packages/pyaml-cs-osprey "osprey-connectors==$FLOOR"
+        uv pip install --no-sources -e ".[dev]" -e ./packages/pyaml-cs-osprey -e ./packages/osprey-optimizer "osprey-connectors==$FLOOR"
 
     - name: Hold the lane to the floor connectors from site-packages
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'

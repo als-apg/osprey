@@ -12402,12 +12402,14 @@ def test_lane_b_installs_the_published_metadata_at_the_floor(workflow: dict[str,
     """Only the connectors leave the workspace. ``--no-sources`` drops every
     workspace source (``--no-sources-package osprey-connectors`` alone leaves the
     root's pyaml-cs-osprey one, which ``uv pip install`` of the root refuses), so
-    the workspace pyaml-cs-osprey is named by its path or it would come from PyPI."""
+    the workspace pyaml-cs-osprey and osprey-optimizer are named by their paths or
+    they would come from PyPI."""
     install = _find_named_step(
         workflow, FLOOR_COMPAT_JOB, "Install the framework with the floor connectors"
     )["run"]
     assert "--no-sources " in install
     assert "-e ./packages/pyaml-cs-osprey " in install
+    assert "-e ./packages/osprey-optimizer " in install
     assert '"osprey-connectors==$FLOOR"' in install
 
 
