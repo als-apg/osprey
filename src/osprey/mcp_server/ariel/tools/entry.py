@@ -34,9 +34,11 @@ from osprey.services.ariel_search.attachments.summaries import (
     file_source_for,
 )
 from osprey.services.ariel_search.entry_fields import (
+    FOLLOWS_UP_KEY,
     MAX_LISTED_CHOICES,
     EntryFieldDeclarationError,
     EntryFieldError,
+    check_follows_up,
     entry_field_descriptors,
     resolve_entry_write,
     validate_entry_fields,
@@ -507,6 +509,27 @@ async def _check_entry_fields(
     return descriptors, declared
 
 
+async def _check_parent(follows_up: str | None) -> str | None:
+    """The checked parent id of a follow-up, or ``None`` for a standalone entry.
+
+    The same check every write path runs (:func:`check_follows_up`): the id
+    must name an entry ARIEL holds. A refusal is a validation error naming
+    ``follows_up``.
+    """
+    if follows_up is None or follows_up == "":
+        return None
+    service = await get_ariel_context().service()
+    try:
+        return await check_follows_up({FOLLOWS_UP_KEY: follows_up}, service.repository.get_entry)
+    except EntryFieldError as exc:
+        return make_error(
+            "validation_error",
+            exc.message,
+            ["Pass the entry_id of an existing entry, as listed by a search or entry_get."],
+            details={"field": exc.field},
+        )
+
+
 @mcp.tool()
 async def entry_create(
     subject: str,
@@ -519,12 +542,17 @@ async def entry_create(
     artifact_ids: list[str] | None = None,
     draft: bool = True,
     fields: dict[str, Any] | None = None,
+    follows_up: str | None = None,
 ) -> str:
     """Create a new logbook entry, optionally with file attachments.
 
     By default (draft=True), this creates a draft that pre-fills the ARIEL
     web form so a human can review, edit, and submit. Set draft=False to
     write directly to the database without human review.
+
+    When the new entry follows up an existing one (a reply, a later
+    observation, a fix for a reported fault), pass that entry's id as
+    `follows_up`: the Logbook threads it under its parent.
 
     Args:
         subject: Entry subject/title (required).
@@ -542,6 +570,12 @@ async def entry_create(
             ``capabilities`` lists under ``entry_fields``. An undeclared name or
             a wrong value is refused naming the field. A draft may leave a
             required field empty; a direct write may not.
+        follows_up: The entry_id of the entry this one follows up (a reply,
+            a later observation, a resolution). Set it whenever the new entry
+            continues an existing one: the Logbook threads it under that
+            parent ("Follows up" / "Follow-ups"), exactly as the operator's own
+            Follow up does. An id ARIEL does not hold is refused naming
+            follows_up. Omit it for a standalone entry.
 
     Returns:
         JSON with draft_id and URL (draft mode), or entry_id and confirmation (direct mode).
@@ -564,6 +598,9 @@ async def entry_create(
     declared: dict[str, Any] = {}
     if fields or not draft:
         descriptors, declared = await _check_entry_fields(fields, partial=draft)
+
+    # --- Check the parent before anything is written, in both modes ---
+    parent_id = await _check_parent(follows_up)
 
     # --- Resolve artifact_ids to file paths (both modes) ---
     artifact_paths: list[str] = []
@@ -632,6 +669,10 @@ async def entry_create(
                     "session_metadata": gather_session_metadata("ariel-mcp"),
                 },
             }
+            if parent_id:
+                # The compose sheet forwards the draft's metadata on submit, so
+                # the entry threads under its parent as a Follow up does.
+                draft_data["metadata"][FOLLOWS_UP_KEY] = parent_id
             if fields:
                 draft_data["fields"] = declared
             if all_file_paths:
@@ -680,6 +721,7 @@ async def entry_create(
             tags=tags or [],
             created_via="ariel-mcp",
             session_metadata=gather_session_metadata("ariel-mcp"),
+            follows_up=parent_id,
         )
 
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"

@@ -1456,6 +1456,25 @@ describe('the compose host', () => {
     const isCreate = (/** @type {Call} */ c) =>
       c.url.endsWith('/api/entries') || c.url.endsWith('/api/entries/upload');
 
+    test("an agent's follow-up draft names its parent and submits follows_up", async () => {
+      const { store, form, calls } = await boot({
+        parent: PARENT,
+        draft: { subject: 'Cathode check', details: 'Stable', metadata: { follows_up: 'p-1' } },
+      });
+
+      store.setState({ compose: { draft: 'd-9' } });
+      await flush();
+      await flush();
+
+      expect(parentRow().hidden).toBe(false);
+      expect(parentRef()).toBe('RF trip');
+      expect(field('subject').value, 'the draft subject is kept').toBe('Cathode check');
+
+      await submit(form);
+      const create = calls.find(isCreate);
+      expect(JSON.parse(create?.init.body).metadata.follows_up).toBe('p-1');
+    });
+
     test('prefills subject, logbook, tags and the parent row, and nothing auto-submits', async () => {
       const { store, calls } = await boot({ parent: PARENT });
 
