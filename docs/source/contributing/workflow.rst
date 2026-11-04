@@ -145,9 +145,9 @@ escape hatch.
 Model-Spending Lanes: ``full-ci`` on a PR, On Demand on ``main``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The CI lanes named in ``SPENDING_LANES`` (``tests/deployment/test_ci_workflow_wiring.py``,
-which holds the set against the workflow) drive real agent sessions against a
-live model endpoint. Together they cost about $15 per run (measured on the
+The CI lanes the LANES table in ``scripts/repo_checks.py`` marks ``why="models"``
+(the workflow wiring test holds the set against the workflow) drive real agent
+sessions against a live model endpoint. Together they cost about $15 per run (measured on the
 gateway ledger, week of 2026-09-01: ~150 runs a week, ~$2,300, on pace for $10k
 a month, 95% of the group's model spend) — and they used to run on every push of
 every pull request, which at this repository's pace was the group's whole model
