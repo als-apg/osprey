@@ -134,22 +134,19 @@ class TestMarkdownPageIsOpaque:
         assert page.headers["x-content-type-options"] == "nosniff"
 
     def test_the_sanitizer_loads_before_the_renderer(self, page):
+        # The page is self-contained (the content sandbox's origin carries no
+        # cookie), so the renderer is an inline module: DOMPurify's tag comes
+        # before the call that renders. The offline inline copy is pinned in
+        # test_content_sandbox.py.
         body = page.text
         assert "purify.min.js" in body
-        assert body.index("purify.min.js") < body.index("/static/js/md-render.js")
-
-    def test_the_sanitizer_is_the_local_copy_offline(self, monkeypatch):
-        from osprey.interfaces.artifacts.app import _build_markdown_page
-
-        monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        assert '<script src="/static/js/vendor/purify.min.js"></script>' in (
-            _build_markdown_page("x", "t")
-        )
+        assert body.index("purify.min.js") < body.index("renderMarkdownInto(")
 
     def test_the_page_carries_the_listener_and_the_theme_follower(self, page):
         body = page.text
         assert "osprey-artifact-ready" in body
         assert "osprey-artifact-print" in body
         assert "window.opener || window.parent" in body
-        assert "from '/design-system/js/theme-manager.js'" in body
+        # The theme follower is the design system's, inlined as a data: module.
+        assert "data:text/javascript" in body
         assert "initTheme({ role: 'follower' })" in body

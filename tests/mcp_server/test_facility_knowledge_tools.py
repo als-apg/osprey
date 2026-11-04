@@ -238,22 +238,20 @@ class TestSearch:
     """search matches across frontmatter values and body text."""
 
     @pytest.mark.asyncio
-    async def test_matches_body_text(self):
+    @pytest.mark.parametrize(
+        ("query", "concept_id"),
+        [
+            pytest.param("synchrotron", "accelerator_overview", id="body-text"),
+            pytest.param("epics", "tables/beam_params", id="frontmatter-value"),
+        ],
+    )
+    async def test_matches_body_text_and_frontmatter_values(self, query, concept_id):
         from osprey.mcp_server.facility_knowledge.server import search
 
-        result = json.loads(await get_tool_fn(search)(query="synchrotron"))
+        result = json.loads(await get_tool_fn(search)(query=query))
 
         ids = {r["concept_id"] for r in result["results"]}
-        assert "accelerator_overview" in ids
-
-    @pytest.mark.asyncio
-    async def test_matches_frontmatter_value(self):
-        from osprey.mcp_server.facility_knowledge.server import search
-
-        result = json.loads(await get_tool_fn(search)(query="epics"))
-
-        ids = {r["concept_id"] for r in result["results"]}
-        assert "tables/beam_params" in ids
+        assert concept_id in ids
 
     @pytest.mark.asyncio
     async def test_case_insensitive(self):

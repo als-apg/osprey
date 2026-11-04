@@ -4,12 +4,12 @@
  *   npx vitest run tests/interfaces/web_terminal/panel-presets.test.mjs
  *
  * applyPreset orchestrates nothing locally: it sends the preset NAME to the
- * arrange endpoint, the server resolves and filters the members (pinned by
- * test_panel_arrange_route.py), and the panel_arrange SSE echo applies the
- * result on every client (panel-placement.js). That is what makes a human
- * "Layouts" click and an agent arrange_workspace(preset=...) call one
- * operation. What is pinned here is that request; the applied DOM behavior is
- * covered by panel-manager.test.mjs and the Playwright suite.
+ * open-arrangement op route — the route an agent's arrange_workspace uses — the
+ * server resolves the members and layout, relays one panel_op frame to the
+ * current dock client, and that client's op runner (panel-placement.js)
+ * applies it. That is what makes a human "Layouts" click and an agent
+ * arrange_workspace(preset=...) call one operation. What is pinned here is that
+ * request; the applied layout is covered by panel-placement.test.mjs.
  *
  * Imported by RELATIVE path — this module lives under web_terminal, so the
  * /design-system/js/* alias does not apply.
@@ -19,7 +19,7 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { applyPreset } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-presets.js';
 
-describe('applyPreset — one arrange request, no local orchestration', () => {
+describe('applyPreset — one open-arrangement op, no local orchestration', () => {
   /** @type {{url: string, opts: any}[]} */
   let calls = [];
 
@@ -39,16 +39,33 @@ describe('applyPreset — one arrange request, no local orchestration', () => {
     vi.unstubAllGlobals();
   });
 
-  test('POSTs the preset NAME to /api/panel-arrange', () => {
+  test('POSTs the preset NAME to /api/panel-op/open-arrangement with a request id', () => {
     applyPreset('Machine setup');
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe('/api/panel-arrange');
+    expect(calls[0].url).toBe('/api/panel-op/open-arrangement');
     expect(calls[0].opts).toMatchObject({ method: 'POST' });
-    // preset, never a resolved panel list: the server owns resolution, and it is
-    // the preset path that sets prune_rail — a tiles request would silently lose
-    // the exclusive ("and the rest close") half of the semantics.
-    expect(JSON.parse(calls[0].opts.body)).toEqual({ preset: 'Machine setup' });
+    // The name, never a resolved panel list or layout: the server owns
+    // resolution, and the preset path is what prunes the rail to its members.
+    const body = JSON.parse(calls[0].opts.body);
+    expect(Object.keys(body).sort()).toEqual(['name', 'request_id']);
+    expect(body.name).toBe('Machine setup');
+    expect(typeof body.request_id).toBe('string');
+    expect(body.request_id.length).toBeGreaterThan(0);
+  });
+
+  test('each click is its own request', () => {
+    applyPreset('Machine setup');
+    applyPreset('Machine setup');
+
+    const ids = calls.map((c) => JSON.parse(c.opts.body).request_id);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  test('the retired /api/panel-arrange route is never called', () => {
+    applyPreset('Machine setup');
+
+    expect(calls.some((c) => c.url.includes('/api/panel-arrange'))).toBe(false);
   });
 
   test('the request is prefixed under a multi-user deployment', () => {
@@ -56,7 +73,21 @@ describe('applyPreset — one arrange request, no local orchestration', () => {
 
     applyPreset('Machine setup');
 
-    expect(calls[0].url).toBe('/u/alice/api/panel-arrange');
+    expect(calls[0].url).toBe('/u/alice/api/panel-op/open-arrangement');
+  });
+
+  test('a refused op is swallowed — a refused layout click never throws', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        json: async () => ({ status: 'refused', reason: 'no_dock_client' }),
+      }))
+    );
+
+    expect(() => applyPreset('Machine setup')).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
   });
 
   test('a rejected request is swallowed — a failed layout click never throws', async () => {

@@ -901,7 +901,7 @@ keys:
   services.mongodb.username: {covered-by: services.mongodb, default: n/a}
   services.mongodb.compression: {evidence: 'get\(_ARCHIVER_STORE_SERVICE\) or \{\}\)\.get\("compression"\)', default: zstd}
   services.archiver_recorder: {evidence: 'hostenv\.passthrough\(services\.archiver_recorder\)', default: null}
-  services.archiver_recorder.path: {evidence: 'ProjectedKey\("services\.archiver_recorder\.path"', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
+  services.archiver_recorder.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
   services.archive: {evidence: 'set svc = services\.archive \| default', default: null}
   services.archive.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build writes ./services/archive"}
   services.archive.network: {rendered: false, covered-by: services.archive, default: bridge}
@@ -2040,6 +2040,18 @@ keys:
   claude_code.agents.logbook-search.enabled: {covered-by: claude_code.agents.logbook-search, default: derived, default_note: the logbook-search agent's FRAMEWORK_AGENTS default_enabled}
   claude_code.agents.logbook-deep-research: {evidence: 'logbook-deep-research', default: n/a}
   claude_code.agents.logbook-deep-research.enabled: {covered-by: claude_code.agents.logbook-deep-research, default: derived, default_note: the logbook-deep-research agent's FRAMEWORK_AGENTS default_enabled}
+  claude_code.allow_personal_login:
+    rendered: false
+    evidence: 'get\("allow_personal_login"\)'
+    note: >-
+      Lets a web terminal run on its user's own Claude subscription: when on,
+      a terminal whose CLAUDE_CONFIG_DIR holds a completed `/login` is
+      launched with the deployment provider withheld (no auth, base URL or
+      model variables, no translation proxy), so Claude Code falls through to
+      the subscription. The credential never leaves the user's config volume.
+      Off, nothing changes; headless paths (the dispatch worker) always keep
+      the deployment provider.
+    default: false
   claude_code.cli_version:
     rendered: false
     evidence: 'get\("cli_version"\)'
@@ -2896,6 +2908,71 @@ keys:
   web.panels.okf.enabled: {covered-by: web.panels.okf, default: derived, default_note: "the okf panel's registry default; a panel absent from the block is off"}
   web.panels.system-health: {covered-by: web.panels, default: n/a}
   web.panels.system-health.enabled: {covered-by: web.panels.system-health, default: derived, default_note: "the system-health panel's registry default; a panel absent from the block is off"}
+  # The CANOPY tab: a builtin, served by a sidecar each web terminal starts.
+  # Besides the pair every builtin has, its block carries the sidecar's own
+  # settings, each read by name in osprey.integrations.canopy.sidecar.
+  web.panels.canopy: {covered-by: web.panels, default: n/a}
+  web.panels.canopy.enabled: {covered-by: web.panels.canopy, default: derived, default_note: "the canopy panel's registry default; a panel absent from the block is off"}
+  web.panels.canopy.trace_default_query:
+    rendered: false
+    deployment-data: true
+    evidence: 'settings\.get\("trace_default_query"\)'
+    note: >-
+      Trace's default view under the per-user CANOPY panel, passed verbatim to
+      the panel's front process as CANOPY_TRACE_DEFAULT_QUERY. Unset passes the
+      empty string, and Trace opens with no channel. Not rendered: `control-assistant`
+      carries it as a commented example, because its collection's screens carry
+      their own views; a facility sets it, or the other two, where it wants one.
+    default: '""'
+  web.panels.canopy.correlation_default_query:
+    rendered: false
+    deployment-data: true
+    evidence: 'settings\.get\("correlation_default_query"\)'
+    note: >-
+      The correlation page's default view under the per-user CANOPY panel
+      (x=...&y=...&dt=...), passed verbatim to the panel's front process as
+      CANOPY_CORRELATION_DEFAULT_QUERY. Unset passes the empty string, and the
+      page opens with no channel.
+    default: '""'
+  web.panels.canopy.waveform_default_query:
+    rendered: false
+    deployment-data: true
+    evidence: 'settings\.get\("waveform_default_query"\)'
+    note: >-
+      The waveform page's default view under the per-user CANOPY panel,
+      passed verbatim to the panel's front process as
+      CANOPY_WAVEFORM_DEFAULT_QUERY. Unset passes the empty string, and the
+      page opens with no channel.
+    default: '""'
+  web.panels.canopy.home_screen:
+    deployment-data: true
+    evidence: 'settings\.get\("home_screen"\)'
+    note: >-
+      The screen the per-user CANOPY panel opens first, by its id in the
+      project's screen library (its path under screens/ without the
+      `.screen.json` suffix), passed to the panel's front process as
+      CANOPY_HOME_SCREEN. Unset or empty passes nothing, and CANOPY opens its
+      first screen; an id the library does not hold is refused by `osprey
+      build` and `osprey validate`, and warned about and passed as nothing by
+      the sidecar.
+    default: '""'
+  web.panels.canopy.vole_bytes_max:
+    evidence: 'settings\.get\("vole_bytes_max"'
+    note: >-
+      Ceiling in bytes on the live-value buffers one user's CANOPY keeps,
+      passed as CANOPY_VOLE__GLOBAL_BYTES_MAX. A value that is not an integer
+      keeps the default.
+    default: 268435456
+  web.panels.canopy.theme_file:
+    rendered: false
+    evidence: '_panel_settings\(config\)\.get\("theme_file"\)'
+    note: >-
+      A colour theme for the per-user CANOPY panel, passed to both of its
+      processes as CANOPY_THEME_FILE. A relative path resolves against the
+      project root (the directory holding the rendered build); an absolute
+      path is used as written. Unset keeps CANOPY's own theme. Commented in
+      the control-assistant preset.
+    default: null
   web.panels.system-health.hidden:
     evidence: 'spec\.get\("hidden", False\)'
     note: >-
@@ -3584,6 +3661,15 @@ deleted:
   # no file directory names the one and no on-disk store bounds the other.
 - file_paths.api_calls_dir
 - web.feedback.max_store_bytes
+  # The header and status bar arrangement. The sidebar shell replaced both
+  # bars, and the sidebar's groups are arranged in the browser, per user. The
+  # parse point drops the key with one warning naming the sidebar
+  # (`normalize_retired_bar_items`); a profile that still spells it builds.
+- web.bar_items
+- web.bar_items.header
+- web.bar_items.status
+- web.bar_items.status_visible
+- web.bar_items.locked
   # The roster's retired spellings. A person's access level is a tier and a
   # shared card is an app: `default_tier` and `shared` are authored, and the
   # render catalog is the build's `renders`. A profile that still spells either
@@ -3985,7 +4071,7 @@ render_contexts:
     web_selection:
     - panels: all          # every builtin the registry declares
       default_panel: ariel
-      panel_presets: {Operations: [ariel, channel-finder]}
+      panel_presets: {Operations: {split: row, items: [{tabs: [ariel]}, {tabs: [channel-finder]}]}}
     - panels: []
       default_panel: null
       panel_presets: null
@@ -4030,7 +4116,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 367
+  expected_union_size: 373
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

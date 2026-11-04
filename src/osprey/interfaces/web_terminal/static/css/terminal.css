@@ -934,6 +934,46 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   display: none;
 }
 
+/* One short-lived line of feedback inside its host (toast.js). Text, tone and
+   fade live here; each host's own rule places it. */
+.osprey-toast {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-accent-light);
+  margin-left: var(--space-3);
+  animation: ospreyToastFade 2.5s ease-out forwards; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
+}
+
+.osprey-toast.error {
+  color: var(--color-error);
+}
+
+@keyframes ospreyToastFade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* The announcement of a landed switch: under the chip, where the popover was,
+   above everything the sidebar overlaps. */
+.ctc-anchor {
+  position: relative;
+}
+
+.ctc-anchor > .osprey-toast {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  z-index: var(--z-toast);
+  margin-left: 0;
+  padding: var(--space-1) var(--space-2);
+  white-space: nowrap;
+  color: var(--color-success);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+}
+
 .control-target-chip {
   display: inline-flex;
   align-items: center;
@@ -1719,11 +1759,10 @@ html[data-sidebar-resizing] {
   overflow: hidden;
 }
 
-/* Pointer-shield: while a dockview drag is active, neutralize pointer capture on
+/* Pointer-shield: while a dock drag is live, neutralize pointer capture on
    panel iframes so a separate-document iframe can't swallow the drag events
-   dockview needs for drop-target detection. dock-workspace.js toggles the class
-   on drag start/end; this mirrors the guarantee dockview already makes for its
-   own draggables across the whole gesture. */
+   the drop bridge needs for its hit test. dock-drop.js toggles the class at
+   the drag's start and end, for a header tab, a tile and a sidebar row alike. */
 .main-container.dock-dragging iframe {
   pointer-events: none;
 }

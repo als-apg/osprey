@@ -981,22 +981,27 @@ class TestMakeReceiver:
         assert servicebus.client.receiver_kwargs is not None
         assert servicebus.client.receiver_kwargs["receive_mode"] is PEEK_LOCK
 
-    def test_the_lock_is_renewed_past_the_poll_budget(self, servicebus: StubServiceBus) -> None:
-        # The headline. A handler holds its message for the whole dispatch wait
-        # and then posts the answer, so renewal has to outlast the budget by the
-        # settlement margin or a long run loses its lock mid-answer.
-        make_receiver(make_cfg(poll_budget=900.0))
-
-        assert servicebus.renewer.kwargs["max_lock_renewal_duration"] == 900.0 + SETTLE_MARGIN_SEC
-
-    def test_the_renewal_duration_follows_the_configured_budget(
-        self, servicebus: StubServiceBus
+    @pytest.mark.parametrize(
+        "poll_budget",
+        [
+            # The headline. A handler holds its message for the whole dispatch wait
+            # and then posts the answer, so renewal has to outlast the budget by the
+            # settlement margin or a long run loses its lock mid-answer.
+            pytest.param(900.0, id="past-the-poll-budget"),
+            # The other half of the row above: the duration moves with the config
+            # rather than being a constant that happens to match one budget.
+            pytest.param(1800.0, id="follows-the-configured-budget"),
+        ],
+    )
+    def test_the_lock_is_renewed_past_the_poll_budget(
+        self, servicebus: StubServiceBus, poll_budget: float
     ) -> None:
-        # The other half of the test above: the duration moves with the config
-        # rather than being a constant that happens to match one budget.
-        make_receiver(make_cfg(poll_budget=1800.0))
+        make_receiver(make_cfg(poll_budget=poll_budget))
 
-        assert servicebus.renewer.kwargs["max_lock_renewal_duration"] == 1800.0 + SETTLE_MARGIN_SEC
+        assert (
+            servicebus.renewer.kwargs["max_lock_renewal_duration"]
+            == poll_budget + SETTLE_MARGIN_SEC
+        )
 
     def test_the_renewer_has_a_thread_per_handler_and_one_to_spare(
         self, servicebus: StubServiceBus

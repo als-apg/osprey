@@ -387,23 +387,21 @@ class TestDegradedHookConfig:
         _sandbox(monkeypatch)  # this server is `controls`
         await _refused(am.AuditMiddleware(), "channel_write")
 
-    async def test_a_clone_of_the_mixed_server_still_runs_execute_when_degraded(
-        self, project, monkeypatch
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            # Bare-name matching must not swallow the mixed exclusion. The floor has
+            # `execute` subtracted from it, so matching by bare name cannot re-clamp
+            # it — for the framework server or for a clone of it.
+            pytest.param("python_ring", id="clone-of-the-mixed-server"),
+            pytest.param("python", id="mixed-floor"),
+        ],
+    )
+    async def test_a_missing_hook_config_still_lets_execute_run_when_degraded(
+        self, project, monkeypatch, prefix
     ):
-        """Bare-name matching must not swallow the mixed exclusion.
-
-        The floor has `execute` subtracted from it, so matching by bare name
-        cannot re-clamp it — for the framework server or for a clone of it.
-        """
         project.remove()
-        monkeypatch.setenv(am.TOOL_PREFIX_ENV, "python_ring")
-        _sandbox(monkeypatch)
-        _, seen = await _call(am.AuditMiddleware(), "execute")
-        assert seen == ["execute"]
-
-    async def test_a_missing_hook_config_still_lets_the_mixed_floor_run(self, project, monkeypatch):
-        project.remove()
-        monkeypatch.setenv(am.TOOL_PREFIX_ENV, "python")
+        monkeypatch.setenv(am.TOOL_PREFIX_ENV, prefix)
         _sandbox(monkeypatch)
         _, seen = await _call(am.AuditMiddleware(), "execute")
         assert seen == ["execute"]

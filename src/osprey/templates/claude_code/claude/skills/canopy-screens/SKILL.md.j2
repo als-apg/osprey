@@ -1,0 +1,72 @@
+{% set guide = canopy_screen_guide | default(none) -%}
+{% if guide is not none -%}
+---
+name: canopy-screens
+description: >
+  Which CANOPY screen of this deployment shows which device, area or signal, and
+  how the screens open each other: a build-time guide to the screen library with
+  each screen's ref, purpose and the devices it draws, plus the tools' default
+  views and the collections. Use it before opening a screen for something named
+  ("show me ION-PUMP 38", "which sector has EPU7", "open the booster", "where is
+  the orbit"), then open the screen with the canopy-operator skill.
+summary: Which CANOPY screen shows which device, and its ref to open it
+---
+{% macro screen_entry(screen) -%}
+### {{ screen.title }} — `{{ screen.ref }}`
+{% if screen.summary %}
+{{ screen.summary }}
+{% endif %}
+{% if screen.opens -%}
+- Opens: {% for ref in screen.opens %}`{{ ref }}`{{ ", " if not loop.last }}{% endfor %}
+{% endif -%}
+{% for group in screen.devices -%}
+- {{ group.system }}: {{ group.labels | join(", ") }}
+{% endfor %}
+{%- endmacro -%}
+
+# CANOPY screens — what this deployment shows where
+
+This guide was built from the deployment's screen library, so it lists exactly
+the screens CANOPY serves here. It answers *which* screen; the canopy-operator
+skill says how to open it.
+
+## Finding a screen
+
+1. Look the device up by its system and label, the name operators use
+   ("SR: BPM 37", "SR: ION-PUMP 38", "SR: EPU7"). A numbered run is written
+   first–last: "ION-PUMP 37–42" holds ION-PUMP 38.
+2. Prefer the main screen that shows it. A screen whose name starts with `_`
+   is a detail its parent opens; open it directly when the detail is what was
+   asked for.
+3. Open it with `set_workspace` and `{"cmd": "open", "args": {"ref": "<ref>"}}`.
+4. A device not listed here is on no screen: find its channels with the
+   channel finder and plot them in the Data Browser instead.
+{% if guide.tools or guide.collections %}
+
+## Tools and collections
+
+{% for tool in guide.tools -%}
+- **{{ tool.title }}** (`open_tool` with `tool: {{ tool.tool }}`) opens by default on `{{ tool.query }}`.
+{% endfor -%}
+{% for collection in guide.collections -%}
+- Collection **{{ collection.name }}**: {{ collection.description }} Members: {{ collection.members | join(", ") }}.
+{% endfor -%}
+{% endif %}
+
+## The screens
+{% if not guide.screens %}
+
+The library held no screens when this deployment was built. Call
+`list_drafts` for what CANOPY serves now.
+{% endif %}
+{% for screen in guide.screens | rejectattr("sub_screen") %}
+{{ screen_entry(screen) }}
+{%- endfor %}
+{% set details = guide.screens | selectattr("sub_screen") | list -%}
+{% if details %}
+## Details and embedded parts
+{% for screen in details %}
+{{ screen_entry(screen) }}
+{%- endfor %}
+{% endif -%}
+{% endif -%}

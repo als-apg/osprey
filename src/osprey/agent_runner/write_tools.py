@@ -3,8 +3,8 @@
 Provides a single entry point, ``load_write_tools``, that returns the list of
 MCP tool names subject to the writes kill switch.  The list is read from the
 project's generated ``hook_config.json``; on any failure the module falls back
-to a replica of the canonical list in
-``templates/claude_code/claude/hooks/osprey_hook_log.py`` so the runner
+to :data:`osprey.deployment.write_gates.WRITE_GATED_TOOLS`, the canonical list
+of ``templates/claude_code/claude/hooks/osprey_hook_log.py``, so the runner
 always fail-closes (i.e. never accidentally omits a gated tool).
 """
 
@@ -14,26 +14,19 @@ import json
 import logging
 from pathlib import Path
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from osprey.agent_runner.tool_names import FOREIGN_MCP_NAMESPACES, READ_ONLY_DENIED_BUILTINS
 from osprey.bluesky_tool_names import DESTRUCTIVE_MARKERS
+from osprey.deployment.write_gates import WRITE_GATED_TOOLS
 
 logger = logging.getLogger(__name__)
 
-# Replica of FALLBACK_WRITE_TOOLS from osprey_hook_log.py, where the hooks'
-# shared write-gate helpers keep it.
+# The hooks' FALLBACK_WRITE_TOOLS (osprey_hook_log.py), as the deployment's
+# write gates spell it.
 # DRIFT GUARD: the test suite (test_write_tools.py) asserts that this list
 # equals the canonical one in the hook file — update both together.
-_FALLBACK_WRITE_TOOLS = [
-    "mcp__bluesky__queue_add",
-    "mcp__bluesky__queue_start",
-    "mcp__controls__channel_write",
-    "mcp__phoebus__phoebus_drive",
-    "mcp__python__execute",
-    "mcp__python__execute_file",
-    "mcp__python__pyaml_measure",
-]
+_FALLBACK_WRITE_TOOLS = list(WRITE_GATED_TOOLS)
 
 
 #: What :func:`load_approval_prefixes` answers when the render's hook config cannot

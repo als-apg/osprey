@@ -783,7 +783,8 @@ def event_window(
 
     This is the span whose *values* have to be recomputed — every instant whose
     sample the script can change. A step or a ramp changes every sample from its
-    position onward, so its span runs to the end of the archive; a daily
+    position onward, so its span runs to the end of the archive, unless the step
+    states an end, in which case its span stops there; a daily
     ``at_time`` event recurs on every date the archive covers, so its span is
     the whole archive. Both are measured against ``anchor`` — the apply-time T0
     written into the scenario state file, not this process's wall clock (a
@@ -828,7 +829,8 @@ def event_window(
             width = float(event["width"]) * _SPIKE_WINDOW_SIGMAS
             start, end = min(start, at - width), max(end, at + width)
         else:
-            start, end = min(start, at), anchor
+            until = _step_end(event, anchor, tz)
+            start, end = min(start, at), anchor if until is None else max(end, until)
     return max(start, horizon_start), min(end, anchor)
 
 
@@ -843,8 +845,9 @@ def event_subwindows(
 
     One entry per occurrence rather than one per script: a spike contributes its
     own bump, a daily spike contributes one bump per date the archive covers,
-    and a step or a ramp — which genuinely does change every later sample —
-    contributes the stretch from its position to the anchor. Overlapping
+    a step or a ramp — which genuinely does change every later sample —
+    contributes the stretch from its position to the anchor, and a step with an
+    end contributes only its own stretch. Overlapping
     stretches are merged, so the result is disjoint and ascending.
 
     These are the stretches the rewrite densifies and lifts retention from, and
@@ -878,7 +881,8 @@ def event_subwindows(
                 half = float(event["width"]) * _SPIKE_WINDOW_SIGMAS
                 windows.append((at - half, at + half))
             else:
-                windows.append((at, anchor))
+                until = _step_end(event, anchor, tz)
+                windows.append((at, anchor if until is None else until))
     clamped = [
         (max(start, horizon_start), min(end, anchor))
         for start, end in windows
@@ -905,6 +909,15 @@ def _anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | No
     from osprey_connectors.simulation.series import anchored_instant
 
     return anchored_instant(dict(event), anchor, tz if tz is not None else get_facility_timezone())
+
+
+def _step_end(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None) -> float | None:
+    """A bounded ``step``'s end instant, or ``None`` for an event that persists to the anchor."""
+    if event["shape"] != "step":
+        return None
+    from osprey_connectors.simulation.series import step_end
+
+    return step_end(dict(event), anchor, tz if tz is not None else get_facility_timezone())
 
 
 def _merge_intervals(windows: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:

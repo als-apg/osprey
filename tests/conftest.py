@@ -4,9 +4,10 @@ Pytest configuration and shared test utilities.
 This module provides shared fixtures and utilities for all Osprey tests.
 """
 
+import functools
 import os
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,8 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     _no_host_timezone_leak,
     agent_data_never_the_checkout,
     control_context_root,
+    earlier_garbage_frozen,
+    long_lived_session_mark_per_test,
     no_agent_data_in_the_repo,
     no_spool_in_the_repo,
     pytest_collection_finish,
@@ -45,7 +48,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     write_server_report,
 )
 from osprey_connectors_tests._harness._ports import port_reserver
-from tests import _scoped_temp
+from tests import _canopy_contract, _scoped_temp
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant,
@@ -63,6 +66,16 @@ from tests._builds import (  # noqa: F401 - the session's shared builds
 #: deployment does. One shared value means no test states a real deployment's
 #: host, and a reader can tell "this is the fixture endpoint" at a glance.
 GATEWAY_BASE_URL = "https://gateway.example.org/v1"
+
+# import-time required because every xdist worker must hold this default
+# before it collects a module.
+# The control-assistant preset's `canopy-payload` pre_build step stages a
+# prebuilt CANOPY payload no test host is expected to have, and a build that
+# names none leaves the panel out. Skipping the step renders the finished
+# preset; the tests of the staging module turn the check back on. setdefault
+# leaves an explicit host value alone.
+os.environ.setdefault("OSPREY_CANOPY_PAYLOAD_CHECK", "0")
+
 
 #: :data:`GATEWAY_BASE_URL` as Claude Code receives it — no trailing ``/v1``,
 #: which the resolver strips because Claude Code appends ``/v1/messages``.
@@ -1430,7 +1443,6 @@ def _memoized_entry_points():
     ``metadata.entry_points`` itself; its patch replaces this one for that test
     and wraps it when it calls through.
     """
-    import functools
     from importlib import metadata
 
     memoized = functools.cache(metadata.entry_points)
@@ -1475,6 +1487,29 @@ def dispatcher_route_registry():
         yield build
     finally:
         dispatch_server.mcp._additional_http_routes = baseline_routes
+
+
+def pytest_pycollect_makemodule(module_path: Path, parent: pytest.Collector):
+    """Mark a module that imports CANOPY, or stand in for it where CANOPY is absent."""
+    return _canopy_contract.module_node(module_path, parent)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item,
+    call: pytest.CallInfo[None],  # noqa: ARG001 - the hook's signature
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """A ``canopy``-marked test never skips, and its report says it carries the mark."""
+    report = yield
+    _canopy_contract.refuse_skip(item, report)
+    _canopy_contract.stamp(item, report)
+    return report
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    """Say what this run proved about CANOPY, in the same words in every lane."""
+    for line in _canopy_contract.summary_lines(config, terminalreporter.stats):
+        terminalreporter.write_line(line)
 
 
 # ===================================================================

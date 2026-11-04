@@ -252,10 +252,23 @@ class TestPyatSpecialistAgentTemplate:
         rendered = self._render(template_manager, ctx)
         assert not rendered.strip(), "Template must produce no output when agent is disabled"
 
-    def test_frontmatter_name_field(self, template_manager):
+    @pytest.mark.parametrize(
+        "expected",
+        [
+            pytest.param("name: pyat-specialist", id="frontmatter-name"),
+            pytest.param("maxTurns: 30", id="frontmatter-max-turns"),
+            # Edge case: pyAT returns NaN without raising, so results must be guarded.
+            pytest.param("NaN without raising", id="silent-nan"),
+            # Edge case: one-turn map |trace| < 2 stability test.
+            pytest.param("|trace| must be < 2 per plane", id="trace-stability-guard"),
+            # Edge case: flag heavy DA/LMA/tracking runs before launching them.
+            pytest.param("Flag heavy runs before launching them", id="flag-heavy-runs"),
+        ],
+    )
+    def test_the_enabled_template_carries_its_pinned_text(self, template_manager, expected):
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
-        assert "name: pyat-specialist" in rendered
+        assert expected in rendered
 
     def test_frontmatter_tools_exact(self, template_manager):
         """The tools: line pins exactly the four allowed tools, in order."""
@@ -291,11 +304,6 @@ class TestPyatSpecialistAgentTemplate:
         )
         assert expected in rendered
 
-    def test_frontmatter_max_turns(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "maxTurns: 30" in rendered
-
     def test_no_readwrite_write_edit_in_tools(self, template_manager):
         """Compute-only agent: no Write/Edit/Bash in the tools: line."""
         ctx = self._full_ctx(enabled=True)
@@ -304,29 +312,30 @@ class TestPyatSpecialistAgentTemplate:
         for banned in ("Bash", "Write", "Edit"):
             assert banned not in tools_line
 
-    def test_body_execution_mode_readonly_pin(self, template_manager):
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            pytest.param(
+                'execution_mode="readonly"',
+                'Never use `execution_mode="readwrite"`.',
+                id="execution-mode-readonly-pin",
+            ),
+            pytest.param("disable_6d", "lattice4d.disable_6d()", id="disable-6d"),
+            # Edge case: enumerate elements by pyAT type, never by FamName pattern.
+            pytest.param(
+                "get_uint32_index",
+                "Do **not** scan `FamName`",
+                id="type-enumeration-over-name-pattern",
+            ),
+        ],
+    )
+    def test_the_enabled_template_body_carries_both_pinned_phrases(
+        self, template_manager, first, second
+    ):
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
-        assert 'execution_mode="readonly"' in rendered
-        assert 'Never use `execution_mode="readwrite"`.' in rendered
-
-    def test_body_disable_6d(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "disable_6d" in rendered
-        assert "lattice4d.disable_6d()" in rendered
-
-    def test_body_edge_case_silent_nan(self, template_manager):
-        """Edge case: pyAT returns NaN without raising — must guard results."""
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "NaN without raising" in rendered
-
-    def test_body_edge_case_trace_stability_guard(self, template_manager):
-        """Edge case: one-turn map |trace| < 2 stability test."""
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "|trace| must be < 2 per plane" in rendered
+        assert first in rendered
+        assert second in rendered
 
     def test_body_edge_case_module_not_found(self, template_manager):
         """Edge case: ModuleNotFoundError → report the environment limitation and stop."""
@@ -335,19 +344,6 @@ class TestPyatSpecialistAgentTemplate:
         normalized = " ".join(rendered.split())
         assert "ModuleNotFoundError" in rendered
         assert "Report that environment limitation plainly and stop" in normalized
-
-    def test_body_edge_case_type_enumeration_over_name_pattern(self, template_manager):
-        """Edge case: enumerate elements by pyAT type, never by FamName pattern."""
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "get_uint32_index" in rendered
-        assert "Do **not** scan `FamName`" in rendered
-
-    def test_body_edge_case_flag_heavy_runs(self, template_manager):
-        """Edge case: flag heavy DA/LMA/tracking runs before launching them."""
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "Flag heavy runs before launching them" in rendered
 
     def test_body_hands_in_its_answer_as_prose(self, template_manager):
         """One submit_response call carrying the answer, filed under its category.
@@ -407,33 +403,32 @@ class TestPyatSpecialistClaudeMd:
         matches = re.findall(r"^- \*\*pyat-specialist\*\*", rendered, re.MULTILINE)
         assert len(matches) == 1
 
-    def test_delegation_prohibition_text(self, template_manager):
-        """The roster tells the parent NOT to compute lattice quantities itself."""
+    @pytest.mark.parametrize(
+        "expected",
+        [
+            # The roster tells the parent NOT to compute lattice quantities itself.
+            pytest.param(
+                "do NOT compute lattice quantities (orbit, tunes, optics functions, "
+                "response matrices) via `mcp__python__execute` yourself",
+                id="delegation-prohibition",
+            ),
+            # The pyat-specialist block carries the documented-vs-computed boundary.
+            pytest.param(
+                "Anything that must be *computed* on the lattice model goes to **pyat-specialist**.",
+                id="documented-vs-computed-in-pyat-block",
+            ),
+            # The facility-knowledge block carries the documented-vs-computed boundary too.
+            pytest.param(
+                "Anything that requires *computing* on the lattice model — orbit, tunes, "
+                "optics functions, response matrices — goes to **pyat-specialist**, not here.",
+                id="documented-vs-computed-in-facility-knowledge-block",
+            ),
+        ],
+    )
+    def test_the_roster_carries_its_pinned_text(self, template_manager, expected):
         ctx = self._full_ctx()
         rendered = self._render(template_manager, ctx)
-        assert (
-            "do NOT compute lattice quantities (orbit, tunes, optics functions, "
-            "response matrices) via `mcp__python__execute` yourself" in rendered
-        )
-
-    def test_documented_vs_computed_in_pyat_block(self, template_manager):
-        """The pyat-specialist block carries the documented-vs-computed boundary."""
-        ctx = self._full_ctx()
-        rendered = self._render(template_manager, ctx)
-        assert (
-            "Anything that must be *computed* on the lattice model goes to **pyat-specialist**."
-            in rendered
-        )
-
-    def test_documented_vs_computed_in_facility_knowledge_block(self, template_manager):
-        """The facility-knowledge block carries the documented-vs-computed boundary too."""
-        ctx = self._full_ctx()
-        rendered = self._render(template_manager, ctx)
-        assert (
-            "Anything that requires *computing* on the lattice model — orbit, tunes, "
-            "optics functions, response matrices — goes to **pyat-specialist**, not here."
-            in rendered
-        )
+        assert expected in rendered
 
     def test_documented_vs_computed_phrase_in_both_blocks(self, template_manager):
         """The 'Documented vs. computed:' lead-in appears in both agent blocks."""

@@ -13,17 +13,17 @@ from osprey.models.messages import ChatCompletionRequest, ChatMessage, parse_dat
 class TestChatMessage:
     """Test ChatMessage dataclass."""
 
-    def test_to_dict(self):
-        msg = ChatMessage("user", "hello")
-        assert msg.to_dict() == {"role": "user", "content": "hello"}
-
-    def test_system_role(self):
-        msg = ChatMessage("system", "You are a helpful assistant")
-        assert msg.to_dict() == {"role": "system", "content": "You are a helpful assistant"}
-
-    def test_assistant_role(self):
-        msg = ChatMessage("assistant", "Sure, I can help")
-        assert msg.to_dict() == {"role": "assistant", "content": "Sure, I can help"}
+    @pytest.mark.parametrize(
+        ("role", "content"),
+        [
+            pytest.param("user", "hello", id="user"),
+            pytest.param("system", "You are a helpful assistant", id="system"),
+            pytest.param("assistant", "Sure, I can help", id="assistant"),
+        ],
+    )
+    def test_to_dict_carries_the_role_and_content(self, role, content):
+        msg = ChatMessage(role, content)
+        assert msg.to_dict() == {"role": role, "content": content}
 
 
 class TestChatCompletionRequestBasic:
@@ -172,25 +172,15 @@ class TestNonAnthropicProviders:
             assert isinstance(msg["content"], str)
             assert "cache_control" not in msg
 
-    def test_google_no_cache_markers(self):
+    @pytest.mark.parametrize("provider", ["google", None], ids=["google", "none-provider"])
+    def test_a_non_anthropic_provider_gets_no_cache_markers(self, provider):
         req = ChatCompletionRequest(
             messages=[
                 ChatMessage("system", "sys"),
                 ChatMessage("user", "hello"),
             ]
         )
-        result = req.to_litellm_messages(provider="google")
-        for msg in result:
-            assert isinstance(msg["content"], str)
-
-    def test_none_provider_no_cache_markers(self):
-        req = ChatCompletionRequest(
-            messages=[
-                ChatMessage("system", "sys"),
-                ChatMessage("user", "hello"),
-            ]
-        )
-        result = req.to_litellm_messages(provider=None)
+        result = req.to_litellm_messages(provider=provider)
         for msg in result:
             assert isinstance(msg["content"], str)
 

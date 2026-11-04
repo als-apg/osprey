@@ -1,12 +1,11 @@
-description: 'A partial beam loss forty minutes before activation: the stored current steps from 500
-  mA to 440 mA and is back at 500 mA eight minutes later. Two steps rather than a spike, so the
-  archive''s minimum is the planted value at any sample cadence.'
+description: 'A partial beam loss forty minutes before activation: the stored current drops 60 mA
+  below its top-off baseline and is back on the baseline eight minutes later. One bounded step, back
+  on the baseline, rather than a spike, so the archive''s minimum is the planted value at any sample
+  cadence.'
 archiver:
 - channel: SR:DIAG:DCCT:01:CURRENT:RB
   events:
   - shape: step
     at_offset: -2400
-    to: 440.0
-  - shape: step
-    at_offset: -1920
-    to: 500.0
+    until_offset: -1920
+    to: 439.6925863862285

@@ -1,7 +1,7 @@
 // @ts-check
 /* OSPREY Web Terminal — Tile Header-Bar Contributions (hub side)
  *
- * Receives embedded panels' `osprey-header-contribution` messages (see
+ * Receives embedded panels' `canopy-host-header-contribution` messages (see
  * design_system/static/js/header-contrib.js for the panel side and the item
  * vocabulary) and renders the items into the tile bar's contribution region.
  * The cross-iframe counterpart of the terminal tile's header adoption: the
@@ -64,6 +64,13 @@ const observers = new Map();
 
 let wired = false;
 
+// The old name is read until canopy-screen-runtime 0.2.0, whose viewers stop
+// sending it; OSPREY's own panels send the new one.
+const CONTRIBUTION_TYPES = new Set([
+  'canopy-host-header-contribution',
+  'osprey-header-contribution',
+]);
+
 /** Wire the window-level receive side (idempotent; called from app init). */
 export function initHeaderContrib() {
   if (wired) return;
@@ -71,7 +78,7 @@ export function initHeaderContrib() {
   window.addEventListener('message', (e) => {
     if (e.origin !== window.location.origin) return;
     const data = e.data;
-    if (!data || data.type !== 'osprey-header-contribution') return;
+    if (!data || !CONTRIBUTION_TYPES.has(data.type)) return;
     const panelId = panelIdForSource(e.source);
     if (!panelId || localDispatch.has(panelId)) return;
     contributions.set(panelId, sanitizeItems(data.items));

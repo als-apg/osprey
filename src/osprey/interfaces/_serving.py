@@ -55,6 +55,12 @@ _DRAIN_TIMEOUT = 5
 _SHUTDOWN_JOIN = 30.0
 
 
+#: The address ``osprey web`` bound its listening socket to, published to its
+#: children beside ``OSPREY_WEB_PORT``. The terminal reads it back to tell
+#: whether its sessions, which dial ``127.0.0.1``, can reach it at all.
+WEB_HOST_ENV = "OSPREY_WEB_HOST"
+
+
 #: Pending-connection queue of a socket :func:`listening_socket` returns;
 #: uvicorn's own default, so a server handed the socket listens as it would
 #: have on a socket it bound itself.

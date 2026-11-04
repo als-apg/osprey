@@ -1,0 +1,7221 @@
+{
+  "generator": {
+    "schema": "canopy-library-report/1",
+    "canopy_version": "0.0.2.dev291+g166989aad"
+  },
+  "files": {
+    "digest": "sha256:71772d9286a9a1e0b6abd52135833491ca5ebf23d3fe5a1291c4a9ed92ce8d7f",
+    "list": [
+      {
+        "path": "screens/br/overview.screen.json",
+        "sha256": "a3993469115858b862d8ad1294e910ef239c580548ed84e9f9a1020d5b006512"
+      },
+      {
+        "path": "screens/bts/BTS.screen.json",
+        "sha256": "05a02030e1434ddaf36a19593da40fdf989625f7b630629313d8cc358b6b1d34"
+      },
+      {
+        "path": "screens/common/embedded/_KnobDevice.screen.json",
+        "sha256": "0a062b15d49993e9f913af065c1f8b66cf5080214d6a357040dff93339794239"
+      },
+      {
+        "path": "screens/common/embedded/_bpm.screen.json",
+        "sha256": "8cf5119cea86fd402c123635d1b5bc6d515bc23f65ce13b488d856803e7f3bfc"
+      },
+      {
+        "path": "screens/common/embedded/_tv.screen.json",
+        "sha256": "9e3d56fc87abf735a0b400b9175333e685621b793016bb738b298fc10ece4d22"
+      },
+      {
+        "path": "screens/common/images/Light off.jpg",
+        "sha256": "d45417ac14b12f8b263ce30c476b3c7f14cd980755abe2ad601f585be568ef84"
+      },
+      {
+        "path": "screens/common/images/Light on.jpg",
+        "sha256": "a1edc798e6a01c1fa17e7abcac0eff896114de36bbc58221f10e002f43dbf7d6"
+      },
+      {
+        "path": "screens/common/images/Paddle in.jpg",
+        "sha256": "8836f9e5c2ff34341166eea16d8b650736efef3d9fa8c53cf433fad0a4ed6a68"
+      },
+      {
+        "path": "screens/common/images/Paddle out.jpg",
+        "sha256": "ff7724a66054d823108cae3fa5dde3fac73c5c6f7ffd04cb6680446235ad33ea"
+      },
+      {
+        "path": "screens/common/images/TV off.jpg",
+        "sha256": "969b11451618a1635edbf02c2cb5de0a668a1089ffcc7106412039f26092d695"
+      },
+      {
+        "path": "screens/common/images/TV on.jpg",
+        "sha256": "10d9a897b39024fcffd9cbd9e633ffd41f404fba00602a14cffb0cd235332aea"
+      },
+      {
+        "path": "screens/facility/overview.screen.json",
+        "sha256": "919df65a157c00f000098d2c89be1d236a8642efd8f45347ba6a9fa1b1eff7a1"
+      },
+      {
+        "path": "screens/gtl/GTL.screen.json",
+        "sha256": "14d678b91b1dda9971c656cf19a991a70083766606589fa5d3dab9c950c617db"
+      },
+      {
+        "path": "screens/sr/_absorbers-02.screen.json",
+        "sha256": "4e7d4d87f94bff4336ee85a0d12636a1a7d92b4850d818bb2a35263411e43ed7"
+      },
+      {
+        "path": "screens/sr/_absorbers-04.screen.json",
+        "sha256": "7e6040211393397769fab7fecc43a119907d5cf6f47dbe6b835a5ff2c3250da0"
+      },
+      {
+        "path": "screens/sr/_absorbers-05.screen.json",
+        "sha256": "9a6d38933be88c0ab83f2535cab27c2c96e11a09ebfca15917387f035139f853"
+      },
+      {
+        "path": "screens/sr/_absorbers-06.screen.json",
+        "sha256": "bf729adf5490699eb67f620dcf9ecae9c974047851ea74222dbcfe032d1f5cd2"
+      },
+      {
+        "path": "screens/sr/_absorbers-07.screen.json",
+        "sha256": "11d85dff5279c2aa44585c2798e7fb9fd108ecbe58721ea57b881d4045f89e21"
+      },
+      {
+        "path": "screens/sr/_absorbers-08.screen.json",
+        "sha256": "385e0f45ef48fd155cf1c271258e8d85ceead51c06bd5d4dcf75c0380546a0ef"
+      },
+      {
+        "path": "screens/sr/_absorbers-09.screen.json",
+        "sha256": "a4e8c8a91149596198469b3bc570ce727245dc6d0f37dc30d561ff9dfc844017"
+      },
+      {
+        "path": "screens/sr/_absorbers-10.screen.json",
+        "sha256": "7c711870c1e23c3294cf3ad022b7fb645d7606b6394df8c36addc721f247609a"
+      },
+      {
+        "path": "screens/sr/_absorbers-11.screen.json",
+        "sha256": "35c3ec322bf0b0d65810bf6030febb0531582c28d53ffb806db86e4b0c0162c4"
+      },
+      {
+        "path": "screens/sr/_absorbers-12.screen.json",
+        "sha256": "544a087a586ad35a74a466e345f4ed14f3ddc84d70e1ff23346cd58abc778b7e"
+      },
+      {
+        "path": "screens/sr/_vacuum-01.screen.json",
+        "sha256": "ad6e908555647c1a2b207993124717e5d5de54ba9502f7b0edf288328b1dda6b"
+      },
+      {
+        "path": "screens/sr/_vacuum-02.screen.json",
+        "sha256": "5ec7132e22bb42a59a5bf3cff69bb57802df34fced4a639ccdd4fb57f4baf988"
+      },
+      {
+        "path": "screens/sr/_vacuum-03.screen.json",
+        "sha256": "feea0fd939d41e793b74dc9597c61af593ca902311756627d90d08885cf2b1c4"
+      },
+      {
+        "path": "screens/sr/_vacuum-04.screen.json",
+        "sha256": "d3781c2c19a7cbbf8435799bef36ae11b3a2e2efe343565af7b4d13df8770f94"
+      },
+      {
+        "path": "screens/sr/_vacuum-05.screen.json",
+        "sha256": "24159f093785c6e49ef03d8ff869eb602eeedb0f17c86964ca7700ace25d4b1c"
+      },
+      {
+        "path": "screens/sr/_vacuum-06.screen.json",
+        "sha256": "cd614a7e5ab53ade7785d490180d6e62578cefeaf10d8c20041d6e242cb59704"
+      },
+      {
+        "path": "screens/sr/_vacuum-07.screen.json",
+        "sha256": "6bd74940baf392f03498804b4e2fd811897b79533838cf37313c3ae1c6c5e021"
+      },
+      {
+        "path": "screens/sr/_vacuum-08.screen.json",
+        "sha256": "be2a49e5dc1f968121a70fd5c5d8cd88172b6421465adce2af26069dfa8b7124"
+      },
+      {
+        "path": "screens/sr/_vacuum-09.screen.json",
+        "sha256": "b91dbaf928326f6822a757bc0c5b43cc798635cd6260a184edeb11813a06a1c2"
+      },
+      {
+        "path": "screens/sr/_vacuum-10.screen.json",
+        "sha256": "95eb35662d951ca409bd4a0a914d5d9f4b2663f7d07f9cb3808f0dc06c8531f2"
+      },
+      {
+        "path": "screens/sr/_vacuum-11.screen.json",
+        "sha256": "f52b56e79ff25e774c12059391251392726a77aa489faaf2005ec3834414ed44"
+      },
+      {
+        "path": "screens/sr/_vacuum-12.screen.json",
+        "sha256": "08e8265d1a8eb351b1423db51e21b83371a48b6691389bf0a1d4b25c36464791"
+      },
+      {
+        "path": "screens/sr/orbit-feedback.screen.json",
+        "sha256": "249741187c757f5566516c03aedc6286e5faca871ae54785c5ce50b05ff5c3f8"
+      },
+      {
+        "path": "screens/sr/sector-01.screen.json",
+        "sha256": "5738fe815a49143af610dcedf182fc1ded8e719f1d7e657120f425b87d0ac27b"
+      },
+      {
+        "path": "screens/sr/sector-02.screen.json",
+        "sha256": "564b077a9b3891248b76f1644f65dc66fa842be23508f01ff717fcb990533b7c"
+      },
+      {
+        "path": "screens/sr/sector-03.screen.json",
+        "sha256": "6a7634794502b7d1bbdd904f11cdfa4b7e34e968276676aface85859f35831c7"
+      },
+      {
+        "path": "screens/sr/sector-04.screen.json",
+        "sha256": "1ad2a964c60a4cf9c48a14b2e76327d4feffab0bbe6384e0bf8d9950c4e8a6e6"
+      },
+      {
+        "path": "screens/sr/sector-05.screen.json",
+        "sha256": "d183bb8cd888ab2097441cc4efd18bc90b6e4025f92ac331a3331053ac47e53b"
+      },
+      {
+        "path": "screens/sr/sector-06.screen.json",
+        "sha256": "64c2770f80b3ff3f630c8f6c2268d17530ad19e6f06b59aaed30ab047d20511a"
+      },
+      {
+        "path": "screens/sr/sector-07.screen.json",
+        "sha256": "aaa0b9b0f7608c1cc6dcd4405dde7e3c80cbad47faf2b9af10e33e28945ee89a"
+      },
+      {
+        "path": "screens/sr/sector-08.screen.json",
+        "sha256": "d16fc9e78c9bc5b12c0ea3280edcde2175df11fbe50740c75f6c9205df13dc85"
+      },
+      {
+        "path": "screens/sr/sector-09.screen.json",
+        "sha256": "293bcc1f5b947f2c761ffe6efe0fd9f0af7982900fe3f8ab7428a89c36a2c77b"
+      },
+      {
+        "path": "screens/sr/sector-10.screen.json",
+        "sha256": "335afd3fa775cc8ba98e35a7e7abcf5dc5d1b15bb537911936b95e14f2d9624e"
+      },
+      {
+        "path": "screens/sr/sector-11.screen.json",
+        "sha256": "a190fba2a406ce14fc99dc8d7b2d48dbd0aa263c6d8f1e487474dbcbb0506ebc"
+      },
+      {
+        "path": "screens/sr/sector-12.screen.json",
+        "sha256": "3a8a338e8a860ee8aa0fd0a3d7ee57d808adbdec6934892ccb15beb2da7130b4"
+      }
+    ]
+  },
+  "manifest": [
+    "br/overview",
+    "bts/BTS",
+    "common/embedded/_KnobDevice",
+    "common/embedded/_bpm",
+    "common/embedded/_tv",
+    "facility/overview",
+    "gtl/GTL",
+    "sr/_absorbers-02",
+    "sr/_absorbers-04",
+    "sr/_absorbers-05",
+    "sr/_absorbers-06",
+    "sr/_absorbers-07",
+    "sr/_absorbers-08",
+    "sr/_absorbers-09",
+    "sr/_absorbers-10",
+    "sr/_absorbers-11",
+    "sr/_absorbers-12",
+    "sr/_vacuum-01",
+    "sr/_vacuum-02",
+    "sr/_vacuum-03",
+    "sr/_vacuum-04",
+    "sr/_vacuum-05",
+    "sr/_vacuum-06",
+    "sr/_vacuum-07",
+    "sr/_vacuum-08",
+    "sr/_vacuum-09",
+    "sr/_vacuum-10",
+    "sr/_vacuum-11",
+    "sr/_vacuum-12",
+    "sr/orbit-feedback",
+    "sr/sector-01",
+    "sr/sector-02",
+    "sr/sector-03",
+    "sr/sector-04",
+    "sr/sector-05",
+    "sr/sector-06",
+    "sr/sector-07",
+    "sr/sector-08",
+    "sr/sector-09",
+    "sr/sector-10",
+    "sr/sector-11",
+    "sr/sector-12"
+  ],
+  "templates": [
+    {
+      "path": "screens/br/overview.screen.json",
+      "screen": "br/overview",
+      "role": "manifest",
+      "sha256": "a3993469115858b862d8ad1294e910ef239c580548ed84e9f9a1020d5b006512",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/bts/BTS.screen.json",
+      "screen": "bts/BTS",
+      "role": "manifest",
+      "sha256": "05a02030e1434ddaf36a19593da40fdf989625f7b630629313d8cc358b6b1d34",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/common/embedded/_KnobDevice.screen.json",
+      "screen": "common/embedded/_KnobDevice",
+      "role": "manifest",
+      "sha256": "0a062b15d49993e9f913af065c1f8b66cf5080214d6a357040dff93339794239",
+      "declaredMacros": [
+        {
+          "name": "CNTL_PV",
+          "default": ""
+        },
+        {
+          "name": "COLOR_CODE",
+          "default": ""
+        },
+        {
+          "name": "COLOR_PV",
+          "default": ""
+        },
+        {
+          "name": "DESC",
+          "default": ""
+        },
+        {
+          "name": "MON_PV",
+          "default": ""
+        }
+      ],
+      "referencedMacros": [
+        "CNTL_PV",
+        "COLOR_CODE",
+        "COLOR_PV",
+        "DESC",
+        "MON_PV"
+      ]
+    },
+    {
+      "path": "screens/common/embedded/_bpm.screen.json",
+      "screen": "common/embedded/_bpm",
+      "role": "manifest",
+      "sha256": "8cf5119cea86fd402c123635d1b5bc6d515bc23f65ce13b488d856803e7f3bfc",
+      "declaredMacros": [
+        {
+          "name": "BPM",
+          "default": ""
+        },
+        {
+          "name": "BPM_X",
+          "default": ""
+        },
+        {
+          "name": "BPM_Y",
+          "default": ""
+        }
+      ],
+      "referencedMacros": [
+        "BPM",
+        "BPM_X",
+        "BPM_Y"
+      ]
+    },
+    {
+      "path": "screens/common/embedded/_tv.screen.json",
+      "screen": "common/embedded/_tv",
+      "role": "manifest",
+      "sha256": "9e3d56fc87abf735a0b400b9175333e685621b793016bb738b298fc10ece4d22",
+      "declaredMacros": [
+        {
+          "name": "TV",
+          "default": ""
+        },
+        {
+          "name": "light",
+          "default": ""
+        },
+        {
+          "name": "loctv",
+          "default": ""
+        },
+        {
+          "name": "paddle",
+          "default": ""
+        },
+        {
+          "name": "paddle_rb",
+          "default": ""
+        }
+      ],
+      "referencedMacros": [
+        "TV",
+        "light",
+        "light_on",
+        "loctv",
+        "paddle",
+        "paddle_in",
+        "paddle_rb"
+      ]
+    },
+    {
+      "path": "screens/facility/overview.screen.json",
+      "screen": "facility/overview",
+      "role": "manifest",
+      "sha256": "919df65a157c00f000098d2c89be1d236a8642efd8f45347ba6a9fa1b1eff7a1",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/gtl/GTL.screen.json",
+      "screen": "gtl/GTL",
+      "role": "manifest",
+      "sha256": "14d678b91b1dda9971c656cf19a991a70083766606589fa5d3dab9c950c617db",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-02.screen.json",
+      "screen": "sr/_absorbers-02",
+      "role": "manifest",
+      "sha256": "4e7d4d87f94bff4336ee85a0d12636a1a7d92b4850d818bb2a35263411e43ed7",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-04.screen.json",
+      "screen": "sr/_absorbers-04",
+      "role": "manifest",
+      "sha256": "7e6040211393397769fab7fecc43a119907d5cf6f47dbe6b835a5ff2c3250da0",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-05.screen.json",
+      "screen": "sr/_absorbers-05",
+      "role": "manifest",
+      "sha256": "9a6d38933be88c0ab83f2535cab27c2c96e11a09ebfca15917387f035139f853",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-06.screen.json",
+      "screen": "sr/_absorbers-06",
+      "role": "manifest",
+      "sha256": "bf729adf5490699eb67f620dcf9ecae9c974047851ea74222dbcfe032d1f5cd2",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-07.screen.json",
+      "screen": "sr/_absorbers-07",
+      "role": "manifest",
+      "sha256": "11d85dff5279c2aa44585c2798e7fb9fd108ecbe58721ea57b881d4045f89e21",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-08.screen.json",
+      "screen": "sr/_absorbers-08",
+      "role": "manifest",
+      "sha256": "385e0f45ef48fd155cf1c271258e8d85ceead51c06bd5d4dcf75c0380546a0ef",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-09.screen.json",
+      "screen": "sr/_absorbers-09",
+      "role": "manifest",
+      "sha256": "a4e8c8a91149596198469b3bc570ce727245dc6d0f37dc30d561ff9dfc844017",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-10.screen.json",
+      "screen": "sr/_absorbers-10",
+      "role": "manifest",
+      "sha256": "7c711870c1e23c3294cf3ad022b7fb645d7606b6394df8c36addc721f247609a",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-11.screen.json",
+      "screen": "sr/_absorbers-11",
+      "role": "manifest",
+      "sha256": "35c3ec322bf0b0d65810bf6030febb0531582c28d53ffb806db86e4b0c0162c4",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_absorbers-12.screen.json",
+      "screen": "sr/_absorbers-12",
+      "role": "manifest",
+      "sha256": "544a087a586ad35a74a466e345f4ed14f3ddc84d70e1ff23346cd58abc778b7e",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-01.screen.json",
+      "screen": "sr/_vacuum-01",
+      "role": "manifest",
+      "sha256": "ad6e908555647c1a2b207993124717e5d5de54ba9502f7b0edf288328b1dda6b",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-02.screen.json",
+      "screen": "sr/_vacuum-02",
+      "role": "manifest",
+      "sha256": "5ec7132e22bb42a59a5bf3cff69bb57802df34fced4a639ccdd4fb57f4baf988",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-03.screen.json",
+      "screen": "sr/_vacuum-03",
+      "role": "manifest",
+      "sha256": "feea0fd939d41e793b74dc9597c61af593ca902311756627d90d08885cf2b1c4",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-04.screen.json",
+      "screen": "sr/_vacuum-04",
+      "role": "manifest",
+      "sha256": "d3781c2c19a7cbbf8435799bef36ae11b3a2e2efe343565af7b4d13df8770f94",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-05.screen.json",
+      "screen": "sr/_vacuum-05",
+      "role": "manifest",
+      "sha256": "24159f093785c6e49ef03d8ff869eb602eeedb0f17c86964ca7700ace25d4b1c",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-06.screen.json",
+      "screen": "sr/_vacuum-06",
+      "role": "manifest",
+      "sha256": "cd614a7e5ab53ade7785d490180d6e62578cefeaf10d8c20041d6e242cb59704",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-07.screen.json",
+      "screen": "sr/_vacuum-07",
+      "role": "manifest",
+      "sha256": "6bd74940baf392f03498804b4e2fd811897b79533838cf37313c3ae1c6c5e021",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-08.screen.json",
+      "screen": "sr/_vacuum-08",
+      "role": "manifest",
+      "sha256": "be2a49e5dc1f968121a70fd5c5d8cd88172b6421465adce2af26069dfa8b7124",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-09.screen.json",
+      "screen": "sr/_vacuum-09",
+      "role": "manifest",
+      "sha256": "b91dbaf928326f6822a757bc0c5b43cc798635cd6260a184edeb11813a06a1c2",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-10.screen.json",
+      "screen": "sr/_vacuum-10",
+      "role": "manifest",
+      "sha256": "95eb35662d951ca409bd4a0a914d5d9f4b2663f7d07f9cb3808f0dc06c8531f2",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-11.screen.json",
+      "screen": "sr/_vacuum-11",
+      "role": "manifest",
+      "sha256": "f52b56e79ff25e774c12059391251392726a77aa489faaf2005ec3834414ed44",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/_vacuum-12.screen.json",
+      "screen": "sr/_vacuum-12",
+      "role": "manifest",
+      "sha256": "08e8265d1a8eb351b1423db51e21b83371a48b6691389bf0a1d4b25c36464791",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/orbit-feedback.screen.json",
+      "screen": "sr/orbit-feedback",
+      "role": "manifest",
+      "sha256": "249741187c757f5566516c03aedc6286e5faca871ae54785c5ce50b05ff5c3f8",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-01.screen.json",
+      "screen": "sr/sector-01",
+      "role": "manifest",
+      "sha256": "5738fe815a49143af610dcedf182fc1ded8e719f1d7e657120f425b87d0ac27b",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-02.screen.json",
+      "screen": "sr/sector-02",
+      "role": "manifest",
+      "sha256": "564b077a9b3891248b76f1644f65dc66fa842be23508f01ff717fcb990533b7c",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-03.screen.json",
+      "screen": "sr/sector-03",
+      "role": "manifest",
+      "sha256": "6a7634794502b7d1bbdd904f11cdfa4b7e34e968276676aface85859f35831c7",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-04.screen.json",
+      "screen": "sr/sector-04",
+      "role": "manifest",
+      "sha256": "1ad2a964c60a4cf9c48a14b2e76327d4feffab0bbe6384e0bf8d9950c4e8a6e6",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-05.screen.json",
+      "screen": "sr/sector-05",
+      "role": "manifest",
+      "sha256": "d183bb8cd888ab2097441cc4efd18bc90b6e4025f92ac331a3331053ac47e53b",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-06.screen.json",
+      "screen": "sr/sector-06",
+      "role": "manifest",
+      "sha256": "64c2770f80b3ff3f630c8f6c2268d17530ad19e6f06b59aaed30ab047d20511a",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-07.screen.json",
+      "screen": "sr/sector-07",
+      "role": "manifest",
+      "sha256": "aaa0b9b0f7608c1cc6dcd4405dde7e3c80cbad47faf2b9af10e33e28945ee89a",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-08.screen.json",
+      "screen": "sr/sector-08",
+      "role": "manifest",
+      "sha256": "d16fc9e78c9bc5b12c0ea3280edcde2175df11fbe50740c75f6c9205df13dc85",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-09.screen.json",
+      "screen": "sr/sector-09",
+      "role": "manifest",
+      "sha256": "293bcc1f5b947f2c761ffe6efe0fd9f0af7982900fe3f8ab7428a89c36a2c77b",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-10.screen.json",
+      "screen": "sr/sector-10",
+      "role": "manifest",
+      "sha256": "335afd3fa775cc8ba98e35a7e7abcf5dc5d1b15bb537911936b95e14f2d9624e",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-11.screen.json",
+      "screen": "sr/sector-11",
+      "role": "manifest",
+      "sha256": "a190fba2a406ce14fc99dc8d7b2d48dbd0aa263c6d8f1e487474dbcbb0506ebc",
+      "declaredMacros": [],
+      "referencedMacros": []
+    },
+    {
+      "path": "screens/sr/sector-12.screen.json",
+      "screen": "sr/sector-12",
+      "role": "manifest",
+      "sha256": "3a8a338e8a860ee8aa0fd0a3d7ee57d808adbdec6934892ccb15beb2da7130b4",
+      "declaredMacros": [],
+      "referencedMacros": []
+    }
+  ],
+  "screens": [
+    {
+      "id": "br/overview",
+      "path": "screens/br/overview.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "br/overview",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "bts/BTS",
+      "path": "screens/bts/BTS.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "bts/BTS",
+          "hidden": false
+        },
+        {
+          "instance": "/0:w-147",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/1:w-148",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/2:w-149",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/3:w-150",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/4:w-151",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/5:w-152",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/6:w-153",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/7:w-154",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/8:w-155",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/9:w-156",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/10:w-157",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/11:w-158",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/12:w-159",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/13:w-160",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/14:w-161",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/15:w-162",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/16:w-163",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/17:w-164",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/18:w-165",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/19:w-166",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/20:w-167",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/21:w-168",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/22:w-169",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/23:w-170",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/24:w-171",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/25:w-172",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/26:w-173",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/27:w-174",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/28:w-175",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/29:w-176",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/30:w-177",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/31:w-178",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/32:w-179",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/33:w-180",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/34:w-181",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/35:w-182",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/36:w-183",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/37:w-184",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/38:w-185",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/39:w-186",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/40:w-187",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/41:w-188",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/42:w-189",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/43:w-190",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/44:w-191",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/45:w-192",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/46:w-193",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [
+        {
+          "name": "BPM",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        },
+        {
+          "name": "BPM_X",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        },
+        {
+          "name": "BPM_Y",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        },
+        {
+          "name": "CNTL_PV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "COLOR_CODE",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "COLOR_PV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "DESC",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "MON_PV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "TV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "light",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "light_on",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "loctv",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle_in",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle_rb",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        }
+      ],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "common/embedded/_KnobDevice",
+      "path": "screens/common/embedded/_KnobDevice.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [
+        {
+          "name": "CNTL_PV",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "COLOR_CODE",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "COLOR_PV",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "DESC",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "MON_PV",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        }
+      ],
+      "unresolvedRefs": [],
+      "unresolvedMacros": [
+        {
+          "screen": "common/embedded/_KnobDevice",
+          "instance": "",
+          "nodeId": "w-003"
+        },
+        {
+          "screen": "common/embedded/_KnobDevice",
+          "instance": "",
+          "nodeId": "w-004"
+        },
+        {
+          "screen": "common/embedded/_KnobDevice",
+          "instance": "",
+          "nodeId": "w-005"
+        }
+      ]
+    },
+    {
+      "id": "common/embedded/_bpm",
+      "path": "screens/common/embedded/_bpm.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [
+        {
+          "name": "BPM",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        },
+        {
+          "name": "BPM_X",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        },
+        {
+          "name": "BPM_Y",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        }
+      ],
+      "unresolvedRefs": [],
+      "unresolvedMacros": [
+        {
+          "screen": "common/embedded/_bpm",
+          "instance": "",
+          "nodeId": "w-002"
+        },
+        {
+          "screen": "common/embedded/_bpm",
+          "instance": "",
+          "nodeId": "w-003"
+        },
+        {
+          "screen": "common/embedded/_bpm",
+          "instance": "",
+          "nodeId": "w-004"
+        },
+        {
+          "screen": "common/embedded/_bpm",
+          "instance": "",
+          "nodeId": "w-005"
+        }
+      ]
+    },
+    {
+      "id": "common/embedded/_tv",
+      "path": "screens/common/embedded/_tv.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [
+        {
+          "name": "TV",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "light",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "light_on",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "loctv",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle_in",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle_rb",
+          "default": "",
+          "declared": true,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        }
+      ],
+      "unresolvedRefs": [],
+      "unresolvedMacros": [
+        {
+          "screen": "common/embedded/_tv",
+          "instance": "",
+          "nodeId": "w-003"
+        },
+        {
+          "screen": "common/embedded/_tv",
+          "instance": "",
+          "nodeId": "w-004"
+        },
+        {
+          "screen": "common/embedded/_tv",
+          "instance": "",
+          "nodeId": "w-005"
+        },
+        {
+          "screen": "common/embedded/_tv",
+          "instance": "",
+          "nodeId": "w-006"
+        }
+      ]
+    },
+    {
+      "id": "facility/overview",
+      "path": "screens/facility/overview.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "facility/overview",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "gtl/GTL",
+      "path": "screens/gtl/GTL.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "gtl/GTL",
+          "hidden": false
+        },
+        {
+          "instance": "/0:w-324",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/1:w-325",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/2:w-326",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/3:w-327",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/4:w-328",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/5:w-329",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/6:w-330",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/7:w-331",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/8:w-332",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/9:w-333",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/10:w-334",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/11:w-335",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/12:w-336",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/13:w-337",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/14:w-338",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/15:w-339",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/16:w-340",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/17:w-341",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/18:w-342",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/19:w-343",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/20:w-344",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        },
+        {
+          "instance": "/21:w-345",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/22:w-346",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/23:w-347",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/24:w-348",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/25:w-349",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/26:w-350",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/27:w-351",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/28:w-352",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/29:w-353",
+          "screen": "common/embedded/_bpm",
+          "hidden": false
+        },
+        {
+          "instance": "/30:w-354",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/31:w-355",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/32:w-356",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/33:w-357",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/34:w-358",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/35:w-359",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/36:w-360",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/37:w-361",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/38:w-362",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/39:w-363",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/40:w-364",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/41:w-365",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/42:w-366",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/43:w-367",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/44:w-368",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/45:w-369",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/46:w-370",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/47:w-371",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/48:w-372",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/49:w-373",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/50:w-374",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/51:w-375",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/52:w-376",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/53:w-377",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/54:w-378",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/55:w-379",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/56:w-380",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/57:w-381",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/58:w-382",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/59:w-383",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/60:w-384",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/61:w-385",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/62:w-386",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/63:w-387",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/64:w-388",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/65:w-389",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/66:w-390",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/67:w-391",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/68:w-392",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/69:w-393",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/70:w-394",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/71:w-395",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/72:w-396",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/73:w-397",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/74:w-398",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/75:w-399",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/76:w-400",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/77:w-401",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/78:w-402",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/79:w-403",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/80:w-404",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/81:w-405",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/82:w-406",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/83:w-407",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/84:w-408",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/85:w-409",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/86:w-410",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/87:w-411",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/88:w-412",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/89:w-413",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/90:w-414",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        },
+        {
+          "instance": "/91:w-427",
+          "screen": "common/embedded/_KnobDevice",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [
+        {
+          "name": "BPM",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        },
+        {
+          "name": "BPM_X",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        },
+        {
+          "name": "BPM_Y",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_bpm"
+          ]
+        },
+        {
+          "name": "CNTL_PV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "COLOR_CODE",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "COLOR_PV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "DESC",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "MON_PV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_KnobDevice"
+          ]
+        },
+        {
+          "name": "TV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "light",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "light_on",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "loctv",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle_in",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle_rb",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        }
+      ],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-02",
+      "path": "screens/sr/_absorbers-02.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-02",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-04",
+      "path": "screens/sr/_absorbers-04.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-04",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-05",
+      "path": "screens/sr/_absorbers-05.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-05",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-06",
+      "path": "screens/sr/_absorbers-06.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-06",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-07",
+      "path": "screens/sr/_absorbers-07.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-07",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-08",
+      "path": "screens/sr/_absorbers-08.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-08",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-09",
+      "path": "screens/sr/_absorbers-09.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-09",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-10",
+      "path": "screens/sr/_absorbers-10.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-10",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-11",
+      "path": "screens/sr/_absorbers-11.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-11",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_absorbers-12",
+      "path": "screens/sr/_absorbers-12.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_absorbers-12",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-01",
+      "path": "screens/sr/_vacuum-01.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-01",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-02",
+      "path": "screens/sr/_vacuum-02.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-02",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-03",
+      "path": "screens/sr/_vacuum-03.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-03",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-04",
+      "path": "screens/sr/_vacuum-04.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-04",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-05",
+      "path": "screens/sr/_vacuum-05.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-05",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-06",
+      "path": "screens/sr/_vacuum-06.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-06",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-07",
+      "path": "screens/sr/_vacuum-07.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-07",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-08",
+      "path": "screens/sr/_vacuum-08.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-08",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-09",
+      "path": "screens/sr/_vacuum-09.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-09",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-10",
+      "path": "screens/sr/_vacuum-10.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-10",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-11",
+      "path": "screens/sr/_vacuum-11.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-11",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/_vacuum-12",
+      "path": "screens/sr/_vacuum-12.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/_vacuum-12",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/orbit-feedback",
+      "path": "screens/sr/orbit-feedback.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/orbit-feedback",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-01",
+      "path": "screens/sr/sector-01.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-01",
+          "hidden": false
+        },
+        {
+          "instance": "/0:w-017",
+          "screen": "common/embedded/_tv",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [
+        {
+          "name": "TV",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "light",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "light_on",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "loctv",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle_in",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        },
+        {
+          "name": "paddle_rb",
+          "default": null,
+          "declared": false,
+          "referencedIn": [
+            "common/embedded/_tv"
+          ]
+        }
+      ],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-02",
+      "path": "screens/sr/sector-02.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-02",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-03",
+      "path": "screens/sr/sector-03.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-03",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-04",
+      "path": "screens/sr/sector-04.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-04",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-05",
+      "path": "screens/sr/sector-05.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-05",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-06",
+      "path": "screens/sr/sector-06.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-06",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-07",
+      "path": "screens/sr/sector-07.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-07",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-08",
+      "path": "screens/sr/sector-08.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-08",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-09",
+      "path": "screens/sr/sector-09.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-09",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-10",
+      "path": "screens/sr/sector-10.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-10",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-11",
+      "path": "screens/sr/sector-11.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-11",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    },
+    {
+      "id": "sr/sector-12",
+      "path": "screens/sr/sector-12.screen.json",
+      "instances": [
+        {
+          "instance": "",
+          "screen": "sr/sector-12",
+          "hidden": false
+        }
+      ],
+      "urlMacros": [],
+      "unresolvedRefs": [],
+      "unresolvedMacros": []
+    }
+  ],
+  "writeBindings": [
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-147",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv6",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-147",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:06:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-147",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:06:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/1:w-148",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv5",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/1:w-148",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:05:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/1:w-148",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:05:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/2:w-149",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv4",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/2:w-149",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:04:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/2:w-149",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:04:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/3:w-150",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv3",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/3:w-150",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:03:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/3:w-150",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:03:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/4:w-151",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv2",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/4:w-151",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:02:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/4:w-151",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:02:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/5:w-152",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/5:w-152",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:01:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "bts/BTS",
+      "screen": "common/embedded/_tv",
+      "instance": "/5:w-152",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:01:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "common/embedded/_tv",
+      "screen": "common/embedded/_tv",
+      "instance": "",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "",
+      "local": false,
+      "unresolvedMacro": true
+    },
+    {
+      "top": "common/embedded/_tv",
+      "screen": "common/embedded/_tv",
+      "instance": "",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "",
+      "local": false,
+      "unresolvedMacro": true
+    },
+    {
+      "top": "common/embedded/_tv",
+      "screen": "common/embedded/_tv",
+      "instance": "",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "",
+      "local": false,
+      "unresolvedMacro": true
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-039",
+      "kind": "write_pv",
+      "pvAsWritten": "GTL:GUN:EGUN:01:AUX_ON:SP",
+      "pvResolved": "GTL:GUN:EGUN:01:AUX_ON:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-043",
+      "kind": "write_pv",
+      "pvAsWritten": "GTL:GUN:EGUN:01:HV_ON:SP",
+      "pvResolved": "GTL:GUN:EGUN:01:HV_ON:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-044",
+      "kind": "write_pv",
+      "pvAsWritten": "GTL:GUN:EGUN:01:HEATER_ON:SP",
+      "pvResolved": "GTL:GUN:EGUN:01:HEATER_ON:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-121",
+      "kind": "pv-button",
+      "pvAsWritten": "BR:DIAG:TV:01:PADDLE:SP",
+      "pvResolved": "BR:DIAG:TV:01:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-121",
+      "kind": "pv-button",
+      "pvAsWritten": "BR:DIAG:TV:01:PADDLE:RB",
+      "pvResolved": "BR:DIAG:TV:01:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-122",
+      "kind": "write_pv",
+      "pvAsWritten": "loc://SR1TV1?type=float&init=0",
+      "pvResolved": "loc://SR1TV1?type=float&init=0",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-125",
+      "kind": "write_pv",
+      "pvAsWritten": "GTL:RF:SHB:01:PHASE_ON:SP",
+      "pvResolved": "GTL:RF:SHB:01:PHASE_ON:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-126",
+      "kind": "write_pv",
+      "pvAsWritten": "GTL:RF:SHB:01:HV_ON:SP",
+      "pvResolved": "GTL:RF:SHB:01:HV_ON:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-127",
+      "kind": "write_pv",
+      "pvAsWritten": "GTL:RF:SHB:02:PHASE_ON:SP",
+      "pvResolved": "GTL:RF:SHB:02:PHASE_ON:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-128",
+      "kind": "write_pv",
+      "pvAsWritten": "GTL:RF:SHB:02:HV_ON:SP",
+      "pvResolved": "GTL:RF:SHB:02:HV_ON:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-324",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://ltbtv6<VDouble>(0)",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-324",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "LTB:DIAG:TV:05:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-324",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "LTB:DIAG:TV:05:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/2:w-326",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://ltbtv5",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/2:w-326",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "LTB:DIAG:TV:04:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/2:w-326",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "LTB:DIAG:TV:04:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/3:w-327",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://ltbtv4",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/3:w-327",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "LTB:DIAG:TV:03:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/3:w-327",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "LTB:DIAG:TV:03:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/4:w-328",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://ltbtv3",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/4:w-328",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "LTB:DIAG:TV:02:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/4:w-328",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "LTB:DIAG:TV:02:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/5:w-329",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://ltbtv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/5:w-329",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "LTB:DIAG:TV:01:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/5:w-329",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "LTB:DIAG:TV:01:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/6:w-330",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://lntv2",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/6:w-330",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "LN:DIAG:TV:02:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/6:w-330",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "LN:DIAG:TV:02:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/7:w-331",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://lntv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/7:w-331",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "LN:DIAG:TV:01:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/7:w-331",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "LN:DIAG:TV:01:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/8:w-332",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://gtltv2",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/8:w-332",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "GTL:DIAG:TV:02:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/8:w-332",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "GTL:DIAG:TV:02:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/9:w-333",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://gtltv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/9:w-333",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "GTL:DIAG:TV:01:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/9:w-333",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "GTL:DIAG:TV:01:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/10:w-334",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://srtv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/10:w-334",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:07:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/10:w-334",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:07:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/11:w-335",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv6",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/11:w-335",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:06:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/11:w-335",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:06:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/12:w-336",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv5",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/12:w-336",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:05:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/12:w-336",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:05:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/13:w-337",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv4",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/13:w-337",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:04:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/13:w-337",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:04:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/14:w-338",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv3",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/14:w-338",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:03:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/14:w-338",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:03:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/15:w-339",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv2",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/15:w-339",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:02:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/15:w-339",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:02:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/16:w-340",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://btstv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/16:w-340",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:01:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/16:w-340",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:01:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/17:w-341",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://br4tv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/17:w-341",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BR:DIAG:TV:05:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/17:w-341",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BR:DIAG:TV:05:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/18:w-342",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://br3tv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/18:w-342",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BR:DIAG:TV:04:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/18:w-342",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BR:DIAG:TV:04:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/19:w-343",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://br1tv3",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/19:w-343",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BR:DIAG:TV:03:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/19:w-343",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BR:DIAG:TV:03:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/20:w-344",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://br1tv2",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/20:w-344",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BR:DIAG:TV:02:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "gtl/GTL",
+      "screen": "common/embedded/_tv",
+      "instance": "/20:w-344",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BR:DIAG:TV:02:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST01A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST01A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST01B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST01B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-083",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR01:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR01:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-105",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:01:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:01:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-106",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:01:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:01:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-116",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:13:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:13:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-117",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:13:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:13:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST02A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST02A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR02:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR02:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-099",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:02:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:02:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-100",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:02:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:02:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-110",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:14:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:14:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-111",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:14:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:14:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST03A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST03A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST03B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST03B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-083",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR03:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR03:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-105",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:03:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:03:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-106",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:03:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:03:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-116",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:15:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:15:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-117",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:15:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:15:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST04A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST04A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST04B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST04B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-083",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR04:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR04:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-105",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:04:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:04:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-106",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:04:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:04:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-116",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:16:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:16:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-117",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:16:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:16:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST05A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST05A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR05:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR05:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-099",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:05:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:05:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-100",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:05:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:05:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-110",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:17:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:17:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-111",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:17:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:17:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST06A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST06A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST06B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST06B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-083",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR06:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR06:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-105",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:06:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:06:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-106",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:06:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:06:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-116",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:18:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:18:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-117",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:18:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:18:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST07A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST07A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR07:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR07:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-099",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:07:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:07:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-100",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:07:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:07:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-110",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:19:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:19:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-111",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:19:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:19:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST08A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST08A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR08:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR08:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-099",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:08:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:08:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-100",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:08:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:08:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-110",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:20:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:20:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-111",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:20:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:20:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST09A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST09A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR09:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR09:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-099",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:09:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:09:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-100",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:09:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:09:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-110",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:21:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:21:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-111",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:21:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:21:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST10A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST10A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR10:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR10:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-099",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:10:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:10:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-100",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:10:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:10:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-110",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:22:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:22:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-111",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:22:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:22:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST11A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST11A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST11B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST11B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-083",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR11:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR11:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-105",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:11:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:11:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-106",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:11:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:11:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-116",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:23:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:23:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-117",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:23:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:23:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-071",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST12A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST12A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-077",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR12:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR12:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-099",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:12:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:12:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-100",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:12:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:12:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-110",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:24:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:24:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-111",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:24:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:24:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/orbit-feedback",
+      "screen": "sr/orbit-feedback",
+      "instance": "",
+      "nodeId": "w-076",
+      "kind": "pv-text-input",
+      "pvAsWritten": "SR:MAG:HCM:01:CURRENT:SP",
+      "pvResolved": "SR:MAG:HCM:01:CURRENT:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-357",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST01A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST01A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-362",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST01B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST01B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-367",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR01:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR01:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-382",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:01:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:01:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-383",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:01:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:01:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-389",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:13:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:13:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-390",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:13:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:13:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-017",
+      "nodeId": "w-004",
+      "kind": "pv-button",
+      "pvAsWritten": "${loctv}",
+      "pvResolved": "loc://srtv1",
+      "local": true,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-017",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle}",
+      "pvResolved": "BTS:DIAG:TV:07:PADDLE:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-01",
+      "screen": "common/embedded/_tv",
+      "instance": "/0:w-017",
+      "nodeId": "w-005",
+      "kind": "pv-button",
+      "pvAsWritten": "${paddle_rb}",
+      "pvResolved": "BTS:DIAG:TV:07:PADDLE:RB",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-436",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST02A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST02A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-441",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR02:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR02:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-456",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:02:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:02:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-457",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:02:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:02:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-463",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:14:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:14:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-464",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:14:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:14:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-350",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST03A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST03A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-355",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST03B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST03B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-360",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR03:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR03:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-375",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:03:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:03:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-376",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:03:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:03:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-382",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:15:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:15:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-383",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:15:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:15:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-395",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST04A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST04A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-400",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST04B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST04B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-405",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR04:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR04:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-420",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:04:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:04:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-421",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:04:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:04:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-427",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:16:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:16:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-428",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:16:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:16:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-416",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST05A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST05A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-421",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR05:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR05:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-436",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:05:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:05:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-437",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:05:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:05:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-443",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:17:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:17:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-444",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:17:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:17:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-425",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST06A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST06A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-430",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST06B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST06B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-435",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR06:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR06:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-450",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:06:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:06:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-451",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:06:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:06:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-457",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:18:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:18:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-458",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:18:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:18:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-421",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST07A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST07A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-426",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR07:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR07:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-441",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:07:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:07:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-442",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:07:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:07:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-448",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:19:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:19:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-449",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:19:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:19:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-414",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST08A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST08A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-419",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR08:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR08:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-434",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:08:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:08:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-435",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:08:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:08:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-441",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:20:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:20:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-442",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:20:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:20:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-395",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST09A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST09A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-400",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR09:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR09:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-415",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:09:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:09:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-416",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:09:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:09:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-422",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:21:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:21:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-423",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:21:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:21:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-392",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST10A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST10A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-397",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR10:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR10:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-412",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:10:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:10:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-413",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:10:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:10:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-419",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:22:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:22:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-420",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:22:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:22:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-425",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST11A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST11A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-430",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST11B:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST11B:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-435",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR11:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR11:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-450",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:11:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:11:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-451",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:11:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:11:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-457",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:23:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:23:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-458",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:23:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:23:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-404",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:ST12A:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:ST12A:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-409",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:GAUGE:SR12:RESET:SP",
+      "pvResolved": "SR:VAC:GAUGE:SR12:RESET:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-424",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:12:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:12:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-425",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:12:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:12:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-431",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:24:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:24:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    },
+    {
+      "top": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-432",
+      "kind": "write_pv",
+      "pvAsWritten": "SR:VAC:VALVE:24:OPEN:SP",
+      "pvResolved": "SR:VAC:VALVE:24:OPEN:SP",
+      "local": false,
+      "unresolvedMacro": false
+    }
+  ],
+  "executeActions": [],
+  "commandButtons": [
+    {
+      "topScreen": "bts/BTS",
+      "screen": "bts/BTS",
+      "instance": "",
+      "nodeId": "w-210",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-039",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-043",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-044",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-122",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-125",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-126",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-127",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-128",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-429",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-083",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-105",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-106",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-116",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-117",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-099",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-100",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-110",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-111",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-083",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-105",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-106",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-116",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-117",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-083",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-105",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-106",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-116",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-117",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-099",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-100",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-110",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-111",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-083",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-105",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-106",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-116",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-117",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-099",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-100",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-110",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-111",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-099",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-100",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-110",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-111",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-099",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-100",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-110",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-111",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-099",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-100",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-110",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-111",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-083",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-105",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-106",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-116",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-117",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-071",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-077",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-099",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-100",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-110",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-111",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-357",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-362",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-367",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-382",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-383",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-389",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-390",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-436",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-441",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-456",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-457",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-463",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-464",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-350",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-355",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-360",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-375",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-376",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-382",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-383",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-395",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-400",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-405",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-420",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-421",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-427",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-428",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-416",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-421",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-436",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-437",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-443",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-444",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-425",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-430",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-435",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-450",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-451",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-457",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-458",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-421",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-426",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-441",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-442",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-448",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-449",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-414",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-419",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-434",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-435",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-441",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-442",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-395",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-400",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-415",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-416",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-422",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-423",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-392",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-397",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-412",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-413",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-419",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-420",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-425",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-430",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-435",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-450",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-451",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-457",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-458",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-404",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-409",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-424",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-425",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-431",
+      "nodeType": "regular-button",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-432",
+      "nodeType": "regular-button",
+      "hidden": false
+    }
+  ],
+  "openDisplays": [
+    {
+      "topScreen": "bts/BTS",
+      "screen": "bts/BTS",
+      "instance": "",
+      "nodeId": "w-210",
+      "nodeType": "regular-button",
+      "file": "../gtl/GTL.screen.json",
+      "target": "gtl/GTL",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-697",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-01.screen.json",
+      "target": "sr/sector-01",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-698",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-02.screen.json",
+      "target": "sr/sector-02",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-699",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-03.screen.json",
+      "target": "sr/sector-03",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-700",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-04.screen.json",
+      "target": "sr/sector-04",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-701",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-05.screen.json",
+      "target": "sr/sector-05",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-702",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-06.screen.json",
+      "target": "sr/sector-06",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-703",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-07.screen.json",
+      "target": "sr/sector-07",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-704",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-08.screen.json",
+      "target": "sr/sector-08",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-705",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-09.screen.json",
+      "target": "sr/sector-09",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-706",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-10.screen.json",
+      "target": "sr/sector-10",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-707",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-11.screen.json",
+      "target": "sr/sector-11",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-708",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-12.screen.json",
+      "target": "sr/sector-12",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-709",
+      "nodeType": "rectangle",
+      "file": "../bts/BTS.screen.json",
+      "target": "bts/BTS",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-710",
+      "nodeType": "rectangle",
+      "file": "../gtl/GTL.screen.json",
+      "target": "gtl/GTL",
+      "hidden": false
+    },
+    {
+      "topScreen": "facility/overview",
+      "screen": "facility/overview",
+      "instance": "",
+      "nodeId": "w-711",
+      "nodeType": "ellipse",
+      "file": "../br/overview.screen.json",
+      "target": "br/overview",
+      "hidden": false
+    },
+    {
+      "topScreen": "gtl/GTL",
+      "screen": "gtl/GTL",
+      "instance": "",
+      "nodeId": "w-429",
+      "nodeType": "regular-button",
+      "file": "../bts/BTS.screen.json",
+      "target": "bts/BTS",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-02",
+      "screen": "sr/_absorbers-02",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-02.screen.json",
+      "target": "sr/sector-02",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-04",
+      "screen": "sr/_absorbers-04",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-04.screen.json",
+      "target": "sr/sector-04",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-05",
+      "screen": "sr/_absorbers-05",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-05.screen.json",
+      "target": "sr/sector-05",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-06",
+      "screen": "sr/_absorbers-06",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-06.screen.json",
+      "target": "sr/sector-06",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-07",
+      "screen": "sr/_absorbers-07",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-07.screen.json",
+      "target": "sr/sector-07",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-08",
+      "screen": "sr/_absorbers-08",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-08.screen.json",
+      "target": "sr/sector-08",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-09",
+      "screen": "sr/_absorbers-09",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-09.screen.json",
+      "target": "sr/sector-09",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-10",
+      "screen": "sr/_absorbers-10",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-10.screen.json",
+      "target": "sr/sector-10",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-11",
+      "screen": "sr/_absorbers-11",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-11.screen.json",
+      "target": "sr/sector-11",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_absorbers-12",
+      "screen": "sr/_absorbers-12",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-12.screen.json",
+      "target": "sr/sector-12",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-01",
+      "screen": "sr/_vacuum-01",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-01.screen.json",
+      "target": "sr/sector-01",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-02",
+      "screen": "sr/_vacuum-02",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-02.screen.json",
+      "target": "sr/sector-02",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-03",
+      "screen": "sr/_vacuum-03",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-03.screen.json",
+      "target": "sr/sector-03",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-04",
+      "screen": "sr/_vacuum-04",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-04.screen.json",
+      "target": "sr/sector-04",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-05",
+      "screen": "sr/_vacuum-05",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-05.screen.json",
+      "target": "sr/sector-05",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-06",
+      "screen": "sr/_vacuum-06",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-06.screen.json",
+      "target": "sr/sector-06",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-07",
+      "screen": "sr/_vacuum-07",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-07.screen.json",
+      "target": "sr/sector-07",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-08",
+      "screen": "sr/_vacuum-08",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-08.screen.json",
+      "target": "sr/sector-08",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-09",
+      "screen": "sr/_vacuum-09",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-09.screen.json",
+      "target": "sr/sector-09",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-10",
+      "screen": "sr/_vacuum-10",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-10.screen.json",
+      "target": "sr/sector-10",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-11",
+      "screen": "sr/_vacuum-11",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-11.screen.json",
+      "target": "sr/sector-11",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/_vacuum-12",
+      "screen": "sr/_vacuum-12",
+      "instance": "",
+      "nodeId": "w-004",
+      "nodeType": "rectangle",
+      "file": "../sr/sector-12.screen.json",
+      "target": "sr/sector-12",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-142",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-01",
+      "screen": "sr/sector-01",
+      "instance": "",
+      "nodeId": "w-314",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-01.screen.json",
+      "target": "sr/_vacuum-01",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-190",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-393",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-02.screen.json",
+      "target": "sr/_vacuum-02",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-02",
+      "screen": "sr/sector-02",
+      "instance": "",
+      "nodeId": "w-505",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-02.screen.json",
+      "target": "sr/_absorbers-02",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-135",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-03",
+      "screen": "sr/sector-03",
+      "instance": "",
+      "nodeId": "w-307",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-03.screen.json",
+      "target": "sr/_vacuum-03",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-180",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-352",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-04.screen.json",
+      "target": "sr/_vacuum-04",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-04",
+      "screen": "sr/sector-04",
+      "instance": "",
+      "nodeId": "w-461",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-04.screen.json",
+      "target": "sr/_absorbers-04",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-201",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-373",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-05.screen.json",
+      "target": "sr/_vacuum-05",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-05",
+      "screen": "sr/sector-05",
+      "instance": "",
+      "nodeId": "w-488",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-05.screen.json",
+      "target": "sr/_absorbers-05",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-210",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-382",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-06.screen.json",
+      "target": "sr/_vacuum-06",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-06",
+      "screen": "sr/sector-06",
+      "instance": "",
+      "nodeId": "w-498",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-06.screen.json",
+      "target": "sr/_absorbers-06",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-206",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-378",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-07.screen.json",
+      "target": "sr/_vacuum-07",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-07",
+      "screen": "sr/sector-07",
+      "instance": "",
+      "nodeId": "w-490",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-07.screen.json",
+      "target": "sr/_absorbers-07",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-199",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-371",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-08.screen.json",
+      "target": "sr/_vacuum-08",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-08",
+      "screen": "sr/sector-08",
+      "instance": "",
+      "nodeId": "w-484",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-08.screen.json",
+      "target": "sr/_absorbers-08",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-180",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-352",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-09.screen.json",
+      "target": "sr/_vacuum-09",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-09",
+      "screen": "sr/sector-09",
+      "instance": "",
+      "nodeId": "w-453",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-09.screen.json",
+      "target": "sr/_absorbers-09",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-177",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-349",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-10.screen.json",
+      "target": "sr/_vacuum-10",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-10",
+      "screen": "sr/sector-10",
+      "instance": "",
+      "nodeId": "w-448",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-10.screen.json",
+      "target": "sr/_absorbers-10",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-210",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-382",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-11.screen.json",
+      "target": "sr/_vacuum-11",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-11",
+      "screen": "sr/sector-11",
+      "instance": "",
+      "nodeId": "w-499",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-11.screen.json",
+      "target": "sr/_absorbers-11",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-189",
+      "nodeType": "rectangle",
+      "file": "../sr/orbit-feedback.screen.json",
+      "target": "sr/orbit-feedback",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-361",
+      "nodeType": "rectangle",
+      "file": "../sr/_vacuum-12.screen.json",
+      "target": "sr/_vacuum-12",
+      "hidden": false
+    },
+    {
+      "topScreen": "sr/sector-12",
+      "screen": "sr/sector-12",
+      "instance": "",
+      "nodeId": "w-466",
+      "nodeType": "rectangle",
+      "file": "../sr/_absorbers-12.screen.json",
+      "target": "sr/_absorbers-12",
+      "hidden": false
+    }
+  ],
+  "absoluteUrls": [],
+  "crossRootRefs": [],
+  "rootRelativeRefs": [],
+  "ruleRetargetedChannels": [],
+  "ruleRetargetedRefs": []
+}

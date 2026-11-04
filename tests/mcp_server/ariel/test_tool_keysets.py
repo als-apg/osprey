@@ -337,7 +337,7 @@ async def run_tool(tool: str, harness: Any) -> str:
     if tool == "entry_open":
         from osprey.mcp_server.ariel.tools.entry import entry_open
 
-        with patch("osprey.mcp_server.http.notify_panel_focus"):
+        with patch("osprey.mcp_server.http.panel_op"):
             return await get_tool_fn(entry_open)(
                 entry_id=KEYSET_ENTRY_ID, attachment_id=_keyset_picture_id()
             )

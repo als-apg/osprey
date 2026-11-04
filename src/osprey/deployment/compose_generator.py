@@ -1021,18 +1021,25 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         not a string (a mode other than ``optional``), or names a file that is
         not on this host
     """
+    from osprey_connectors.control_system import LimitsValidator, mapping_config_lookup
     from osprey_connectors.types import WRITES_KEY, tier_limits_database_targets, tier_writes
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
+    # The connector's one reading of the key decides whether it names a file
+    # and which file that is, so the mount and the validator that opens it
+    # cannot disagree about one config. Only the directory of the anchor is
+    # read; the file name is nominal.
+    resolved = LimitsValidator.configured_database_path(
+        config_lookup=mapping_config_lookup(config),
+        config_path=str(Path(config_dir) / "config.yml"),
+    )
     limits_required = bool(
-        tier_limits_database_targets(
-            control_system, path_configured=isinstance(raw, str) and bool(raw.strip())
-        )
+        tier_limits_database_targets(control_system, path_configured=resolved is not None)
     )
 
-    if not isinstance(raw, str) or not raw.strip():
+    if resolved is None:
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
@@ -1064,11 +1071,12 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         # spelled.
         return None
 
-    configured = Path(raw).expanduser()
+    assert isinstance(raw, str)  # a key that names no string resolves to None above
+    configured = Path(raw.strip()).expanduser()
+    on_host = Path(resolved)
     if configured.is_absolute():
-        source = repo_relative_mount_source(raw, repo_root=None)
+        source = repo_relative_mount_source(str(configured), repo_root=None)
         target = source
-        on_host = configured
     else:
         relative = PurePosixPath(configured)
         # The prefix is joined for the SOURCE only. ``deployed_config_dir`` is
@@ -1080,7 +1088,6 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         )
         source = repo_relative_mount_source(str(deployed), repo_root=None)
         target = str(PurePosixPath(_CONTAINER_PROJECT_ROOT) / relative)
-        on_host = Path(config_dir) / configured
 
     if not on_host.is_file():
         if limits_required:
@@ -2061,7 +2068,7 @@ def _dispatch_worker_corpus_mounts(config, source_dir, layer_root=None):
     repo_root = resolve_repo_root(config)
     tier = entry["render"]
     project_dir = entry["container_project_dir"]
-    mounts = {"bundle": None, "mirror": None}
+    mounts: dict[str, dict[str, str] | None] = {"bundle": None, "mirror": None}
 
     knowledge = config.get("facility_knowledge")
     bundle_path = knowledge.get("bundle_path") if isinstance(knowledge, dict) else None
@@ -3289,7 +3296,7 @@ def dispatch_worker_audit_identities(config):
     worker = ((config or {}).get("services") or {}).get("dispatch_worker")
     raw = worker.get("worker_count") if isinstance(worker, dict) else None
     try:
-        count = int(raw)
+        count = int(raw) if raw is not None else 1
     except (TypeError, ValueError):
         # The template's own `| default(1)` for the same unset/unusable value.
         count = 1
@@ -4173,18 +4180,81 @@ def _ensure_agent_data_structure(config):
 
 
 #: Basename of the one service directory whose build context carries the
-#: channel snapshot: the bluesky_web sidecar's /channels route serves it.
+#: channel snapshot: the bluesky_web sidecar's /channels route serves it to its
+#: plan form. The per-user CANOPY panel reads its own copy, the one
+#: :func:`stage_web_terminal_channel_snapshot` writes for the web terminals.
 _CHANNEL_SNAPSHOT_SERVICE = "bluesky_web"
 
-#: Filename the sidecar's /channels route expects beside its mounted config.yml.
+#: Basename of the archiver recorder's service directory.
+ARCHIVER_RECORDER_SERVICE = "archiver_recorder"
+
+#: Filename the services' /channels routes read from their mounted snapshot.
 CHANNEL_SNAPSHOT_FILENAME = "channels.json"
+
+#: Where the web terminals' copy of the channel snapshot lives, relative to the
+#: build directory: outside every service directory, because it belongs to no
+#: service. ``render_web_terminals`` bind-mounts it read-only into each web
+#: container when, and only when, the file is there.
+WEB_TERMINAL_CHANNEL_SNAPSHOT = Path("web_terminals") / CHANNEL_SNAPSHOT_FILENAME
+
+
+def _write_channel_snapshot(config, snapshot_path):
+    """Write the build's channel snapshot to ``snapshot_path``, or remove a stale one.
+
+    One decision (:func:`compute_channel_snapshot`) for every copy the build
+    writes. When the decision is not to emit, a file left at ``snapshot_path``
+    by an earlier build is removed, so a reused directory cannot keep a
+    snapshot the decision revoked.
+
+    :return: True iff a snapshot was written
+    :rtype: bool
+    """
+    decision = compute_channel_snapshot(config)
+    if not decision.emit:
+        try:
+            os.remove(snapshot_path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.warning(f"Could not remove the stale channel snapshot {snapshot_path}: {e}")
+        return False
+
+    try:
+        os.makedirs(os.path.dirname(snapshot_path) or ".", exist_ok=True)
+        with open(snapshot_path, "w") as f:
+            json.dump(decision.channels, f)
+    except OSError as e:
+        logger.warning(f"Could not write the channel snapshot to {snapshot_path}: {e}")
+        return False
+    logger.debug(f"Wrote channel snapshot ({decision.count} channels) to {snapshot_path}")
+    return True
+
+
+def stage_web_terminal_channel_snapshot(config, build_dir):
+    """Write the web terminals' channel snapshot under ``build_dir``; report success.
+
+    ``osprey build`` calls this once per build, with the config the services
+    render used, so the per-user CANOPY panel serves the same addresses the
+    bluesky_web sidecar does. The file goes to
+    :data:`WEB_TERMINAL_CHANNEL_SNAPSHOT` below ``build_dir``; a stale copy is
+    removed when the decision is not to emit.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param build_dir: The build directory being rendered
+    :type build_dir: str | os.PathLike
+    :return: True iff a snapshot was written
+    :rtype: bool
+    """
+    return _write_channel_snapshot(config, os.path.join(build_dir, WEB_TERMINAL_CHANNEL_SNAPSHOT))
 
 
 def _stage_channel_snapshot(config, source_dir, out_dir):
-    """Write the channel snapshot into the bluesky_web build context; report success.
+    """Write the channel snapshot into a serving service's build context; report success.
 
-    Only the bluesky_web sidecar serves the snapshot, so every other service
-    render skips the database load entirely and reports False. The boolean
+    Only ``_CHANNEL_SNAPSHOT_SERVICE`` serves the snapshot, so
+    every other service render skips the database load entirely and reports
+    False. The boolean
     return is the value the render context's ``channel_snapshot`` key carries —
     fail-closed exactly like dev_mode's wheel gating: the compose template may
     only mount a file that was actually written. When the decision is not to
@@ -4203,25 +4273,7 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
     if os.path.basename(source_dir) != _CHANNEL_SNAPSHOT_SERVICE:
         return False
 
-    snapshot_path = os.path.join(out_dir, CHANNEL_SNAPSHOT_FILENAME)
-    decision = compute_channel_snapshot(config)
-    if not decision.emit:
-        try:
-            os.remove(snapshot_path)
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            logger.warning(f"Could not remove the stale channel snapshot {snapshot_path}: {e}")
-        return False
-
-    try:
-        with open(snapshot_path, "w") as f:
-            json.dump(decision.channels, f)
-    except OSError as e:
-        logger.warning(f"Could not write the channel snapshot to {snapshot_path}: {e}")
-        return False
-    logger.debug(f"Wrote channel snapshot ({decision.count} channels) to {snapshot_path}")
-    return True
+    return _write_channel_snapshot(config, os.path.join(out_dir, CHANNEL_SNAPSHOT_FILENAME))
 
 
 #: The one service whose compose environment lists the roster's per-user
@@ -4286,7 +4338,6 @@ def _connection_ca_bundles(config, source_dir):
         ca_bundle_mounts,
         config_archiver_ca_bundles,
     )
-    from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 
     service = os.path.basename(os.path.normpath(source_dir))
     if service == "dispatch_worker":
@@ -4720,8 +4771,8 @@ def setup_build_dir(
                 raise
     os.makedirs(out_dir, exist_ok=True)
     if kept_tiered_config is not None:
-        with open(os.path.join(out_dir, "config.yml"), "wb") as f:
-            f.write(kept_tiered_config)
+        with open(os.path.join(out_dir, "config.yml"), "wb") as kept_file:
+            kept_file.write(kept_tiered_config)
 
     # Copy the service's own files (except templates) and stage the dev wheel
     # BEFORE rendering the compose template: the render context's dev_mode flag
@@ -4822,8 +4873,10 @@ def setup_build_dir(
                     dst_dir = os.path.join(out_dir, dir_spec)
                 elif isinstance(dir_spec, dict):
                     # Dictionary: allows custom source -> destination mapping
-                    src_dir = dir_spec.get("src")
-                    dst_dir = os.path.join(out_dir, dir_spec.get("dst", src_dir))
+                    if not dir_spec.get("src"):
+                        continue  # names nothing to copy
+                    src_dir = dir_spec["src"]
+                    dst_dir = os.path.join(out_dir, dir_spec.get("dst") or src_dir)
                 else:
                     continue
 
@@ -4895,9 +4948,9 @@ def setup_build_dir(
                 adjust_src_paths_recursive(flattened_config)
 
                 config_yml_dst = os.path.join(out_dir, "config.yml")
-                with open(config_yml_dst, "w") as f:
+                with open(config_yml_dst, "w") as config_file:
                     yaml_loader.safe_dump(
-                        flattened_config, f, default_flow_style=False, sort_keys=False
+                        flattened_config, config_file, default_flow_style=False, sort_keys=False
                     )
                 logger.debug(f"Created flattened config.yml at {config_yml_dst}")
             except Exception as e:

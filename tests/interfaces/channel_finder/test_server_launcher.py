@@ -121,33 +121,26 @@ class TestEnsureRunningOwnership:
     attributes the listener to this deployment.
     """
 
-    def test_launches_when_port_bindable_despite_health_200(self, reserve_port):
-        """A /health 200 over a bindable port must NOT suppress the launch.
-
-        This is the core of #327: ``/health`` is exempt from the auth gate, so
-        every OSPREY checkout on the machine answers it 200 and it says nothing
-        about whether this port is ours. The bind question is the only one asked.
-        """
+    @pytest.mark.parametrize(
+        "is_running",
+        [
+            # A /health 200 over a bindable port must NOT suppress the launch.
+            #
+            # This is the core of #327: ``/health`` is exempt from the auth gate, so
+            # every OSPREY checkout on the machine answers it 200 and it says nothing
+            # about whether this port is ours. The bind question is the only one asked.
+            pytest.param(True, id="health-200"),
+            # Bindable, nothing answering → launch and own the port.
+            pytest.param(False, id="genuinely-free"),
+        ],
+    )
+    def test_launches_when_port_bindable(self, reserve_port, is_running):
         launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=True),
             patch.object(launcher, "_port_answers_connect", return_value=False),
-            patch.object(launcher, "_is_running", return_value=True),
-            patch.object(launcher, "_launch_in_thread") as mock_launch,
-        ):
-            launcher.ensure_running()
-
-        mock_launch.assert_called_once()
-
-    def test_launches_when_port_genuinely_free(self, reserve_port):
-        """Bindable, nothing answering → launch and own the port."""
-        launcher = _make_launcher("127.0.0.1", reserve_port())
-
-        with (
-            patch.object(launcher, "_port_is_bindable", return_value=True),
-            patch.object(launcher, "_port_answers_connect", return_value=False),
-            patch.object(launcher, "_is_running", return_value=False),
+            patch.object(launcher, "_is_running", return_value=is_running),
             patch.object(launcher, "_launch_in_thread") as mock_launch,
         ):
             launcher.ensure_running()

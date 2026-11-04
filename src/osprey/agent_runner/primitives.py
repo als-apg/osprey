@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 # SDK imports — keep module importable even when SDK is absent.
 try:
-    from claude_agent_sdk import (  # type: ignore[assignment]
+    from claude_agent_sdk import (
         ClaudeAgentOptions,
         HookMatcher,
         ResultMessage,
@@ -917,14 +917,38 @@ _MCP_READY_POLL_S = 0.3
 _MCP_TERMINAL_STATUSES = frozenset({"connected", "failed", "needs-auth"})
 
 
+def _presents_panel_token(entry: Any) -> bool:
+    """Whether a rendered ``.mcp.json`` entry authenticates with the panel token."""
+    from osprey.registry.mcp import PANEL_TOKEN_ENV_NAME
+
+    headers = entry.get("headers") if isinstance(entry, dict) else None
+    if not isinstance(headers, dict):
+        return False
+    placeholder = f"${{{PANEL_TOKEN_ENV_NAME}"
+    return any(isinstance(value, str) and placeholder in value for value in headers.values())
+
+
 def expected_mcp_servers(project_dir: Path) -> set[str]:
     """The MCP server names a project declares in ``.mcp.json`` — the set the
-    readiness barrier waits for. Returns an empty set if the file is unreadable."""
+    readiness barrier waits for. Returns an empty set if the file is unreadable.
+
+    A server whose rendered headers present the panel token is left out while
+    this process holds no such token. Only a web terminal mints one, so outside
+    a terminal session the entry sends an empty bearer to a route that is not
+    there, and it can never register — the barrier would spend its whole
+    budget, and then fail the run, on a server the session was never going to
+    have.
+    """
+    from osprey.registry.mcp import PANEL_TOKEN_ENV_NAME
+
     try:
         cfg = json.loads((project_dir / RENDERED_MCP_CONFIG).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return set()
-    return set(cfg.get("mcpServers", {}).keys())
+    servers = cfg.get("mcpServers", {})
+    if os.environ.get(PANEL_TOKEN_ENV_NAME):
+        return set(servers.keys())
+    return {name for name, entry in servers.items() if not _presents_panel_token(entry)}
 
 
 async def await_mcp_ready(

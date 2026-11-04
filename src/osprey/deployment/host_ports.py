@@ -457,7 +457,7 @@ def _parse_port_entry(entry):
     """
     if isinstance(entry, dict):
         published = entry.get("published")
-        if published in (None, ""):
+        if published is None or published == "":
             return None  # long form without a host publication
         try:
             host_port = int(published)
@@ -712,8 +712,8 @@ def derive_host_network_bindings(config):
             if not host_binding_of(block).listens:
                 continue  # opens no listening socket: nothing to preflight
             try:
-                port = int(block.get("port"))
-            except (TypeError, ValueError):
+                port = int(block["port"])
+            except (KeyError, TypeError, ValueError):
                 logger.warning(
                     f"Service {name!r} runs on the host network but declares no integer "
                     f"`services.{name}.port`, so whatever it binds is NOT covered by "
@@ -1042,7 +1042,7 @@ def _runtime_port_holders(records):
     :return: ``{host_port: _PsRecord}`` (first container wins on a tie)
     :rtype: dict[int, _PsRecord]
     """
-    holders = {}
+    holders: dict[int, _PsRecord] = {}
     for record in records:
         for port in record.host_ports:
             holders.setdefault(port, record)
@@ -1289,7 +1289,7 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
 
     # a. Intra-set duplicates: the first binding claims each address; any later
     #    binding on the same (host_ip, host_port) is a static duplicate.
-    claimed = {}
+    claimed: dict[tuple[str, int], HostPortBinding] = {}
     unique = []
     for binding in bindings:
         key = (binding.host_ip, binding.host_port)

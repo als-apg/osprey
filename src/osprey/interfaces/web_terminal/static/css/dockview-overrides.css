@@ -201,20 +201,22 @@
   background: var(--surface-card);
 }
 
-/* ---- Tile header bar: the single tab IS the host chrome ----
- * One panel per tile is a workspace invariant (both modes), so a tile's "tab"
- * can never have siblings; dock-tab.js renders it as the tile's header bar.
- * EVERY tile carries the same bar — --wt-pane-head-height, the pane header
- * row of the design language — with the same grammar: the tile's identity
- * on the left, its actions right-anchored, so naming and closing a tile is
- * one gesture learned once. There is no drag badge: the whole bar is the
- * drag handle (cursor: grab below).
+/* ---- Tile header bar: the showing tab's bar IS the host chrome ----
+ * dock-tab.js renders every dockview tab as the tile's header bar, and of a
+ * tile's tabs only the showing one is on screen (below), so a tile has one
+ * bar however many tabs it holds. EVERY tile carries the same bar —
+ * --wt-pane-head-height, the pane header row of the design language — with
+ * the same grammar: the tile's identity on the left, its actions
+ * right-anchored, so naming, switching and closing is one gesture learned
+ * once. There is no drag badge: the whole bar is the drag handle (cursor:
+ * grab below); a strip item drags its own tab.
  *
- *   SERVICE tiles show the panel's name (.tile-tab-title) + contributed
- *     controls + close.
+ *   SERVICE tiles show the panel's name (.tile-tab-title) — the tab strip
+ *     (.tile-tab-tabs) once the tile holds more than one tab — + the showing
+ *     tab's contributed controls + pop out + close.
  *   The AGENT tile shows its adopted bar + close: the chat console's
  *     .op-session-bar in chat (operator.css), the .terminal-header on the
- *     terminal surface (terminal.css).
+ *     terminal surface (terminal.css). It is always its own tile.
  *
  * SEATED CHROME: the bar is part of the card (--surface-card, remapped
  * above) closed by a hairline. The hairline turns accent on the ACTIVE tile
@@ -249,23 +251,31 @@
  * reads primary (set on .tile-tab-title below). The Agent tile's label is
  * the same identity element in either adopted bar, so it dims the same way. */
 .dock-root .dv-groupview.dv-inactive-group .tile-tab-title,
+.dock-root .dv-groupview.dv-inactive-group .tile-tab-item--showing,
 .dock-root .dv-groupview.dv-inactive-group .tile-tab .terminal-label,
 .dock-root .dv-groupview.dv-inactive-group .tile-tab .op-session-label {
   color: var(--text-secondary);
 }
 
-/* The lone tab fills the strip; the void container (dockview's empty-space
+/* The showing tab fills the strip; the void container (dockview's empty-space
  * group drag surface) collapses to zero — the bar itself is the handle.
- * singleTabMode:'fullwidth' (dock-workspace.js) does the stretching; the
- * min-width:0 here is what makes the shrink side real — a flex item's
- * default min-width:auto floors it at content width, which would silently
- * disable both `flex-shrink` and the whole priority-hide/ellipsis path on
- * narrow tiles. */
+ * singleTabMode:'fullwidth' (dock-workspace.js) does the stretching for a
+ * lone tab and the flex here for the showing one of several; the min-width:0
+ * is what makes the shrink side real — a flex item's default min-width:auto
+ * floors it at content width, which would silently disable both `flex-shrink`
+ * and the whole priority-hide/ellipsis path on narrow tiles. */
 .dock-root .dv-tab {
   flex: 1 1 auto;
   min-width: 0;
   max-width: none;
   padding: 0;
+}
+
+/* A tile's hidden tabs: dockview builds one tab per panel, and every one
+ * renders the whole tile's bar (dock-tab.js), so the showing tab's bar is the
+ * tile's one bar and its siblings stay off screen. */
+.dock-root .dv-tab.dv-inactive-tab {
+  display: none;
 }
 
 /* The pane header's metrics (the mockup's `.pane-head`): 16px in from the
@@ -305,9 +315,66 @@
   color: var(--text-primary);
 }
 
+/* ---- Tab strip: the tile's tabs, once it holds more than one ----
+ * One item per tab, the showing one filled; an item drags its own tab. The
+ * strip is the keyboard surface (arrow keys move the showing tab, Delete
+ * closes it), so it takes the focus ring; items are reached through it. It
+ * shrinks before the contribution region does, ellipsizing its names, and
+ * never past one item. */
+.tile-tab .tile-tab-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+}
+
+.tile-tab .tile-tab-tabs:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tile-tab .tile-tab-item {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-lg);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 160px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: grab;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.tile-tab .tile-tab-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-tab .tile-tab-item:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.tile-tab .tile-tab-item--showing {
+  color: var(--text-primary);
+  background: var(--surface-press);
+}
+
 /* ---- Contribution region: subtitle + the panel-controls slot ----
  * Rendered by tile-header-contrib.js from an embedded panel's
- * `osprey-header-contribution`. Fills the bar between the tile name and the
+ * `canopy-host-header-contribution`. Fills the bar between the tile name and the
  * close button, with no divider fence: inert `text` items are the tile's
  * SUBTITLE and read left, beside the name (they are identity, not a
  * control), while every interactive control right-anchors toward the
@@ -622,4 +689,59 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* ---- Drop preview ----
+ * Painted by the drop bridge (dock-drop.js) in a layer that never takes
+ * pointer events — dragover must keep reaching the dock beneath it. */
+.dock-drop-preview {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* Above the service iframes' overlay (dock-iframe.js, z-index 5), which
+   * shares .main-container with this layer; below the menus. */
+  z-index: 6;
+}
+
+/* The drop highlight: the rect is the zone itself — the hovered tile or the
+ * half an edge drop lands in — and the placeholder inside it is inset 4px,
+ * rounded like the cards, with a 2px accent stroke and a fifth of the accent
+ * as fill. The rect glides between zones over 0.25s (geometry only). An
+ * add-as-tab target paints the same placeholder over the whole tile plus the
+ * insertion marker in the bar. */
+.dock-drop-preview__rect {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  transition:
+    top 0.25s cubic-bezier(0.34, 1.2, 0.64, 1),
+    left 0.25s cubic-bezier(0.34, 1.2, 0.64, 1),
+    width 0.25s cubic-bezier(0.34, 1.2, 0.64, 1),
+    height 0.25s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-drop-preview__rect {
+    transition: none;
+  }
+}
+
+.dock-drop-preview__placeholder {
+  position: absolute;
+  inset: 4px;
+  box-sizing: border-box;
+  border-radius: var(--radius-xl);
+  background-color: var(--accent-tint-20);
+  border: 2px solid var(--color-accent);
+  pointer-events: none;
+}
+
+/* The tab insertion gap: a bar-high accent line centred on the gap's x. */
+.dock-drop-preview__marker {
+  position: absolute;
+  width: 3px;
+  margin-left: -1px;
+  background-color: var(--color-accent);
+  pointer-events: none;
 }

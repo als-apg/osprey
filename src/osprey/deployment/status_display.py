@@ -1155,18 +1155,21 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                 agent_models = agent_file_models(build_dir / ".claude" / "agents")
                 if not agent_models:
                     rows.append(("agents", "none in build/.claude/agents"))
-                for agent_name, model_id in agent_models.items():
-                    if model_id is None:
+                for agent_name, agent_model_id in agent_models.items():
+                    if agent_model_id is None:
                         rows.append((agent_name, "no model: line (Claude Code chooses)"))
                         continue
-                    if spec.agent_models.get(agent_name) == model_id:
+                    if spec.agent_models.get(agent_name) == agent_model_id:
                         origin = "claude_code.agent_models"
-                    elif model_id == spec.default_model_id:
+                    elif agent_model_id == spec.default_model_id:
                         origin = "main model"
                     else:
                         origin = f"agents/{agent_name}.md"
                     rows.append(
-                        (agent_name, f"{display_model_name(model_id)}  {model_id}  ({origin})")
+                        (
+                            agent_name,
+                            f"{display_model_name(agent_model_id)}  {agent_model_id}  ({origin})",
+                        )
                     )
 
             conflicts = spec.detect_env_conflicts(dict(os.environ))
@@ -1174,16 +1177,16 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                 # Masked on the same rule as the block above: this is the second
                 # printer of the same values, and a secret that the env row
                 # withholds must not come back out of the conflict line beside it.
-                detail = [
+                conflict_lines = [
                     f"{var}: shell {_display_env_value(var, shell_val)} "
                     f"/ build {_display_env_value(var, settings_val)}"
                     for var, (shell_val, settings_val) in sorted(conflicts.items())
                 ]
-                detail.append("`osprey chat` resolves these in favour of the build.")
+                conflict_lines.append("`osprey chat` resolves these in favour of the build.")
                 troubles.append(
                     (
                         "this shell sets provider variables that disagree with the build",
-                        "\n".join(detail),
+                        "\n".join(conflict_lines),
                     )
                 )
 
@@ -1378,6 +1381,7 @@ def writes_rows(config, repo_root):
     section = _staged_login_tiers(repo_root)
     login_tiers = _login_tiers(config, repo_root, section)
     recorded = _recorded_identities(tree)
+    logins: list[tuple[str, str]]
     if login_tiers is None:
         own_tier = tier_writes(config.get("control_system"))
         logins = [(name, own_tier) for name in recorded]

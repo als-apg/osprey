@@ -145,6 +145,7 @@ from osprey.audit.dedup import decision_scope, mark_recorded, recorded_decision
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, utc_timestamp
 from osprey.audit.writer import record
 from osprey.bluesky_tool_names import QUEUE_STOP, STOP_RUN
+from osprey.deployment.write_gates import WRITE_GATED_TOOLS
 from osprey.mcp_server.approval_record import (
     APPROVAL_ASK_PREFIX,
     APPROVAL_ASK_SUFFIX,
@@ -222,10 +223,11 @@ POSTURE_WRITES: str = posture.POSTURE_WRITES
 # --------------------------------------------------------------------------
 
 #: The write tools clamped when the render cannot be read. Deliberately the
-#: same literal as ``osprey_writes_check.py``'s floor of the same name — the two
-#: layers must not disagree about what a degraded deployment refuses — and
-#: pinned against it by a test rather than imported, because the hook ships as a
-#: template file that is copied into a project, not as an importable module.
+#: same list as ``osprey_writes_check.py``'s floor of the same name — the two
+#: layers must not disagree about what a degraded deployment refuses. It is read
+#: from :data:`osprey.deployment.write_gates.WRITE_GATED_TOOLS`, the one list;
+#: the hook ships as a template file that is copied into a project, not as an
+#: importable module, so it carries a literal pinned against the same list.
 #:
 #: It covers **every** write-gated tool the framework ships, not the ones a
 #: default render happens to enable. ``bluesky``'s arming pair used to be left
@@ -236,15 +238,7 @@ POSTURE_WRITES: str = posture.POSTURE_WRITES
 #: answer this list and the hook's are both pinned against
 #: (``tests/registry/test_mixed_floor_driftguard.py``), so the next framework
 #: write tool cannot strand the floor the same way.
-_FALLBACK_WRITE_TOOLS: list[str] = [
-    "mcp__bluesky__queue_add",
-    "mcp__bluesky__queue_start",
-    "mcp__controls__channel_write",
-    "mcp__phoebus__phoebus_drive",
-    "mcp__python__execute",
-    "mcp__python__execute_file",
-    "mcp__python__pyaml_measure",
-]
+_FALLBACK_WRITE_TOOLS: list[str] = list(WRITE_GATED_TOOLS)
 
 #: The read/write tools excluded from the floor clamp. Task 1.8's drift guard
 #: asserts this list against ``registry.mcp.framework_mixed_read_write_tools()``,

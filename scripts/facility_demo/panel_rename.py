@@ -1,4 +1,4 @@
-"""Re-map the GTLView/BTSView CANOPY panels from legacy names to the demo grammar.
+"""Re-map the GTL and BTS CANOPY panels from legacy names to the demo grammar.
 
 The element table (``injector_elements.tsv``, read by ``_elements``) pairs each
 legacy name a panel binds with the demo channel that replaces it. This script
@@ -10,9 +10,9 @@ reads that table and offers two commands::
 ``check`` exits 0 only when every element-table ``demo_name`` is a channel of
 the facility file, and otherwise lists the missing names and exits 1.
 
-``apply`` rewrites, in place, every screen under ``<library>/screens/gtb`` and
-``<library>/screens/bts`` (each panel with its own copy of the embedded
-sub-screens). It rewrites binding sites only:
+``apply`` rewrites, in place, every screen under ``<library>/screens/gtl``,
+``<library>/screens/bts`` and ``<library>/screens/common/embedded`` (the
+sub-screens both panels embed). It rewrites binding sites only:
 
 * the widget props ``pv`` and ``readbackPV``, and an ``xy-plot`` curve's
   ``x_channel``/``y_channel``;
@@ -23,7 +23,7 @@ sub-screens). It rewrites binding sites only:
 
 Free text (``text``, the ``DESC``/``BPM``/``TV`` macros, ``meta.comment``) is
 never touched, nor is a value naming a local (``loc://``) or formula
-(``fox://``) channel, nor a value that still holds a macro reference.
+(``formula://``) channel, nor a value that still holds a macro reference.
 
 A legacy name can carry several rows, one per role (a paddle's command and its
 state share one legacy name). Each site therefore picks its row through the
@@ -58,10 +58,10 @@ from _elements import TABLE, ElementRow, load_elements
 from _panel_edits import KNOB_PANEL, PADDLE_RB, Edits
 
 #: The screen directories ``apply`` rewrites, relative to the library.
-PANEL_DIRS = ("screens/gtb", "screens/bts")
+PANEL_DIRS = ("screens/gtl", "screens/bts", "screens/common/embedded")
 
 #: Prefixes of channel names that are not facility channels.
-LOCAL_PREFIXES = ("loc://", "fox://")
+LOCAL_PREFIXES = ("loc://", "formula://")
 
 
 @dataclass(frozen=True)

@@ -77,6 +77,12 @@
                                         #   `phoebus.require_handle: false`; emits
                                         #   PHOEBUS_REQUIRE_HANDLE=1. Resolved by render.py
                                         #   from the render set or the deploy config.
+          "stop_grace_s": int,          # seconds this user's terminal needs to stop: the
+                                        #   slowest SidecarPanel.stop_grace_s its project
+                                        #   shows plus the terminal's own stop, when over
+                                        #   compose's default; a positive value emits
+                                        #   `stop_grace_period`. Resolved by render.py from
+                                        #   the render map or the deploy config.
           "audit_identity": str,        # WHO this container's records are written as —
                                         #   the roster user name (OSPREY_AUDIT_IDENTITY).
           "container_spool_dir": str,   # where this container appends its agent-record
@@ -1010,6 +1016,17 @@ services:
     image: {{ svc.image }}
     container_name: {{ project_name }}-web-{{ svc.user }}
     restart: unless-stopped
+    {#- An init process as pid 1: every image carries a headless browser (the
+        artifact converter's), which leaves child processes behind when it
+        exits or is killed, and `osprey web` reaps none of them. The
+        entrypoint still drops to the runtime user through gosu. #}
+    init: true
+{%- if svc.stop_grace_s %}
+    {#- A panel's sidecar finishes in-flight work on shutdown, which compose's
+        default ten seconds would cut short once the terminal's own stop is
+        added. #}
+    stop_grace_period: {{ svc.stop_grace_s }}s
+{%- endif %}
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     labels:

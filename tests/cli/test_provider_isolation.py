@@ -755,29 +755,27 @@ class TestProxyEnvWarning:
         # Pass-through contract: warned about, never rewritten.
         assert environ[var] == "http-proxy"
 
-    def test_schemeless_host_warns(self, tmp_path, caplog):
-        # urlsplit reads "proxy.corp:3128" as scheme "proxy.corp" with no
-        # netloc — exactly the shape Claude Code rejects.
-        (tmp_path / ".env").write_text("HTTP_PROXY=proxy.corp:3128\n")
+    @pytest.mark.parametrize(
+        ("env_text", "quoted"),
+        [
+            # urlsplit reads "proxy.corp:3128" as scheme "proxy.corp" with no
+            # netloc — exactly the shape Claude Code rejects.
+            ("HTTP_PROXY=proxy.corp:3128\n", "proxy.corp:3128"),
+            # urlsplit raises ValueError on a malformed IPv6 literal; that must
+            # count as invalid, not crash the launch path.
+            ("HTTP_PROXY=http://[bad\n", "HTTP_PROXY"),
+        ],
+        ids=["schemeless-host", "unsplittable-value"],
+    )
+    def test_invalid_proxy_value_warns(self, tmp_path, caplog, env_text, quoted):
+        (tmp_path / ".env").write_text(env_text)
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
         environ = {"ANTHROPIC_API_KEY": "secret-123"}
 
         with caplog.at_level(logging.WARNING, logger=self.LOGGER):
             inject_provider_env(environ, spec, project_dir=tmp_path)
 
-        assert any("proxy.corp:3128" in r.getMessage() for r in self._records(caplog))
-
-    def test_unsplittable_value_warns(self, tmp_path, caplog):
-        # urlsplit raises ValueError on a malformed IPv6 literal; that must
-        # count as invalid, not crash the launch path.
-        (tmp_path / ".env").write_text("HTTP_PROXY=http://[bad\n")
-        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
-        environ = {"ANTHROPIC_API_KEY": "secret-123"}
-
-        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
-            inject_provider_env(environ, spec, project_dir=tmp_path)
-
-        assert any("HTTP_PROXY" in r.getMessage() for r in self._records(caplog))
+        assert any(quoted in r.getMessage() for r in self._records(caplog))
 
     def test_shell_export_warns_without_env_file(self, caplog):
         # The check reads environ, not the .env file — a bad value exported in
@@ -871,29 +869,34 @@ class TestProxyEnvWarning:
         assert environ["HTTP_PROXY"] == value  # pass-through, never rewritten
         assert self._records(caplog) == []
 
-    def test_valid_http_url_no_warning(self, tmp_path, caplog):
-        (tmp_path / ".env").write_text("HTTP_PROXY=http://proxy.example.com:8080\n")
+    @pytest.mark.parametrize(
+        ("env_text", "var", "value"),
+        [
+            (
+                "HTTP_PROXY=http://proxy.example.com:8080\n",
+                "HTTP_PROXY",
+                "http://proxy.example.com:8080",
+            ),
+            # Claude Code starts fine with a SOCKS proxy; warning on it would tell
+            # a site with a real socks5 proxy, on every launch, that their agent
+            # will refuse to start.
+            (
+                "HTTPS_PROXY=socks5://127.0.0.1:1080\n",
+                "HTTPS_PROXY",
+                "socks5://127.0.0.1:1080",
+            ),
+        ],
+        ids=["http-url", "socks5-proxy"],
+    )
+    def test_valid_proxy_no_warning(self, tmp_path, caplog, env_text, var, value):
+        (tmp_path / ".env").write_text(env_text)
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
         environ = {"ANTHROPIC_API_KEY": "secret-123"}
 
         with caplog.at_level(logging.WARNING, logger=self.LOGGER):
             inject_provider_env(environ, spec, project_dir=tmp_path)
 
-        assert environ["HTTP_PROXY"] == "http://proxy.example.com:8080"  # load ran
-        assert self._records(caplog) == []
-
-    def test_socks5_proxy_no_warning(self, tmp_path, caplog):
-        # Claude Code starts fine with a SOCKS proxy; warning on it would tell
-        # a site with a real socks5 proxy, on every launch, that their agent
-        # will refuse to start.
-        (tmp_path / ".env").write_text("HTTPS_PROXY=socks5://127.0.0.1:1080\n")
-        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
-        environ = {"ANTHROPIC_API_KEY": "secret-123"}
-
-        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
-            inject_provider_env(environ, spec, project_dir=tmp_path)
-
-        assert environ["HTTPS_PROXY"] == "socks5://127.0.0.1:1080"  # load ran
+        assert environ[var] == value  # load ran
         assert self._records(caplog) == []
 
 

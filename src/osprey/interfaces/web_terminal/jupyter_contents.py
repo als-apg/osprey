@@ -90,7 +90,7 @@ class RawFilesHandler(FilesHandler):
     def compute_etag(self) -> str | None:
         return None
 
-    async def head(self, path: str) -> None:  # type: ignore[override]
+    async def head(self, path: str) -> None:
         response = self.get(path, include_body=False)
         if response is not None:
             await response

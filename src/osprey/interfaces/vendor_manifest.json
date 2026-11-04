@@ -31,7 +31,8 @@
       "sha256": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2",
       "targets": [
         "artifacts/static/js/vendor/",
-        "web_terminal/static/vendor/"
+        "web_terminal/static/vendor/",
+        "okf_panel/static/vendor/"
       ]
     },
     {
@@ -50,6 +51,34 @@
       "version": "7.0.2",
       "url": "https://cdn.jsdelivr.net/npm/dockview-core@7.0.2/dist/styles/dockview.css",
       "sha256": "4cc8d24e797c4a8505a11060094b01cbc27af685d3fdef9b04c7d8d5716468ac",
+      "targets": [
+        "web_terminal/static/vendor/"
+      ]
+    },
+    {
+      "name": "dock-engine",
+      "filename": "dock-engine.mjs",
+      "version": "add5c4ffe5",
+      "source": {
+        "repo": "als-apg/canopy-osprey-mirror-screen-runtime",
+        "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+        "path": "packages/dock-engine/dist/dock-engine.mjs"
+      },
+      "sha256": "0a8076b20e9832cd32881a29c9c505c7eb962c4bc9e354a5b2268e01abeb8b5c",
+      "targets": [
+        "web_terminal/static/vendor/"
+      ]
+    },
+    {
+      "name": "dock-engine types",
+      "filename": "dock-engine.d.mts",
+      "version": "add5c4ffe5",
+      "source": {
+        "repo": "als-apg/canopy-osprey-mirror-screen-runtime",
+        "commit": "add5c4ffe5a004918557bdbb1d7e4537f8a32d16",
+        "path": "packages/dock-engine/dist/dock-engine.d.mts"
+      },
+      "sha256": "041a50f0f4f2d3428b1d6419ee442c164e644d25fa9bd93ece1b9c911be936d9",
       "targets": [
         "web_terminal/static/vendor/"
       ]

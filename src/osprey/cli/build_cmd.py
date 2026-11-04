@@ -1232,7 +1232,10 @@ def _render_compose_files(
         )
         return None
 
-    from osprey.deployment.compose_generator import prepare_compose_files
+    from osprey.deployment.compose_generator import (
+        prepare_compose_files,
+        stage_web_terminal_channel_snapshot,
+    )
 
     staged_config = _rendered_config(zones.stage)
     unrenderable = _service_existence_errors(staged_config, zones.stage)
@@ -1259,6 +1262,12 @@ def _render_compose_files(
             deployed_config_dir=BUILD_DIR_NAME,
             layer_root=str(zones.stage),
         )
+        # The web terminals' copy of the channel catalog, staged once for the
+        # whole roster at build/web_terminals/channels.json, from the same
+        # config and the same working directory the services render just used,
+        # so its addresses are the ones the bluesky_web sidecar serves. The web
+        # render mounts it into each terminal only when it is there.
+        stage_web_terminal_channel_snapshot(config, zones.stage)
         # Read back inside the chdir: every path involved — the rendered files,
         # the service directories the config names — is spelled relative to the
         # staged tree, which is what the render itself was rooted at.
@@ -2716,6 +2725,7 @@ def _layer_render(
     )
 
     from .build_profile import resolve_build_document
+    from .build_profile_canopy import without_unstaged_panel
     from .profile_root import ProfileKind
 
     render_kind = RENDER_KIND_APP if kind is ProfileKind.APP else RENDER_KIND_TIER
@@ -2726,6 +2736,9 @@ def _layer_render(
         # Not a dataclass field, so `replace` does not carry it: set it here.
         profile.inherited_preset = host_profile.inherited_preset
         resolved = replace(resolved, profile=profile)
+    canopy_kept = without_unstaged_panel(resolved.profile, shared.repo_root)
+    if canopy_kept is not resolved.profile:
+        resolved = replace(resolved, profile=canopy_kept)
     return project, resolved
 
 
@@ -3354,6 +3367,7 @@ def _build_repo(
     from osprey.deployment.subprocess_capture import diagnose_captured_failure
 
     from .build_profile import resolve_build_document
+    from .build_profile_canopy import repo_home_screen_errors, without_unstaged_panel
     from .build_profile_deploy import (
         deploy_aware_config_errors,
         deploy_aware_config_warnings,
@@ -3411,6 +3425,18 @@ def _build_repo(
         profile_overlays: tuple[Path, ...] = (variant.path,) if variant.path is not None else ()
 
         resolved = resolve_build_document(profile_path, None, profile_overlays)
+        # No CANOPY payload named: the panel leaves this render and every layer's
+        # (`_resolve_layer`), said once here.
+        canopy_kept = without_unstaged_panel(resolved.profile, repo_root)
+        if canopy_kept is not resolved.profile:
+            from dataclasses import replace
+
+            from osprey.integrations.canopy.stage import PANEL_OFF_NOTICE
+
+            from . import output
+
+            output.note(PANEL_OFF_NOTICE)
+            resolved = replace(resolved, profile=canopy_kept)
         build_profile = resolved.profile
 
         # The deployment's name is the profile's: every host-visible name — the
@@ -3446,11 +3472,13 @@ def _build_repo(
         # is what keeps the render-side `_incomplete_limits_errors` from
         # reporting the same half-written block a second time. The zone is
         # judged here, profile-side, because the render bakes it into the
-        # agent's rules and every container's `TZ`.
+        # agent's rules and every container's `TZ`. The CANOPY home screen is
+        # judged for the profile and every tier and app file the build renders.
         web_errors = [
             *web_errors,
             *limits_block_errors(build_profile.config),
             *system_timezone_errors(build_profile.config),
+            *repo_home_screen_errors(build_profile, repo_root, profile_overlays),
         ]
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
@@ -3963,6 +3991,35 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     return is_setup_patch_capable(render_capability_document(overrides))
 
 
+def _profile_image_checks_context(build_profile: Any) -> dict[str, Any]:
+    """The image checks *build_profile*'s sidecar panels ask of its image.
+
+    One key for ``Dockerfile.j2``, ``image_checks``: every selected panel's
+    :attr:`~osprey.profiles.sidecar_panels.SidecarPanel.image_checks` entries,
+    in selection order (``web_panels``), each of which the image build runs
+    from the deployment directory. An entry two panels share is run once.
+
+    The selection is the right thing to read, as it is for the tabs
+    themselves: the build switches off every ``web.panels`` block of a tab the
+    profile does not select, so a tier that drops a panel drops its checks
+    with it. A profile that selects no such panel gets an empty list.
+
+    Args:
+        build_profile: The resolved profile for the render being built.
+
+    Returns:
+        ``{"image_checks": list[str]}``.
+    """
+    from osprey.profiles.sidecar_panels import SIDECAR_PANELS
+
+    checks: list[str] = []
+    for panel_id in build_profile.web_panels or ():
+        panel = SIDECAR_PANELS.get(panel_id)
+        if panel is not None:
+            checks.extend(check for check in panel.image_checks if check not in checks)
+    return {"image_checks": checks}
+
+
 def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
     """The knowledge bundle *build_profile* names, relative to its render.
 
@@ -4229,6 +4286,9 @@ def _repo_render_context(
         # lifts the base floor — because the rendered config those keys land in
         # does not exist yet when this context is built.
         "is_setup_patch_capable": _profile_setup_patch_capable(build_profile),
+        # The per-panel image checks of Dockerfile.j2, for a profile that
+        # selects a sidecar panel asking for them.
+        **_profile_image_checks_context(build_profile),
         # The directory Dockerfile.j2 hands to the agent's user beside `var/`:
         # the knowledge bundle the profile names, relative to the render.
         "knowledge_bundle_dir": _profile_knowledge_bundle_dir(build_profile),

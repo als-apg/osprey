@@ -248,19 +248,21 @@ class TestResolveConfiguredWebTheme:
             "high-contrast",
         )
 
-    def test_family_resolves_to_its_dark_id_but_pins_nothing(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_WEB_THEME", "high-contrast")
+    @pytest.mark.parametrize(
+        ("value", "theme_id", "family"),
+        [
+            pytest.param("high-contrast", "high-contrast-dark", "high-contrast", id="family"),
+            pytest.param("nonsense", "dark", "main", id="unknown-value"),
+        ],
+    )
+    def test_a_family_or_unknown_value_resolves_without_posing_as_a_pin(
+        self, monkeypatch, value, theme_id, family
+    ):
+        monkeypatch.setenv("OSPREY_WEB_THEME", value)
         resolved = resolve_configured_web_theme()
-        assert resolved.id == "high-contrast-dark"
+        assert resolved.id == theme_id
         assert resolved.pinned_mode is None
-        assert resolved.family == "high-contrast"
-
-    def test_unknown_value_falls_back_without_posing_as_a_pin(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_WEB_THEME", "nonsense")
-        resolved = resolve_configured_web_theme()
-        assert resolved.id == "dark"
-        assert resolved.pinned_mode is None
-        assert resolved.family == "main"
+        assert resolved.family == family
 
     def test_explicit_value_bypasses_the_environment(self, monkeypatch):
         monkeypatch.setenv("OSPREY_WEB_THEME", "high-contrast-light")

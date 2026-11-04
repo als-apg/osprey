@@ -676,17 +676,19 @@ def test_concurrency_separates_pull_requests_from_deploys(workflow: dict[str, An
     _assert_concurrency(workflow)
 
 
-def test_concurrency_separates_pull_requests_from_deploys__mutation_shares_one_group() -> None:
-    """The old ``"pages"`` group put PR builds in the deploy queue."""
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        # The old ``"pages"`` group put PR builds in the deploy queue.
+        pytest.param("group", "pages", id="shares-one-group"),
+        pytest.param("cancel-in-progress", True, id="flips-cancel"),
+    ],
+)
+def test_concurrency_separates_pull_requests_from_deploys__mutation_is_refused(
+    key: str, value: Any
+) -> None:
     mutated = copy.deepcopy(_load_workflow())
-    mutated["concurrency"]["group"] = "pages"
-    with pytest.raises(AssertionError):
-        _assert_concurrency(mutated)
-
-
-def test_concurrency_separates_pull_requests_from_deploys__mutation_flips_cancel() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["concurrency"]["cancel-in-progress"] = True
+    mutated["concurrency"][key] = value
     with pytest.raises(AssertionError):
         _assert_concurrency(mutated)
 

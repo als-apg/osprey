@@ -52,7 +52,7 @@ _EPICS_SOURCE = """
 
     calls = []
 
-    def caput(pvname, value, wait=False, timeout=None):
+    def caput(pvname, value, wait=False, timeout=None, connection_timeout=None):
         calls.append((pvname, value, door_is_open()))
         return True
 

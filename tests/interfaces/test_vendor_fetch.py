@@ -135,6 +135,28 @@ class TestFetchAll:
         # insecure=True threaded through to each _fetch_one call.
         assert all(c.kwargs.get("insecure") is True for c in fetch_one.call_args_list)
 
+    def test_a_committed_asset_is_never_fetched(self, tmp_path):
+        committed = {
+            "name": "C",
+            "filename": "c.mjs",
+            "source": {"repo": "org/repo", "commit": "abc", "path": "dist/c.mjs"},
+            "sha256": "cccc",
+            "targets": ["static/vendor/"],
+        }
+        manifest = {"assets": [committed]}
+        (tmp_path / "static/vendor").mkdir(parents=True)
+        (tmp_path / "static/vendor/c.mjs").write_text("x")
+        with (
+            patch.object(vendor, "_load_manifest", return_value=manifest),
+            patch.object(vendor, "_sha256", return_value="cccc"),
+            patch.object(vendor, "_fetch_one") as fetch_one,
+        ):
+            assert vendor.fetch_all(base_dir=tmp_path, quiet=True) == []
+            (tmp_path / "static/vendor/c.mjs").unlink()
+            with pytest.raises(RuntimeError, match="Re-copy dist/c.mjs from org/repo at abc"):
+                vendor.fetch_all(base_dir=tmp_path, quiet=True)
+        fetch_one.assert_not_called()
+
 
 class TestVerifyAll:
     def test_reports_missing_and_mismatch_and_ok(self, tmp_path):

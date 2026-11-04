@@ -1,6 +1,7 @@
 /* OSPREY Web Terminal — Hook Debug Toggle & Log Viewer */
 
 import { fetchJSON, apiRequest } from './api.js';
+import { showToast } from './toast.js';
 import {
   facilityZoneLabel,
   formatFacilityTime,
@@ -44,12 +45,12 @@ export function initHookDebug() {
         method: 'PATCH',
         json: { updates: { 'hooks.debug': enabled } },
       });
-      _showToast(bar, enabled ? 'Debug logging enabled' : 'Debug logging disabled');
+      showToast(bar, enabled ? 'Debug logging enabled' : 'Debug logging disabled');
     } catch (err) {
       console.error('Failed to toggle hook debug:', err);
       // Revert toggle on failure
       toggle.checked = !enabled;
-      _showToast(bar, 'Failed to update setting', true);
+      showToast(bar, 'Failed to update setting', { error: true });
     }
   });
 
@@ -250,21 +251,4 @@ function _formatTimestamp(ts) {
       hourCycle: 'h23',
     }) || ts
   );
-}
-
-/**
- * @param {HTMLElement} container
- * @param {string} message
- * @param {boolean} [isError]
- */
-function _showToast(container, message, isError = false) {
-  // Remove any existing toast
-  const existing = container.querySelector('.hook-debug-toast');
-  if (existing) existing.remove();
-
-  const toast = document.createElement('span');
-  toast.className = 'hook-debug-toast' + (isError ? ' error' : '');
-  toast.textContent = message;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 2500);
 }

@@ -16,6 +16,18 @@ executor surface, where the refused code *is* the artifact under audit and a
 record without it would be an alert rather than an audit trail; that field is
 therefore refused on every other surface (:data:`SURFACE_EXECUTOR`).
 
+The second documented exception is a control-session write
+(:class:`osprey.runtime.session.ControlSession`, recorded under the surface its
+caller names): it records the value it sent, as the last two ``detail`` tokens
+``value_len=<n> value=<text>`` (the text cut at :data:`SESSION_VALUE_CHARS`,
+then written as a JSON string with no whitespace, so a value cannot forge a
+token).
+Such a write is one operator click with no tool call behind it, so there is no
+``tool_call`` record to hold the value, and an audit of a machine write that
+cannot say what was written is not one. The tokens are named in
+:data:`SESSION_VALUE_TOKENS`; every other field of a session-write record
+follows the rule above.
+
 The audit trail has two kinds of surface. The default surfaces are built from
 this envelope and are value-free by the rule above. The ``tool_call``
 surface (:mod:`osprey.audit.tool_call`) is the one place values are recorded —
@@ -91,6 +103,15 @@ POSTURE_SOURCES: tuple[str, ...] = (
 #: surface logs identifiers and config keys only, so ``source`` there would be
 #: a payload leak rather than evidence.
 SURFACE_EXECUTOR = "executor"
+
+#: The ``detail`` tokens that carry a value, on a control-session write only
+#: (see the module docstring). Its tokens, in order:
+#: ``channel= screen= rev= ca_user= ca_host= value_len= value=``. The value
+#: tokens come last, so a long value never hides the identifiers before them.
+SESSION_VALUE_TOKENS: tuple[str, ...] = ("value_len", "value")
+
+#: Characters of the written value kept in the ``value=`` token.
+SESSION_VALUE_CHARS = 256
 
 #: Canonical spellings for :attr:`AuditEnvelope.decision`. Unlike
 #: :data:`POSTURE_SOURCES` this set is *not* enforced — a future surface may

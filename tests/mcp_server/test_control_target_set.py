@@ -43,7 +43,6 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import ControlSystemContext
 from osprey.mcp_server.control_system.target_eligibility import (
     ACK_LEAF,
-    REASON_ARCHIVE_BELONGS_TO_STANDIN,
     REASON_OPERATOR_ACK_MISSING,
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNREACHABLE,
@@ -51,7 +50,6 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as py_executor
 from osprey_connectors import control_context
-from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from osprey_connectors.types import LIVE_STANDIN
 from osprey_connectors_tests._harness import owner, write_control_context, write_server_report
 from tests._live import async_wait_until
@@ -274,10 +272,10 @@ def config_with_a_standin(
     *baseline_standin* makes the stand-in this deployment's *own* machine
     (``control_system.type: live_standin``), which is what puts a deployment on
     ``standin`` with nothing switched and makes ``live`` a destination to be
-    gated. *acknowledged* and *recorder* set the FR-8 facts the live machine is
-    judged on: the operator acknowledgment, and whether an
-    ``archiver_recorder`` makes the archive the stand-in's history.
-    *strict_limits* sets the limits block, which no switch is judged on.
+    gated. *acknowledged* sets the FR-8 fact the live machine is judged on,
+    the operator acknowledgment. *strict_limits* sets the limits block, which
+    no switch is judged on; *recorder* lists an ``archiver_recorder``, whose
+    store is the virtual accelerator's and gates nothing.
 
     *live_type* names the connector type ``live`` resolves to, for the tests
     that ask what happens on the way to it: see :data:`EPICS_TYPE`.
@@ -295,7 +293,7 @@ def config_with_a_standin(
     if acknowledged:
         control_system["target_switch"] = {ACK_LEAF: ACK_HOST}
     raw["services"] = {"live_standin": {"port": STANDIN_PORT}}
-    raw["deployed_services"] = [ARCHIVER_RECORDER_SERVICE] if recorder else []
+    raw["deployed_services"] = ["archiver_recorder"] if recorder else []
     return raw
 
 
@@ -696,14 +694,14 @@ class TestTheStandinIsGatedAsAThirdTarget:
         assert [call["from_target"] for call in emitted] == ["standin"]
 
     @pytest.mark.usefixtures("emitted")
-    async def test_a_recorded_standin_archive_refuses_the_live_machine(
+    async def test_a_recorded_store_beside_the_standin_does_not_refuse_the_live_machine(
         self, make_manager, monkeypatch, record_root
     ):
-        """The last gate, and the stand-in's alone to create.
+        """Acknowledged and strict: the switch is granted, recorder or not.
 
-        Acknowledged, strict, and still refused: this deployment runs the
-        recorder beside a stand-in, so the store holds the stand-in's past and
-        a real machine's readings must not be spliced onto it.
+        The recorder writes the virtual accelerator's store and the live
+        machine's past is the facility's appliance, so no gate reads the
+        recorder on the way to ``live``.
         """
         raw = config_with_a_standin(
             baseline_standin=True,
@@ -714,14 +712,13 @@ class TestTheStandinIsGatedAsAThirdTarget:
         )
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        owned_here(record_root, target="standin")
+        owned_here(record_root, target="standin", generation=1)
+        our_report(record_root, last_switch=applied_block(2))
 
-        with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
-            await TOOL(target="live")
+        payload = extract_response_dict(await TOOL(target="live"))
 
-        envelope = ctx["envelope"]
-        assert envelope["details"]["reason"] == REASON_ARCHIVE_BELONGS_TO_STANDIN
-        assert ARCHIVER_RECORDER_SERVICE in envelope["error_message"]
+        assert payload["summary"]["target"] == "live"
+        assert control_context.read_record().target == "live"
 
 
 # --------------------------------------------------------- the no-mint answer

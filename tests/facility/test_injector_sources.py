@@ -94,7 +94,10 @@ MERGED = [*RECORDS, "seeds.yaml"]
 
 
 def _is_septum(record_id: str) -> bool:
-    return record_id.startswith(("SR:MAG:SEPTUM:", "SR/SEPTUM"))
+    """A septum record the injector emits; each septum's interlock word is a peripheral's."""
+    return record_id.startswith(("SR:MAG:SEPTUM:", "SR/SEPTUM")) and not record_id.endswith(
+        ":INTERLOCK:WORD"
+    )
 
 
 def _is_standin(record_id: str) -> bool:
@@ -337,13 +340,13 @@ def test_the_sek_waveform_pulses_from_its_setpoint_and_on_status() -> None:
     }
 
 
-def test_no_storage_ring_channel_carries_a_gate() -> None:
+def test_no_storage_ring_channel_carries_a_gate_but_the_sector_valves_closed_switches() -> None:
     gated = [
         address
         for address, seed in _committed("seeds.yaml").items()
         if address.startswith("SR:") and "gate" in seed
     ]
-    assert gated == []
+    assert gated == [f"SR:VAC:VALVE:{n:02d}:POSITION:CLOSED" for n in range(1, 25)]
 
 
 def test_the_seeds_are_what_reseed_writes() -> None:

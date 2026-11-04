@@ -12,8 +12,8 @@
  * fake `dockview-core` global; geometry is the browser suite's.
  *
  * Also pinned: the Agent tile adopts the chat console's bar in the chat
- * (registered by initDockWorkspace before the dock adopts the card), and the
- * default service width leaves the sidebar's width out.
+ * (registered by initDockWorkspace before the dock adopts the card), and
+ * every path reaches the dock through the layout holder's one fromJSON.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -48,35 +48,6 @@ let events;
 const record = (e) => events.push(/** @type {CustomEvent} */ (e).detail.open);
 
 /**
- * The fake api plus the members initDockWorkspace and the layout paths call
- * that `_dock-fake.mjs` leaves out.
- */
-function fullApi() {
-  const fake = makeDockApi();
-  Object.assign(fake, {
-    clear() {
-      for (const panel of [...fake.panels]) fake.removePanel(panel);
-    },
-    toJSON() {
-      return {
-        panels: Object.fromEntries(
-          fake.panels.map((/** @type {any} */ p) => [
-            p.id,
-            { id: p.id, contentComponent: p.id, title: p.title },
-          ])
-        ),
-      };
-    },
-    fromJSON() {},
-    updateOptions() {},
-    onDidAddGroup: () => ({ dispose() {} }),
-    onWillDragPanel: () => ({ dispose() {} }),
-    onWillDragGroup: () => ({ dispose() {} }),
-  });
-  return fake;
-}
-
-/**
  * The hub's dock region as index.html ships it, with the console bar the chat
  * built before the dock.
  */
@@ -104,7 +75,7 @@ beforeEach(async () => {
   vi.resetModules();
   document.documentElement.removeAttribute('data-agent');
   mountHub();
-  api = fullApi();
+  api = makeDockApi();
   /** @type {any} */ (window)['dockview-core'] = {
     themeLight: {},
     themeDark: {},
@@ -196,19 +167,5 @@ describe('Agent bar registration', () => {
     dock.initDockWorkspace();
     const tab = options.createTabComponent({ id: 'terminal' });
     expect(header?.parentElement).toBe(tab.element);
-  });
-});
-
-describe('defaultServiceWidth', () => {
-  test("leaves the sidebar's current width out of the split", () => {
-    const sidebar = document.createElement('nav');
-    sidebar.id = 'sidebar';
-    Object.defineProperty(sidebar, 'offsetWidth', { value: 56 });
-    document.body.append(sidebar);
-    expect(dock.defaultServiceWidth()).toBe(Math.round((window.innerWidth - 56) * 0.6));
-  });
-
-  test('assumes the expanded sidebar when there is none on the page', () => {
-    expect(dock.defaultServiceWidth()).toBe(Math.round((window.innerWidth - 232) * 0.6));
   });
 });

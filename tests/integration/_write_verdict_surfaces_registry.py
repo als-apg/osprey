@@ -211,6 +211,17 @@ def _monitor(staged: Staged) -> Any:
     return (verdict.allowed, verdict.reason), _expected(case)
 
 
+def _control_session(staged: Staged) -> Any:
+    """A long-lived session's execution verdict: the config section, the row's target, the ladder."""
+    case = staged.case
+    if not _ladder_pin_honoured(case) or not _str_target(case):
+        return OUT_OF_DOMAIN
+    from osprey.runtime.session import _verdict
+
+    verdict = _verdict(case.target)
+    return (verdict.allowed, verdict.reason), _expected(case)
+
+
 def _ipc_pool(staged: Staged) -> Any:
     """The connector-host pool's gateway role: allowed only, section passed in."""
     case = staged.case
@@ -680,6 +691,51 @@ def _status_position(staged: Staged) -> Any:
     return observed, (allowed, reason, expected_position(case))
 
 
+# -- a program's write authorization -----------------------------------------
+#
+# ``osprey_connectors.write_authorization`` composes the switch verdict with a
+# program's authorization. A process that names none — every row of the table —
+# gets the switch verdict unchanged, from both of its compositions: the one a
+# write executes on (with the hold) and the one a gateway is chosen on.
+
+
+def _pin_honoured_any_owner(case: Case) -> bool:
+    """A surface that takes the owner as given and honours the pin."""
+    return not case.ignore_launch_pin or not _pin_env(case)
+
+
+def _authorized_execution(staged: Staged) -> Any:
+    """The execution verdict a process naming no authorization is judged by, batch and all."""
+    case = staged.case
+    if not _pin_honoured_any_owner(case):
+        return OUT_OF_DOMAIN
+    from osprey_connectors.write_authorization import authorized_execution_verdict
+    from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
+
+    verdict = authorized_execution_verdict(
+        case.section,
+        case.target,
+        [("SR:CH:1", 1.0)],
+        authorization=None,
+        **owner_argument(case),
+    )
+    return (verdict.allowed, verdict.reason), _expected(case)
+
+
+def _authorized_gateway(staged: Staged) -> Any:
+    """The verdict a gateway is chosen on, for a process naming no authorization."""
+    case = staged.case
+    if not _pin_honoured_any_owner(case):
+        return OUT_OF_DOMAIN
+    from osprey_connectors.write_authorization import authorized_write_verdict
+    from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
+
+    verdict = authorized_write_verdict(
+        case.section, case.target, authorization=None, **owner_argument(case)
+    )
+    return (verdict.allowed, verdict.reason), _expected(case)
+
+
 # -- the registry -------------------------------------------------------------
 
 SURFACES: tuple[Surface, ...] = (
@@ -714,6 +770,14 @@ SURFACES: tuple[Surface, ...] = (
         stage1=True,
         reports_reason=True,
         project=_monitor,
+    ),
+    Surface(
+        "control-session",
+        "osprey.runtime.session",
+        "write",
+        stage1=True,
+        reports_reason=True,
+        project=_control_session,
     ),
     Surface(
         "ipc-pool-role",
@@ -946,6 +1010,30 @@ SURFACES: tuple[Surface, ...] = (
         stage1=False,
         reports_reason=True,
         project=_status_position,
+    ),
+    Surface(
+        "authorized-execution",
+        "osprey_connectors.write_authorization",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_authorized_execution,
+    ),
+    Surface(
+        "authorized-execution-held",
+        "osprey_connectors.write_authorization",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_authorized_execution),
+    ),
+    Surface(
+        "authorized-gateway",
+        "osprey_connectors.write_authorization",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_authorized_gateway,
     ),
 )
 

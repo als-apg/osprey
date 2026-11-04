@@ -82,31 +82,25 @@ def test_get_hook_input_parses_stdin(monkeypatch):
     assert hook_log.get_hook_input() == {"tool_name": "channel_write"}
 
 
-def test_get_hook_input_empty_stdin_returns_empty(monkeypatch):
-    monkeypatch.setattr("sys.stdin", io.StringIO(""))
-    assert hook_log.get_hook_input() == {}
-
-
-def test_get_hook_input_malformed_stdin_returns_empty(monkeypatch):
-    monkeypatch.setattr("sys.stdin", io.StringIO("not json{{{"))
-    assert hook_log.get_hook_input() == {}
-
-
-@pytest.mark.parametrize("payload", ["[1, 2, 3]", '"str"', "42", "true"])
-def test_get_hook_input_truthy_non_dict_returns_empty(payload, monkeypatch):
-    """Valid JSON that parses to a truthy non-dict must still yield {}.
-
-    Consumers gate on ``if not hook_input`` and then call ``.get()``. A truthy
-    non-dict clears that gate and would raise ``AttributeError``, exiting
-    non-zero — which makes fail-open PreToolUse hooks block the tool call.
-    """
-    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
-    assert hook_log.get_hook_input() == {}
-
-
-@pytest.mark.parametrize("payload", ["[]", "0"])
-def test_get_hook_input_falsy_non_dict_returns_empty(payload, monkeypatch):
-    """Falsy non-dicts already short-circuit in consumers; pin them anyway."""
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("not json{{{", id="malformed"),
+        # Valid JSON that parses to a truthy non-dict must still yield {}.
+        # Consumers gate on ``if not hook_input`` and then call ``.get()``. A truthy
+        # non-dict clears that gate and would raise ``AttributeError``, exiting
+        # non-zero — which makes fail-open PreToolUse hooks block the tool call.
+        pytest.param("[1, 2, 3]", id="truthy-list"),
+        pytest.param('"str"', id="truthy-string"),
+        pytest.param("42", id="truthy-number"),
+        pytest.param("true", id="truthy-bool"),
+        # Falsy non-dicts already short-circuit in consumers; pin them anyway.
+        pytest.param("[]", id="falsy-list"),
+        pytest.param("0", id="falsy-number"),
+    ],
+)
+def test_get_hook_input_unusable_stdin_returns_empty(payload, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(payload))
     assert hook_log.get_hook_input() == {}
 

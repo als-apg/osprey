@@ -15,8 +15,10 @@ running feature out for a while. Three rules keep the safe state the default.
 
 The registry decides nothing about who may move a switch; the route does
 (:mod:`osprey.interfaces.web_terminal.routes.safety_switches`). Each consumer asks
-:func:`feature_is_on` at the moment it would act, so a move takes effect on the
-next prompt without respawning anything.
+at the moment it would act, so a move takes effect on the next prompt without
+respawning anything: an in-process one through :func:`feature_is_on`, code
+review's consumers, which run in the agent's processes, through the terminal's
+socket (:mod:`osprey.interfaces.web_terminal.code_review_switch`).
 """
 
 from __future__ import annotations
@@ -28,11 +30,15 @@ from typing import Any
 #: The watchdog runner's switch: every enabled watchdog of this build at once.
 WATCHDOG_SWITCH = "watchdog"
 
+#: Code review's switch: the review of the agent's Python runs and notebook cells.
+CODE_REVIEW_SWITCH = "code_review"
+
 
 @dataclass
 class _Switch:
     name: str
     label: str
+    note: str = ""
     off_by: str | None = None
     off_at: float | None = None
 
@@ -47,9 +53,12 @@ class SafetySwitches:
     def __init__(self) -> None:
         self._switches: dict[str, _Switch] = {}
 
-    def register(self, name: str, label: str) -> None:
-        """Make *name* switchable; it starts on. Registering again changes nothing."""
-        self._switches.setdefault(name, _Switch(name, label))
+    def register(self, name: str, label: str, note: str = "") -> None:
+        """Make *name* switchable; it starts on. Registering again changes nothing.
+
+        *note* says what an off leaves running or stopped, for the off dialog.
+        """
+        self._switches.setdefault(name, _Switch(name, label, note))
 
     def __contains__(self, name: object) -> bool:
         return name in self._switches
@@ -69,16 +78,23 @@ class SafetySwitches:
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Every switch, in registration order, as the GET route serves it."""
-        return [
-            {
-                "name": s.name,
-                "label": s.label,
-                "on": s.on,
-                "off_by": s.off_by,
-                "off_at": s.off_at,
-            }
-            for s in self._switches.values()
-        ]
+        return [_row(s) for s in self._switches.values()]
+
+    def row(self, name: str) -> dict[str, Any] | None:
+        """One switch as :meth:`snapshot` serves it, or ``None`` when *name* is unregistered."""
+        switch = self._switches.get(name)
+        return None if switch is None else _row(switch)
+
+
+def _row(switch: _Switch) -> dict[str, Any]:
+    return {
+        "name": switch.name,
+        "label": switch.label,
+        "note": switch.note,
+        "on": switch.on,
+        "off_by": switch.off_by,
+        "off_at": switch.off_at,
+    }
 
 
 def switches_of(app: Any) -> SafetySwitches | None:

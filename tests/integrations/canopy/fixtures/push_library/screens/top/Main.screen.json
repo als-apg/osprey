@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "screen",
+  "id": "main",
+  "metadata": {
+    "title": "Main",
+    "source": {
+      "type": "hand-authored"
+    },
+    "size": {
+      "width": 100,
+      "height": 100
+    }
+  },
+  "macros": [
+    {
+      "name": "P",
+      "default": "SR:"
+    },
+    {
+      "name": "theme",
+      "default": "x"
+    }
+  ],
+  "root": {
+    "id": "main-root",
+    "type": "absolute-canvas",
+    "props": {},
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 10,
+      "height": 10
+    },
+    "children": [
+      {
+        "id": "in1",
+        "type": "pv-text-input",
+        "props": {
+          "pv": "${P}X:SP"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "lb1",
+        "type": "pv-label",
+        "props": {
+          "pv": "${Q}Z"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "emb1",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/part.v2.screen.json",
+          "macros": {
+            "D": "01"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "emb2",
+        "type": "embedded-display",
+        "props": {
+          "file": "missing.screen.json"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "btn1",
+        "type": "regular-button",
+        "props": {
+          "text": "Run",
+          "actions": [
+            {
+              "type": "execute",
+              "command": "/usr/bin/run-thing.sh",
+              "description": "Run | thing"
+            },
+            {
+              "type": "open_display",
+              "file": "../other/Gone.screen.json",
+              "target": "window"
+            },
+            {
+              "type": "write_pv",
+              "pvName": "${P}Y",
+              "value": "1"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      }
+    ]
+  }
+}

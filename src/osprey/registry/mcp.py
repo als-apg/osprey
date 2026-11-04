@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import logging
 import re
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,6 +19,10 @@ from osprey import bluesky_tool_names as bsky
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.phoebus_agent_access import DRIVE_TOOL, READ, READ_WRITE, SERVER_TEMPLATE
+
+# The leaf, not ``osprey.profiles.web_panels``: that module loads starlette and
+# the web credential module, which a registry every build imports must not.
+from osprey.profiles.sidecar_panels import SIDECAR_PANELS, SidecarPanel
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey_connectors.identity import IDENTITY_ENV_LADDER
@@ -101,6 +106,10 @@ class ServerDefinition:
     # Framework template name this definition was cloned from via ``extends``
     # (set by build_extended_server); None for framework/custom definitions.
     extends_of: str | None = None
+    # Id of the sidecar panel this definition was derived from (set by
+    # derive_panel_servers); None for every definition spelled in this module
+    # or declared by a facility.
+    panel_id: str | None = None
     # Tools the server registers only when the named ctx key is truthy, by
     # short tool name. The key gates the server's registration of the tool and
     # the tool's ``permissions_allow`` row; an approval-gated tool's ask row and
@@ -213,7 +222,29 @@ PANEL_TOKEN_ENV_NAME = "OSPREY_PANEL_TOKEN"  # noqa: S105 -- names an environmen
 #: or sent as a credential.
 EVENT_DISPATCHER_PROXY_URL = "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp"
 
-FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
+#: The terminal's own panel proxy as an agent child dials it: everything in
+#: :data:`EVENT_DISPATCHER_PROXY_URL` ahead of the panel path, and the prefix
+#: of every panel-derived entry (see :func:`derive_panel_servers`).
+PANEL_PROXY_ORIGIN = "http://127.0.0.1:${OSPREY_WEB_PORT:-}"
+
+#: Prefix of the ctx key a panel-derived server is conditioned on; the panel id
+#: follows it. A colon cannot occur in a key the render derives from config, so
+#: the two families cannot collide.
+PANEL_DECLARED_CONDITION_PREFIX = "panel_declared:"
+
+# Server names (an extends clone's, a panel-derived entry's) are spliced into
+# regex hook matchers, exact permission strings, and the startswith-matched
+# prefixes of hook_config.json — restrict them to characters that are inert in
+# all three contexts. '__' is additionally forbidden: it would corrupt
+# osprey_approval's short-name extraction. A trailing '_' is also forbidden:
+# 'controls_' yields the prefix 'mcp__controls___', which startswith-collides
+# with 'mcp__controls__' and corrupts approval short-name extraction the same
+# way.
+_SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*(?<!_)$")
+
+#: The framework MCP servers spelled out here. :data:`FRAMEWORK_SERVERS` adds
+#: the entries derived from the sidecar panels.
+_SPELLED_SERVERS: dict[str, ServerDefinition] = {
     "controls": ServerDefinition(
         name="controls",
         module="osprey.mcp_server.control_system",
@@ -416,12 +447,17 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "lattice_set_baseline",
             "lattice_clear_baseline",
             "list_panels",
-            # The on-screen axis: both halves are reversible in one operator
-            # click, so neither is worth a prompt. The rail axis is the
-            # exception and asks instead — see permissions_ask below.
+            # The on-screen axis: the dock ops. Each is reversible by the
+            # operator in a click or a drag (a closed tab is one rail click
+            # away) and none can move or close the terminal, so none is worth
+            # a prompt. The rail axis is the exception and asks instead — see
+            # permissions_ask below.
             "open_panel",
-            "close_panel",
+            "open_panel_set",
             "arrange_workspace",
+            "drop_panel",
+            "close_panel_tab",
+            "close_panel_tile",
         ],
         # The rail axis changes what the operator can launch at all, which the
         # on-screen verbs above do not: remove_panel_from_rail costs them the
@@ -735,6 +771,95 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
     ),
+}
+
+
+def derive_panel_servers(
+    panels: Mapping[str, SidecarPanel], *, taken: Collection[str] = ()
+) -> dict[str, ServerDefinition]:
+    """The MCP entries of the sidecar panels that open a transport to the agent.
+
+    A panel that declares both ``agent_hop`` and an ``mcp_path`` is reached by
+    the agent exactly as the event dispatcher is: over loopback, through the
+    terminal's own panel proxy, presenting the panel token every agent child
+    already carries and naming its session so the proxy can hold it. Its entry
+    is therefore not written by hand — the panel's declaration is the whole of
+    it, so the route the proxy opens and the entry that dials it cannot name
+    different paths or different tools.
+
+    Pure: reads *panels* and nothing else, and returns fresh definitions.
+
+    Args:
+        panels: Panel id to panel, shaped like ``SIDECAR_PANELS``.
+        taken: Server names already in use; an opted-in panel may not take one.
+
+    Returns:
+        One URL ``ServerDefinition`` per opted-in panel, keyed and named by
+        the panel id (so its tools are ``mcp__<id>__<tool>``), conditioned on
+        ``panel_declared:<id>``, carrying the panel's ``mcp_allow`` and
+        ``mcp_ask`` as its permission lists and one hook rule per ask tool: a
+        tool in ``mcp_writes`` is governed (writes check, then approval), any
+        other ask tool is approval alone, as the dispatcher's firing tool is.
+        A panel with an ``mcp_path`` and no ``agent_hop`` derives nothing, as
+        does one whose ``mcp_path`` is not absolute — the proxy opens no route
+        for either.
+
+    Raises:
+        ValueError: An opted-in panel's id cannot name an MCP server. Its
+            tools would land under a prefix no permission entry or hook
+            matcher can address, so the build stops rather than ship them
+            ungated. Or the id is one of *taken*, or ``mcp_writes`` names a
+            tool outside ``mcp_ask``.
+    """
+    derived: dict[str, ServerDefinition] = {}
+    for panel_id, panel in panels.items():
+        if not (panel.agent_hop and panel.mcp_path and panel.mcp_path.startswith("/")):
+            continue
+        if not _SERVER_NAME_RE.match(panel_id):
+            raise ValueError(
+                f"Sidecar panel {panel_id!r} opens its MCP transport to the agent, but its "
+                "id cannot name an MCP server (letters, digits, '-' and '_' only, not "
+                "ending in '_')."
+            )
+        if panel_id in taken:
+            raise ValueError(
+                f"Sidecar panel {panel_id!r} opens its MCP transport to the agent under the "
+                "name of an existing framework MCP server."
+            )
+        stray = sorted(set(panel.mcp_writes) - set(panel.mcp_ask))
+        if stray:
+            raise ValueError(
+                f"Sidecar panel {panel_id!r} names {stray} in mcp_writes but not in mcp_ask; "
+                "a tool that writes the machine is one the operator is asked about."
+            )
+        derived[panel_id] = ServerDefinition(
+            name=panel_id,
+            module="",
+            url=f"{PANEL_PROXY_ORIGIN}/panel/{panel_id}{panel.mcp_path}",
+            headers={
+                "Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}",
+                "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+            },
+            condition=f"{PANEL_DECLARED_CONDITION_PREFIX}{panel_id}",
+            permissions_allow=list(panel.mcp_allow),
+            permissions_ask=list(panel.mcp_ask),
+            hooks_pre=[
+                HookRule(
+                    matcher=f"mcp__{panel_id}__{tool}",
+                    hooks=[_WRITES_CHECK, _APPROVAL] if tool in panel.mcp_writes else [_APPROVAL],
+                )
+                for tool in panel.mcp_ask
+            ],
+            panel_id=panel_id,
+        )
+    return derived
+
+
+#: Every framework MCP server: the spelled-out entries and the sidecar panels'
+#: derived ones, which may not reuse a spelled-out name.
+FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
+    **_SPELLED_SERVERS,
+    **derive_panel_servers(SIDECAR_PANELS, taken=_SPELLED_SERVERS),
 }
 
 
@@ -1539,9 +1664,11 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
         )
 
     # ── Evaluate conditions ────────────────────────────────────
+    unmet: set[str] = set()
     for sdef in servers.values():
         if sdef.condition and not ctx.get(sdef.condition):
             sdef.default_enabled = False
+            unmet.add(sdef.name)
 
     # ── New-format overrides: claude_code.servers ──────────────
     server_overrides = claude_code_config.get("servers", {})
@@ -1559,10 +1686,33 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
                     "(framework definitions cannot be shadowed); only 'enabled' applies",
                     name,
                 )
+            # Same reasoning for the launch keys: the definition is the
+            # framework's, so a spec cannot point the name somewhere else.
+            ignored = [key for key in ("url", "command") if key in spec]
+            if ignored:
+                logger.warning(
+                    "Server %r is a framework server — its %s is ignored (framework "
+                    "definitions cannot be shadowed); only 'enabled' applies",
+                    name,
+                    " and ".join(repr(key) for key in ignored),
+                )
             if spec.get("enabled") is False:
                 servers[name].default_enabled = False
             elif spec.get("enabled") is True:
-                servers[name].default_enabled = True
+                if servers[name].panel_id is not None and name in unmet:
+                    # A panel-derived entry dials a route only the declared
+                    # panel serves and presents a token only that panel's
+                    # terminal mints. Switching it on without the panel would
+                    # render a server whose every call fails at the first hop.
+                    logger.warning(
+                        "Server %r is served by the %r web panel, which this profile "
+                        "does not declare — 'enabled: true' is ignored; declare the "
+                        "panel to get the server",
+                        name,
+                        servers[name].panel_id,
+                    )
+                else:
+                    servers[name].default_enabled = True
         elif "extends" in spec:
             # Second instance of a framework server (e.g. phoebus2 → phoebus).
             # Declared ⇒ enabled unless the spec says enabled: false (matches
@@ -1701,16 +1851,6 @@ def _withhold_ariel_attachment_view(servers: dict[str, ServerDefinition], enable
             continue
         sdef.permissions_ask = [t for t in sdef.permissions_ask if t not in ARIEL_VIEW_TOOLS]
         sdef.permissions_allow = [t for t in sdef.permissions_allow if t not in ARIEL_VIEW_TOOLS]
-
-
-# Extends-clone names are spliced into regex hook matchers, exact permission
-# strings, and the startswith-matched prefixes of hook_config.json — restrict
-# them to characters that are inert in all three contexts. '__' is additionally
-# forbidden: it would corrupt osprey_approval's short-name extraction. A
-# trailing '_' is also forbidden: 'controls_' yields the prefix
-# 'mcp__controls___', which startswith-collides with 'mcp__controls__' and
-# corrupts approval short-name extraction the same way.
-_SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*(?<!_)$")
 
 
 def build_extended_server(name: str, spec: dict) -> ServerDefinition | None:

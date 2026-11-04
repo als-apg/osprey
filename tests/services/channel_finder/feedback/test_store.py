@@ -360,18 +360,18 @@ def test_empty_store_returns_empty_hints(store):
     assert store.get_hints("anything", "ERF") == []
 
 
-def test_empty_store_for_unknown_facility(store):
+@pytest.mark.parametrize(
+    ("query", "facility"),
+    [
+        pytest.param("magnets", "UNKNOWN_FACILITY", id="unknown-facility"),
+        pytest.param("totally different query", "ERF", id="unknown-query"),
+    ],
+)
+def test_store_returns_no_hints_for_an_unknown_facility_or_query(store, query, facility):
     store.record_success(
         query="magnets", facility="ERF", selections={"system": "MAG"}, channel_count=5
     )
-    assert store.get_hints("magnets", "UNKNOWN_FACILITY") == []
-
-
-def test_empty_store_for_unknown_query(store):
-    store.record_success(
-        query="magnets", facility="ERF", selections={"system": "MAG"}, channel_count=5
-    )
-    assert store.get_hints("totally different query", "ERF") == []
+    assert store.get_hints(query, facility) == []
 
 
 # ------------------------------------------------------------------

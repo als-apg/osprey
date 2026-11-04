@@ -205,18 +205,22 @@ class TestResultMapping:
 
         assert [r.concept_id for r in results] == ["diagnostics/beam position monitors"]
 
-    @pytest.mark.parametrize("reserved", ["index.md", "magnets/index.md", "log.md"])
-    def test_reserved_names_are_never_returned(self, bundle_root: Path, reserved: str) -> None:
-        """OKF §3.1 reserved files are not concepts, however they were indexed."""
-        client = _FakeQMDClient([_hit(reserved), _hit("magnets/corrector_magnets.md")])
-        results = OKFBundle(bundle_root, qmd_client=client).search("facility")
-
-        assert [r.concept_id for r in results] == ["magnets/corrector_magnets"]
-
-    def test_paths_escaping_the_bundle_root_are_refused(self, bundle_root: Path) -> None:
-        """The containment check that guards read_concept guards this too."""
-        client = _FakeQMDClient([_hit("../../etc/passwd.md"), _hit("magnets/corrector_magnets.md")])
-        results = OKFBundle(bundle_root, qmd_client=client).search("passwd")
+    @pytest.mark.parametrize(
+        ("bad_path", "query"),
+        [
+            # OKF §3.1 reserved files are not concepts, however they were indexed.
+            pytest.param("index.md", "facility", id="reserved-index"),
+            pytest.param("magnets/index.md", "facility", id="reserved-nested-index"),
+            pytest.param("log.md", "facility", id="reserved-log"),
+            # The containment check that guards read_concept guards this too.
+            pytest.param("../../etc/passwd.md", "passwd", id="escaping-the-bundle-root"),
+        ],
+    )
+    def test_a_hit_that_is_not_a_concept_is_never_returned(
+        self, bundle_root: Path, bad_path: str, query: str
+    ) -> None:
+        client = _FakeQMDClient([_hit(bad_path), _hit("magnets/corrector_magnets.md")])
+        results = OKFBundle(bundle_root, qmd_client=client).search(query)
 
         assert [r.concept_id for r in results] == ["magnets/corrector_magnets"]
 
@@ -370,20 +374,23 @@ class TestSearchSettings:
         assert settings.rerank is True
         assert settings.candidate_limit == 20
 
-    @pytest.mark.parametrize("value", ["false", 0, None], ids=["string", "int", "null"])
-    def test_a_non_boolean_rerank_is_refused(self, value: Any) -> None:
-        """Defaulting past ``rerank: "false"`` would silently keep the slow path."""
-        with pytest.raises(ValueError, match="rerank"):
-            OKFSearchSettings.from_config({"facility_knowledge": {"search": {"rerank": value}}})
-
     @pytest.mark.parametrize(
-        "value", [0, -1, "40", 1.5, True], ids=["zero", "neg", "str", "float", "bool"]
+        ("key", "value"),
+        [
+            # Defaulting past ``rerank: "false"`` would silently keep the slow path.
+            pytest.param("rerank", "false", id="rerank-string"),
+            pytest.param("rerank", 0, id="rerank-int"),
+            pytest.param("rerank", None, id="rerank-null"),
+            pytest.param("candidate_limit", 0, id="candidate-limit-zero"),
+            pytest.param("candidate_limit", -1, id="candidate-limit-neg"),
+            pytest.param("candidate_limit", "40", id="candidate-limit-str"),
+            pytest.param("candidate_limit", 1.5, id="candidate-limit-float"),
+            pytest.param("candidate_limit", True, id="candidate-limit-bool"),
+        ],
     )
-    def test_a_bad_candidate_limit_is_refused(self, value: Any) -> None:
-        with pytest.raises(ValueError, match="candidate_limit"):
-            OKFSearchSettings.from_config(
-                {"facility_knowledge": {"search": {"candidate_limit": value}}}
-            )
+    def test_a_bad_search_setting_is_refused(self, key: str, value: Any) -> None:
+        with pytest.raises(ValueError, match=key):
+            OKFSearchSettings.from_config({"facility_knowledge": {"search": {key: value}}})
 
 
 # ---------------------------------------------------------------------------
@@ -406,23 +413,34 @@ class TestNormalisedPathRecovery:
     search.
     """
 
-    def test_a_normalised_underscore_path_is_recovered(self, bundle_root: Path) -> None:
-        client = _FakeQMDClient([_hit("magnets/corrector-magnets.md")])
+    @pytest.mark.parametrize(
+        ("hit_path", "query", "concept_id"),
+        [
+            pytest.param(
+                "magnets/corrector-magnets.md",
+                "steering",
+                "magnets/corrector_magnets",
+                id="underscore",
+            ),
+            # Spaces fold the same way underscores do, and a concept named with
+            # them is no less real.
+            pytest.param(
+                "diagnostics/beam-position-monitors.md",
+                "orbit",
+                "diagnostics/beam position monitors",
+                id="space",
+            ),
+        ],
+    )
+    def test_a_normalised_path_is_recovered(
+        self, bundle_root: Path, hit_path: str, query: str, concept_id: str
+    ) -> None:
+        client = _FakeQMDClient([_hit(hit_path)])
         bundle = OKFBundle(bundle_root, qmd_client=client)
 
-        results = bundle.search("steering")
+        results = bundle.search(query)
 
-        assert [r.concept_id for r in results] == ["magnets/corrector_magnets"]
-
-    def test_a_normalised_space_path_is_recovered(self, bundle_root: Path) -> None:
-        """Spaces fold the same way underscores do, and a concept named with
-        them is no less real."""
-        client = _FakeQMDClient([_hit("diagnostics/beam-position-monitors.md")])
-        bundle = OKFBundle(bundle_root, qmd_client=client)
-
-        results = bundle.search("orbit")
-
-        assert [r.concept_id for r in results] == ["diagnostics/beam position monitors"]
+        assert [r.concept_id for r in results] == [concept_id]
 
     def test_an_exact_path_needs_no_recovery(self, bundle_root: Path) -> None:
         """The common case — a bundle whose IDs survive normalisation unchanged

@@ -80,6 +80,8 @@ raised the hold where the record can be read::
        (:ref:`the verdict's order <write-safety-config>`).
    * - The terminal's panel proxy
      - A call that would fire a dispatch job.
+   * - A CANOPY panel's data process
+     - Every click on a screen, while any live session of its terminal is held.
 
 Stopping a plan or a run, and ``control_target_set``, are never held.
 

@@ -63,7 +63,9 @@ Dragging sidebar rows
 
 Drag a Tools row up or down to change the order. The order is the same for
 everyone on the same terminal, and it stays after a reload. Drag a row onto
-the work pane instead to open the panel as a new tile where you drop it.
+the work pane instead to open the panel as a new tile where you drop it: on a
+tile's edge, or along an edge of the work pane (see
+:ref:`web-terminal-tiles`).
 
 Taking panels out of the sidebar
 --------------------------------
@@ -89,7 +91,7 @@ because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.
 
-This applies to panels that have a health check: Jupyter, SYSTEM, and any
+This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
 URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be
@@ -224,6 +226,27 @@ Two boundaries are worth saying out loud:
   headers that would act on the terminal's address on the way back — see the
   note under `Adding your own panel`_. A service that authenticates its own
   callers that way cannot be driven as a panel, themed or not.
+
+Handing keyboard focus back
+---------------------------
+
+A frame cannot move focus in the page around it, so a panel whose own Tab
+order runs out would trap the keyboard inside it. A panel hands focus back by
+posting to its parent when Tab (or Shift+Tab) leaves its last (or first)
+element:
+
+.. code-block:: javascript
+
+   window.parent.postMessage(
+     { type: 'canopy-host-focus-exit', direction: 'forward' },  // or 'backward'
+     window.location.origin,
+   );
+
+The terminal also reads the older ``osprey-focus-exit`` for one release. It then
+focuses the next (or previous) element of its own page, in
+document order relative to the panel's tile — after ``backward``, that is the
+tile's header. It acts only on a message from its own origin and from the
+frame of a panel it shows.
 
 The Bluesky panel
 -----------------
@@ -367,54 +390,82 @@ panel declares; panels OSPREY ships, and URL-backed panels declared under
 Panel layouts ("presets")
 -------------------------
 
-A **layout** is a named set of panels an operator applies in one click — "the
-machine-setup view is these four panels." Define them under ``web.presets``, where
-each key is the menu label and each value is the exact set of panels to show:
+A **layout** is a named arrangement of panels an operator applies in one click
+— "the machine-setup view is these panels, in these tiles." Define them under
+``web.presets`` (``panel_presets`` in a build profile), where each key is the
+menu label and each value is the tiles:
 
 .. code-block:: yaml
 
    web:
      presets:
-       "Machine setup": [channel-finder, lattice, artifacts, okf]
-       "Logbook review": [ariel, artifacts]
+       "Machine setup":
+         split: row
+         items:
+           - tabs: [channel-finder, lattice]
+             showing: lattice
+             size: 2
+           - tabs: [artifacts, okf]
+       "Logbook review":
+         tabs: [ariel, artifacts]
+
+A tile is ``tabs``, its panel ids in bar order, with an optional ``showing``
+(the tab in front, by default the first) and ``size`` (a positive weight
+against its siblings). A split is ``split: row`` or ``split: column`` with
+``items``, which are tiles or splits. A layout never names the Agent pane. The
+list form ``"Logbook review": [ariel, artifacts]`` is not read: the profile
+build refuses it and says what to write instead.
 
 Each layout appears under a **Layouts** section at the top of the panel ``+``
-menu. Picking one is *exclusive*: its panels open and every other panel closes.
+menu. Picking one replaces the service tiles with the layout's and leaves the
+Agent pane where it is; every panel not in the layout leaves the sidebar.
 Members must be enabled built-in panels or custom panels you have declared; an
 unknown id is dropped with a warning, and a layout with no valid members is
 skipped. When no ``web.presets`` are configured — the default — the ``+`` menu is
 unchanged, so layouts never add clutter to a deployment that has not opted in.
 
-Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
-agent can reach the same end state either way — but not with the same prompting.
-Applying a layout with ``arrange_workspace`` does not ask; the
-``add_panel_to_rail`` / ``remove_panel_from_rail`` tools ask the operator to
-approve each call on a stock build.
+The OSPREY agent applies the same layouts with ``arrange_workspace``, by name
+and without asking; the ``add_panel_to_rail`` / ``remove_panel_from_rail``
+tools ask the operator to approve each call on a stock build.
 ``list_panels`` reports the configured layouts so the agent can honor a request
 like "set up for machine setup."
 
 Panel tools the agent uses
 --------------------------
 
-The panel tools come in two kinds: the ones that say what is on screen, which
-are auto-allowed, and the ones that change rail membership, which ask the
-operator first.
+The agent changes the dock the way you do, with the same rules: every drop you
+can make, it can make. The panel tools come in two kinds: the ones that say
+what is on screen, which are auto-allowed, and the ones that add or remove a
+sidebar row, which ask the operator first.
 
 What is on screen:
 
-- ``list_panels`` — the panels this deployment has, which of them are on
-  screen, and the configured layouts.
-- ``open_panel`` — put a panel on screen; it joins the rail if it was off it.
-- ``close_panel`` — take a panel's tile off screen, leaving it on the rail.
-- ``arrange_workspace`` — state a whole layout: exactly these tiles, in this
-  order.
+- ``list_panels`` — the panels this deployment has, the dock's tiles with
+  their tabs and the tab in front of each (the terminal included), the panels
+  in pop-out windows, and the configured layouts.
+- ``open_panel`` — put a panel on screen by the opening rule: a new tab in
+  front of the service tile used last. It gets a sidebar row if it had none.
+- ``open_panel_set`` — open several panels in one call: as tabs of one tile,
+  or side by side.
+- ``arrange_workspace`` — apply a configured layout, or an exact one, in place
+  of the service tiles; the terminal keeps its place.
+- ``drop_panel`` — drop a new panel, an open tab or a whole tile on a tile's
+  centre, a tab position or an edge, along a whole side of the dock, or
+  between two tiles.
+- ``close_panel_tab`` — close a panel's tab, leaving its sidebar row.
+- ``close_panel_tile`` — close a whole tile with its tabs.
 
-Rail membership, each one approved by the operator:
+The agent never moves or closes the terminal, and never moves or closes a
+panel you put in a window of its own; ``open_panel`` brings that window
+forward.
 
-- ``add_panel_to_rail`` — make a panel launchable from the rail in one click.
-- ``remove_panel_from_rail`` — take a panel off the rail, and off screen with
-  it.
-- ``register_panel`` — add a rail entry at runtime for an upstream URL the
+Sidebar rows, each one approved by the operator (the tool names keep the
+older word *rail* for the row list):
+
+- ``add_panel_to_rail`` — give a panel a sidebar row, so one click opens it.
+- ``remove_panel_from_rail`` — take a panel's sidebar row away, and its tile
+  off screen with it.
+- ``register_panel`` — add a sidebar row at runtime for an upstream URL the
   terminal proxies.
 
 :doc:`/architecture/mcp-servers` lists these beside the rest of the workspace

@@ -169,14 +169,26 @@ def test_post_ack_swallows_an_entry_that_names_no_destination() -> None:
 # --- post_answer: the answer itself -----------------------------------------
 
 
-def test_post_answer_posts_the_answer_rewritten_for_teams() -> None:
-    """Teams renders no headings, so the answer arrives already degraded to bold."""
+@pytest.mark.parametrize(
+    ("text_output", "posted"),
+    [
+        # Teams renders no headings, so the answer arrives already degraded to bold.
+        pytest.param(
+            "# Beam current\n\n500 mA", "**Beam current**\n\n500 mA", id="rewritten-for-teams"
+        ),
+        # The answer is threaded under the question, which already names itself.
+        pytest.param("500 mA", "500 mA", id="in-a-channel-carries-no-quote"),
+    ],
+)
+def test_post_answer_in_a_channel_posts_the_answer_rewritten_for_teams(
+    text_output: str, posted: str
+) -> None:
     ops, connector = make_ops()
     ops.post_answer(
         make_entry("channel"),
-        {"status": "completed", "text_output": "# Beam current\n\n500 mA"},
+        {"status": "completed", "text_output": text_output},
     )
-    assert connector.texts == ["**Beam current**\n\n500 mA"]
+    assert connector.texts == [posted]
 
 
 def test_post_answer_leaves_the_callers_result_untouched() -> None:
@@ -185,13 +197,6 @@ def test_post_answer_leaves_the_callers_result_untouched() -> None:
     result = {"status": "completed", "text_output": "# Beam current"}
     ops.post_answer(make_entry("channel"), result)
     assert result["text_output"] == "# Beam current"
-
-
-def test_post_answer_in_a_channel_carries_no_quote() -> None:
-    """The answer is threaded under the question, which already names itself."""
-    ops, connector = make_ops()
-    ops.post_answer(make_entry("channel"), {"status": "completed", "text_output": "500 mA"})
-    assert connector.texts == ["500 mA"]
 
 
 @pytest.mark.parametrize("conversation_type", ["personal", "groupChat"], ids=["dm", "group"])

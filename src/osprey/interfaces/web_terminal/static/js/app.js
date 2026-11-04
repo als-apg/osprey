@@ -24,6 +24,7 @@ import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSafetySwitches } from './safety-switches.js';
+import { initCodeReviewTab } from './code-review-tab.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initMoreMenu } from './more-menu.js';
@@ -32,6 +33,7 @@ import { isMacPlatform } from '/design-system/js/platform.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { initChat, enterFromTerminal, renderChatBootFailure } from './chat.js';
 import { initDockWorkspace } from './dock-workspace.js';
+import { panelFocusAnchor } from './dock-iframe.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initControlTargetChip } from './control-target-chip.js';
 import { insertPrompt } from './first-contact.js';
@@ -121,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initScaffoldGallery();
   initHookDebug();
   initSafetySwitches();
+  initCodeReviewTab();
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
 });
@@ -372,6 +375,10 @@ export function initAgentLinks() {
 /** The panel that hosts the artifact gallery. */
 const ARTIFACTS_PANEL_ID = 'artifacts';
 
+// A panel handing focus back. The old name is read until canopy-screen-runtime
+// 0.2.0, whose viewers stop sending it.
+const FOCUS_EXIT_TYPES = new Set(['canopy-host-focus-exit', 'osprey-focus-exit']);
+
 /**
  * Make an artifact id in a chat agent answer show that artifact: the
  * gallery is asked to focus it through the hub's panel proxy (the request the
@@ -444,7 +451,9 @@ export function initIframePasteBridge() {
     // whatever scheme it is handed. `javascript:alert(1)` survives it intact
     // and would execute in the HOST origin, and `//evil.example/x` resolves
     // to a cross-origin document — so a leading-slash test alone is a hole.
-    // Every real panel url is root-relative and already server-prefixed.
+    // Every real panel url is root-relative and already server-prefixed, and
+    // navigateAndActivatePanel then applies the guard's member rule: the url
+    // must stay under that panel's own mount, or nothing moves.
     if (
       e.data &&
       e.data.type === 'osprey:navigate' &&
@@ -454,6 +463,17 @@ export function initIframePasteBridge() {
       !e.data.url.startsWith('//')
     ) {
       navigateAndActivatePanel(e.data.panel, e.data.url);
+    }
+    // A panel handing keyboard focus back: Tab (or Shift+Tab) ran off the end
+    // of its own document, and a frame cannot move focus in its parent. Only
+    // a panel frame may ask — the source check is what keeps any other
+    // same-origin window from steering the operator's focus.
+    if (
+      e.data &&
+      FOCUS_EXIT_TYPES.has(e.data.type) &&
+      (e.data.direction === 'forward' || e.data.direction === 'backward')
+    ) {
+      moveFocusOutOfPanel(e.source, e.data.direction);
     }
     // ARIEL's "Use in Workspace" control asks only to activate the already
     // registered artifact gallery in THIS browser. Unlike the legacy navigate
@@ -469,14 +489,22 @@ export function initIframePasteBridge() {
     }
   });
 
-  // Drop zone: accept dragged artifacts onto the terminal container
+  // Drop zone: accept dragged artifacts onto the terminal container. Only a
+  // drag its source lets be copied is the terminal's; a dock drag (a header
+  // tab, a tile or a sidebar row) allows only a move and belongs to the tile
+  // beneath — pasting its key into the shell would be the wrong answer.
   const termContainer = document.getElementById('terminal-container');
   if (termContainer) {
+    const COPYABLE = new Set(['copy', 'copyLink', 'copyMove', 'all', 'uninitialized']);
+    /** @param {DragEvent} e */
+    const isCopyDrag = (e) => !!e.dataTransfer && COPYABLE.has(e.dataTransfer.effectAllowed);
     termContainer.addEventListener('dragover', (e) => {
+      if (!isCopyDrag(e)) return;
       e.preventDefault();
       /** @type {DataTransfer} */ (e.dataTransfer).dropEffect = 'copy';
     });
     termContainer.addEventListener('drop', (e) => {
+      if (!isCopyDrag(e)) return;
       e.preventDefault();
       const text = /** @type {DataTransfer} */ (e.dataTransfer).getData('text/plain');
       if (text) {
@@ -485,6 +513,58 @@ export function initIframePasteBridge() {
       }
     });
   }
+}
+
+/** What the browser would stop on with Tab, before visibility is checked. */
+const TABBABLE =
+  'a[href], area[href], button, input, select, textarea, iframe, summary, ' +
+  '[tabindex], [contenteditable]:not([contenteditable="false"])';
+
+/**
+ * Whether Tab could land on `el`: focusable, not taken out of the order, not
+ * disabled, and neither it nor an ancestor hidden or inert.
+ * @param {Element} el
+ */
+function isTabbable(el) {
+  const h = /** @type {HTMLElement} */ (el);
+  if (h.tabIndex < 0) return false;
+  if (/** @type {HTMLInputElement} */ (el).disabled) return false;
+  if (el instanceof HTMLInputElement && el.type === 'hidden') return false;
+  if (el.closest('[hidden], [inert], fieldset[disabled]')) return false;
+  for (let n = /** @type {Element | null} */ (el); n; n = n.parentElement) {
+    const cs = getComputedStyle(n);
+    if (cs.display === 'none') return false;
+    if (n === el && cs.visibility === 'hidden') return false;
+  }
+  return true;
+}
+
+/**
+ * Move focus to the host element before (`backward`) or after (`forward`) the
+ * panel whose frame is `source`, in host document order relative to the
+ * panel's place in the dock (see `panelFocusAnchor`). With nothing on that side
+ * focus stays where it is, which is where the panel's own sentinel left it.
+ *
+ * Exported so it can be driven directly in tests.
+ * @param {MessageEventSource | null} source
+ * @param {'forward' | 'backward'} direction
+ * @returns {boolean} whether focus moved
+ */
+export function moveFocusOutOfPanel(source, direction) {
+  const found = panelFocusAnchor(source);
+  if (!found) return false;
+  const { anchor, skip } = found;
+  const candidates = [...document.querySelectorAll(TABBABLE)].filter(
+    (el) => !anchor.contains(el) && !skip(el) && isTabbable(el)
+  );
+  const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+  const PRECEDING = Node.DOCUMENT_POSITION_PRECEDING;
+  const before = candidates.filter((el) => anchor.compareDocumentPosition(el) & PRECEDING);
+  const after = candidates.filter((el) => anchor.compareDocumentPosition(el) & FOLLOWING);
+  const target = direction === 'backward' ? before[before.length - 1] : after[0];
+  if (!target) return false;
+  /** @type {HTMLElement} */ (target).focus();
+  return true;
 }
 
 /**

@@ -590,53 +590,42 @@ class TestVerifyRuntimeIsRunning:
 
         assert verify_runtime_is_running() == (True, "")
 
-    def test_docker_daemon_down_returns_helpful_message(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper, "get_runtime_command", lambda config=None: ["docker", "compose"]
-        )
+    @pytest.mark.parametrize(
+        ("runtime", "stderr", "expected"),
+        [
+            pytest.param(
+                ["docker", "compose"],
+                "Cannot connect to the Docker daemon",
+                "Docker",
+                id="docker-daemon-down",
+            ),
+            pytest.param(
+                ["podman", "compose"],
+                "connection refused",
+                "Podman",
+                id="podman-connection-refused",
+            ),
+            pytest.param(
+                ["docker", "compose"],
+                "something weird happened",
+                "something weird happened",
+                id="generic-nonzero-returns-raw-stderr",
+            ),
+        ],
+    )
+    def test_a_runtime_that_is_down_returns_a_message_saying_why(
+        self, monkeypatch, runtime, stderr, expected
+    ):
+        monkeypatch.setattr(runtime_helper, "get_runtime_command", lambda config=None: runtime)
         monkeypatch.setattr(
             runtime_helper.subprocess,
             "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(
-                cmd, 1, stdout="", stderr="Cannot connect to the Docker daemon"
-            ),
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr=stderr),
         )
 
         ok, msg = verify_runtime_is_running()
         assert ok is False
-        assert "Docker" in msg
-
-    def test_podman_connection_refused_returns_podman_message(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper, "get_runtime_command", lambda config=None: ["podman", "compose"]
-        )
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(
-                cmd, 1, stdout="", stderr="connection refused"
-            ),
-        )
-
-        ok, msg = verify_runtime_is_running()
-        assert ok is False
-        assert "Podman" in msg
-
-    def test_generic_nonzero_returns_raw_stderr(self, monkeypatch):
-        monkeypatch.setattr(
-            runtime_helper, "get_runtime_command", lambda config=None: ["docker", "compose"]
-        )
-        monkeypatch.setattr(
-            runtime_helper.subprocess,
-            "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(
-                cmd, 1, stdout="", stderr="something weird happened"
-            ),
-        )
-
-        ok, msg = verify_runtime_is_running()
-        assert ok is False
-        assert "something weird happened" in msg
+        assert expected in msg
 
     def test_a_ps_that_never_answers_is_reported_as_not_answering(self, monkeypatch):
         monkeypatch.setattr(
