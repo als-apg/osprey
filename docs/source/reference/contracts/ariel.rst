@@ -124,7 +124,7 @@ for the agent. With it off:
 The web panel's attachment display does not depend on this setting.
 
 ``entry_open`` takes an ``entry_id`` and an optional ``attachment_id`` and asks
-the web terminal to bring the ARIEL panel forward at
+the web terminal to bring the Logbook panel forward at
 ``#sel=<entry_id>``, with ``&att=<attachment_id>`` when that attachment is
 one of the entry's and is viewable. It returns ``entry_id``,
 ``attachment_id``, ``opened`` (``entry`` or ``entry_and_picture``), the panel

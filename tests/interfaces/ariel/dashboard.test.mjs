@@ -98,7 +98,7 @@ describe('status drawer: open and close drive loading and refresh', () => {
     store.setState({ drawer: 'status' });
     await flush();
     expect(getStatus).toHaveBeenCalledTimes(1);
-    expect(content().textContent).toContain('ARIEL is healthy');
+    expect(content().textContent).toContain('Logbook is healthy');
   });
 
   test('while open, status re-fetches on every 30 s tick', async () => {

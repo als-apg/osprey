@@ -879,7 +879,7 @@ describe('the compose host', () => {
     [{ supports_write: true, requires_auth: false, source_system: null }, '→ facility logbook'],
     [
       { supports_write: false, requires_auth: false, source_system: 'TestLog' },
-      '→ Local ARIEL only (logbook read-only)',
+      '→ This Logbook only (facility logbook read-only)',
     ],
   ])('the footer names the destination for %o', async (info, text) => {
     await boot({ publishInfo: { ...info, entry_fields: [] } });

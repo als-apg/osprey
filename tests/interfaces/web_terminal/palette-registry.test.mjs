@@ -214,9 +214,9 @@ describe('buildRegistry', () => {
 
   it('SYNONYMS: a panel domain alias matches EVERY row for that panel', () => {
     const items = buildRegistry({
-      getHiddenPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
-      getVisiblePanels: () => [{ id: 'ariel', label: 'ARIEL' }],
-      getPopoutPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      getHiddenPanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
+      getVisiblePanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
+      getPopoutPanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
       openPanelBeside: () => {},
     });
 
@@ -226,8 +226,9 @@ describe('buildRegistry', () => {
       // Only searchText is scored by the matcher, so the alias has to live there.
       expect(row.searchText).toContain('logbook');
       expect(row.searchText).toContain('elog');
-      // The label and id stay searchable alongside the aliases.
-      expect(row.searchText).toContain('ARIEL');
+      // The label and id stay searchable alongside the aliases: the id keeps
+      // the panel's old name, "ariel", reachable.
+      expect(row.searchText).toContain('LOGBOOK');
       expect(row.searchText).toContain('ariel');
     }
   });

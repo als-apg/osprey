@@ -25,7 +25,7 @@ HOOK = "osprey_panels_context.py"
 
 PANELS_PAYLOAD = {
     "enabled": ["artifacts", "ariel"],
-    "labels": {"artifacts": "WORKSPACE", "ariel": "ARIEL"},
+    "labels": {"artifacts": "WORKSPACE", "ariel": "LOGBOOK"},
     "visible": ["artifacts"],
     "active": "artifacts",
     "custom": [],
@@ -78,7 +78,7 @@ def test_chat_surface_with_inventory(hook_runner, monkeypatch, panels_server):
     assert 'open_panel("artifacts")' in context
     # … then the ordinary inventory.
     assert "WORKSPACE (id=artifacts, on rail)" in context
-    assert "ARIEL (id=ariel, off rail)" in context
+    assert "LOGBOOK (id=ariel, off rail)" in context
 
 
 def test_terminal_surface_with_inventory(hook_runner, monkeypatch, panels_server):

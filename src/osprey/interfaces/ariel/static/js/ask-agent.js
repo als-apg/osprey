@@ -30,7 +30,7 @@ export function citation(entry, selection) {
     .map((/** @type {string} */ line) => `> ${line}`)
     .join('\n');
   const date = formatTimestamp(entry.timestamp);
-  return `ARIEL entry ${entry.entry_id} — ${entry.author || 'Unknown'}, ${date}\n${quoted}\n`;
+  return `Logbook entry ${entry.entry_id} — ${entry.author || 'Unknown'}, ${date}\n${quoted}\n`;
 }
 
 /**

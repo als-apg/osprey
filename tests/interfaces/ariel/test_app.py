@@ -59,7 +59,7 @@ def test_create_app_basic():
             app = create_app()
 
             assert isinstance(app, FastAPI)
-            assert app.title == "ARIEL Search Interface"
+            assert app.title == "Logbook Search Interface"
             assert app.version == "1.0.0"
 
 

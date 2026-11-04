@@ -224,7 +224,7 @@ configured or deployed, so a minimal build shows no empty tiles.
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
-  graph MCP server (the graph store), the ARIEL panel and MCP server
+  graph MCP server (the graph store), the Logbook panel and ARIEL MCP server
   (Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
   virtual-accelerator connector. One row per service, and the address it
   knocks on is the one **the client itself resolves** from this config, in the
@@ -967,7 +967,7 @@ the rest.
 
 Each value must be a positive whole number, and ``read_chars`` may not be below
 ``listing_chars``. Anything else is refused when the configuration is parsed:
-the ARIEL MCP server does not start, and the ARIEL panel reports the key. The
+the ARIEL MCP server does not start, and the Logbook panel reports the key. The
 keys are read at startup, so a change lands after ``osprey build`` and a
 restart. When choosing a value, the question is whether the part of an entry
 the agent needs routinely runs past 500 characters.

@@ -85,7 +85,7 @@ export async function loadStatus() {
  */
 function renderStatus(container, status) {
   const healthStatus = status.healthy ? 'healthy' : 'error';
-  const healthLabel = status.healthy ? 'ARIEL is healthy' : 'ARIEL has issues';
+  const healthLabel = status.healthy ? 'Logbook is healthy' : 'Logbook has issues';
 
   container.innerHTML = `
     <!-- Overall Health -->
