@@ -1535,7 +1535,10 @@ follows on its own indented line when it has one. <code class="docutils literal 
 the active set.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span> <span class="pre">[--target</span> <span class="pre">&lt;live|va|standin&gt;]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Print one <code class="docutils literal notranslate"><span class="pre">&lt;model&gt;:</span> <span class="pre">&lt;status&gt;</span></code> line per served physics model, sorted by
-name, where the status is <code class="docutils literal notranslate"><span class="pre">ok</span></code> or the model’s error text. One
+name, where the status is <code class="docutils literal notranslate"><span class="pre">ok</span></code>, <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">deck</span></code> for a model that names no deck
+and wires no channel (it is not built, by design, and its channels are the
+texture’s), or <code class="docutils literal notranslate"><span class="pre">FAILED:</span></code> followed by the model’s error text. The command
+exits 1 when any model failed, after printing every line. One
 <code class="docutils literal notranslate"><span class="pre">log:</span> <span class="pre">&lt;absolute</span> <span class="pre">path&gt;</span></code> line per model follows, naming the log the
 simulator appends to under <code class="docutils literal notranslate"><span class="pre">var/simulator/</span></code>, each followed by any
 scenario-overlap records from that log. <code class="docutils literal notranslate"><span class="pre">--target</span></code> selects the control

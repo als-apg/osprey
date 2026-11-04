@@ -710,6 +710,17 @@ user’s agent reaches). A knock is a TCP connect; a closed port warns and
 names the config key the client resolved it from, and a client switched on
 with nothing to resolve warns with the key that would give it one — the
 same condition <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses (<a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">simulator</span></code> — appears when the render carries a simulator view with a
+physics model and the deployment serves a simulator from a process of its
+own: the <code class="docutils literal notranslate"><span class="pre">va</span></code> target’s container, the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target, or both. One row
+per target and model, read from the model’s status channel exactly as
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span> <span class="pre">--target</span></code> reads it: <code class="docutils literal notranslate"><span class="pre">ok</span></code> while the model serves,
+<code class="docutils literal notranslate"><span class="pre">ok</span></code> with “no deck, not built by design” for a model that names no deck
+and wires no channel, and <code class="docutils literal notranslate"><span class="pre">error</span></code> naming the error for a model that
+failed. A failed model serves NaN while the container keeps serving every
+other channel, so its healthcheck stays green and this row is where the
+failure shows. A target whose channels cannot be read is one <code class="docutils literal notranslate"><span class="pre">warning</span></code>
+row. A simulator served only in process gives no rows.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>

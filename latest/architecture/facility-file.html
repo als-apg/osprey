@@ -936,7 +936,14 @@ view. A model whose engine raises while building or reading it (over a deck
 that does not load, say) is left failed: its status channel carries the
 engine’s error text, and every other model and every texture channel is still
 served. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span></code> prints one <code class="docutils literal notranslate"><span class="pre">&lt;model&gt;:</span> <span class="pre">&lt;status&gt;</span></code> line per served
-model, <code class="docutils literal notranslate"><span class="pre">ok</span></code> or that text, and names each model’s log.</p>
+model, <code class="docutils literal notranslate"><span class="pre">ok</span></code> or <code class="docutils literal notranslate"><span class="pre">FAILED:</span></code> and that text, exits 1 when a model failed, and
+names each model’s log. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reads the same channels on every
+simulator the deployment serves from a container (the <code class="docutils literal notranslate"><span class="pre">va</span></code> and <code class="docutils literal notranslate"><span class="pre">standin</span></code>
+targets) and reports a failed model as an <code class="docutils literal notranslate"><span class="pre">error</span></code> row of its <code class="docutils literal notranslate"><span class="pre">simulator</span></code>
+category, since the container itself keeps serving and stays healthy.</p>
+<p>A model that names no deck and wires no channel is not a failure: nothing is
+built for it, its status is <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">deck</span></code>, and every channel of that machine is
+the texture’s.</p>
 <p>How the composite serves the models over Channel Access and PVAccess is in
 <a class="reference internal" href="virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
 <div class="admonition seealso">
