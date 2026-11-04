@@ -1172,6 +1172,14 @@ default. One row per image:
      - ``OSPREY_BLUESKY_WEB_IMAGE``
      - ``services.bluesky_web.image``
      - ``<project>-bluesky-web``
+   * - optimizer
+     - ``OSPREY_OPTIMIZER_IMAGE``
+     - ``services.optimizer.image``
+     - ``<project>-optimizer``
+   * - optimizer (Redis sidecar)
+     - ``OSPREY_OPTIMIZER_REDIS_IMAGE``
+     - ``services.optimizer.redis_image``
+     - upstream pin
    * - virtual_accelerator
      - ``OSPREY_VA_IMAGE``
      - ``services.virtual_accelerator.image``

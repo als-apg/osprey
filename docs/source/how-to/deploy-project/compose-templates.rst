@@ -238,6 +238,8 @@ fails at ``up`` on the image it forgot:
      bluesky:
        tiled_image: registry.example.org/mirror/tiled:0.2.18
        redis_image: registry.example.org/mirror/redis:7.4-alpine
+     optimizer:
+       redis_image: registry.example.org/mirror/redis:7.4-alpine
 
    modules:
      web_terminals:
