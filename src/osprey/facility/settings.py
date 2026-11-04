@@ -71,6 +71,9 @@ VOCABULARY_PATH_KEY = "ariel.vocabulary.path"
 #: The vocabulary a facility tree ships, relative to the render root.
 VOCABULARY_SOURCE = "data/facility/ariel/vocabulary.yml"
 
+#: The profile section whose null turns ARIEL, and with it the vocabulary, off.
+ARIEL_SECTION = "ariel"
+
 #: Where a render carries the benchmark query file when the profile names no
 #: other place, relative to the render root.
 BENCHMARK_DATASET_PATH = "data/benchmarks/queries.json"
@@ -117,6 +120,10 @@ class _Inputs:
         from osprey.deployment.reach import dotted_get
 
         return dotted_get(self.profile, key)
+
+    def switched_off(self, section: str) -> bool:
+        """Whether the profile states ``section`` as null, which turns its consumer off."""
+        return section in self.profile and self.profile[section] is None
 
     @cached_property
     def serves_simulator(self) -> bool:
@@ -301,7 +308,11 @@ def _check_vocabulary_enabled(inputs: _Inputs) -> None:
 
 
 def _derive_vocabulary_enabled(inputs: _Inputs) -> Any:
-    if inputs.vocabulary_shipped and inputs.stated(VOCABULARY_ENABLED_KEY) is None:
+    if (
+        inputs.vocabulary_shipped
+        and not inputs.switched_off(ARIEL_SECTION)
+        and inputs.stated(VOCABULARY_ENABLED_KEY) is None
+    ):
         return True
     return None
 
@@ -327,6 +338,7 @@ def _check_vocabulary_path(inputs: _Inputs) -> None:
 def _derive_vocabulary_path(inputs: _Inputs) -> Any:
     if (
         inputs.vocabulary_shipped
+        and not inputs.switched_off(ARIEL_SECTION)
         and inputs.stated(VOCABULARY_ENABLED_KEY) is not False
         and inputs.stated(VOCABULARY_PATH_KEY) is None
     ):
