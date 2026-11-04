@@ -41,7 +41,6 @@ from osprey_optimizer.api.job_tracker import (
     JobSlotLostError,
     JobTracker,
 )
-from osprey_optimizer.core.state import TERMINAL_STATE_TTL_SECONDS
 from osprey_optimizer.models.enums import JobStatus, JobType
 from osprey_optimizer.models.exceptions import CancellationError
 from osprey_optimizer.optimization.state import OptimizationStateWriter, get_optimization_writer
@@ -55,7 +54,10 @@ from osprey_optimizer.utils.process import (
     shutdown_grace_seconds,
 )
 from osprey_optimizer.utils.redis_client import get_redis_client
-from osprey_optimizer.utils.redis_state_store import RUNNING_STATE_TTL_SECONDS
+from osprey_optimizer.utils.redis_state_store import (
+    RUNNING_STATE_TTL_SECONDS,
+    TERMINAL_STATE_TTL_SECONDS,
+)
 from osprey_optimizer.utils.serialization import deserialize_obj
 
 from . import _shutdown_workers

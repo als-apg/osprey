@@ -11,7 +11,6 @@ from types import TracebackType
 from pydantic import BaseModel, ValidationError
 from redis.commands.core import Script
 
-from osprey_optimizer.core.state import TERMINAL_STATE_TTL_SECONDS
 from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.exceptions import CancellationError
 from osprey_optimizer.models.protocols import JobStateWriter
@@ -27,6 +26,7 @@ from osprey_optimizer.utils.redis_client import StrRedis, as_str
 from osprey_optimizer.utils.redis_state_store import (
     CREATED_STATE_TTL_SECONDS,
     RUNNING_STATE_TTL_SECONDS,
+    TERMINAL_STATE_TTL_SECONDS,
 )
 
 logger = logging.getLogger(__name__)
