@@ -9,10 +9,7 @@ import polars as pl
 import pytest
 
 from osprey_optimizer.models.config import OptimizationConfig
-from osprey_optimizer.services.orchestration import (
-    OptimizationMetadata,
-    OptimizationResult,
-)
+from osprey_optimizer.services.orchestration import OptimizationResult
 from osprey_optimizer.services.result_pipeline import (
     ParquetResultWriter,
     process_results,
@@ -26,10 +23,9 @@ def _make_result() -> OptimizationResult:
         objective_name="charge_ltb",
         environment_config={},
     )
-    metadata = OptimizationMetadata(config=config)
     data = pl.DataFrame({"charge_ltb": [1.0, 1.2, 1.3, 1.4], "x": [0.1, 0.2, 0.15, 0.25]})
     best_point = {"charge_ltb": 1.4, "x": 0.25}
-    return OptimizationResult(data=data, best_point=best_point, metadata=metadata)
+    return OptimizationResult(data=data, best_point=best_point, config=config)
 
 
 class DummyWriter:
@@ -73,7 +69,7 @@ class TestParquetResultWriter:
         args = mock_save.call_args.args
         assert args[0] is fake.data
         assert args[1] is fake.best_point
-        assert args[2] is fake.metadata.config
+        assert args[2] is fake.config
         assert mock_save.call_args.kwargs.get("output_dir") == output_dir
 
 

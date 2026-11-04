@@ -31,7 +31,7 @@ from osprey_optimizer.models.exceptions import CancellationError, OptimizerError
 from osprey_optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
 from osprey_optimizer.models.protocols import PVReading
 from osprey_optimizer.models.types import Direction
-from osprey_optimizer.optimization.types import OptimizationMetadata, OptimizationResult
+from osprey_optimizer.optimization.types import OptimizationResult
 from osprey_optimizer.services.draft_resolution import resolve_draft_config
 from osprey_optimizer.services.execution import ExecutionService
 from osprey_optimizer.services.plugin_registry import EnvironmentRegistry
@@ -656,7 +656,7 @@ class TestCreateApplyFn:
             result = OptimizationResult(
                 data=pl.DataFrame({"var_a": [1.0]}),
                 best_point={"var_a": 1.5, "var_b": -0.25, "extra_key": 9.9},
-                metadata=OptimizationMetadata(config=config),
+                config=config,
             )
             applied = apply_fn(result)
 
