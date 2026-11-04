@@ -281,6 +281,7 @@ class TestClaimActiveJob:
         the outcome. Either way no metadata is deleted, so a pre-existing CREATED
         meta at the meta key survives a lost race (H3)."""
         mock_redis, _ = redis_mocks
+        mock_redis.get.return_value = None  # no stale slot to clear first
         script = mock_redis.register_script.return_value
         script.return_value = lua_result
         tracker = JobTracker()
@@ -320,6 +321,14 @@ class TestClaimActiveJob:
         assert meta.status is JobStatus.CREATED
         # The pre-existing slot holder is untouched.
         assert redis.get(ACTIVE_JOB_KEY) == other
+
+    def test_claim_takes_the_slot_of_a_job_that_died_holding_it(self, tracker: JobTracker) -> None:
+        """A job killed mid-run leaves the slot set and its keys expire; the next start still claims."""
+        tracker._get_redis().set(ACTIVE_JOB_KEY, "killed-job")  # no meta: it expired
+        tracker.register_created_job("next-job", job_type=JobType.OPTIMIZATION)
+
+        assert tracker.claim_active_job("next-job", 0, job_type=JobType.OPTIMIZATION) is True
+        assert tracker._get_redis().get(ACTIVE_JOB_KEY) == "next-job"
 
     def test_claim_success_sets_active_and_running_meta(self, tracker: JobTracker) -> None:
         """An uncontended claim takes the slot and writes RUNNING meta atomically."""

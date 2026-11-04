@@ -199,7 +199,12 @@ class JobTracker:
         appears, while a *lost* race writes nothing and leaves the job's
         pre-existing (CREATED) metadata intact. Returns False if another job
         already holds the slot.
+
+        A slot left by a job that died without releasing it (its keys expired
+        with its heartbeat) is cleared first, by :meth:`get_active_job`; the
+        NX claim alone would refuse every start after such a crash.
         """
+        self.get_active_job()
         claimed = self._script(_CLAIM_ACTIVE_JOB_LUA)(
             keys=[ACTIVE_JOB_KEY, meta_key(job_id)],
             args=[
