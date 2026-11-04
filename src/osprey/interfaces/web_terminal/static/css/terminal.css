@@ -576,12 +576,12 @@ html:not([data-control-target="off"]) .sidebar-target {
 
 /* Allowed on the live machine is the loudest state: nobody is asked before
    hardware moves, and it alone fills the block. */
-.sidebar-target .control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) {
+.sidebar-target .control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]) {
   border-color: var(--color-error);
   background: var(--error-tint-25);
 }
 
-.sidebar-target .control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) .ctc-state {
+.sidebar-target .control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]) .ctc-state {
   font-weight: var(--weight-semibold);
 }
 
@@ -1025,25 +1025,34 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   --state-tone: var(--text-muted);
 }
 
-.control-target-chip:is([data-state="asked"], [data-state="allowed"]) {
+/* A program's approved authorization in force, whatever the switch word says:
+   no person is asked before its writes, inside the channels, ranges and steps
+   that were approved — the colour of allowed, with its own shape (the ring
+   below). */
+:is(.control-target-chip, .ctc-switchwrap)[data-program="true"] {
+  --state-tone: var(--color-error);
+}
+
+.control-target-chip:is([data-state="asked"], [data-state="allowed"], [data-program="true"]) {
   border-color: color-mix(in srgb, var(--state-tone) 40%, transparent);
 }
 
 /* Allowed on the live machine: nobody is asked before hardware moves. The one
-   loud cell in the matrix, at rest as well as on hover. */
-.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) {
+   loud cell in the matrix, at rest as well as on hover. A program's
+   authorization on the live machine writes just the same. */
+.control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]) {
   color: var(--text-primary);
   border-color: var(--color-error);
   background: var(--error-tint-15);
 }
 
-.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]):hover,
-.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"])[aria-expanded="true"] {
+.control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]):hover,
+.control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"])[aria-expanded="true"] {
   border-color: var(--color-error);
   background: var(--error-tint-25);
 }
 
-.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) .ctc-state {
+.control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]) .ctc-state {
   font-weight: var(--weight-medium);
 }
 
@@ -1130,6 +1139,13 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 [data-state="allowed"] > .ctc-dot,
 .ctc-dot[data-state="allowed"] {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--dot) 35%, transparent);
+}
+
+/* A program's authorization: a ring around a centre rather than the full dot —
+   on, with no person's gesture behind each write. */
+[data-program="true"] > .ctc-dot,
+.ctc-dot[data-program="true"] {
+  background: radial-gradient(circle, var(--dot) 30%, transparent 40%);
 }
 
 /* A switch request is out: the dot breathes until the answer lands. Motion is
@@ -1407,7 +1423,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   color: var(--state-tone, var(--text-muted));
 }
 
-[data-target-kind="real"] .ctc-switchwrap[data-state="allowed"] .ctc-switch-state {
+[data-target-kind="real"] .ctc-switchwrap:is([data-state="allowed"], [data-program="true"]) .ctc-switch-state {
   font-weight: var(--weight-medium);
 }
 
@@ -1584,6 +1600,87 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 .ctc-ask-again-link:hover {
   color: var(--text-primary);
+}
+
+/* ---- Programs' write authorizations (write-authorization-panel.js) ---- */
+
+/* A request waiting on this login, or an authorization it approved, one line
+   each with its one action at the end. */
+.wa-request,
+.wa-held {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.wa-held .wa-what::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--space-1);
+  border-radius: var(--radius-full);
+  background: radial-gradient(circle, var(--color-error) 30%, transparent 40%);
+  border: 1.5px solid var(--color-error);
+}
+
+.wa-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.wa-card-title {
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.wa-channels {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+}
+
+.wa-channels th,
+.wa-channels td {
+  padding: 0 var(--space-2) 0 0;
+  text-align: left;
+}
+
+.wa-channel[data-problem] {
+  color: var(--color-error);
+}
+
+.wa-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--space-2);
+  margin: 0;
+}
+
+.wa-facts dd {
+  margin: 0;
+}
+
+.wa-loading,
+.wa-note,
+.wa-status {
+  color: var(--text-muted);
+}
+
+.wa-refusal {
+  color: var(--color-error);
+}
+
+.wa-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
 }
 
 /* ---- Rail / tile-header context menu ---- */

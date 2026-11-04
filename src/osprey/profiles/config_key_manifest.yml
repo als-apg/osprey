@@ -692,6 +692,19 @@ keys:
       `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.bluesky_web
+  services.optimizer.image:
+    rendered: false
+    evidence: 'OSPREY_OPTIMIZER_IMAGE:-\{\{ svc\.image'
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
+    default: derived
+    default_note: osprey_images.optimizer
+  services.optimizer.redis_image:
+    rendered: false
+    evidence: 'OSPREY_OPTIMIZER_REDIS_IMAGE:-\{\{ svc\.redis_image'
+    note: Upstream pin for the optimizer's Redis job store.
+    default: redis:7.4-alpine
   services.virtual_accelerator.image:
     rendered: false
     evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'
@@ -854,6 +867,9 @@ keys:
   services.bluesky_web: {evidence: 'hostenv\.passthrough\(services\.bluesky_web\)', default: null}
   services.bluesky_web.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky-web injector writes ./services/bluesky_web"}
   services.bluesky_web.port: {evidence: '"bluesky-web": "services\.bluesky_web\.port"', default: derived, default_note: the layout's bluesky_web slot at this deployment's port base}
+  services.optimizer.port: {rendered: false, evidence: '"optimizer": "services\.optimizer\.port"', default: derived, default_note: the layout's optimizer slot at this deployment's port base}
+  services.optimizer.targets: {rendered: false, evidence: 'svc\.targets \| default\(\[.va.\], true\)', default: [va]}
+  services.optimizer.environments_dir: {rendered: false, evidence: 'svc\.environments_dir \}\}:/app/environments:ro', default: null}
   services.virtual_accelerator: {evidence: 'set svc = services\[instance_key\]', default: null}
   services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator"}
   services.virtual_accelerator.port: {evidence: 'dotted_get\(config, "services\.virtual_accelerator\.port"\) or DEFAULT_VA_PORT', default: derived, default_note: the virtual accelerator's Channel Access default port}

@@ -30,7 +30,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -546,7 +546,37 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     from osprey.agent_record.credentials import export_built_host_identity
 
     export_built_host_identity(os.environ, repo_root)
+    _export_write_ledger_view(os.environ, repo_root)
     return repo_root, build_dir, config_path
+
+
+def _export_write_ledger_view(environ: MutableMapping[str, str], repo_root: Path) -> list[str]:
+    """Point a host terminal at the deployment's write ledger, as a container's binds do.
+
+    A web terminal in a container is handed ``var/write_ledger/requests`` and
+    ``var/write_ledger`` read-only, so it sees the requests and self-issued
+    grants of the programs in this deployment's containers. A terminal on the
+    host has no binds; without these it would see none of them, and a run
+    waiting on an approval could be approved only from the CLI. A variable
+    already set (a container's bind) is left as it is, and so is a directory the
+    deploy has not provisioned.
+
+    Returns:
+        The names of the variables set.
+    """
+    from osprey.deployment.compose_generator import write_ledger_relpath, write_requests_relpath
+    from osprey_connectors import write_authorization as wa
+
+    exported = []
+    for name, relpath in (
+        (wa.REQUESTS_DIR_ENV_VAR, write_requests_relpath()),
+        (wa.LEDGER_VIEW_DIR_ENV_VAR, write_ledger_relpath()),
+    ):
+        directory = repo_root / relpath
+        if name not in environ and directory.is_dir():
+            environ[name] = str(directory)
+            exported.append(name)
+    return exported
 
 
 def _preflight_vendor_check() -> None:

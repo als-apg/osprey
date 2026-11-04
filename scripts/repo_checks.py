@@ -553,6 +553,27 @@ for name in modules:
 print(f'PYAML WHEEL OK ({len(modules)} modules)')
 """
 
+#: Run by a venv holding only the connectors and optimizer wheels. The base is
+#: what the framework imports (models, environment files), so it must load from
+#: the two sibling wheels alone and pull in none of the ``service`` stack; the app
+#: itself must refuse with the install hint.
+OPTIMIZER_BASE_PROBE = """\
+import importlib, sys
+for name in ('osprey_optimizer', 'osprey_optimizer.models', 'osprey_optimizer.models.api',
+             'osprey_optimizer.models.config', 'osprey_optimizer.environments.spec',
+             'osprey_optimizer.environments.connector_env', 'osprey_optimizer.environments.interface'):
+    importlib.import_module(name)
+bad = sorted({m.split('.')[0] for m in sys.modules} & {'osprey', 'xopt', 'torch', 'botorch', 'gpytorch', 'polars', 'redis', 'fastapi', 'sklearn'})
+assert not bad, f'the optimizer base loaded: {bad}'
+try:
+    import osprey_optimizer.api
+except ImportError as exc:
+    assert 'osprey-optimizer[service]' in str(exc), exc
+else:
+    raise AssertionError('osprey_optimizer.api imported without the service extra')
+print('OPTIMIZER BASE WHEEL OK')
+"""
+
 #: The package build, in order; each step needs the one before it. ``{scratch}``
 #: is a fresh temporary directory, and a ``dist/`` glob is expanded when the
 #: step runs.
@@ -570,6 +591,13 @@ PACKAGE_STEPS: tuple[tuple[str, ...], ...] = (
         "dist/osprey_connectors-*.whl",
     ),
     ("{scratch}/lean/bin/python", "-I", LEAN_IMPORT_WALK),
+    ("uv", "build", "--package", "osprey-optimizer"),
+    ("uv", "venv", "{scratch}/optimizer", "--python", "3.11"),
+    (
+        *("uv", "pip", "install", "--python", "{scratch}/optimizer/bin/python"),
+        *("dist/osprey_connectors-*.whl", "dist/osprey_optimizer-*.whl"),
+    ),
+    ("{scratch}/optimizer/bin/python", "-c", OPTIMIZER_BASE_PROBE),
     ("uv", "build", "--package", "pyaml-cs-osprey"),
     ("uv", "venv", "{scratch}/pyaml", "--python", "3.11"),
     (
@@ -1173,6 +1201,11 @@ LANES: tuple[Lane, ...] = (
         ),
     ),
     Lane(
+        "optimizer",
+        "search stack and redis",
+        ("packages/osprey-optimizer/**", "tests/optimizer/**", "pyproject.toml", "uv.lock"),
+    ),
+    Lane(
         "static-checks",
         "builds a project",
         ("tests/integration/test_preset_static.py", "tests/integration/test_preset_build.py"),
@@ -1195,6 +1228,15 @@ LANES: tuple[Lane, ...] = (
     _e2e("single-user-narrowing-e2e", "test_single_user_narrowing_e2e.py"),
     _e2e("dispatch-overlay-e2e", "test_dispatch_overlay_visibility.py"),
     _scan("bluesky-deploy-e2e", "test_bluesky_deploy.py"),
+    Lane(
+        "optimizer-deploy-e2e",
+        "containers",
+        (
+            "tests/e2e/test_optimizer_deploy.py",
+            "src/osprey/templates/services/optimizer/**",
+            "packages/osprey-optimizer/**",
+        ),
+    ),
     _scan("bluesky-web-deploy-e2e", "test_bluesky_web_deploy.py"),
     _e2e("va-substrate-equivalence-e2e", "test_va_substrate_equivalence.py"),
     _scan(

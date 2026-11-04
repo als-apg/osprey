@@ -3780,6 +3780,31 @@ _EXPECTED_STAGED_WHEELS = sorted(
 )
 
 
+def _write_fixture_optimizer_wheel(path: Path) -> None:
+    """Write a minimal valid osprey-optimizer wheel: a base requirement on the
+    connectors, one of its own, and a ``service`` extra the manifest must leave
+    to the wheel layer."""
+    import zipfile
+
+    metadata = (
+        "Metadata-Version: 2.1\n"
+        "Name: osprey-optimizer\n"
+        f"Version: {_FIXTURE_MEMBER_VERSION}\n"
+        "Requires-Dist: osprey-connectors>=2026.6.2\n"
+        "Requires-Dist: pydantic>=2.12.5\n"
+        'Requires-Dist: torch==2.13.0; extra == "service"\n'
+        "Provides-Extra: service\n"
+    )
+    with zipfile.ZipFile(path, "w") as whl:
+        whl.writestr(f"osprey_optimizer-{_FIXTURE_MEMBER_VERSION}.dist-info/METADATA", metadata)
+
+
+#: Members whose fixture wheel a test replaces with one carrying requirements of
+#: its own, by member name. Empty by default, so the framework's manifest
+#: contract reads the generic member wheels.
+_RICH_MEMBER_FIXTURES: dict[str, Any] = {}
+
+
 @pytest.fixture
 def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
     """Spy on the ``python -m build`` subprocess, faking a successful build.
@@ -3805,7 +3830,9 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
             # checkout root may itself share a member's basename.
             cwd = Path(str(kwargs.get("cwd", "")))
             member = cwd.name
-            if cwd.parent.name == "packages" and member in WORKSPACE_MEMBERS:
+            if cwd.parent.name == "packages" and member in _RICH_MEMBER_FIXTURES:
+                _RICH_MEMBER_FIXTURES[member](Path(outdir, _member_wheel_name(member)))
+            elif cwd.parent.name == "packages" and member in WORKSPACE_MEMBERS:
                 _write_fixture_member_wheel(Path(outdir, _member_wheel_name(member)), member)
             else:
                 _write_fixture_wheel(Path(outdir, "osprey_framework-0.0.0-py3-none-any.whl"))
@@ -3814,6 +3841,33 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
     return calls
+
+
+def test_the_optimizer_context_is_handed_its_own_wheel_and_not_the_frameworks(
+    tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The optimizer image installs the optimizer package, not the framework, so
+    its dev build is handed the optimizer and connectors wheels only, and a
+    manifest of their base requirements: the workspace pair is satisfied by the
+    wheels themselves, and the ``service`` extra by the wheel layer."""
+    from osprey.deployment.compose_generator import _stage_dev_wheel_for_context
+
+    monkeypatch.setitem(_RICH_MEMBER_FIXTURES, "osprey-optimizer", _write_fixture_optimizer_wheel)
+
+    ctx = tmp_path / "optimizer"
+    ctx.mkdir()
+    (ctx / "Dockerfile").write_text("FROM scratch\n")
+
+    assert _stage_dev_wheel_for_context(str(ctx), dev_mode=True) is True
+
+    assert sorted(p.name for p in ctx.glob("*.whl")) == [
+        _member_wheel_name("osprey-connectors"),
+        _member_wheel_name("osprey-optimizer"),
+    ]
+    manifest = (ctx / "osprey-local-requirements.txt").read_text().splitlines()
+    assert "pydantic>=2.12.5" in manifest
+    assert not any(line.startswith(("osprey-connectors", "torch")) for line in manifest)
+    assert len(spy_wheel_build) == 2
 
 
 def test_dev_wheel_builds_once_across_service_and_project_staging(
@@ -3888,7 +3942,7 @@ def test_dev_wheel_staged_only_into_dockerfile_build_contexts(
 
     staged: list[str] = []
 
-    def _record_staging(out_dir: str) -> bool:
+    def _record_staging(out_dir: str, **_: object) -> bool:
         staged.append(out_dir)
         return True
 
@@ -3926,7 +3980,7 @@ def _rendered_dispatcher_build_args(
     monkeypatch.setattr(
         compose_generator,
         "_copy_local_framework_for_override",
-        lambda out_dir: staging_result,
+        lambda out_dir, **_: staging_result,
     )
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
@@ -3956,7 +4010,7 @@ def test_failed_wheel_staging_aborts_the_deploy(
     from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
 
-    def _staging_fails(_out_dir):  # type: ignore[no-untyped-def]
+    def _staging_fails(_out_dir, **_):  # type: ignore[no-untyped-def]
         raise DevModeUnavailableError("staging failed", "fix it")
 
     monkeypatch.setattr(compose_generator, "_copy_local_framework_for_override", _staging_fails)

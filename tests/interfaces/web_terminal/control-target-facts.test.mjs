@@ -31,6 +31,9 @@ import {
   lockReason,
   machineKind,
   resolvePendingSwitch,
+  PROGRAM_HOLD_SENTENCE,
+  programHolders,
+  programQualifier,
   statePhrase,
   switchConfirm,
   switchFailureNote,
@@ -115,6 +118,37 @@ describe('statePhrase', () => {
     expect(statePhrase('asked')).toBe('writes asked');
     expect(statePhrase('allowed')).toBe('writes allowed');
     expect(statePhrase('locked')).toBe('writes locked');
+    expect(statePhrase('program')).toBe('writes locked');
+  });
+
+  test('a program holding the machine is said after the word, not instead of it', () => {
+    expect(statePhrase('off') + programQualifier({ program_hold: true })).toBe(
+      'writes off · program'
+    );
+    expect(programQualifier({ program_hold: false })).toBe('');
+    expect(programQualifier(null)).toBe('');
+  });
+
+  test('a row a program holds names who holds it', () => {
+    expect(programHolders({ program_hold: false, programs: [] })).toBeNull();
+    const title = programHolders({
+      program_hold: true,
+      programs: [{ id: 'x', holder: 'optimizer', label: 'run-42', steps: 12, expires_in_s: 60 }],
+    });
+    expect(title).toContain(PROGRAM_HOLD_SENTENCE);
+    expect(title).toContain('optimizer (run-42), 12 steps');
+    const own = programHolders({
+      program_hold: true,
+      programs: [
+        { id: 'y', holder: 'scan', label: '', steps: 5, expires_in_s: 60, self_issued: true },
+      ],
+    });
+    expect(own).toContain('scan, 5 steps, self-issued at allowed');
+    const counted = programHolders({
+      program_hold: true,
+      programs: [{ id: 'z', holder: 'optimizer', label: '', steps: 12, used: 5, expires_in_s: 60 }],
+    });
+    expect(counted).toContain('optimizer, 5/12 steps');
   });
 
   test('no state word is "sandbox", and the old words promise nothing', () => {
