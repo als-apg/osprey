@@ -33,6 +33,7 @@ from tests.interfaces.web_terminal._started_app import terminal_client
 def project(tmp_path, monkeypatch):
     """A minimal project dir with the ambient config env cleared."""
     (tmp_path / "_agent_data").mkdir(exist_ok=True)
+    (tmp_path / ".osprey-manifest.json").write_text("{}")
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.chdir(tmp_path)

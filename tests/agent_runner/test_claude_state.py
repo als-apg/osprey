@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import os
 import re
 import subprocess
@@ -45,6 +46,7 @@ import pytest
 from osprey.agent_runner.claude_state import (
     CLAUDE_CONFIG_VOLUME_SUFFIX,
     CLAUDE_STATE_FILENAME,
+    RENDER_MANIFEST,
     is_untrusted_allow_rules_notice,
     seed_claude_state,
     seed_workspace_trust,
@@ -61,6 +63,7 @@ def render_dir(tmp_path: Path) -> Path:
     (render / "config.yml").write_text(
         "claude_code:\n  provider: anthropic\n  cli_version: '2.1.239'\n"
     )
+    (render / RENDER_MANIFEST).write_text("{}")
     return render
 
 
@@ -312,6 +315,26 @@ def test_host_trust_falls_back_to_home_and_leaves_a_corrupt_file_alone(render_di
     (home / CLAUDE_STATE_FILENAME).write_text(corrupt)
     assert seed_workspace_trust(render_dir, env={"HOME": str(home)}) is False
     assert (home / CLAUDE_STATE_FILENAME).read_text() == corrupt
+
+
+def test_host_trust_refuses_a_directory_that_is_not_a_render(tmp_path, config_dir):
+    """Only a directory `osprey build` produced is trusted, never an arbitrary cwd."""
+    stray = tmp_path / "not-a-render"
+    stray.mkdir()
+
+    assert seed_workspace_trust(stray, env={"CLAUDE_CONFIG_DIR": str(config_dir)}) is False
+    assert not (config_dir / CLAUDE_STATE_FILENAME).exists()
+
+
+def test_host_trust_warns_when_it_overrides_a_recorded_false(render_dir, config_dir, caplog):
+    (config_dir / CLAUDE_STATE_FILENAME).write_text(
+        json.dumps({"projects": {str(render_dir): {"hasTrustDialogAccepted": False}}})
+    )
+
+    with caplog.at_level(logging.WARNING):
+        assert seed_workspace_trust(render_dir, env={"CLAUDE_CONFIG_DIR": str(config_dir)})
+
+    assert any("recorded untrusted" in r.getMessage() for r in caplog.records)
 
 
 # ── the per-user volume that holds this state ────────────────────────────────

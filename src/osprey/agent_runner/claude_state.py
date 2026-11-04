@@ -59,6 +59,10 @@ logger = get_logger("agent_runner.claude_state")
 #: Claude Code's per-machine state file, relative to the config dir / HOME.
 CLAUDE_STATE_FILENAME = ".claude.json"
 
+#: The provenance file ``osprey build`` stamps into every render; the host trust
+#: seed marks only a directory holding it, never an arbitrary working directory.
+RENDER_MANIFEST = ".osprey-manifest.json"
+
 #: Each web-terminal user's named volume holding this state is ``<user>`` plus
 #: this suffix. Deployed hosts hold volumes under exactly this name, so a
 #: different value would give every user an empty volume and detach their
@@ -187,10 +191,11 @@ def seed_workspace_trust(project_dir: Path, *, env: Mapping[str, str] | None = N
 
     The host web terminal's half of :func:`seed_claude_state`: a developer's own
     state file keeps its onboarding and key choices, and gains trust for exactly
-    the render the server launches Claude Code in. A recorded ``false`` for that
-    path is overwritten — the render's allow list is the deployment's decision —
-    while every other key and project entry is left as it was. Never clobbers a
-    file that does not parse.
+    the render the server launches Claude Code in. Only a directory holding
+    :data:`RENDER_MANIFEST` is marked. A recorded ``false`` for that path is
+    overwritten with a warning — the render's allow list is the deployment's
+    decision — while every other key and project entry is left as it was. Never
+    clobbers a file that does not parse.
 
     Args:
         project_dir: The render directory the agent CLI runs in.
@@ -201,15 +206,22 @@ def seed_workspace_trust(project_dir: Path, *, env: Mapping[str, str] | None = N
         ``True`` when the file was written; ``False`` when trust was already in
         place or nothing could be done, the latter having logged why.
     """
+    render = Path(project_dir).resolve()
+    if not (render / RENDER_MANIFEST).is_file():
+        logger.warning("Not marking %s trusted: it holds no %s", render, RENDER_MANIFEST)
+        return False
     target = _state_file(env)
     if target is None:
         return False
     state, ok = _load_state(target)
     if not ok:
         return False
-    entry = state.setdefault("projects", {}).setdefault(str(Path(project_dir).resolve()), {})
-    if entry.get("hasTrustDialogAccepted") is True:
+    entry = state.setdefault("projects", {}).setdefault(str(render), {})
+    recorded = entry.get("hasTrustDialogAccepted")
+    if recorded is True:
         return False
+    if recorded is False:
+        logger.warning("%s was recorded untrusted in %s; marking it trusted", render, target)
     entry["hasTrustDialogAccepted"] = True
     _write_state(target, state)
     return True
