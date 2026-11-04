@@ -2211,7 +2211,8 @@ def _is_service_template_label(label: str) -> bool:
 #: The remedy every repository-boundary refusal line ends with.
 _MOVE_INSIDE = "Move it into the repository."
 
-#: The remedy a refusal line for a link that leads back into its own tree ends with.
+#: The remedy a refusal line ends with for a link inside the repository that the copy
+#: cannot follow: one that leads back into its own tree or does not resolve.
 _REMOVE_LINK = "Remove the link."
 
 
@@ -2226,11 +2227,15 @@ class OutsideInput:
             when the top path itself is outside.
         loops: The descent at ``link`` meets a directory it is still inside, so
             the copy would not end. The link stays inside the repository.
+        unresolvable: The link at ``link`` does not resolve (its target is
+            missing, or it leads to itself through any number of links), so the
+            copy cannot stage it.
     """
 
     entry: ProfileInput
     link: str | None = None
     loops: bool = False
+    unresolvable: bool = False
 
     @property
     def path(self) -> Path:
@@ -2245,8 +2250,9 @@ def _links_outside(entry: ProfileInput, root: Path) -> list[OutsideInput]:
     is reported and not entered. An entry resolving to a directory the descent is
     still inside is reported as a loop and not entered: the copy would not end. A
     directory reached a second way is not walked again, because its first visit
-    answered for it. Everything else a visited directory holds is inside *root*,
-    because every directory visited resolves inside it.
+    answered for it. A link that does not resolve is reported and not entered: the
+    copy cannot stage it. Everything else a visited directory holds is inside
+    *root*, because every directory visited resolves inside it.
 
     Args:
         entry: The input directory, which resolves inside *root*.
@@ -2270,7 +2276,9 @@ def _links_outside(entry: ProfileInput, root: Path) -> list[OutsideInput]:
             if not prefix and entry.skips_runtime_output and child.name == RUNTIME_DATA_DIR_NAME:
                 continue
             rel = f"{prefix}{child.name}"
-            if symlink_escapes(child, root):
+            if child.is_symlink() and not child.exists():
+                found.append(OutsideInput(entry, rel, unresolvable=True))
+            elif symlink_escapes(child, root):
                 found.append(OutsideInput(entry, rel))
             elif child.is_dir():
                 resolved = child.resolve()
@@ -2287,14 +2295,14 @@ def _links_outside(entry: ProfileInput, root: Path) -> list[OutsideInput]:
 
 
 def inputs_outside_repository(document: ResolvedProfileDocument) -> tuple[OutsideInput, ...]:
-    """The inputs of *document* outside its root, or holding a link that resolves outside.
+    """The inputs of *document* outside its root, or holding a link the copy cannot stage.
 
     The repository is the profile root, ``document.root_dir``. Both sides are
     resolved, so a symlink whose target lies outside counts as outside: a clone
     does not carry it. An input directory inside the root is walked the way the
     copy that stages it follows it, through directory links, and every link that
-    resolves outside or leads back into its own tree is reported at the path the
-    copy would write, except under the runtime subtree the fold skips. A bundled
+    resolves outside, leads back into its own tree or does not resolve is reported
+    at the path the copy would write, except under the runtime subtree the fold skips. A bundled
     preset is package content, not a repository, and has none.
 
     Args:
@@ -2330,7 +2338,8 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
     Raises:
         BuildProfileError: One line per outside input or link, in enumeration
             order, naming the profile key, the resolved path and the remedy. A
-            link back into its own tree names the key and the remedy.
+            link back into its own tree, or a link that does not resolve, names
+            the key and the remedy.
     """
     outside = inputs_outside_repository(document)
     if not outside:
@@ -2358,6 +2367,9 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
             lines.append(
                 f"{key} leads back into its own tree, so the copy would not end. {_REMOVE_LINK}"
             )
+            continue
+        if found.unresolvable:
+            lines.append(f"{key} does not resolve, so the copy cannot stage it. {_REMOVE_LINK}")
             continue
         lines.append(f"{key} resolves to {resolved}, outside the repository. {_MOVE_INSIDE}")
     raise BuildProfileError("\n".join(lines))

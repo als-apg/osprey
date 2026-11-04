@@ -42,7 +42,9 @@ REPO = "demo"
 
 #: The sentence every refusal line ends with.
 REMEDY = "Move it into the repository."
-LOOP_REMEDY = "Remove the link."
+
+#: The sentence a link the copy cannot follow ends with.
+REMOVE_REMEDY = "Remove the link."
 
 #: A file only the outside directory holds; a copy of that directory carries it.
 MARKER = "MARKER"
@@ -246,7 +248,7 @@ def test_a_directory_link_back_to_its_own_parent_is_refused(repo: Path) -> None:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"data: data/loop leads back into its own tree, so the copy would not end. {LOOP_REMEDY}"
+        f"data: data/loop leads back into its own tree, so the copy would not end. {REMOVE_REMEDY}"
     )
 
 
@@ -265,10 +267,60 @@ def test_two_links_to_one_directory_are_admitted(repo: Path) -> None:
     assert _outside(repo) == ()
 
 
-def test_a_link_to_itself_is_admitted(repo: Path) -> None:
+def test_a_link_to_itself_is_refused(repo: Path) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
     (repo / "data" / "self").symlink_to(repo / "data" / "self")
 
-    assert _outside(repo) == ()
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == (
+        f"data: data/self does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
+    )
+
+
+def test_a_link_to_a_missing_target_is_refused(repo: Path) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
+    (repo / "data" / "gone").symlink_to(repo / "nowhere")
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == (
+        f"data: data/gone does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
+    )
+
+
+def test_two_links_to_each_other_are_refused(repo: Path) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
+    (repo / "data" / "a").symlink_to(repo / "data" / "b")
+    (repo / "data" / "b").symlink_to(repo / "data" / "a")
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == "\n".join(
+        f"data: data/{name} does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
+        for name in ("a", "b")
+    )
+
+
+def test_a_missing_target_outside_the_repository_is_refused_as_unresolvable(
+    repo: Path,
+) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
+    (repo / "data" / "gone").symlink_to(repo.parent / "nowhere")
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == (
+        f"data: data/gone does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
+    )
 
 
 def test_a_second_hop_with_every_target_inside_is_admitted(repo: Path) -> None:
