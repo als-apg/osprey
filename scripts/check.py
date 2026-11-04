@@ -29,7 +29,8 @@ Four kinds of check:
   the rule that no tracked file is gitignored, the secret scan, and the tests
   that pin this declaration.
 * ``static`` -- one per language or rule: mypy, the import contracts, the
-  private-name imports, tsc, eslint, prettier, actionlint.
+  private-name imports, the connectors public names, tsc, eslint, prettier,
+  actionlint.
 * ``tests`` -- one per runner: the parallel pytest sweep, the serial
   real-terminal and wall-clock suites, the live Channel Access gate and Vitest.
 * ``build`` -- the documentation and its links, and the packages.

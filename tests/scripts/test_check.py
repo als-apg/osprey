@@ -202,6 +202,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "docs",
         "linkcheck",
         "package",
+        "connectors-public-names",
         "canopy-marker",
         "canopy-contract",
     ]
