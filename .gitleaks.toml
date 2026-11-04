@@ -11,3 +11,13 @@ description = "dock-engine case blobs in tests/dock_engine/cases-pin.json"
 condition = "AND"
 paths = ['''^tests/dock_engine/cases-pin\.json$''']
 regexes = ['''^[0-9a-f]{40}$''']
+
+# The optimizer's cancellation tests pass `redis_key=test_key, poll_interval=0.05`
+# on one line; generic-api-key reads the `key` keyword and takes the next
+# argument, `poll_interval=0.05`, as its value. Only that text in that file is
+# exempt.
+[[allowlists]]
+description = "poll_interval arguments beside redis_key in the optimizer's cancellation tests"
+condition = "AND"
+paths = ['''^tests/optimizer/engine/test_execution_pause_resume\.py$''']
+regexes = ['''^poll_interval=0\.05$''']
