@@ -55,6 +55,7 @@ WHITELIST: dict[str, set[str]] = {
     "tests/deployment/test_ci_workflow_wiring.py": {"sys.modules"},
     "tests/scripts/test_config_key_guard.py": {"sys.modules"},
     "tests/scripts/test_check.py": {"sys.modules"},
+    "tests/scripts/test_connectors_public_names.py": {"sys.modules"},
     "tests/scripts/test_changelog_fragments.py": {"sys.modules"},
     "tests/scripts/test_docs_publish.py": {"sys.modules"},
     "tests/models/jev/test_jev_manifest.py": {"sys.modules"},

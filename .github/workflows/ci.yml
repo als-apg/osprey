@@ -907,6 +907,13 @@ jobs:
       if: ${{ !cancelled() }}
       run: uv run python scripts/check.py run private-imports
 
+    - name: Run the connectors public-names check
+      # A name in a public osprey_connectors __all__ that no shipped code
+      # outside its module uses fails here, unless it is a declared extension
+      # point.
+      if: ${{ !cancelled() }}
+      run: uv run python scripts/check.py run connectors-public-names
+
     - name: Run config-key resurrection guard (with back-test)
       # `!cancelled()` so folding this in never costs a signal: a ruff
       # failure above must not hide a resurrection-guard failure here and
