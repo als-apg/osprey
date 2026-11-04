@@ -182,7 +182,7 @@ The checks are about shape: type, options, required, range, and the choices the 
 Entry Attachments
 ~~~~~~~~~~~~~~~~~
 
-By default an entry's files stay in ARIEL: the text reaches the facility logbook, and the submit response says the files were saved to ARIEL only. An adapter whose logbook takes files declares ``supports_attachments = True``. Its ``create_entry`` then receives each file as a local path in ``request.attachment_paths``, valid only while the call runs, and must publish every one of them before it returns.
+By default an entry's files stay in ARIEL: the text reaches the facility logbook, and the submit response says the files were saved to this Logbook only. An adapter whose logbook takes files declares ``supports_attachments = True``. Its ``create_entry`` then receives each file as a local path in ``request.attachment_paths``, valid only while the call runs, and must publish every one of them before it returns.
 
 .. code-block:: python
 

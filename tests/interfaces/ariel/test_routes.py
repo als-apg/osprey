@@ -603,12 +603,12 @@ def test_upload_publish_hands_the_files_to_the_service(client, mock_ariel_servic
     assert mock_ariel_service.create_entry.await_args.kwargs["attachments"] == [
         EntryAttachment("shot.png", "image/png", b"\x89PNG\r\n\x1a\nfakeimage")
     ]
-    # The logbook took no files, so the operator is told they stayed in ARIEL.
-    assert "saved to ARIEL only" in data["message"]
+    # The logbook took no files, so the operator is told they stayed in the Logbook.
+    assert "saved to this Logbook only" in data["message"]
 
 
 def test_upload_publish_reports_files_published_to_the_logbook(client, mock_ariel_service):
-    """When the logbook took the files, the response names it instead of ARIEL."""
+    """When the logbook took the files, the response names it instead of the Logbook."""
     from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
 
     mock_ariel_service.create_entry = AsyncMock(
@@ -631,7 +631,7 @@ def test_upload_publish_reports_files_published_to_the_logbook(client, mock_arie
     assert response.status_code == 200
     message = response.json()["message"]
     assert "1 attachment(s) published to Example eLog" in message
-    assert "ARIEL only" not in message
+    assert "Logbook only" not in message
 
 
 def _mock_adapter(*, supports_write, requires_write_auth, source_system):

@@ -1022,7 +1022,7 @@ def test_create_upload_opting_adapter_receives_the_files_with_the_entry(
     body = response.json()
     assert body["attachment_count"] == 1
     assert f"published to {EXAMPLE_SOURCE_SYSTEM}" in body["message"]
-    assert "ARIEL only" not in body["message"]
+    assert "Logbook only" not in body["message"]
     (request,) = example_entry_fields.state.created
     assert len(request.attachment_paths) == 1
     assert example_entry_fields.state.received_files == [{"note.txt": b"abc"}]
