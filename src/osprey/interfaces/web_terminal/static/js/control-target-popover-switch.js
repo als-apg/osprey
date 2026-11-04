@@ -18,6 +18,8 @@ import {
   POSITIONS,
   displayName,
   lockReason,
+  programHolders,
+  programQualifier,
   statePhrase,
 } from './control-target-facts.js';
 import { kindAttr } from './control-target-chip.js';
@@ -71,11 +73,12 @@ export function renderSwitch(row, state, word, pending, onMove) {
 
   const wrap = el('span', 'ctc-switchwrap');
   wrap.dataset.state = word;
+  wrap.dataset.program = String(row.program_hold === true);
   wrap.append(el('span', 'ctc-switch-word', 'Writes'));
 
   const group = el('span', 'ctc-positions');
   group.setAttribute('role', 'radiogroup');
-  group.setAttribute('aria-label', `${statePhrase(word)} for ${name}`);
+  group.setAttribute('aria-label', `${statePhrase(word)}${programQualifier(row)} for ${name}`);
   group.addEventListener('keydown', (event) => onOptionKeydown(event, group, onMove));
 
   // The tab stop: the stored position, or the nearest one below it that no
@@ -100,7 +103,10 @@ export function renderSwitch(row, state, word, pending, onMove) {
     if (pending && pending.target === row.target && pending.position === position) {
       option.dataset.pending = 'true';
     }
-    option.title = optionTitle(position, rank, stored, name, lock);
+    option.title =
+      position === 'off' && row.program_hold === true
+        ? `Turn writes off for ${name} — revokes the program's authorization now`
+        : optionTitle(position, rank, stored, name, lock);
     option.addEventListener('click', (event) => {
       event.stopPropagation();
       onMove(position, event.shiftKey);
@@ -109,7 +115,7 @@ export function renderSwitch(row, state, word, pending, onMove) {
   }
   wrap.append(group);
 
-  const stateWordEl = el('span', 'ctc-switch-state', word);
+  const stateWordEl = el('span', 'ctc-switch-state', word + programQualifier(row));
   const lock = lockOf('asked');
   const capped = row.switch === 'allowed' && word === 'asked';
   const why =
@@ -118,7 +124,9 @@ export function renderSwitch(row, state, word, pending, onMove) {
       : word === 'off'
         ? lock
         : capped && lockOf('allowed');
-  if (why) stateWordEl.title = why;
+  // A program's authorization is said first: who holds it, and that off revokes it.
+  const title = programHolders(row) || why;
+  if (title) stateWordEl.title = title;
   wrap.append(stateWordEl);
   return wrap;
 }

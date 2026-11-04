@@ -30,6 +30,9 @@ from osprey.interfaces.web_terminal.routes.session_handoff import (
     router as session_handoff_router,
 )
 from osprey.interfaces.web_terminal.routes.websocket import router as websocket_router
+from osprey.interfaces.web_terminal.routes.write_authorizations import (
+    router as write_authorizations_router,
+)
 
 router = APIRouter()
 router.include_router(panels_router)
@@ -49,5 +52,6 @@ router.include_router(websocket_router)
 router.include_router(chat_router)
 router.include_router(chat_attachments_router)
 router.include_router(proxy_router)
+router.include_router(write_authorizations_router)
 
 __all__ = ["router"]

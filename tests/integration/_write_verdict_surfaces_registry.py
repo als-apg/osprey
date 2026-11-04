@@ -403,6 +403,51 @@ def _chip_row(staged: Staged) -> Any:
     return (verdict.allowed, verdict.reason), _expected(case)
 
 
+def _approve_card_lock(staged: Staged) -> Any:
+    """The approve card's lock (``POST /api/terminal/write-authorizations``): the turn-on locks.
+
+    An approval is refused by the same two locks a turn-on is, read from the
+    same verdict with the pin ignored, for the login the terminal acts as.
+    """
+    import json
+    import time
+    import uuid
+
+    case = staged.case
+    if not _login_pin_ignored(case) or not _str_target(case):
+        return OUT_OF_DOMAIN
+    from osprey.interfaces.web_terminal.routes import websocket
+    from osprey.interfaces.web_terminal.routes import write_authorizations as routes
+    from osprey_connectors import write_authorization as wa
+
+    if case.owner != websocket.acting_identity():
+        return OUT_OF_DOMAIN
+    requests = staged.tmp_path / "write_requests"
+    requests.mkdir(exist_ok=True)
+    staged.monkeypatch.setenv(wa.REQUESTS_DIR_ENV_VAR, str(requests))
+    payload = {
+        "schema": 1,
+        "id": uuid.uuid4().hex,
+        "owner": case.owner,
+        "holder": "optimizer",
+        "target": case.target,
+        "channels": {"SR:A": {"min": 0.0, "max": 1.0}},
+        "steps": 1,
+        "requested_at_ns": 1,
+        "expires_at_ns": time.time_ns() + 3600 * 10**9,
+        "lease_s": 30.0,
+        "label": "",
+        "completion": "none",
+    }
+    (requests / f"{payload['id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+    facts = routes._facts(staged.config_path, payload["id"])
+    if case.target not in facts.configured:
+        return OUT_OF_DOMAIN
+    observed = facts.lock.reason if facts.lock is not None else None
+    reason = case.expect["reason"]
+    return observed, reason if reason in websocket._TURN_ON_LOCKS else None
+
+
 def _chip_post_lock(staged: Staged) -> Any:
     """The chip's POST turn-on lock (C-POST): only the turn-on locks refuse."""
     case = staged.case
@@ -898,6 +943,14 @@ SURFACES: tuple[Surface, ...] = (
         stage1=False,
         reports_reason=False,
         project=_chip_post_lock,
+    ),
+    Surface(
+        "approve-card-lock",
+        "osprey.interfaces.web_terminal.routes.write_authorizations",
+        "write",
+        stage1=False,
+        reports_reason=False,
+        project=_approve_card_lock,
     ),
     Surface(
         "writes-check-hook",

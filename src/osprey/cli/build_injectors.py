@@ -56,6 +56,7 @@ if TYPE_CHECKING:
         DispatchConfig,
         GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
+        OptimizerConfig,
         TeamsBridgeProfileConfig,
         VAConfig,
     )
@@ -292,6 +293,18 @@ _LIVE_STANDIN_COMPOSE_SERVICE = _LIVE_STANDIN_SERVICE_KEY.replace("_", "-")
 #: the service it shares rather than warning that a `services/live_standin/`
 #: template it was never meant to have is missing.
 _SHARED_SERVICE_TEMPLATE = {_LIVE_STANDIN_SERVICE_KEY: "virtual_accelerator"}
+
+
+def _compose_bind_source(path: str) -> str:
+    """Spell a host path so compose's short volume syntax reads it as a bind.
+
+    Compose takes a source as a host path only when it starts with ``.``, ``/``
+    or ``~`` (or is absolute); a bare relative path such as ``plans/`` is read
+    as a named volume, and an undefined one fails ``osprey up``. Such a path is
+    ``./``-prefixed, which resolves it against the compose project directory
+    (the repo root); every other spelling is already a bind and passes through.
+    """
+    return path if path.startswith((".", "~")) or os.path.isabs(path) else f"./{path}"
 
 
 def _carry_authored_keys(services: Any, name: str, block: dict[str, Any]) -> dict[str, Any]:
@@ -1183,7 +1196,9 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
 
     keys: dict[str, Any] = {}
     if bluesky.plan_dir:
-        keys["plan_dir"] = bluesky.plan_dir
+        # Stored compose-ready (the template mounts it verbatim); `./x` and `x`
+        # are one path to plan_index, the build-time reader that resolves it.
+        keys["plan_dir"] = _compose_bind_source(bluesky.plan_dir)
     if bluesky.excluded_plans:
         keys["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
     if bluesky.device_page_size != BlueskyConfig.device_page_size:
@@ -1329,8 +1344,7 @@ def _inject_bluesky(
             env_map: dict[str, str] = {}
             for key, host_path in sorted(bluesky.external.parameter_schemas.items()):
                 target = f"/app/project/plan_schemas/{key}.json"
-                source = host_path if os.path.isabs(host_path) else f"./{host_path}"
-                mounts.append({"source": source, "target": target})
+                mounts.append({"source": _compose_bind_source(host_path), "target": target})
                 env_map[key] = target
             external_block["parameter_schema_mounts"] = mounts
             external_block["parameter_schemas_env"] = _json.dumps(env_map)
@@ -2263,3 +2277,78 @@ def _inject_limits_database(project_path: Path) -> None:
     config_update_fields(
         config_path, {f"control_system.{leaf}.database_path": LIMITS_DATABASE_PATH}
     )
+
+
+def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
+    """Wire the optimizer service and its Redis job store into a built project.
+
+    1. Copy the bundled ``templates/services/optimizer/`` compose template into
+       ``<project>/services/optimizer/``.
+    2. Write ``services.optimizer`` config and register it in
+       ``deployed_services``, mirroring :func:`_inject_bluesky_web`.
+
+    ``environments_dir`` is omit-when-unset, like bluesky's ``plan_dir``: its
+    absence is what the template's mount guard reads.
+
+    Args:
+        optimizer: Validated optimizer configuration from the build profile.
+        project_path: Root of the built project.
+    """
+    src_dir = _locate_pkg_services() / "optimizer"
+    if not src_dir.is_dir():
+        logger.warning("No package template for the optimizer service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
+    _refresh_service_dir(
+        src_dir,
+        dest_services_root / "optimizer",
+        "optimizer",
+        _user_owned_services(project_path),
+    )
+
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found. Skipping the optimizer config registration.")
+        return
+
+    config = load_config_document(config_path)
+
+    # No ``image`` key: the service builds the local optimizer image on first
+    # ``osprey up``. OSPREY_OPTIMIZER_IMAGE, or ``services.optimizer.image``
+    # here, runs a prebuilt or published image instead.
+    block: dict[str, Any] = {
+        "path": "./services/optimizer",
+        "port": optimizer.port,
+        "targets": list(optimizer.targets),
+    }
+    if optimizer.environments_dir:
+        # Stored compose-ready: the template mounts it verbatim.
+        block["environments_dir"] = _compose_bind_source(optimizer.environments_dir)
+    config.setdefault("services", {})
+    anchored_put(
+        config["services"],
+        "optimizer",
+        _carry_authored_keys(config["services"], "optimizer", block),
+    )
+    deployed = config.get("deployed_services", []) or []
+    if "optimizer" not in [str(s) for s in deployed]:
+        anchored_append(deployed, "optimizer")
+    config["deployed_services"] = deployed
+
+    save_config_document(config_path, config)
+
+    logger.debug("  ✓ Injected the optimizer service (port %d)", optimizer.port)
+    logger.debug("    Targets:    %s", ", ".join(optimizer.targets))
+    logger.debug(
+        "    Images:     `osprey up` builds the optimizer image locally (first run is "
+        "slow: the search stack is large). Use `--dev` to bake in your local checkout; "
+        "set OSPREY_OPTIMIZER_IMAGE to use a published image."
+    )
+    if optimizer.environments_dir:
+        logger.debug(
+            "    Envs dir:   %s mounted read-only at /app/environments",
+            optimizer.environments_dir,
+        )
