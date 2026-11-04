@@ -972,17 +972,19 @@ jobs:
       # the command through `env:` and never through `${{ }}` inside `run:`:
       # a branch name is attacker-controlled text, and interpolating it into
       # the shell line would execute it. By the time the shell sees
-      # `$BASE_REF` it is a variable, so the quoting holds. Pull requests
-      # only — on a push there is no base ref to diff against. The checkout
-      # above is fetch-depth: 0, which is what makes `origin/$BASE_REF` and
+      # `$BASE` it is a variable, so the quoting holds. On a push to main the
+      # base is the first parent, so each landing must raise the version past
+      # main's previous tip, and a second landing under an already-landed
+      # number goes red on the landing commit. The checkout
+      # above is fetch-depth: 0, which is what makes `$BASE` and
       # the `A...B` merge base resolvable; deliberately no fetch here, since a
       # depth-limited one would shallow the clone and break that merge base.
       # `python3`, not `uv run`: the script is stdlib-only and standalone, so it
       # still reports when the dependency install is what broke.
-      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+      if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
       env:
-        BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: python3 scripts/check.py run plugin-version --base "origin/$BASE_REF"
+        BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || 'HEAD^1' }}
+      run: python3 scripts/check.py run plugin-version --base "$BASE"
 
     - name: No tracked file is gitignored
       # A tracked file an ignore rule matches is one a fresh `git add` would silently drop.
