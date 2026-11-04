@@ -2273,7 +2273,7 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
         optimizer: Validated optimizer configuration from the build profile.
         project_path: Root of the built project.
     """
-    src_dir = _locate_pkg_services() / "optimizer"
+    src_dir = bundled_services_dir() / "optimizer"
     if not src_dir.is_dir():
         logger.warning("No package template for the optimizer service at %s", src_dir)
         return
