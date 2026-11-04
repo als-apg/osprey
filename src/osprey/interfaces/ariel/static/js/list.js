@@ -113,6 +113,22 @@ function effectiveMode(state, capabilities) {
 }
 
 /**
+ * The search request the list runs for `state`, without offset, page size or
+ * view: list-activity.js sends the same one for its page-1 side fetch.
+ * @param {State} state
+ * @param {Capabilities|null} capabilities
+ * @returns {import('./search.js').SearchRequest}
+ */
+export function searchRequest(state, capabilities) {
+  return {
+    query: state.query,
+    mode: effectiveMode(state, capabilities),
+    filters: state.filters,
+    filter: requestFilter(state),
+  };
+}
+
+/**
  * The author the mailbox restricts to: the Mine name under Mine, else none.
  * @param {State} state
  * @returns {string|null}
@@ -266,6 +282,7 @@ async function onLoadMore() {
   if (seq !== runSeq || !view) return;
   setBusy(false);
   const rows = view.body.querySelector('.ariel-rows');
+  rows?.setAttribute('data-paged', ''); // past page 1: list-activity.js only pills
   const sel = getState().sel;
   if (page && info.kind === 'browse') {
     const more = renderDayGroupedRows(page.entries, lastDay, sel);
@@ -292,25 +309,17 @@ async function runQuery(seq, state) {
   /** @type {RerankStatus} */
   let status = null;
   try {
-    await startSearch(
-      {
-        query: state.query,
-        mode: effectiveMode(state, capabilities),
-        filters: state.filters,
-        filter: requestFilter(state),
+    await startSearch(searchRequest(state, capabilities), {
+      capabilities,
+      rerank: state.rerank,
+      onStatus: (s) => {
+        status = s;
       },
-      {
-        capabilities,
-        rerank: state.rerank,
-        onStatus: (s) => {
-          status = s;
-        },
-        onResults: (results) => {
-          if (seq !== runSeq) return;
-          paintResults(results, status);
-        },
-      }
-    );
+      onResults: (results) => {
+        if (seq !== runSeq) return;
+        paintResults(results, status);
+      },
+    });
   } catch (error) {
     if (seq !== runSeq || !view || isAbort(error)) return;
     console.error('Search failed:', error);
@@ -321,9 +330,10 @@ async function runQuery(seq, state) {
 
 /**
  * Re-run the list for the current state: the Drafts rows, the listing, or a
- * search.
+ * search. The promise settles when the run has painted (or was superseded).
+ * @returns {Promise<void>|undefined}
  */
-function refresh() {
+export function refresh() {
   if (!view) return;
   const seq = ++runSeq;
   const state = getState();
@@ -353,10 +363,9 @@ function refresh() {
   // cannot run; the newest-first listing is shown instead.
   if (!(state.query ?? '').trim() || view.blocked) {
     cancelSearch();
-    runListing(seq, state);
-    return;
+    return runListing(seq, state);
   }
-  runQuery(seq, state);
+  return runQuery(seq, state);
 }
 
 // --- Pane head ---

@@ -318,11 +318,11 @@ can state and re-apply, because an enumeration built by hand goes stale:
   untouched, forever. There is no automated inventory to run — read the files
   and list them by hand. A keeper gets a comment saying why, because nothing
   else will ever ask again. ARIEL's one surviving set is the image lightbox
-  (`ariel/static/js/reader.js:466-473`): a scrim is conventionally
-  dark whatever theme the page is on, so its backdrop and caption use
-  `black`/`silver`/`white` composites rather than themed tokens that would go
-  light-on-light. The justification comment sits directly above the
-  `cssText` it explains. Note that it needs no `hygiene-allow-color` marker —
+  (`showImageLightbox` in `ariel/static/js/reader.js`): a scrim is
+  conventionally dark whatever theme the page is on, so its backdrop and
+  caption use `black`/`silver`/`white` composites rather than themed tokens
+  that would go light-on-light. The justification comment sits directly
+  above the `cssText` it explains. Note that it needs no `hygiene-allow-color` marker —
   there is nothing to suppress, since no check ever fires on it. The comment
   is the entire control.
 - CSS-wide keywords (`inherit`, `none`, `transparent`) are not literals of
@@ -409,13 +409,12 @@ check (b). Prefixing is a remedy for an *actual* collision, not a standing
 requirement.
 
 ARIEL's `:root` block in `ariel/static/css/base.css` is what a legitimate
-survivor looks like: status-tint and shadow composites built with
+survivor looks like: surface and status-tint composites built with
 `color-mix()` from canonical color tokens (so they still theme correctly),
-the layout dimensions (`--container-max`, `--sidebar-width`,
-`--header-height`), and the letter-spacing scale `--tracking-tight` /
-`--tracking-normal` / `--tracking-wide`. The `--tracking-*` names are
-**unprefixed and legal**: no fleet tracking token exists, so there is nothing
-to collide with and check (c) cannot fire. If a fleet `--tracking-*` ever
+the layout dimensions (`--container-max`, `--header-height`), and the
+letter-spacing scale `--tracking-tight` / `--tracking-wide`. The
+`--tracking-*` names are **unprefixed and legal**: no fleet tracking token
+exists, so there is nothing to collide with and check (c) cannot fire. If a fleet `--tracking-*` ever
 ships, check (c) fails at that moment and forces the migration then — which
 is the right time to do it, not now.
 

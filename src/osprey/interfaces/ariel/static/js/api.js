@@ -10,6 +10,41 @@ import { normalizeFilter } from './filter-state.js';
 const API_BASE = '/api';
 
 /**
+ * One enabled enhancement module's inspector card for one entry (ModuleCard).
+ * @typedef {Object} ModuleCard
+ * @property {string} module
+ * @property {string} label
+ * @property {number} order
+ * @property {string[]} feeds
+ * @property {string} state - complete | pending | stale | failed | n/a
+ * @property {?string} [completed_at]
+ * @property {?string} [failed_at]
+ * @property {?string} [marker]
+ * @property {?string} [error]
+ * @property {?number} [attempts]
+ * @property {?string} [command] - Re-run command for a failed or stale module
+ * @property {?Record<string, any>} [detail] - The module's own inspect() output
+ */
+
+/**
+ * @typedef {Object} EnhancementsResponse
+ * @property {string} entry_id
+ * @property {ModuleCard[]} modules
+ */
+
+/**
+ * @typedef {Object} RelatedResponse
+ * @property {'ok'|'no_embedding'|'disabled'} state
+ * @property {any[]} entries - List rows; never include the entry itself
+ */
+
+/**
+ * Per-module entry counts by badge-strip state, as `/status` carries them
+ * (`StatusResponse.enhancement_coverage`).
+ * @typedef {Record<string, {label: string, [state: string]: any}>} EnhancementCoverage
+ */
+
+/**
  * Per-request options.
  * @typedef {Object} RequestOptions
  * @property {AbortSignal} [signal] - Aborting it rejects the request with an
@@ -295,17 +330,37 @@ export const entriesApi = {
    * @returns {Promise<any>} Entry data
    */
   async get(entryId) {
-    return api.get(`/entries/${entryId}`);
+    return api.get(`/entries/${encodeURIComponent(entryId)}`);
   },
 
   /**
    * Get the follow-up thread of an entry (C-THREAD): the entry it follows up,
    * when any, and the entries that follow it up.
    * @param {string} entryId - Entry ID
-   * @returns {Promise<{parent_id: ?string, parent: any, children: any[]}>} The thread
+   * @returns {Promise<{parent_id: ?string, parent: any, children: any[], truncated?: boolean}>} The thread
    */
   async thread(entryId) {
     return api.get(`/entries/${encodeURIComponent(entryId)}/thread`);
+  },
+
+  /**
+   * Get the enhancement inspector cards of an entry (A8), in execution order.
+   * @param {string} entryId - Entry ID
+   * @returns {Promise<EnhancementsResponse>} The cards
+   */
+  async enhancements(entryId) {
+    return api.get(`/entries/${encodeURIComponent(entryId)}/enhancements`);
+  },
+
+  /**
+   * Get the entries nearest to an entry by stored text embedding (A9), self
+   * excluded. `limit` is sent only when given (server default 5, max 10).
+   * @param {string} entryId - Entry ID
+   * @param {number} [limit] - Maximum number of related entries
+   * @returns {Promise<RelatedResponse>} The related entries and the search state
+   */
+  async related(entryId, limit) {
+    return api.get(`/entries/${encodeURIComponent(entryId)}/related`, { limit });
   },
 
   /**
@@ -377,7 +432,7 @@ export const draftsApi = {
    * @returns {Promise<any>} Draft data
    */
   async get(draftId) {
-    return api.get(`/drafts/${draftId}`);
+    return api.get(`/drafts/${encodeURIComponent(draftId)}`);
   },
 
   /**
@@ -411,7 +466,7 @@ export const draftsApi = {
  */
 export const statusApi = {
   /**
-   * Get service status.
+   * Get service status; `enhancement_coverage` is an {@link EnhancementCoverage}.
    * @returns {Promise<any>} Status information
    */
   async get() {

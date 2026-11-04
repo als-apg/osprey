@@ -646,3 +646,295 @@ describe('initRouter: dimensions', () => {
     expect(store.getState()).toMatchObject({ filter: { tags: ['t'] }, notice: null });
   });
 });
+
+describe('canopy-host-navigate (A12)', () => {
+  /** @type {import('vitest').Mock} */
+  let postMessage;
+  /** @type {{postMessage: import('vitest').Mock}} */
+  let parentStub;
+  const MOUNT = '/panel/ariel/';
+
+  beforeEach(() => {
+    postMessage = vi.fn();
+    parentStub = { postMessage };
+    vi.stubGlobal('parent', parentStub);
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+  });
+
+  /**
+   * Deliver a message as the hub would: same origin, from `window.parent`.
+   * @param {any} data
+   * @param {{source?: any, origin?: string}} [opts]
+   */
+  function deliver(data, opts = {}) {
+    const ev = new MessageEvent('message', {
+      data,
+      origin: opts.origin ?? window.location.origin,
+    });
+    Object.defineProperty(ev, 'source', {
+      value: 'source' in opts ? opts.source : window.parent,
+    });
+    window.dispatchEvent(ev);
+  }
+
+  /** @param {string} hash */
+  function navigate(hash, path = MOUNT) {
+    deliver({ type: 'canopy-host-navigate', url: `${path}${hash}` });
+  }
+
+  /** The ready messages posted to the parent. */
+  function readies() {
+    return postMessage.mock.calls.filter(([m]) => m?.type === 'canopy-host-navigate-ready');
+  }
+
+  /** Boot embedded at the mount with `hash`, after seeding a search state. */
+  function boot(hash = '') {
+    go(`${MOUNT}?embedded=true${hash}`);
+    router.initRouter();
+  }
+
+  /** A painted list with rows for `ids`. @param {string[]} ids */
+  function paintList(ids) {
+    const list = document.createElement('div');
+    list.id = 'ariel-list';
+    for (const id of ids) {
+      const row = document.createElement('div');
+      row.dataset.entryId = id;
+      row.scrollIntoView = vi.fn();
+      list.appendChild(row);
+    }
+    document.body.appendChild(list);
+    return list;
+  }
+
+  /** The text of every toast on screen. */
+  function toasts() {
+    return Array.from(document.querySelectorAll('.osprey-toast-host *'))
+      .map((el) => el.textContent ?? '')
+      .join(' ');
+  }
+
+  const SEARCH = `#q=beam&mode=keyword&box=drafts&f=${encodeURIComponent('{"author":["x"]}')}`;
+
+  describe('ready', () => {
+    test('embedded: ready is sent once, unsolicited, to the parent, same origin', () => {
+      boot();
+      expect(readies()).toHaveLength(1);
+      expect(readies()[0][1]).toBe(window.location.origin);
+    });
+
+    test('every probe from the parent earns another ready', () => {
+      boot();
+      deliver({ type: 'canopy-host-navigate-probe' });
+      deliver({ type: 'canopy-host-navigate-probe' });
+      expect(readies()).toHaveLength(3);
+    });
+
+    test('a probe that arrives before the router starts still ends in ready', () => {
+      go(`${MOUNT}?embedded=true`);
+      deliver({ type: 'canopy-host-navigate-probe' });
+      expect(readies()).toHaveLength(0);
+      router.initRouter();
+      expect(readies()).toHaveLength(1);
+    });
+
+    test('a probe from anything but the parent, or another origin, is not answered', () => {
+      boot();
+      deliver({ type: 'canopy-host-navigate-probe' }, { source: window });
+      deliver({ type: 'canopy-host-navigate-probe' }, { origin: 'http://evil.example' });
+      expect(readies()).toHaveLength(1);
+    });
+
+    test('standalone: no ready and navigate messages are ignored', () => {
+      go(`${MOUNT}#q=keep`);
+      router.initRouter();
+      expect(readies()).toHaveLength(0);
+      navigate('#sel=E1');
+      deliver({ type: 'canopy-host-navigate-probe' });
+      expect(readies()).toHaveLength(0);
+      expect(store.getState().sel).toBeNull();
+      expect(store.getState().query).toBe('keep');
+    });
+
+    test('initRouter twice sends no second ready', () => {
+      boot();
+      router.initRouter();
+      expect(readies()).toHaveLength(1);
+    });
+  });
+
+  describe('intent', () => {
+    test('an intent keeps q/mode/box/f, selects forced and opens the reader', () => {
+      boot(SEARCH);
+      paintList(['E1']);
+      const before = store.getState();
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+      navigate('#sel=E1&att=A1');
+      const s = store.getState();
+      expect(s).toMatchObject({
+        query: 'beam',
+        mode: 'keyword',
+        mailbox: 'drafts',
+        filter: before.filter,
+        sel: 'E1',
+        att: 'A1',
+        narrowView: 'reader',
+      });
+      expect(changed).toHaveBeenCalledTimes(1);
+      expect(new Set(changed.mock.calls[0][0])).toEqual(new Set(['sel', 'att', 'narrowView']));
+      expect(window.location.hash).toBe(router.serializeState(s));
+      expect(window.location.hash).toContain('q=beam');
+      expect(window.location.hash).toContain('sel=E1');
+    });
+
+    test('the same intent twice re-selects', () => {
+      boot(SEARCH);
+      paintList(['E1']);
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+      navigate('#sel=E1');
+      navigate('#sel=E1');
+      expect(changed).toHaveBeenCalledTimes(2);
+      expect(changed.mock.calls[1][0]).toContain('sel');
+      expect(store.getState()).toMatchObject({ query: 'beam', sel: 'E1', att: null });
+    });
+
+    test('an intent flashes and scrolls the painted row, with no toast', () => {
+      boot(SEARCH);
+      const list = paintList(['E0', 'E1']);
+      navigate('#sel=E1');
+      const row = /** @type {HTMLElement} */ (list.querySelector('[data-entry-id="E1"]'));
+      expect(row.classList.contains('agent-flash')).toBe(true);
+      expect(row.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(toasts()).not.toContain('not shown in the list');
+    });
+
+    test('an intent with no painted row opens the reader and toasts "not shown in the list"', () => {
+      boot(SEARCH);
+      paintList(['E0']);
+      navigate('#sel=E9');
+      expect(store.getState()).toMatchObject({ sel: 'E9', narrowView: 'reader', query: 'beam' });
+      expect(toasts()).toContain('not shown in the list');
+    });
+
+    test('an intent keeps an open compose sheet', () => {
+      boot(SEARCH);
+      store.setState({ compose: { draft: 'D1' } });
+      navigate('#sel=E1');
+      expect(store.getState().compose).toEqual({ draft: 'D1' });
+    });
+
+    test('selectEntry is exported and applies the same intent', () => {
+      boot(SEARCH);
+      paintList(['E1']);
+      router.selectEntry({ sel: 'E1', att: null });
+      expect(store.getState()).toMatchObject({ query: 'beam', mailbox: 'drafts', sel: 'E1' });
+    });
+  });
+
+  describe('other hashes', () => {
+    test('#create?draft= keeps q/box/f and opens the draft', () => {
+      boot(SEARCH);
+      navigate('#create?draft=D7');
+      expect(store.getState()).toMatchObject({
+        query: 'beam',
+        mailbox: 'drafts',
+        compose: { draft: 'D7' },
+      });
+      expect(store.getState().filter).toEqual({ author: ['x'] });
+    });
+
+    test('an #entry alias keeps its alias meaning, forced', () => {
+      boot(SEARCH);
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+      navigate('#entry?id=E2&attachment=A2');
+      expect(store.getState()).toMatchObject({ query: 'beam', sel: 'E2', att: 'A2' });
+      navigate('#entry?id=E2&attachment=A2');
+      expect(changed).toHaveBeenCalledTimes(2);
+    });
+
+    test('a list alias applies its list state', () => {
+      boot(SEARCH);
+      navigate('#search');
+      expect(store.getState()).toMatchObject({ query: '', mailbox: 'all', sel: null });
+    });
+
+    test('a canonical non-sel hash applies its full state, forced', () => {
+      boot(SEARCH);
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+      navigate('#q=other&box=all');
+      expect(store.getState()).toMatchObject({ query: 'other', mailbox: 'all', filter: {} });
+      navigate('#q=other&box=all');
+      expect(changed).toHaveBeenCalledTimes(2);
+      expect(window.location.hash).toBe('#q=other&box=all');
+    });
+
+    test('a different path under the mount reloads there, keeping location.search', () => {
+      boot(SEARCH);
+      const assign = vi.fn();
+      vi.stubGlobal('location', {
+        origin: window.location.origin,
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+        assign,
+      });
+      const before = store.getState();
+      deliver({ type: 'canopy-host-navigate', url: '/panel/ariel/other?x=1#sel=E1' });
+      expect(assign).toHaveBeenCalledWith('/panel/ariel/other?embedded=true#sel=E1');
+      expect(store.getState()).toBe(before);
+    });
+
+    test('the mount path with or without a trailing slash, or a query, is the current path', () => {
+      boot(SEARCH);
+      paintList(['E1']);
+      deliver({ type: 'canopy-host-navigate', url: '/panel/ariel?embedded=true#sel=E1' });
+      expect(store.getState()).toMatchObject({ query: 'beam', sel: 'E1' });
+    });
+
+    test('a url outside the mount, from another source or origin, is ignored', () => {
+      boot(SEARCH);
+      const before = store.getState();
+      deliver({ type: 'canopy-host-navigate', url: '/panel/other/#sel=E1' });
+      deliver({ type: 'canopy-host-navigate', url: 'http://evil.example/panel/ariel/#sel=E1' });
+      deliver({ type: 'canopy-host-navigate', url: '/panel/arielx/#sel=E1' });
+      deliver({ type: 'canopy-host-navigate', url: `${MOUNT}#sel=E1` }, { source: window });
+      deliver(
+        { type: 'canopy-host-navigate', url: `${MOUNT}#sel=E1` },
+        { origin: 'http://evil.example' }
+      );
+      deliver({ type: 'canopy-host-navigate', url: 42 });
+      expect(store.getState()).toBe(before);
+    });
+  });
+
+  describe('unchanged paths', () => {
+    test('a fresh load of a canonical sel link gives the full canonical state', () => {
+      store.setState({ query: 'old' });
+      boot('#sel=E1&att=A1');
+      expect(store.getState()).toMatchObject({
+        query: '',
+        mailbox: 'all',
+        sel: 'E1',
+        att: 'A1',
+        narrowView: 'reader',
+      });
+    });
+
+    test('a hashchange to a sel-only hash is still the full canonical state', () => {
+      boot(SEARCH);
+      go(`${MOUNT}?embedded=true#sel=E1`);
+      hashchange();
+      expect(store.getState()).toMatchObject({ query: '', mailbox: 'all', sel: 'E1' });
+    });
+  });
+});

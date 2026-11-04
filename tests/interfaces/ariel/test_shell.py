@@ -125,6 +125,38 @@ INVALID_CAPABILITIES: dict[str, Any] = {
     "remedy": "repoint ariel.vocabulary.path, then restart",
 }
 
+#: A ``StatusResponse`` with coverage for every enabled module, in execution order.
+HEALTHY_STATUS: dict[str, Any] = {
+    "healthy": True,
+    "database_connected": True,
+    "database_uri": "postgresql://localhost/ariel",
+    "entry_count": 1234,
+    "embedding_tables": [],
+    "active_embedding_model": "all-minilm",
+    "enabled_search_modules": ["keyword", "semantic"],
+    "enabled_enhancement_modules": ["text_embedding", "figure_caption"],
+    "last_ingestion": None,
+    "errors": [],
+    "enhancement_coverage": {
+        "text_embedding": {
+            "label": "Text Embedding",
+            "complete": 1200,
+            "pending": 30,
+            "stale": 3,
+            "failed": 1,
+            "n/a": 0,
+        },
+        "figure_caption": {
+            "label": "Figure Caption",
+            "complete": 400,
+            "pending": 0,
+            "stale": 0,
+            "failed": 2,
+            "n/a": 832,
+        },
+    },
+}
+
 #: A 1x1 transparent PNG, served for every ``/attachments/...`` image.
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -349,8 +381,10 @@ class FakeBackend:
     ``page_size`` (browse) and ``offset`` / ``max_results`` (search, over the
     ``search`` fixture's entries), and serve C-ROW rows for ``view=row``;
     ``/api/facets`` counts the same entries. ``facets_status`` other than 200
-    makes the facets route fail. Anything it does not know (status, config)
-    falls through to the real DB-less backend.
+    makes the facets route fail. ``/api/status``, ``/enhancements`` and
+    ``/related`` answer from the ``status``, ``enhancements`` and ``related``
+    fixtures. Anything it does not know (config) falls through to the real
+    DB-less backend.
     """
 
     capabilities: dict[str, Any] = field(default_factory=lambda: dict(HEALTHY_CAPABILITIES))
@@ -368,6 +402,14 @@ class FakeBackend:
     requests: list[Request] = field(default_factory=list)
     created: int = 0
     facets_status: int = 200
+    #: ``GET /api/entries/{id}/enhancements`` bodies by entry id; absent ids get no cards.
+    enhancements: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: ``GET /api/entries/{id}/related`` candidates by entry id, nearest first.
+    related: dict[str, list[str]] = field(default_factory=dict)
+    #: The ``/related`` state; ``disabled`` is text embedding switched off.
+    related_state: str = "ok"
+    #: The ``GET /api/status`` body.
+    status: dict[str, Any] = field(default_factory=lambda: dict(HEALTHY_STATUS))
 
     def install(self, page: Page) -> FakeBackend:
         """Route the page's ``/api`` and ``/attachments`` traffic here."""
@@ -425,6 +467,17 @@ class FakeBackend:
             new_id = f"NEW-{self.created}"
             self.entries.insert(0, make_entry(new_id, "Freshly created entry"))
             ok({"entry_id": new_id, "message": "created"}, status=201)
+        elif path == "/api/status" and req.method == "GET":
+            ok(self.status)
+        elif path.startswith("/api/entries/") and path.endswith("/enhancements"):
+            entry_id = path.split("/")[3]
+            if entry_id not in self.details():
+                ok({"detail": "Entry not found"}, 404)
+                return
+            ok(self.enhancements.get(entry_id, {"entry_id": entry_id, "modules": []}))
+        elif path.startswith("/api/entries/") and path.endswith("/related"):
+            limit = int(record.query.get("limit", ["5"])[0])
+            ok(self._related(path.split("/")[3], limit))
         elif path.startswith("/api/entries/") and path.endswith("/thread"):
             thread = self._thread(path.split("/")[3])
             ok(thread, 200) if thread else ok({"detail": "Entry not found"}, 404)
@@ -463,6 +516,14 @@ class FakeBackend:
             "parent": to_row(parent) if parent else None,
             "children": [to_row(e) for e in children],
         }
+
+    def _related(self, entry_id: str, limit: int) -> dict[str, Any]:
+        """GET /api/entries/{id}/related (RelatedResponse): at most *limit* rows, never self."""
+        if self.related_state != "ok":
+            return {"state": self.related_state, "entries": []}
+        details = self.details()
+        ids = [i for i in self.related.get(entry_id, []) if i != entry_id][:limit]
+        return {"state": "ok", "entries": [to_row(details[i]) for i in ids]}
 
     def _draft_summaries(self) -> list[dict[str, Any]]:
         """GET /api/drafts: one ``DraftSummary`` per held draft, newest first."""
@@ -773,7 +834,7 @@ def test_req3_unfetchable_draft_leaves_the_form_empty_with_an_error(
     assert backend.calls("GET", "/api/drafts/missing")
     expect(page.locator("#entry-subject")).to_have_value("")
     expect(page.locator("#entry-details")).to_have_value("")
-    expect(page.locator("#draft-banner")).to_have_count(0)
+    expect(page.locator("#ariel-compose-banner")).to_be_hidden()
     expect(page.locator(".osprey-toast-host [role=alert] .osprey-toast")).to_contain_text(
         "draft is gone"
     )
@@ -912,7 +973,7 @@ def test_req5_draft_review_prefills_the_form(ariel_url: str, chromium_browser: B
     expect(page.locator("#ariel-compose")).to_be_visible()
     expect(page.locator("#entry-subject")).to_have_value("Drafted by the agent")
     expect(page.locator("#entry-details")).to_have_value("Agent-written details.")
-    expect(page.locator("#draft-banner")).to_have_attribute("data-draft-id", "D1")
+    expect(page.locator("#ariel-compose-banner")).to_have_attribute("data-draft-id", "D1")
     page.click("#create-entry-form button[type=submit]")
     expect(reader_title(page)).to_have_text("Freshly created entry")
     assert backend.calls("POST", "/api/entries")[-1].json()["subject"] == "Drafted by the agent"
@@ -1963,7 +2024,7 @@ def test_compose_draft_address_opens_the_draft_and_never_submits_it(
     expect(_sheet(page)).to_be_visible()
     expect(_sheet_title(page)).to_have_text("Draft")
     expect(page.locator("#entry-subject")).to_have_value("Drafted by the agent")
-    expect(page.locator("#draft-banner")).to_have_attribute("data-draft-id", "D1")
+    expect(page.locator("#ariel-compose-banner")).to_have_attribute("data-draft-id", "D1")
     wait_for_hash(page, canonical(compose="draft:D1"))
 
     page.reload(wait_until="load")
@@ -1985,7 +2046,7 @@ def test_compose_draft_without_provenance_shows_no_banner(
     page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(compose='draft:D2')}", backend)
 
     expect(page.locator("#entry-subject")).to_have_value("Gallery draft")
-    expect(page.locator("#draft-banner")).to_have_count(0)
+    expect(page.locator("#ariel-compose-banner")).to_be_hidden()
     page.close()
 
 
@@ -2250,7 +2311,7 @@ def test_late_draft_response_never_fills_a_later_sheet(
     release_a()
     expect(page.locator("#entry-subject")).to_have_value("Draft B")
     expect(page.locator("#entry-details")).to_have_value("B body.")
-    expect(page.locator("#draft-banner")).to_have_attribute("data-draft-id", "DB")
+    expect(page.locator("#ariel-compose-banner")).to_have_attribute("data-draft-id", "DB")
 
     # A, then closed before A answers; a new entry opened afterwards stays empty.
     _go(page, canonical(compose="draft:DA"))
@@ -2262,7 +2323,7 @@ def test_late_draft_response_never_fills_a_later_sheet(
     expect(_sheet_title(page)).to_have_text("New entry")
     expect(page.locator("#entry-subject")).to_have_value("")
     expect(page.locator("#entry-details")).to_have_value("")
-    expect(page.locator("#draft-banner")).to_have_count(0)
+    expect(page.locator("#ariel-compose-banner")).to_be_hidden()
     page.close()
 
 
@@ -2347,4 +2408,305 @@ def test_key_escape_closes_the_lightbox_before_the_sheet(
     page.focus("#entry-tags-input")
     page.keyboard.press("Escape")
     expect(_sheet(page)).to_be_hidden()
+    page.close()
+
+
+# ---------------------------------------------------------------------------
+# Inspect: the Enhancements tab, Related, the Status coverage, Ask agent
+# ---------------------------------------------------------------------------
+
+#: The re-run command a failed card carries (built by the server).
+RERUN_COMMAND = "osprey ariel enhance --module text_embedding --entry E1"
+
+
+def _card(module: str, order: int, state: str, **extra: Any) -> dict[str, Any]:
+    """A ``ModuleCard``-shaped card."""
+    labels = {m["name"]: m["label"] for m in HEALTHY_CAPABILITIES["enhancement_modules"]}
+    return {
+        "module": module,
+        "label": labels.get(module, module),
+        "order": order,
+        "feeds": [],
+        "state": state,
+        "completed_at": None,
+        "failed_at": None,
+        "marker": None,
+        "error": None,
+        "attempts": None,
+        "command": None,
+        "detail": None,
+        **extra,
+    }
+
+
+#: E1's cards, listed out of execution order so the tab has to sort them.
+E1_ENHANCEMENTS = {
+    "entry_id": "E1",
+    "modules": [
+        _card("figure_caption", 1, "complete", completed_at="2026-08-20T12:05:00-07:00"),
+        _card(
+            "text_embedding",
+            0,
+            "failed",
+            failed_at="2026-08-20T12:01:00-07:00",
+            error="model unavailable",
+            attempts=3,
+            command=RERUN_COMMAND,
+        ),
+    ],
+}
+
+
+def _tab(page: Page, tab_id: str):
+    """The reader's tab button *tab_id* (``''`` is the entry itself)."""
+    return page.locator(f'#ariel-reader-body [data-reader-tab="{tab_id}"]')
+
+
+def test_enhancements_tab_lists_a_card_per_module_in_order_with_the_failed_command(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """The tab fetches on open only and shows one card per module in order; a failed one its command."""
+    backend = FakeBackend(enhancements={"E1": E1_ENHANCEMENTS})
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}", backend)
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    assert not backend.calls("GET", "/api/entries/E1/enhancements")  # not before the tab opens
+
+    _tab(page, "enhancements").click()
+    expect(_tab(page, "enhancements")).to_have_attribute("aria-selected", "true")
+    cards = page.locator("#ariel-reader-body [data-inspector-card]")
+    expect(cards).to_have_count(2)
+    assert cards.evaluate_all("cs => cs.map(c => c.dataset.module)") == [
+        "text_embedding",
+        "figure_caption",
+    ]
+    assert cards.evaluate_all("cs => cs.map(c => c.dataset.state)") == ["failed", "complete"]
+    expect(cards.nth(0).locator(".inspector-card-title")).to_have_text("Text Embedding")
+    expect(cards.nth(1).locator(".inspector-card-title")).to_have_text("Figure Caption")
+
+    failed = cards.nth(0)
+    expect(failed.locator("[data-inspector-command] code")).to_have_text(RERUN_COMMAND)
+    expect(failed.locator("[data-inspector-copy]")).to_be_visible()
+    expect(failed).to_contain_text("model unavailable")
+    expect(cards.nth(1).locator("[data-inspector-command]")).to_have_count(0)
+    # The inspector only shows the command: no control re-runs a module.
+    expect(page.locator("#ariel-reader-body [data-entry-inspector] button")).to_have_count(1)
+    wait_for_call(page, backend, "GET", "/api/entries/E1/enhancements")
+    page.close()
+
+
+def test_enhancements_tab_says_when_no_module_is_enabled(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """An entry with no enabled module shows the tab's empty state, not a card."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E2')}")
+    expect(reader_title(page)).to_have_text("Vacuum spike sector 3")
+    _tab(page, "enhancements").click()
+    expect(page.locator("#ariel-reader-body .inspector-empty")).to_have_text(
+        "No enhancement modules are enabled."
+    )
+    expect(page.locator("#ariel-reader-body [data-inspector-card]")).to_have_count(0)
+    page.close()
+
+
+def test_key_e_opens_the_enhancements_tab_and_the_entry_tab_returns(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """``e`` switches the reader to Enhancements, the Entry tab back, ``e`` again re-opens it."""
+    backend = FakeBackend(enhancements={"E1": E1_ENHANCEMENTS})
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}", backend)
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    grid = page.locator("#ariel-reader-body .entry-detail-grid")
+    panel = page.locator("#ariel-reader-body [data-reader-tab-panel]")
+    cards = page.locator("#ariel-reader-body [data-inspector-card]")
+
+    page.keyboard.press("e")
+    expect(_tab(page, "enhancements")).to_have_attribute("aria-selected", "true")
+    expect(_tab(page, "")).to_have_attribute("aria-selected", "false")
+    expect(panel).to_be_visible()
+    expect(grid).to_be_hidden()
+    expect(cards).to_have_count(2)
+
+    _tab(page, "").click()
+    expect(_tab(page, "")).to_have_attribute("aria-selected", "true")
+    expect(grid).to_be_visible()
+    expect(panel).to_be_hidden()
+
+    page.evaluate("document.activeElement.blur()")
+    page.keyboard.press("e")
+    expect(_tab(page, "enhancements")).to_have_attribute("aria-selected", "true")
+    expect(cards).to_have_count(2)
+
+    # Typed in a field, ``e`` is text, not the tab.
+    _tab(page, "").click()
+    page.focus("#ariel-search-input")
+    page.keyboard.type("e")
+    expect(page.locator("#ariel-search-input")).to_have_value("e")
+    expect(_tab(page, "")).to_have_attribute("aria-selected", "true")
+    page.close()
+
+
+#: Older entries the Related fixtures point at.
+RELATED_ENTRIES = [
+    make_entry(f"R{i}", f"Related entry {i}", timestamp=f"2026-08-1{i}T08:00:00-07:00")
+    for i in range(1, 7)
+]
+
+
+def test_related_shows_at_most_five_rows_and_never_the_entry_itself(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """Related asks for five, lists at most five rows without the shown entry, and selects on click."""
+    backend = FakeBackend(
+        entries=[*DEFAULT_ENTRIES, *RELATED_ENTRIES],
+        related={"E1": ["E1", "R1", "R2", "R3", "R4", "R5", "R6"]},
+    )
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}", backend)
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+
+    section = page.locator("#ariel-reader-body [data-entry-related]")
+    rows = section.locator("[data-thread-entry]")
+    expect(section.locator("h4")).to_have_text("Related")
+    expect(rows).to_have_count(5)
+    shown = rows.evaluate_all("rs => rs.map(r => r.dataset.threadEntry)")
+    assert shown == ["R1", "R2", "R3", "R4", "R5"], shown
+    request = wait_for_call(page, backend, "GET", "/api/entries/E1/related")
+    assert request.query.get("limit") == ["5"], request.query
+
+    rows.nth(1).click()
+    expect(reader_title(page)).to_have_text("Related entry 2")
+    wait_for_hash(page, canonical(sel="R2"))
+    page.close()
+
+
+def test_related_is_hidden_when_text_embedding_is_off(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """With text embedding disabled the reader shows no Related section and raises no toast."""
+    backend = FakeBackend(
+        entries=[*DEFAULT_ENTRIES, *RELATED_ENTRIES],
+        related={"E1": ["R1", "R2"]},
+        related_state="disabled",
+    )
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}", backend)
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    wait_for_call(page, backend, "GET", "/api/entries/E1/related")
+    page.wait_for_load_state("networkidle")
+    expect(page.locator("#ariel-reader-body [data-entry-related]")).to_have_count(0)
+    expect(page.locator("#ariel-reader-body")).not_to_contain_text("Related")
+    expect(_toast(page, "alert")).to_have_count(0)
+    page.close()
+
+
+def test_status_drawer_lists_every_enabled_module_with_its_coverage(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """The Status drawer's coverage table has one row per enabled module, labelled, with counts."""
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/#status")
+    expect(page.locator("osprey-drawer#status-drawer")).to_have_attribute("open", re.compile(".*"))
+    wait_for_call(page, backend, "GET", "/api/status")
+
+    rows = page.locator("#status-content table.coverage-table tbody tr[data-module]")
+    expect(rows).to_have_count(2)
+    assert rows.evaluate_all("rs => rs.map(r => r.dataset.module)") == [
+        "text_embedding",
+        "figure_caption",
+    ]
+    expect(rows.nth(0).locator("td").first).to_have_text("Text Embedding")
+    expect(rows.nth(1).locator("td").first).to_have_text("Figure Caption")
+    expect(rows.nth(0).locator('td[data-state="complete"]')).to_have_text("1,200")
+    expect(rows.nth(0).locator('td[data-state="failed"]')).to_have_text("1")
+    expect(rows.nth(1).locator('td[data-state="n/a"]')).to_have_text("832")
+    page.close()
+
+
+def test_ask_agent_is_absent_standalone(ariel_url: str, chromium_browser: Browser) -> None:
+    """Standalone ARIEL has no assistant prompt: no Ask agent action, and ``a`` does nothing."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}")
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    expect(_tab(page, "enhancements")).to_be_visible()  # the reader's seam has rendered
+    expect(page.locator('[data-reader-action="ask-agent"]')).to_have_count(0)
+    expect(page.locator("#ariel-reader-body")).not_to_contain_text("Ask agent")
+
+    page.keyboard.press("a")
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    expect(_sheet(page)).to_be_hidden()
+    assert errors == []
+    page.close()
+
+
+# ---------------------------------------------------------------------------
+# Compose focus and the one banner
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("closer", ["close", "discard", "escape"])
+def test_compose_returns_focus_to_its_opener(
+    ariel_url: str, chromium_browser: Browser, closer: str
+) -> None:
+    """Close, Discard and Esc each hand focus back to the button that opened the sheet."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    opener = page.locator("#ariel-compose-btn")
+    opener.focus()
+    page.keyboard.press("Enter")
+    expect(_sheet(page)).to_be_visible()
+    page.focus("#entry-subject")
+    expect(opener).not_to_be_focused()
+
+    if closer == "close":
+        page.click("#ariel-compose-close")
+    elif closer == "discard":
+        page.click("#create-cancel-btn")
+    else:
+        page.keyboard.press("Escape")
+    expect(_sheet(page)).to_be_hidden()
+    expect(opener).to_be_focused()
+    page.close()
+
+
+def test_follow_up_returns_focus_to_the_reader_button_on_close(
+    ariel_url: str, chromium_browser: Browser
+) -> None:
+    """A follow-up opened from the reader gives focus back to its Follow up button."""
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}")
+    expect(reader_title(page)).to_have_text("Beam dump at injection")
+    opener = page.locator("#ariel-reader-body [data-follow-up]")
+    opener.click()
+    expect(_sheet_title(page)).to_have_text("Follow up")
+    page.focus("#entry-details")
+
+    page.keyboard.press("Escape")
+    expect(_sheet(page)).to_be_hidden()
+    expect(opener).to_be_focused()
+    page.close()
+
+
+def test_compose_sheet_shows_exactly_one_banner(ariel_url: str, chromium_browser: Browser) -> None:
+    """A staged draft shows one banner, still one after another draft opens, none for a new entry."""
+    backend = FakeBackend(
+        drafts={
+            "D1": dict(DRAFT),
+            "DB": {**DRAFT, "draft_id": "DB", "subject": "Draft B", "details": "B body."},
+        }
+    )
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(compose='draft:D1')}", backend)
+    shown = _sheet(page).locator("[class*='banner']:visible, [id*='banner']:visible")
+
+    expect(page.locator("#entry-subject")).to_have_value("Drafted by the agent")
+    expect(page.locator("#ariel-compose-banner")).to_be_visible()
+    expect(page.locator("#ariel-compose-banner")).to_have_attribute("data-draft-id", "D1")
+    expect(shown).to_have_count(1)
+    expect(page.locator("#draft-banner")).to_have_count(0)
+
+    _go(page, canonical(compose="draft:DB"))
+    expect(page.locator("#entry-subject")).to_have_value("Draft B")
+    expect(page.locator("#ariel-compose-banner")).to_have_attribute("data-draft-id", "DB")
+    expect(shown).to_have_count(1)
+
+    page.click("#ariel-compose-close")
+    expect(_sheet(page)).to_be_hidden()
+    page.click("#ariel-compose-btn")
+    expect(_sheet_title(page)).to_have_text("New entry")
+    expect(shown).to_have_count(0)
     page.close()

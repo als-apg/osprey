@@ -408,6 +408,16 @@ describe('Esc', () => {
   });
 });
 
+describe('e', () => {
+  test('is left to the reader seam: not defaultPrevented, no store write', () => {
+    store.setState({ sel: 'e2' });
+    const before = { ...store.getState() };
+    const e = press('e');
+    expect(e.defaultPrevented).toBe(false);
+    expect(store.getState()).toEqual(before);
+  });
+});
+
 describe('scope', () => {
   test('keydowns from another document are not handled', () => {
     const other = document.implementation.createHTMLDocument('host');

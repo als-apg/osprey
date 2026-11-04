@@ -7,6 +7,15 @@
  * holds no application state: the caller learns about the lightbox opening
  * and closing through callbacks and closes it from outside with
  * `closeLightbox`. The lightbox installs no `Esc` listener of its own.
+ *
+ * Features extend the reader through one seam instead of editing it:
+ * `registerReaderSection` (after the body, in registration order),
+ * `registerReaderTab` (beside "Entry", rendered when opened),
+ * `registerReaderAction` (a header button) and `registerReaderKey`, with the
+ * registry in `reader-seam.js`. The caller routes keydowns through
+ * `runReaderKey`. Every render is handed a `ReaderContext` and placed only
+ * while its entry is still the newest call's, so a stale entry's work is
+ * discarded. The thread section (`reader-thread.js`) is the first section.
  */
 
 import { entriesApi, apiUrl } from './api.js';
@@ -18,6 +27,14 @@ import {
   escapeHtml,
 } from './components.js';
 import { parseEntryText } from './entries-helpers.js';
+import { seam, place, renderActionButtons, renderTabStrip } from './reader-seam.js';
+
+export {
+  registerReaderSection,
+  registerReaderTab,
+  registerReaderAction,
+  registerReaderKey,
+} from './reader-seam.js';
 
 /**
  * One of this API's attachment routes, relative to the API base: the original
@@ -129,6 +146,8 @@ function renderAttachmentCard(att) {
  * @property {boolean} delegated - Whether the click delegation is bound
  * @property {ReaderCallbacks} callbacks - Callbacks of the newest call
  * @property {HTMLElement|null} lightbox - The lightbox this container opened
+ * @property {ReaderContext|null} ctx - The shown entry's seam context
+ * @property {number} tabs - Bumped by every tab switch; only the newest renders
  */
 
 /** @type {WeakMap<HTMLElement, ReaderState>} */
@@ -142,7 +161,7 @@ const readers = new WeakMap();
 function readerState(container) {
   let state = readers.get(container);
   if (!state) {
-    state = { seq: 0, delegated: false, callbacks: {}, lightbox: null };
+    state = { seq: 0, delegated: false, callbacks: {}, lightbox: null, ctx: null, tabs: 0 };
     readers.set(container, state);
   }
   return state;
@@ -187,7 +206,7 @@ function bindDelegation(container) {
   state.delegated = true;
   container.addEventListener('click', (e) => {
     const target = /** @type {HTMLElement|null} */ (e.target);
-    if (handleThreadClick(container, target)) return;
+    if (handleSeamClick(container, target)) return;
     const thumb = /** @type {HTMLElement|null} */ (
       target?.closest?.('[data-lightbox-url]') ?? null
     );
@@ -201,92 +220,73 @@ function bindDelegation(container) {
   });
 }
 
+/** @typedef {import('./reader-seam.js').ReaderContext} ReaderContext */
+
 /**
- * Route a click on a thread link or the Follow up action to the newest call's
- * callbacks.
+ * Run the key registered for `key` on the container's shown entry.
+ * @param {HTMLElement} container
+ * @param {string} key - `KeyboardEvent.key`
+ * @returns {boolean} whether one ran (never while loading or cleared)
+ */
+export function runReaderKey(container, key) {
+  const { ctx } = readerState(container);
+  const tab = seam.tabs.find((t) => t.key === key);
+  const run = seam.actions.find((a) => a.key === key)?.run ?? seam.keys.get(key);
+  if (!ctx?.isCurrent() || !(tab || run)) return false;
+  if (tab) openTab(container, tab.id);
+  else run?.(ctx);
+  return true;
+}
+
+/**
+ * Show one tab of the shown entry (`''` is the entry itself) and render it;
+ * a later tab switch or entry discards that render.
+ * @param {HTMLElement} container
+ * @param {string} id
+ */
+function openTab(container, id) {
+  const state = readerState(container);
+  const { ctx } = state;
+  const tab = seam.tabs.find((t) => t.id === id);
+  const panel = /** @type {HTMLElement|null} */ (
+    container.querySelector('[data-reader-tab-panel]')
+  );
+  const grid = /** @type {HTMLElement|null} */ (container.querySelector('.entry-detail-grid'));
+  if (!ctx?.isCurrent() || !panel || !grid) return;
+  const open = ++state.tabs;
+  for (const b of container.querySelectorAll('[data-reader-tab]')) {
+    b.setAttribute('aria-selected', String(b.getAttribute('data-reader-tab') === (tab?.id ?? '')));
+  }
+  // `.entry-detail-grid { display: grid }` outranks `[hidden]`, so hide it inline too.
+  grid.hidden = Boolean(tab);
+  grid.style.display = tab ? 'none' : '';
+  panel.hidden = !tab;
+  if (!tab) return;
+  panel.innerHTML = renderLoading(`Loading ${tab.label}...`);
+  place(ctx, tab.render, panel, () => state.tabs === open);
+}
+
+/**
+ * Route a click on a thread link, the Follow up action, a seam tab or a seam
+ * action to the newest call.
  * @param {HTMLElement} container
  * @param {HTMLElement|null} target - The click target
  * @returns {boolean} whether the click was one of these
  */
-function handleThreadClick(container, target) {
-  const { callbacks } = readerState(container);
-  const link = /** @type {HTMLElement|null} */ (target?.closest?.('[data-thread-entry]') ?? null);
-  if (link && container.contains(link)) {
-    callbacks.onSelectEntry?.(link.dataset.threadEntry || '');
-    return true;
-  }
-  const follow = /** @type {HTMLElement|null} */ (target?.closest?.('[data-follow-up]') ?? null);
-  if (follow && container.contains(follow)) {
-    callbacks.onFollowUp?.(follow.dataset.followUp || '');
-    return true;
-  }
-  return false;
-}
-
-/**
- * One thread row as a link that selects the entry.
- * @param {any} row - A C-THREAD `RowResponse`
- * @returns {string} HTML string
- */
-function renderThreadLink(row) {
-  const id = String(row.entry_id ?? '');
-  const subject = row.subject || id;
-  return `
-    <li>
-      <button type="button" class="entry-thread-link" data-thread-entry="${escapeHtml(id)}">
-        <span class="entry-thread-subject">${escapeHtml(subject)}</span>
-        <span class="entry-thread-meta font-mono">${escapeHtml(formatTimestamp(row.timestamp))}</span>
-        <span class="entry-thread-meta">${escapeHtml(row.author || '')}</span>
-      </button>
-    </li>`;
-}
-
-/**
- * The C-THREAD section: "Follows up" (the parent link, or the bare id when the
- * parent is not held) and "Follow-ups (n)". Empty when the entry has neither.
- * @param {any} thread - `{parent_id, parent, children}`
- * @returns {string} HTML string
- */
-export function renderThreadSection(thread) {
-  const parentId = thread?.parent_id;
-  const children = Array.isArray(thread?.children) ? thread.children : [];
-  const parts = [];
-  if (parentId) {
-    const parent = thread.parent
-      ? `<ul class="entry-thread-list">${renderThreadLink(thread.parent)}</ul>`
-      : `<div class="entry-thread-missing font-mono">${escapeHtml(parentId)}</div>`;
-    parts.push(`<h4>Follows up</h4>${parent}`);
-  }
-  if (children.length > 0) {
-    parts.push(
-      `<h4>Follow-ups (${children.length})</h4>
-      <ul class="entry-thread-list">${children.map(renderThreadLink).join('')}</ul>`
-    );
-  }
-  if (parts.length === 0) return '';
-  return `<div class="entry-detail-content entry-thread" data-entry-thread>${parts.join('')}</div>`;
-}
-
-/**
- * Fetch the entry's thread and append its section to the rendered entry, when
- * this is still the newest call. A failed fetch leaves the entry as it is.
- * @param {HTMLElement} container
- * @param {string} entryId
- * @param {number} seq - The call's sequence number
- */
-async function renderThread(container, entryId, seq) {
-  const state = readerState(container);
-  /** @type {any} */
-  let thread;
-  try {
-    thread = await entriesApi.thread(entryId);
-  } catch {
-    return;
-  }
-  if (seq !== state.seq || !thread || typeof thread !== 'object') return;
-  const html = renderThreadSection(thread);
-  if (!html) return;
-  container.querySelector('.entry-detail-main')?.insertAdjacentHTML('beforeend', html);
+function handleSeamClick(container, target) {
+  const el = /** @type {HTMLElement|null} */ (
+    target?.closest?.(
+      '[data-thread-entry], [data-follow-up], [data-reader-tab], [data-reader-action]'
+    ) ?? null
+  );
+  if (!el || !container.contains(el)) return false;
+  const { callbacks, ctx } = readerState(container);
+  const data = el.dataset;
+  if (data.threadEntry !== undefined) callbacks.onSelectEntry?.(data.threadEntry);
+  else if (data.followUp !== undefined) callbacks.onFollowUp?.(data.followUp);
+  else if (data.readerTab !== undefined) openTab(container, data.readerTab);
+  else if (ctx?.isCurrent()) seam.actions.find((a) => a.id === data.readerAction)?.run(ctx);
+  return true;
 }
 
 /**
@@ -328,6 +328,10 @@ export async function showInReader(container, entryId, options = {}) {
     return null;
   }
   if (seq !== state.seq) return null;
+  const id = String(entry.entry_id || entryId);
+  const isCurrent = () => seq === state.seq;
+  const ctx = { container, entry, entryId: id, callbacks: state.callbacks, isCurrent };
+  state.ctx = ctx;
   renderEntryDetail(container, entry);
 
   if (attachmentId) {
@@ -344,7 +348,8 @@ export async function showInReader(container, entryId, options = {}) {
       );
     if (!opened) onAttachmentMissing?.(attachmentId);
   }
-  await renderThread(container, entry.entry_id || entryId, seq);
+  const slot = (/** @type {string} */ id) => container.querySelector(`[data-reader-slot="${id}"]`);
+  await Promise.all(seam.sections.map((s) => place(ctx, s.render, slot(s.id))));
   return entry;
 }
 
@@ -464,6 +469,7 @@ export function renderEntryDetail(container, entry) {
           <h2 class="entry-detail-title">${escapeHtml(subject)}</h2>
           <button type="button" class="btn btn-secondary btn-sm entry-follow-up"
                   data-follow-up="${escapeHtml(entry.entry_id)}">\u21a9 Follow up</button>
+          ${renderActionButtons()}
         </div>
         <div class="entry-detail-meta">
           <span class="entry-id font-mono text-accent-secondary">${escapeHtml(entry.entry_id)}</span>
@@ -472,6 +478,7 @@ export function renderEntryDetail(container, entry) {
           <span class="text-muted">${escapeHtml(entry.source_system)}</span>
         </div>
       </div>
+      ${renderTabStrip()}
 
       <div class="entry-detail-grid">
         <div class="entry-detail-main">
@@ -499,6 +506,7 @@ export function renderEntryDetail(container, entry) {
                 )
               : ''
           }
+          ${seam.sections.map((s) => `<div data-reader-slot="${s.id}" style="display: contents;"></div>`).join('')}
         </div>
 
         <div class="entry-detail-sidebar">
@@ -528,6 +536,7 @@ export function renderEntryDetail(container, entry) {
           ${renderSessionCard(metadata.session_metadata)}
         </div>
       </div>
+      <div class="entry-detail-tab-panel" data-reader-tab-panel hidden></div>
     </div>
   `;
 

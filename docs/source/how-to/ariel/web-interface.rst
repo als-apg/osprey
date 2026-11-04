@@ -21,10 +21,18 @@ histogram; click a value or a day to filter by it. The search box also takes
 **Load more** at the end of the list fetches the next page. Drag the rail's edge to resize it; released narrow, it snaps
 to an icon strip. Below 640 px the list and reader stack and the reader gets a
 Back button. The **Status and settings** button in the header opens those
-drawers.
+drawers; Status counts each enabled enhancement module's entries as Complete,
+Pending, Stale, Failed and N/A, as ``osprey ariel status`` does.
 
-**Compose** opens a sheet over the list column; **Expand** spans the panel,
-and when stacked it covers the tile. **Follow up** in the reader opens it
+The reader's **Enhancements** tab shows each enabled module's state and output
+for the entry. A failed or stale card shows the command that re-runs it,
+``osprey ariel enhance --module <name> --entry <id>``, with a **Copy** button;
+a stale text embedding shows ``osprey ariel reembed …`` instead, which rebuilds
+the whole table. Below the thread, **Related** lists up to five entries nearest
+by embedding.
+
+**Compose** opens a sheet over the list column; **Expand** (not shown when
+stacked) spans the panel. **Follow up** in the reader opens it
 prefilled from the entry and links the new entry to it; the reader lists an
 entry's parent and follow-ups. **Drafts** holds the drafts agents stage, shared
 across the deployment and expiring after an hour; open one in the sheet,
@@ -68,6 +76,10 @@ immediately.
      - Collapse or expand the rail
    * - ``c`` / ``r``
      - Compose a new entry / follow up the selected entry
+   * - ``e``
+     - Open the **Enhancements** tab
+   * - ``a``
+     - Ask agent (embedded)
    * - ``Esc``
      - Close the picture, then the compose sheet (autosave kept), then go Back
        when stacked
@@ -79,18 +91,13 @@ The Filters & Options popover, opened from the mode chip, is built from whatever
 modules declare, so the controls in it depend on the deployment. Two things
 about how it behaves are worth knowing before you tune anything.
 
-**Every knob shows its own explanation.** The description a module writes for a
-parameter is rendered as a line of hint text under the control, rather than
-hidden behind a hover tooltip --- readable on a touch screen, and readable
-without having to discover that there was something to hover over.
+**Every knob shows its own explanation.** A module's parameter description is
+hint text under the control, not a hover tooltip.
 
 **Knobs you have not touched follow the deployment's configuration.** The panel
-opens on the deployment's configured value for every control that has one, and
-on the shipped default for the rest; a search sends only the controls you
-actually changed. Anything you left alone is not sent at all, so it resolves on
-the server to whatever the configuration says --- which means a change to the
-deployment's config reaches the panel without anyone re-picking anything, after
-the service restarts and the page is reloaded. **Reset** clears the whole set:
+opens on the configured value, or the shipped default, and a search sends only
+the controls you changed, so a config change reaches the panel after a restart
+and reload. **Reset** clears the whole set:
 values return to the configured defaults, and every knob counts as untouched
 again.
 
@@ -146,11 +153,9 @@ so you can compare two looks without re-opening the menu. Settings closes it,
 because it takes you to a different surface. Click anywhere outside the card,
 or press ``Escape``, to dismiss it.
 
-**Your picks follow you.** The theme you choose here is remembered by
-your browser and shared with every OSPREY interface served from the same
-address --- pick a dark High Contrast look in ARIEL and the OSPREY web terminal
-comes up that way the next time you load it, and the other way round too. There
-is no separate preference to keep in step.
+**Your picks follow you.** The theme is remembered by your browser and shared
+with every OSPREY interface served from the same address, the web terminal
+included, in both directions.
 
 ARIEL running *inside* the web terminal, as a panel, behaves differently on
 purpose. The terminal passes its own theme to the panel in the page
@@ -163,11 +168,15 @@ appear there.
 Embedded, the tile bar carries the search box, **Compose**, and a menu to
 hide the rail or save the search; the rail starts collapsed. Keyword search
 works immediately; semantic and hybrid choices appear only when their services
-are available. Opening a stored, viewable picture from an entry also offers
-**Use in Workspace**. It copies the prepared rendition into the local Workspace gallery with its logbook
-provenance, then activates Workspace in the browser that clicked it. Ask the
-agent about that Workspace artifact; it resolves the provenance and reads the
-same stored attachment pixels rather than an external logbook URL.
+are available. **Ask agent** (``a``) puts a citation of the entry and the
+selected text, or its subject, into the assistant prompt without sending it.
+When the agent creates an entry, the list refreshes and flashes the row if you
+are at the top; otherwise an **n new** pill counts it. An agent's
+``entry_open`` (``#sel=<id>``) selects the entry in place, keeping the search
+and scroll. Opening a stored, viewable picture from an entry also offers
+**Use in Workspace**, which copies the prepared rendition into the Workspace
+gallery with its logbook provenance; the agent then reads the same stored
+pixels, not an external logbook URL.
 
 The ``GET /api/capabilities`` endpoint the interface calls at startup, and the
 parameter descriptors it returns, are documented in
