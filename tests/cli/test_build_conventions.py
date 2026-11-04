@@ -171,20 +171,6 @@ def test_misshapen_convention_source_fails_before_copying(profile_dir: Path, pro
     assert not (project_path / ".claude/rules/facility-ops.md").exists()
 
 
-def test_symlink_escaping_the_profile_fails_the_build(
-    profile_dir: Path, project_path: Path, tmp_path: Path
-):
-    """A profile artifact must never smuggle content from outside the profile."""
-    outside = _write(tmp_path / "outside" / "safety.md")
-    _write(profile_dir / "rules" / "facility-ops.md")
-    (profile_dir / "rules" / "safety.md").symlink_to(outside)
-
-    with pytest.raises(BuildProfileError, match="self-contained"):
-        _apply_conventions(profile_dir, project_path)
-
-    assert not (project_path / ".claude/rules/facility-ops.md").exists()
-
-
 def test_symlinked_destination_escaping_the_project_fails_the_build(
     profile_dir: Path, project_path: Path, tmp_path: Path
 ):

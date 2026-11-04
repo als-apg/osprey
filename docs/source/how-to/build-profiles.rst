@@ -1110,10 +1110,12 @@ directory beside this project came from a different preset. Build ``Y`` under a
 different project name so it gets a profile of its own.
 
 **"Profile convention directories are invalid"** — a convention directory has
-the wrong shape: a ``.md`` directory holding something else, a skill that is a
-file rather than a directory, or a symlink pointing outside the profile. Every
-problem is listed at once. The symlink case is the self-containment rule; copy
-the target in (see :ref:`profile-self-contained`).
+the wrong shape: a ``.md`` directory holding something else, or a skill that is
+a file rather than a directory. Every problem is listed at once.
+
+**"… outside the repository. Move it into the repository."** — an input, or a
+link inside one through any number of hops, resolves outside the repository;
+copy the target in (see :ref:`profile-self-contained`).
 
 **"web-terminal-context/<name> is a file"** — that directory holds one
 directory per operator, plus the shared ``base.md``. Move the file into the
