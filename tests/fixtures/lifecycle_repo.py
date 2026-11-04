@@ -1521,6 +1521,17 @@ panel_presets: {}
 #       label: Optics
 #       color: "#4C9AFF"
 
+# --- Optimizer ---------------------------------------------------------------
+# Tunes machine variables against an objective with Bayesian optimization. The
+# service takes the optimizer slot of this deployment's port block and keeps
+# its jobs in a Redis sidecar. `targets` lists the control targets it may
+# drive (va, standin); the live machine is not allowed yet. Environment files
+# (YAML) in `environments_dir` are mounted read-only into the service.
+#
+# optimizer:
+#   targets: [va]
+#   environments_dir: optimizer/environments
+
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
 # match one declared in the dispatch triggers file.
@@ -2258,6 +2269,7 @@ OSPREY_AUTH_PW_CAROL=carol
 # BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_STANDIN_LAUNCH_TOKEN=  # bluesky_standin — arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft IOC (only on a deployment with `bluesky.second_lane`)
 # OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
+# OPTIMIZER_LAUNCH_TOKEN=  # optimizer — arms the optimizer API's routes that start runs, write to the machine or load a model
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # ARIEL_DB_READONLY_PASSWORD=  # postgresql — password of the SELECT-only Postgres role the agent's SQL tool queries through
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)

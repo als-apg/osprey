@@ -290,6 +290,10 @@ def _make_console(*, stderr: bool = False) -> Console:
     ✓, ✗ and ⚠️ render) is platform-constant, so it is applied once here at
     construction and never revisited when the theme changes.
 
+    Emoji shortcodes are off: the CLI prints channel names, and Rich would
+    otherwise render ``SR:MAG:QF:01`` with ``:MAG:`` as a magnifying glass --
+    in table cells too, where a per-call ``emoji=False`` does not reach.
+
     Args:
         stderr: If True, the console writes to stderr instead of stdout
 
@@ -297,8 +301,14 @@ def _make_console(*, stderr: bool = False) -> Console:
         A themed Console instance
     """
     if sys.platform == "win32":
-        return Console(theme=osprey_theme, force_terminal=True, legacy_windows=False, stderr=stderr)
-    return Console(theme=osprey_theme, stderr=stderr)
+        return Console(
+            theme=osprey_theme,
+            force_terminal=True,
+            legacy_windows=False,
+            stderr=stderr,
+            emoji=False,
+        )
+    return Console(theme=osprey_theme, stderr=stderr, emoji=False)
 
 
 # Singleton console instances with theme: one for stdout, one for stderr.

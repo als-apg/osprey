@@ -1436,6 +1436,17 @@ panel_presets: {}
 #       label: Optics
 #       color: "#4C9AFF"
 
+# --- Optimizer ---------------------------------------------------------------
+# Tunes machine variables against an objective with Bayesian optimization. The
+# service takes the optimizer slot of this deployment's port block and keeps
+# its jobs in a Redis sidecar. `targets` lists the control targets it may
+# drive (va, standin); the live machine is not allowed yet. Environment files
+# (YAML) in `environments_dir` are mounted read-only into the service.
+#
+# optimizer:
+#   targets: [va]
+#   environments_dir: optimizer/environments
+
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
 # match one declared in the dispatch triggers file.

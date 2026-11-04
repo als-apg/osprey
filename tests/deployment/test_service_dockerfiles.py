@@ -115,6 +115,7 @@ SITE_BUILD_SHAPE = {
     "services/event_dispatcher": SiteBuildShape(_NODE_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/gchat_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/nextcloud_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/optimizer": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/teams_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/qmd": SiteBuildShape(
         _NODE_TRUST_VARS, ("PIP_NO_PROXY",), "npm install", bootstrap_fetches=1
@@ -348,10 +349,19 @@ FRAMEWORK_PINNED_IDS = [
 ]
 
 
+#: The distributions a deps layer primes by version: the framework, or the
+#: workspace package a service image installs in its place (the optimizer).
+_PRIMED_DISTRIBUTIONS = ("osprey-framework", "osprey-optimizer")
+
+
 def _version_pinned_deps_body(dockerfile: pathlib.Path) -> str:
-    """The deps-layer RUN body: the one installing ``osprey-framework`` by version."""
+    """The deps-layer RUN body: the one installing a primed distribution by version."""
     text = dockerfile.read_text(encoding="utf-8")
-    bodies = [b for b in _run_bodies(text) if "osprey-framework" in b and "$OSPREY_VERSION" in b]
+    bodies = [
+        b
+        for b in _run_bodies(text)
+        if any(d in b for d in _PRIMED_DISTRIBUTIONS) and "$OSPREY_VERSION" in b
+    ]
     assert len(bodies) == 1, f"{dockerfile}: expected exactly one deps RUN, got {len(bodies)}"
     return bodies[0]
 
@@ -516,7 +526,7 @@ LAYER_ANCHOR = ".osprey-layer-anchor"
 #: Python service recipes that legitimately diverge before the deps layer. The
 #: virtual accelerator pins its base to linux/amd64 and refuses any other
 #: architecture ahead of the install, because no pcaspy wheel exists elsewhere.
-_OWN_DEPS_LAYER = {"services/virtual_accelerator"}
+_OWN_DEPS_LAYER = {"services/virtual_accelerator", "services/optimizer"}
 
 SHARED_DEPS_IDS = [
     label
