@@ -830,7 +830,6 @@ def test_note_on_a_literal_default_goes_red():
         "Commented in the two presets that ship an `ariel:` block.",
         "Unset in all four presets.",
         "Present in both root presets.",
-        "the one preset whose tree ships it",
         "Present in both the presets.",
         "Set in both of the presets.",
         "Unset in two of the presets.",
@@ -858,6 +857,11 @@ def test_a_note_counting_presets_goes_red(note):
         "no two presets state it",
         "at least two presets stating",
         "fewer than two presets",
+        "the one preset whose tree ships it",
+        "the same one the presets ship",
+        "One preset's config as its deploying build writes it.",
+        "One preset is narrower than attaching it to a whole server suggests",
+        "one job per preset",
     ],
 )
 def test_a_note_naming_the_presets_without_a_count_stays_green(note):
