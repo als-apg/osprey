@@ -150,7 +150,9 @@ services:
       # record of what the optimizer did, kept across container restarts.
       - optimizer_results:/app/results
 {%- if svc.environments_dir %}
-      # services.optimizer.environments_dir, mounted read-only.
+      # services.optimizer.environments_dir, mounted read-only. The injector
+      # stores it compose-ready (a relative path `./`-prefixed, resolving
+      # against the repo root), so it renders verbatim.
       - {{ svc.environments_dir }}:/app/environments:ro
 {%- endif %}
 {%- if svc.writes_enabled and limits_mount is defined %}

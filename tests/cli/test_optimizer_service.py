@@ -23,6 +23,7 @@ from jinja2 import Environment, FileSystemLoader
 from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _inject_optimizer
+from osprey.cli.build_injectors import _compose_bind_source
 from osprey.cli.build_profile import OptimizerConfig
 from osprey.deployment.compose_generator import (
     LOGIN_TIERS_SERVICES,
@@ -95,7 +96,24 @@ def test_the_injector_copies_the_template_and_registers_the_service(tmp_path: Pa
 def test_the_injector_writes_an_environments_dir_only_when_set(tmp_path: Path) -> None:
     _write_config(tmp_path)
     _inject_optimizer(OptimizerConfig(environments_dir="optimizer/envs"), project_path=tmp_path)
-    assert _read_config(tmp_path)["services"]["optimizer"]["environments_dir"] == "optimizer/envs"
+    # Stored `./`-prefixed: compose reads a bare relative source as a named volume.
+    assert _read_config(tmp_path)["services"]["optimizer"]["environments_dir"] == "./optimizer/envs"
+
+
+@pytest.mark.parametrize(
+    ("authored", "source"),
+    [
+        # A bare relative path is a compose named volume unless it is written
+        # `./`-prefixed, and an undefined named volume fails `osprey up`.
+        ("optimizer/envs", "./optimizer/envs"),
+        ("./optimizer/envs", "./optimizer/envs"),
+        ("../shared/envs", "../shared/envs"),
+        ("/srv/optimizer/envs", "/srv/optimizer/envs"),
+        ("~/envs", "~/envs"),
+    ],
+)
+def test_a_bind_source_is_spelled_so_compose_reads_a_host_path(authored: str, source: str) -> None:
+    assert _compose_bind_source(authored) == source
 
 
 def test_the_injector_is_idempotent(tmp_path: Path) -> None:
@@ -284,10 +302,11 @@ def test_a_read_only_tier_runs_no_probe() -> None:
 
 
 def test_the_environments_dir_is_mounted_read_only_when_set() -> None:
-    mounts = _render(targets=["va"], environments_dir="optimizer/envs")["services"]["optimizer"][
+    # Rendered verbatim: the injector stores it compose-ready.
+    mounts = _render(targets=["va"], environments_dir="./optimizer/envs")["services"]["optimizer"][
         "volumes"
     ]
-    assert "optimizer/envs:/app/environments:ro" in mounts
+    assert "./optimizer/envs:/app/environments:ro" in mounts
 
 
 def test_no_environments_dir_means_no_mount() -> None:

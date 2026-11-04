@@ -295,6 +295,18 @@ _LIVE_STANDIN_COMPOSE_SERVICE = _LIVE_STANDIN_SERVICE_KEY.replace("_", "-")
 _SHARED_SERVICE_TEMPLATE = {_LIVE_STANDIN_SERVICE_KEY: "virtual_accelerator"}
 
 
+def _compose_bind_source(path: str) -> str:
+    """Spell a host path so compose's short volume syntax reads it as a bind.
+
+    Compose takes a source as a host path only when it starts with ``.``, ``/``
+    or ``~`` (or is absolute); a bare relative path such as ``plans/`` is read
+    as a named volume, and an undefined one fails ``osprey up``. Such a path is
+    ``./``-prefixed, which resolves it against the compose project directory
+    (the repo root); every other spelling is already a bind and passes through.
+    """
+    return path if path.startswith((".", "~")) or os.path.isabs(path) else f"./{path}"
+
+
 def _carry_authored_keys(services: Any, name: str, block: dict[str, Any]) -> dict[str, Any]:
     """Carry an author-written key across an injector's whole-block replacement.
 
@@ -2312,7 +2324,8 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
         "targets": list(optimizer.targets),
     }
     if optimizer.environments_dir:
-        block["environments_dir"] = optimizer.environments_dir
+        # Stored compose-ready: the template mounts it verbatim.
+        block["environments_dir"] = _compose_bind_source(optimizer.environments_dir)
     config.setdefault("services", {})
     anchored_put(
         config["services"],
