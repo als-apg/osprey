@@ -14,7 +14,9 @@
  *     `narrowView` (C-COMPOSE): the sheet overlays the tile when stacked, so
  *     closing shows whichever pane was there. Maximise is per-open UI state
  *     and is not stored. A successful create writes its own keys
- *     (entries-form.js).
+ *     (entries-form.js). Close, Discard and Esc return focus to the element
+ *     that opened the sheet, or to the selected row when that is gone (the
+ *     lifecycle's `scope` and `fallbackFocus`).
  * The sheet keeps itself over the list column (placeSheet), and its footer
  * names where the entry goes (adaptPublishingSection).
  * The entry list lives in list.js and the reader in reader.js.
@@ -86,7 +88,8 @@ function setSavedStamp(ok, savedAt) {
 
 /**
  * The sheet's lifecycle over the create form. The follow filler prefills from
- * the parent entry; the draft filler loads the draft.
+ * the parent entry; the draft filler loads the draft. Focus leaving the sheet
+ * falls back to the list's selected row.
  * @param {ParentNode} root
  * @param {AbortSignal} signal
  */
@@ -110,6 +113,11 @@ function createLifecycle(root, signal) {
         form?.querySelector('button[type="submit"]') ?? null,
         /** @type {HTMLButtonElement|null} */ (root.querySelector('#create-cancel-btn')),
       ],
+      scope: /** @type {HTMLElement|null} */ (root.querySelector('#ariel-compose')),
+      fallbackFocus: () =>
+        /** @type {HTMLElement|null} */ (
+          root.querySelector('[data-entry-id][aria-selected="true"]')
+        ),
       signal,
     }
   );

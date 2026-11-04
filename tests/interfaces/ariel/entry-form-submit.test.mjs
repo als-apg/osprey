@@ -61,6 +61,7 @@ const FORM_HTML = `
     <button type="button" id="ariel-compose-close">Close</button>
   </div>
   <form id="create-entry-form">
+    <div class="ariel-compose-banner" id="ariel-compose-banner" hidden></div>
     <div class="ariel-compose-parent" id="ariel-compose-parent" hidden>
       <span class="ariel-compose-parent-label">Follows up</span>
       <span class="ariel-compose-parent-ref" id="ariel-compose-parent-ref"></span>
@@ -105,6 +106,15 @@ const FORM_HTML = `
   </form>
   </section>
 `;
+
+/**
+ * The provenance banner while it shows, else null.
+ * @returns {HTMLElement|null}
+ */
+function provenanceBanner() {
+  const banner = document.getElementById('ariel-compose-banner');
+  return banner && !banner.hidden ? banner : null;
+}
 
 /** Declarations shaped like `publish-info.entry_fields`. */
 const FIELDS = /** @type {any[]} */ ([
@@ -742,7 +752,7 @@ describe('the compose host', () => {
     expect(store.getState().narrowView).toBe('reader');
     // Reset to the markup's own default: the operator's leftover text is gone.
     expect(field('subject').value).toBe(field('subject').defaultValue);
-    expect(document.getElementById('draft-banner')).toBeNull();
+    expect(provenanceBanner()).toBeNull();
   });
 
   test('opening with a draft loads that draft into the form', async () => {
@@ -759,7 +769,7 @@ describe('the compose host', () => {
     expect(field('subject').value).toBe('From the agent');
     expect(document.querySelector('#entry-tags .tag')?.getAttribute('data-value')).toBe('rf');
     // No session_metadata recorded: no provenance banner.
-    expect(document.getElementById('draft-banner')).toBeNull();
+    expect(provenanceBanner()).toBeNull();
     expect(document.getElementById('session-info-panel')).toBeNull();
   });
 
@@ -772,9 +782,11 @@ describe('the compose host', () => {
     await flush();
     await flush();
 
-    const banner = document.getElementById('draft-banner');
+    const banner = provenanceBanner();
     expect(banner?.dataset.draftId).toBe('d-7');
     expect(banner?.classList.contains('ariel-compose-banner')).toBe(true);
+    // The sheet's one banner slot is filled, never a second banner.
+    expect(document.querySelectorAll('.ariel-compose-banner')).toHaveLength(1);
     expect(document.getElementById('session-info-panel')?.textContent).toContain('Ada');
   });
 
@@ -1081,7 +1093,7 @@ describe('the compose host', () => {
           t.getAttribute('data-value')
         )
       ).toEqual(['b']);
-      expect(document.getElementById('draft-banner')?.dataset.draftId).toBe('d-b');
+      expect(provenanceBanner()?.dataset.draftId).toBe('d-b');
       expect(previewCards()).toBe(1);
       expect(form.loadedDraftId()).toBe('d-b');
       expect(calls.some((c) => c.url.includes('/attachments/a.png'))).toBe(false);
@@ -1103,7 +1115,7 @@ describe('the compose host', () => {
 
       expect(field('subject').value).toBe(field('subject').defaultValue);
       expect(document.querySelectorAll('#entry-tags .tag')).toHaveLength(0);
-      expect(document.getElementById('draft-banner')).toBeNull();
+      expect(provenanceBanner()).toBeNull();
       expect(previewCards()).toBe(0);
       expect(form.loadedDraftId()).toBeNull();
       expect(errorToast()).toBe('');
@@ -1668,14 +1680,14 @@ describe('leaving the create form leaves nothing behind', () => {
     const { entries, form } = await loadModules();
     await entries.adaptCreateForm();
     await form.loadDraft('d-1');
-    expect(document.getElementById('draft-banner')).not.toBeNull();
+    expect(provenanceBanner()).not.toBeNull();
     expect(document.querySelectorAll('#entry-tags .tag')).toHaveLength(1);
     expect(previewCards()).toBe(1);
     expect(form.loadedDraftId()).toBe('d-1');
 
     form.resetCreateForm();
 
-    expect(document.getElementById('draft-banner')).toBeNull();
+    expect(provenanceBanner()).toBeNull();
     expect(document.querySelectorAll('#entry-tags .tag')).toHaveLength(0);
     expect(previewCards()).toBe(0);
     expect(form.loadedDraftId()).toBeNull();
