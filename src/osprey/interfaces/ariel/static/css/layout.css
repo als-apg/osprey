@@ -134,14 +134,18 @@ body.embedded .header {
   margin-bottom: var(--space-2);
 }
 
+/* In a narrow reader the actions wrap under the title rather than squeezing
+   it to a few letters a line. */
 .entry-detail-title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
 }
 
 .entry-detail-title-row .entry-detail-title {
+  flex: 1 1 16ch;
   min-width: 0;
   overflow-wrap: anywhere;
 }
