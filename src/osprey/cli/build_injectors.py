@@ -1196,7 +1196,9 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
 
     keys: dict[str, Any] = {}
     if bluesky.plan_dir:
-        keys["plan_dir"] = bluesky.plan_dir
+        # Stored compose-ready (the template mounts it verbatim); `./x` and `x`
+        # are one path to plan_index, the build-time reader that resolves it.
+        keys["plan_dir"] = _compose_bind_source(bluesky.plan_dir)
     if bluesky.excluded_plans:
         keys["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
     if bluesky.device_page_size != BlueskyConfig.device_page_size:
@@ -1342,8 +1344,7 @@ def _inject_bluesky(
             env_map: dict[str, str] = {}
             for key, host_path in sorted(bluesky.external.parameter_schemas.items()):
                 target = f"/app/project/plan_schemas/{key}.json"
-                source = host_path if os.path.isabs(host_path) else f"./{host_path}"
-                mounts.append({"source": source, "target": target})
+                mounts.append({"source": _compose_bind_source(host_path), "target": target})
                 env_map[key] = target
             external_block["parameter_schema_mounts"] = mounts
             external_block["parameter_schemas_env"] = _json.dumps(env_map)
