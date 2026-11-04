@@ -175,6 +175,52 @@ def force_image_rebuild(*images: str) -> None:
             continue
 
 
+def _compose_image_default(image: str) -> str:
+    """``${VAR:-default}`` -> ``default``; a plain image name is returned as is."""
+    if image.startswith("${") and ":-" in image and image.endswith("}"):
+        return image[image.index(":-") + 2 : -1]
+    return image
+
+
+def project_built_images(repo: Path, project_name: str) -> list[str]:
+    """The ``<project>...:local`` images ``repo``'s rendered compose builds.
+
+    Read from the render itself (``<repo>/build/**/docker-compose*.yml``), so a
+    service added to the stack is covered without a list to keep in step. Only
+    tags under this project's prefix ending ``:local`` are returned; pulled
+    images (mongo, redis, tiled) are shared between projects and are left.
+    """
+    prefix = project_prefix(project_name)
+    images: set[str] = set()
+    for compose in sorted((repo / "build").rglob("docker-compose*.yml")):
+        services = (yaml.safe_load(compose.read_text()) or {}).get("services") or {}
+        for service in services.values():
+            image = _compose_image_default(str((service or {}).get("image") or ""))
+            if image.endswith(":local") and (
+                image == f"{prefix}:local" or image.startswith(f"{prefix}-")
+            ):
+                images.add(image)
+    return sorted(images)
+
+
+def remove_project_images(repo: Path, project_name: str) -> None:
+    """Remove the images this project built, once its stack is down.
+
+    Lanes that run several of these stacks one after another on one runner
+    (the ORM lane runs four) would otherwise hold every project's images at
+    once: each project builds its own full set under its own tags, and
+    ``osprey down`` keeps images. The build cache is kept, so the next
+    project's build still reuses the layers. Same rules as
+    :func:`force_image_rebuild`: exact tags, bounded, non-fatal, and a no-op
+    under ``E2E_REUSE_IMAGES``.
+    """
+    try:
+        images = project_built_images(repo, project_name)
+    except (OSError, yaml.YAMLError):
+        return
+    force_image_rebuild(*images)
+
+
 BUILD_TIMEOUT_SEC = 300
 
 # A small, concurrency-friendly corrector/BPM count for the render + the

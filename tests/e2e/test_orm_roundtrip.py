@@ -325,6 +325,9 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         # `osprey down` keeps volumes by design; drop this project's own so a
         # rerun cannot inherit their state (see tests/e2e/_volumes.py).
         remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
+        # Images too: this lane runs four stacks in a row on one runner, and each
+        # builds its own full set (see _orm_stack.remove_project_images).
+        _orm_stack.remove_project_images(repo, PROJECT_NAME)
 
 
 # ---------------------------------------------------------------------------
