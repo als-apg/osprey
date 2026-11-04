@@ -180,9 +180,9 @@ def test_serialize_entry_omits_entry_url_for_native():
 
 
 def test_serialize_entry_omits_entry_url_for_local_only_web_entry():
-    """C-URL: a local-only ``ARIEL Web`` save is not in the facility logbook, so
+    """C-URL: a local-only ``OSPREY Logbook Web`` save is not in the facility logbook, so
     serialize_entry emits no entry_url even when a template is configured."""
-    entry = {**_entry(entry_id="ariel-web-1", source_system="ARIEL Web")}
+    entry = {**_entry(entry_id="ariel-web-1", source_system="OSPREY Logbook Web")}
     entry["metadata"] = {"sync_status": "local_only"}
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         result = server.serialize_entry(
@@ -197,8 +197,8 @@ def test_serialize_entry_omits_entry_url_for_local_only_web_entry():
 
 
 def test_serialize_entry_keeps_entry_url_for_synced_web_entry():
-    """A published (synced) ``ARIEL Web`` entry is in the facility logbook."""
-    entry = {**_entry(entry_id="175353", source_system="ARIEL Web")}
+    """A published (synced) ``OSPREY Logbook Web`` entry is in the facility logbook."""
+    entry = {**_entry(entry_id="175353", source_system="OSPREY Logbook Web")}
     entry["metadata"] = {"sync_status": "synced"}
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         result = server.serialize_entry(
@@ -231,10 +231,10 @@ def test_server_re_exports_the_shared_producer():
     [
         ("ARIEL MCP", None, True),  # MCP-native entry
         ("ARIEL MCP", {"sync_status": "synced"}, True),
-        ("ARIEL Web", {"sync_status": "local_only"}, True),  # local-only web save
+        ("OSPREY Logbook Web", {"sync_status": "local_only"}, True),  # local-only web save
         ("Generic JSON", {"sync_status": "local_only"}, True),
-        ("ARIEL Web", {"sync_status": "synced"}, False),
-        ("ARIEL Web", {"sync_status": "pending_sync"}, False),
+        ("OSPREY Logbook Web", {"sync_status": "synced"}, False),
+        ("OSPREY Logbook Web", {"sync_status": "pending_sync"}, False),
         ("Facility eLog", None, False),
         ("Facility eLog", {}, False),
         (None, None, False),
@@ -253,14 +253,14 @@ def test_is_ariel_only(source_system, metadata, expected):
     [
         (GENERIC_TEMPLATE, "Facility eLog", None, "https://logbook.example/olog.php?id=7"),
         (GENERIC_TEMPLATE, "ARIEL MCP", None, None),  # MCP native
-        (GENERIC_TEMPLATE, "ARIEL Web", {"sync_status": "local_only"}, None),  # local-only
+        (GENERIC_TEMPLATE, "OSPREY Logbook Web", {"sync_status": "local_only"}, None),  # local-only
         (None, "Facility eLog", None, None),  # no template
         ("", "Facility eLog", None, None),  # blank template
     ],
 )
 def test_service_build_entry_url(template, source_system, metadata, expected):
     """The service producer: template set gives a URL; MCP native, a local-only
-    ``ARIEL Web`` entry and no template give None."""
+    ``OSPREY Logbook Web`` entry and no template give None."""
     from osprey.services.ariel_search.entry_url import build_entry_url
 
     with patch("osprey_connectors.config.get_config_value", _fake_config(template)):
@@ -272,7 +272,7 @@ def test_service_build_entry_url_metadata_is_keyword_only():
     from osprey.services.ariel_search.entry_url import build_entry_url
 
     with pytest.raises(TypeError):
-        build_entry_url("7", "ARIEL Web", {"sync_status": "local_only"})  # type: ignore[misc]
+        build_entry_url("7", "OSPREY Logbook Web", {"sync_status": "local_only"})  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -423,18 +423,18 @@ async def _entry_get(entry):
 
 
 async def test_entry_get_omits_entry_url_for_local_only_web_entry(ariel_registry):
-    """A local-only ARIEL Web save has no facility page, so entry_get emits no URL."""
+    """A local-only OSPREY Logbook Web save has no facility page, so entry_get emits no URL."""
     ariel_registry()
-    entry = make_mock_entry(entry_id="w-local", source_system="ARIEL Web")
+    entry = make_mock_entry(entry_id="w-local", source_system="OSPREY Logbook Web")
     entry["metadata"] = {"sync_status": "local_only"}
 
     assert "entry_url" not in await _entry_get(entry)
 
 
 async def test_entry_get_keeps_entry_url_for_synced_web_entry(ariel_registry):
-    """A synced ARIEL Web entry is in the facility logbook and keeps its URL."""
+    """A synced OSPREY Logbook Web entry is in the facility logbook and keeps its URL."""
     ariel_registry()
-    entry = make_mock_entry(entry_id="w-synced", source_system="ARIEL Web")
+    entry = make_mock_entry(entry_id="w-synced", source_system="OSPREY Logbook Web")
     entry["metadata"] = {"sync_status": "synced"}
 
     data = await _entry_get(entry)
@@ -471,7 +471,7 @@ async def test_sql_query_id_only_rows_resolve_sync_status_in_one_batch(ariel_reg
         [
             {
                 "entry_id": "w-local",
-                "source_system": "ARIEL Web",
+                "source_system": "OSPREY Logbook Web",
                 "metadata": {"sync_status": "local_only"},
             },
             {"entry_id": "f-1", "source_system": "Facility eLog", "metadata": {}},
@@ -491,11 +491,11 @@ async def test_sql_query_source_system_without_metadata_resolves_metadata(ariel_
     """A row selecting source_system but not metadata still learns it is local-only."""
     ariel_registry()
     rows, lookup = await _sql_rows(
-        [{"entry_id": "w-local", "source_system": "ARIEL Web"}],
+        [{"entry_id": "w-local", "source_system": "OSPREY Logbook Web"}],
         [
             {
                 "entry_id": "w-local",
-                "source_system": "ARIEL Web",
+                "source_system": "OSPREY Logbook Web",
                 "metadata": {"sync_status": "local_only"},
             }
         ],
@@ -512,7 +512,7 @@ async def test_sql_query_rows_with_both_columns_skip_the_lookup(ariel_registry):
         [
             {
                 "entry_id": "w-local",
-                "source_system": "ARIEL Web",
+                "source_system": "OSPREY Logbook Web",
                 "metadata": {"sync_status": "local_only"},
             },
             {"entry_id": "f-1", "source_system": "Facility eLog", "metadata": {}},
@@ -549,7 +549,7 @@ async def test_entry_publish_omits_entry_url_when_local_only(ariel_registry):
     mock_service = AsyncMock()
     mock_service.publish_entry.return_value = FacilityEntryCreateResult(
         entry_id="w-local",
-        source_system="ARIEL Web",
+        source_system="OSPREY Logbook Web",
         sync_status=SyncStatus.LOCAL_ONLY,
         message="Saved locally",
     )

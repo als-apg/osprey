@@ -1581,6 +1581,7 @@ async def _publish_or_local(
             ``resolve_entry_write``. Copied, never mutated.
         attachments: The entry's validated files.
     """
+    from osprey.services.ariel_search.entry_url import LOGBOOK_WEB_SOURCE_SYSTEM
     from osprey.services.ariel_search.exceptions import AdapterNotFoundError
     from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
 
@@ -1602,7 +1603,7 @@ async def _publish_or_local(
 
         entry: EnhancedLogbookEntry = {
             "entry_id": entry_id,
-            "source_system": "ARIEL Web",
+            "source_system": LOGBOOK_WEB_SOURCE_SYSTEM,
             "timestamp": now,
             "author": facility_request.author or "Anonymous",
             "raw_text": f"{facility_request.subject}\n\n{facility_request.details}",
@@ -1617,7 +1618,7 @@ async def _publish_or_local(
 
         return FacilityEntryCreateResult(
             entry_id=entry_id,
-            source_system="ARIEL Web",
+            source_system=LOGBOOK_WEB_SOURCE_SYSTEM,
             sync_status=SyncStatus.LOCAL_ONLY,
             message=f"Entry {entry_id} created (saved locally, not published to external logbook)",
             attachment_count=attachment_count,

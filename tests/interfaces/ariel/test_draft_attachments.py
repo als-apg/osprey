@@ -260,7 +260,7 @@ def _upload_service(has_copy_state: bool) -> AsyncMock:
     service.repository.get_entry = AsyncMock(
         return_value={
             "entry_id": "ariel-xyz",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "timestamp": datetime.now(),
             "author": "Anonymous",
             "raw_text": "Test\n\nBody",

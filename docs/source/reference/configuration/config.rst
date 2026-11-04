@@ -935,7 +935,7 @@ agent is told to link that URL as given and never to build one, so with the key
 unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
 because the logbook has no page for it: one ``entry_create`` wrote directly
 (``source_system`` ``ARIEL MCP``) or one saved local-only (``metadata.sync_status``
-``local_only``, such as an ARIEL Web save or a publish the logbook did not take).
+``local_only``, such as a Logbook web save or a publish the logbook did not take).
 A ``sql_query`` row also gets none when looking up the ``source_system`` or
 ``metadata`` it does not select fails.
 

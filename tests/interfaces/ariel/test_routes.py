@@ -432,7 +432,7 @@ def test_create_entry_endpoint_fallback(client, mock_ariel_service):
     data = response.json()
     assert data["entry_id"].startswith("ariel-")
     assert data["sync_status"] == "local_only"
-    assert data["source_system"] == "ARIEL Web"
+    assert data["source_system"] == "OSPREY Logbook Web"
     assert "saved locally" in data["message"]
 
     # Verify fallback path used repository directly
@@ -462,7 +462,7 @@ def test_create_entry_without_an_ingestion_adapter_saves_locally(client, mock_ar
     data = response.json()
     assert data["entry_id"].startswith("ariel-")
     assert data["sync_status"] == "local_only"
-    assert data["source_system"] == "ARIEL Web"
+    assert data["source_system"] == "OSPREY Logbook Web"
     mock_ariel_service.repository.upsert_entry.assert_called_once()
 
 
@@ -575,7 +575,7 @@ def test_upload_falls_back_local_with_attachments(client, mock_ariel_service):
     mock_ariel_service.repository.get_entry = AsyncMock(
         return_value={
             "entry_id": "ariel-xyz",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "timestamp": datetime.now(),
             "author": "Anonymous",
             "raw_text": "Test\n\nBody",
@@ -1454,7 +1454,7 @@ def _local_only(service) -> dict:
     service.repository.get_entry = AsyncMock(
         return_value={
             "entry_id": "ariel-xyz",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "timestamp": datetime.now(),
             "author": "Anonymous",
             "raw_text": "Test\n\nBody",
@@ -1980,7 +1980,7 @@ def _field_entry(**overrides):
     line, a local-only save, a caption written under an older model, a picture."""
     entry = {
         "entry_id": "E-1",
-        "source_system": "ARIEL Web",
+        "source_system": "OSPREY Logbook Web",
         "timestamp": datetime(2025, 10, 6, 9, 30),
         "author": "J. Smith",
         "raw_text": "First line of the text\n\nThe body of the entry.",
@@ -2159,12 +2159,12 @@ def test_row_view_carries_the_c_row_fields(field_service):
         "entry_id": "E-1",
         "timestamp": row.timestamp,
         "author": "J. Smith",
-        "source_system": "ARIEL Web",
+        "source_system": "OSPREY Logbook Web",
         "subject": "Stored subject",
         "snippet": "First line of the text The body of the entry.",
         "facets": {
             "author": "J. Smith",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "tags": ["rf", "Vacuum"],
             "logbook": "Ops",
         },
@@ -3328,7 +3328,7 @@ def _related_config(*, text_embedding=True, semantic=True):
 def _related_entry(entry_id):
     return {
         "entry_id": entry_id,
-        "source_system": "ARIEL Web",
+        "source_system": "OSPREY Logbook Web",
         "timestamp": datetime(2025, 10, 6, 9, 30),
         "author": "J. Smith",
         "raw_text": f"Text of {entry_id}",
