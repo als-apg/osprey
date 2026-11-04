@@ -165,13 +165,16 @@ INJECTED_SUFFIX = "+injectors"
 PANEL_PORT_MARKER = "osprey:panel-port"
 PANEL_PORT_MARKER_RE = re.compile(rf"{re.escape(PANEL_PORT_MARKER)}\s+([A-Za-z0-9_-]+)")
 
-# A number, or "both", within two words before "preset(s)". A quantifier such
-# as "every root preset" passes: it stays true as presets are added. So does a
+# A number word from "two" up, any numeral, or "both" within two words before
+# "preset(s)" counts presets. "One" is never a count: it is a pronoun, an
+# article or a distributive ("one ... per preset"), and a sentence about a
+# single preset cannot go stale by a preset being added. A quantifier such as
+# "every root preset" passes: it stays true as presets are added. So does a
 # threshold ("no two", "at least two", "fewer than two"), which states a rule
 # rather than how many presets ship.
 PRESET_COUNT_RE = re.compile(
     r"(?<!\bno\s)(?<!\bleast\s)(?<!\bthan\s)"
-    r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|both|\d+)\b"
+    r"\b(?:two|three|four|five|six|seven|eight|nine|ten|both|\d+)\b"
     r"(?:\s+[\w`'-]+){0,2}?\s+presets?\b",
     re.IGNORECASE,
 )
