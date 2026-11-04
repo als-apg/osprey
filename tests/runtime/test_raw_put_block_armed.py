@@ -458,6 +458,7 @@ def test_equality_cannot_borrow_another_channels_provider(pvaccess):
     assert trusted.put(1.0) == "put-ok"
 
 
+@pytest.mark.usefixtures("earlier_garbage_frozen")
 def test_the_record_of_a_pva_channel_does_not_keep_it_alive(pvaccess):
     """Trust is held weakly: a script that drops its channels does not leak
     them into the block, and the identity check keeps a later object that
