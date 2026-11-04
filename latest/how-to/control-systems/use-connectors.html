@@ -1078,9 +1078,9 @@ steps there. <code class="docutils literal notranslate"><span class="pre">self_i
 the alternative while the owner’s switch for the machine stands at
 <code class="docutils literal notranslate"><span class="pre">allowed</span></code>: the program writes its own grant, honoured only while the switch
 stays there.</p>
-<p><strong>2. Wait for the approval.</strong> A person acting as the owner approves it:
-the approving surface reads the request and calls <code class="docutils literal notranslate"><span class="pre">approve_request()</span></code>,
-which issues the grant under the request’s id, so the program polls for it:</p>
+<p><strong>2. Wait for the approval.</strong> The owner approves from the chip
+(<a class="reference internal" href="../web-terminal/operate.html#web-terminal-approve-program"><span class="std std-ref">Approve a program’s writes</span></a>) or with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">write-authorization</span>
+<span class="pre">approve</span></code>. The grant carries the request’s id, so the program polls for it:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">while</span> <span class="p">(</span><span class="n">grant</span> <span class="o">:=</span> <span class="n">wa</span><span class="o">.</span><span class="n">approved_grant</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">))</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
 <span class="n">wa</span><span class="o">.</span><span class="n">withdraw_request</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
@@ -1117,9 +1117,9 @@ its lease lapsing, or a person’s stop. The bounds hold a program that runs as
 written: the step budget and the lease are kept in the program’s own ledger,
 which it can write, so the boundary for a program that must not write at all
 is the gateway it can reach.</p>
-<p><strong>5. Stop.</strong> A person’s stop is one gesture: the machine’s <em>off</em> control or
-<strong>Turn all writes off</strong> on the chip, or <code class="docutils literal notranslate"><span class="pre">revoke_grants()</span></code>. Each marks the
-grant revoked, and the program’s
+<p><strong>5. Stop.</strong> A person’s stop is one gesture: the machine’s <em>off</em> control,
+<strong>Turn all writes off</strong>, <strong>Revoke</strong> on the card, or <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">write-authorization</span> <span class="pre">revoke</span></code>. Each marks the grant revoked, and the program’s
 next write is refused <code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code>. A write already past its check when the
 stop lands goes out as judged.</p>
 <p><strong>6. Crash.</strong> A program that dies stops renewing its lease, and its next write

@@ -2029,6 +2029,119 @@ rendered for the lane; exclusive with <code class="docutils literal notranslate"
 the control system the deployment runs. See <a class="reference internal" href="../../how-to/bluesky/queue.html"><span class="doc">Plans and the Queue</span></a> for
 what the stack looks like when it is up.</p>
 </section>
+<section id="optimizer">
+<h2>optimizer<a class="headerlink" href="#optimizer" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">optimizer:</span></code> section deploys the optimizer service, which tunes machine
+variables against an objective with Bayesian optimization (Xopt), and the Redis
+store that keeps its jobs. The block’s presence is the switch. It accepts
+exactly three keys; a misspelled or unknown key <strong>fails the build</strong> and prints
+the valid set:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">port</span></code></p></td>
+<td><p>The service’s port. Defaults to its slot in the port layout, <code class="docutils literal notranslate"><span class="pre">10082</span></code>
+at the default base (<a class="reference internal" href="../ports.html#reference-ports"><span class="std std-ref">Ports</span></a>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">targets</span></code></p></td>
+<td><p>The control targets the optimizer may drive (default <code class="docutils literal notranslate"><span class="pre">[va]</span></code>): <code class="docutils literal notranslate"><span class="pre">va</span></code>,
+<code class="docutils literal notranslate"><span class="pre">standin</span></code>, or both. A run naming any other target is refused. The
+<code class="docutils literal notranslate"><span class="pre">live</span></code> machine is <strong>refused at build time</strong> until the optimizer
+supports it. Each target also needs its connector block in the
+project’s <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> section.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">environments_dir</span></code></p></td>
+<td><p>A directory of optimizer environment files (YAML), mounted read-only
+into the service. Unset, only installed environment plugins are
+offered.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every write the optimizer makes goes through the control-system connector, so
+the deployment’s write tier, channel limits and <code class="docutils literal notranslate"><span class="pre">max_step</span></code> apply to it, and
+its put-log entries name it as <code class="docutils literal notranslate"><span class="pre">osprey-optimizer</span></code>. A run writes for the login
+that started it: <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/jobs/{id}/start</span></code> reads that login from the
+<code class="docutils literal notranslate"><span class="pre">X-Osprey-Owner</span></code> header, and the run’s writes follow that login’s tier (the
+staged <code class="docutils literal notranslate"><span class="pre">login_tiers</span></code> map). A run started with no owner has every write
+refused. The routes that move hardware are guarded by
+<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_LAUNCH_TOKEN</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints into the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>;
+the token says a caller may start a run, not whose run it is. The image is built locally on the first
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; set <code class="docutils literal notranslate"><span class="pre">OSPREY_OPTIMIZER_IMAGE</span></code> to run a published one.</p>
+<p>A run writes only under one <strong>write authorization</strong> (<a class="reference internal" href="../../how-to/control-systems/use-connectors.html#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a>),
+never under the owner’s switch alone, so the switch can stay off for the whole
+run and turning it on does not widen the run:</p>
+<ul class="simple">
+<li><p><strong>What it asks for.</strong> The setpoint channels the run writes, each with the
+run’s resolved window narrowed to the environment’s range and the channel
+limits database; a step per evaluation (<code class="docutils literal notranslate"><span class="pre">n_initial</span> <span class="pre">+</span> <span class="pre">n_iterations</span></code>,
+each evaluation one write call) plus one for the completion write when
+<code class="docutils literal notranslate"><span class="pre">on_complete</span></code> is <code class="docutils literal notranslate"><span class="pre">apply_best</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">restore</span></code>, none for
+<code class="docutils literal notranslate"><span class="pre">hold</span></code>; an eight-hour expiry (<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_AUTHORIZATION_EXPIRES_S</span></code>) and a
+lease the run renews every 20 seconds. An evaluation whose objective is
+re-measured only reads it again: it writes once and spends one step.</p></li>
+<li><p><strong>How it gets it.</strong> While the owner’s switch for the machine stands at
+<em>allowed</em>, the run writes its own. Otherwise it writes a request, its job’s
+<code class="docutils literal notranslate"><span class="pre">write_authorization.state</span></code> reads <code class="docutils literal notranslate"><span class="pre">awaiting</span></code>, and the owner approves it
+from the chip or with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">write-authorization</span> <span class="pre">approve</span></code>. A request that
+waits longer than 15 minutes (<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_AUTHORIZATION_WAIT_S</span></code>) ends the
+run <code class="docutils literal notranslate"><span class="pre">authorization_timeout</span></code>; a cancel while it waits withdraws it.</p></li>
+<li><p><strong>How it ends.</strong> A run whose authorization is spent (<code class="docutils literal notranslate"><span class="pre">auth_exhausted</span></code>),
+stopped (<code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code>), expired, lapsed (<code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code>) or
+written outside (<code class="docutils literal notranslate"><span class="pre">auth_range</span></code>, <code class="docutils literal notranslate"><span class="pre">auth_channel</span></code>) ends with that reason in
+its job’s error and <code class="docutils literal notranslate"><span class="pre">write_authorization.reason</span></code>, its results so far
+saved, and writes nothing more. Nothing asks again. A cancelled or failed run
+writes nothing either: restoring its starting setpoints is the operator’s
+call. A run that issued its own grant marks it revoked when it is done.</p></li>
+</ul>
+<p>The results restore (<code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/results/{env}/{timestamp}/restore</span></code>, after its
+preview), <code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/environments/{name}/variables</span></code> and <code class="docutils literal notranslate"><span class="pre">POST</span>
+<span class="pre">/environments/{name}/evaluate</span></code> are each one write under a one-step
+authorization of their own, for exactly the values they write and for the login
+their <code class="docutils literal notranslate"><span class="pre">X-Osprey-Owner</span></code> header names. The service issues that grant itself,
+writes once and revokes it, which the switch allows only while it stands at
+<em>allowed</em>: below it the call answers <code class="docutils literal notranslate"><span class="pre">403</span></code> with the refusal’s reason and
+writes nothing; set the switch to <em>allowed</em> from the chip and repeat the call.
+There is no request to approve for a manual write; a run still asks for one.</p>
+<p>What these rules do not cover:</p>
+<ul class="simple">
+<li><p><strong>Plugin environments are trusted code.</strong> An installed environment plugin
+runs inside the service; one that ignores the run’s execution mode, or writes
+through a client of its own instead of the control-system connector, is
+outside the write authorization, the switch and the put-log. Install only
+plugins you would trust with the machine.</p></li>
+<li><p><strong>The owner header is trusted.</strong> <code class="docutils literal notranslate"><span class="pre">X-Osprey-Owner</span></code> is taken as given from
+any caller holding the launch token: a token holder can start runs, and
+make manual writes while that login’s switch is at <em>allowed</em>, as any login.</p></li>
+<li><p><strong>The single-job slot needs Redis.</strong> During a Redis outage longer than the
+slot’s lease (about a minute) while a worker is writing, the slot can lapse
+and a second job can start.</p></li>
+<li><p><strong>Windows the service cannot close.</strong> A cancel that lands between a run’s
+last cancellation checkpoint and its completion write does not stop that
+write; a shutdown that has to kill a worker can stop it in the middle of a
+write; a paused run keeps its lease renewing, so its authorization stays in
+force while it is paused; and <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/environments/{name}/pv</span></code> reads any
+channel the environment’s connector can reach.</p></li>
+</ul>
+<p>With a writing tier the container binds the deployment’s write ledger,
+<code class="docutils literal notranslate"><span class="pre">var/write_ledger</span></code>, read-write as <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code>: the run’s
+requests, its ledgers and its own grants live there, and every web terminal
+reads the requests from it. The service warns at start when it cannot write
+there; every write is then refused <code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code>.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">optimizer</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">targets</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">va</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">standin</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">environments_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">optimizer/environments</span>
+</pre></div>
+</div>
+</section>
 </section>
 
 
@@ -2112,6 +2225,7 @@ what the stack looks like when it is up.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bluesky">bluesky</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optimizer">optimizer</a></li>
 </ul>
   </nav></div>
 

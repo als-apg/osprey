@@ -750,6 +750,13 @@ its full view of the control system and of the project, and can still run
 analysis, plots and read-only Python.</p></li>
 <li><p><strong>writes locked</strong> — your switch is armed, but something the chip cannot lift
 refuses the write. The popover shows the phrase for it and who lifts it.</p></li>
+<li><p><strong>· program</strong> after any of these — for example <strong>writes off · program</strong>:
+a program’s write authorization you approved is in force on this machine
+(see <a class="reference internal" href="#web-terminal-approve-program"><span class="std std-ref">Approve a program’s writes</span></a>). The word before it is still your
+own switch; the program may write the channels you approved, inside their
+ranges, until it ends, whatever your switch says. Its dot is a ring around a
+centre rather than a solid dot. The machine’s <em>off</em> control revokes it, and
+the program’s next write is refused.</p></li>
 </ul>
 <p>A switch is one login’s. Two logins on the same machine each have their own,
 and one login’s position never changes the other’s writes.</p>
@@ -781,9 +788,50 @@ its name. A machine that answers says nothing about it. Endpoints, gateway
 roles and the age of the last probe stay on the tooltips and in the
 confirmation dialogs, where the decision is actually made.</p>
 <p>The foot has <strong>Turn all writes off</strong>: every switch of your login goes off in
-one click, a machine no longer configured included. It stops your login’s
-writes only; other logins keep theirs. It is enabled while any of your
-switches is armed.</p>
+one click, a machine no longer configured included, and every program
+authorization you approved is revoked. It stops your login’s writes only;
+other logins keep theirs. It is enabled while any of your switches is armed or
+a program authorization of yours is in force.</p>
+</section>
+<section id="approve-a-program-s-writes">
+<span id="web-terminal-approve-program"></span><h3>Approve a program’s writes<a class="headerlink" href="#approve-a-program-s-writes" title="Link to this heading">#</a></h3>
+<p>A program that writes with nobody at a prompt, such as an optimizer run, asks
+for a <strong>write authorization</strong>: these channels, inside these ranges, this many
+writes, until this time. A request that names your login appears in the
+popover under <strong>Programs</strong>, with <strong>Review</strong>. The card shows:</p>
+<ul class="simple">
+<li><p>every channel with the range asked for, the limits-database bound it sits
+inside, and its current value;</p></li>
+<li><p>the number of writes (steps), what the run does at the end (nothing, apply
+the best point found, or restore the values it started from), the expiry, the
+lease the program renews while it runs, the program (holder) and the run’s
+label;</p></li>
+<li><p>that a write the limits refuse still costs its step.</p></li>
+</ul>
+<p>While the current values are read the request line says <em>reading values…</em>; a
+machine that does not answer within a few seconds leaves them <em>not read</em>.</p>
+<p><strong>Approve</strong> issues it. It is refused, with the reason on the card, when your
+tier is <code class="docutils literal notranslate"><span class="pre">never</span></code> or cannot be read, this terminal runs read-only, a range
+is outside the limits database, a channel has no numeric range there or a
+current value that is not a number, or another program already holds one of
+the channels on this machine. Approving is the confirmation for every write
+the run makes inside it, even when your tier is <em>asked</em>: the program’s writes
+are not prompted one by one. Once approved, the machine’s word reads
+<strong>· program</strong> after it, and the authorization is listed under Programs with
+its steps used of its total, when it ends (the time left; hover for the exact
+time) and <strong>Revoke</strong>.</p>
+<p>A program that issued its own authorization while your switch stood at
+<em>allowed</em> is listed there too, marked self-issued, and an approval refuses to
+overlap it. It has no <strong>Revoke</strong>: moving the machine’s switch off <em>allowed</em>
+ends it.</p>
+<p>An authorization ends when its steps are used, at its expiry, when the
+program stops renewing its lease, or at a stop. To stop it, use <strong>Revoke</strong>, the
+machine’s <em>off</em> control, or <strong>Turn all writes off</strong>: the program’s next write
+is refused. <strong>Revoke</strong> on one that had already ended says <em>Already stopped</em>.
+One whose steps are used or whose lease lapsed leaves the chip at once.
+Nothing renews an ended authorization; the program asks again. The same approval
+is available without a web terminal through
+<a class="reference internal" href="../../reference/cli.html#cli-osprey-write-authorization"><span class="std std-ref">osprey write-authorization</span></a>.</p>
 </section>
 <section id="turn-writes-off-or-on">
 <h3>Turn writes off, or on<a class="headerlink" href="#turn-writes-off-or-on" title="Link to this heading">#</a></h3>
@@ -1257,6 +1305,7 @@ verbs that read the results back.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-chip">The control-target chip</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-machine-you-are-on-and-the-others">The machine you are on, and the others</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#approve-a-program-s-writes">Approve a program’s writes</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-writes-off-or-on">Turn writes off, or on</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switch-the-deployment-to-another-machine">Switch the deployment to another machine</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-control-target-and-the-write-state-live">Where the control target and the write state live</a></li>

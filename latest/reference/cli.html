@@ -492,6 +492,7 @@ osprey<span class="w"> </span>reset<span class="w">              </span><span cl
 osprey<span class="w"> </span>config<span class="w">             </span><span class="c1"># Show the deployment configuration</span>
 osprey<span class="w"> </span>chat<span class="w">               </span><span class="c1"># Talk to this deployment&#39;s agent</span>
 osprey<span class="w"> </span>users<span class="w">              </span><span class="c1"># Manage web-terminal users</span>
+osprey<span class="w"> </span>write-authorization<span class="w"> </span><span class="c1"># Approve, list and revoke programs&#39; write authorizations</span>
 osprey<span class="w"> </span>feedback<span class="w">           </span><span class="c1"># Read feedback sent from the web terminals</span>
 osprey<span class="w"> </span>profile<span class="w">            </span><span class="c1"># Validate and inspect build profiles</span>
 osprey<span class="w"> </span>health<span class="w">             </span><span class="c1"># Check system health</span>
@@ -1066,6 +1067,64 @@ osprey<span class="w"> </span>users<span class="w"> </span>env<span class="w"> <
 </div>
 <p>See <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a> for the walkthrough that uses these
 verbs end to end.</p>
+</section>
+<section id="osprey-write-authorization">
+<span id="cli-osprey-write-authorization"></span><h2>osprey write-authorization<a class="headerlink" href="#osprey-write-authorization" title="Link to this heading">#</a></h2>
+<p>Approve, list and revoke a program’s bounded write authorization without a web
+terminal (see <a class="reference internal" href="../how-to/control-systems/use-connectors.html#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a>). Inside a deployment repo, or
+with <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code>, the verbs act on the deployment’s control-context
+tree as the login a request names, and read the requests from
+<code class="docutils literal notranslate"><span class="pre">var/write_ledger/requests</span></code> and, for a program run on the host, from each
+login’s own <code class="docutils literal notranslate"><span class="pre">authorizations/requests</span></code>. Outside a deployment they act on this account’s
+own state directory: the owner is this account, as on a laptop with no
+terminal.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 26.0%" />
+<col style="width: 46.0%" />
+<col style="width: 28.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Verb</p></th>
+<th class="head"><p>What it does</p></th>
+<th class="head"><p>Also accepts</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">approve</span> <span class="pre">REQUEST</span></code></p></td>
+<td><p>Show a request (a file, or its id) and approve it: the grant is written
+under the owner’s record lock, with <code class="docutils literal notranslate"><span class="pre">approver.identity</span></code> this account
+and <code class="docutils literal notranslate"><span class="pre">surface:</span> <span class="pre">&quot;cli&quot;</span></code>. Refused, with nothing written, for a target
+the deployment does not configure, a <code class="docutils literal notranslate"><span class="pre">never</span></code> or unknown tier (judged
+as the program’s own writes will be: by the staged login map for a
+request in <code class="docutils literal notranslate"><span class="pre">var/write_ledger</span></code>, by the rendered config for one filed on
+the host), a range
+outside the limits database, a channel with no numeric range there, and
+a channel another program of the same owner holds (<code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code>).</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--owner</span> <span class="pre">LOGIN</span></code>, <code class="docutils literal notranslate"><span class="pre">--config</span> <span class="pre">FILE</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">list</span></code></p></td>
+<td><p>The requests waiting for approval and the authorizations, each in force
+or not, with the steps used of the total; one whose steps are used or
+whose lease lapsed is not in force. A program’s self-issued grant, written at
+<em>allowed</em> into <code class="docutils literal notranslate"><span class="pre">var/write_ledger</span></code>, is listed too, marked self-issued.
+Grants that ended over an hour ago are pruned.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--owner</span> <span class="pre">LOGIN</span></code>, <code class="docutils literal notranslate"><span class="pre">--json</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">revoke</span> <span class="pre">ID</span></code></p></td>
+<td><p>Mark one authorization revoked, a self-issued one included; the
+holder’s next write is refused.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--owner</span> <span class="pre">LOGIN</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>write-authorization<span class="w"> </span>list
+osprey<span class="w"> </span>write-authorization<span class="w"> </span>approve<span class="w"> </span>3f2a…9c1e
+osprey<span class="w"> </span>write-authorization<span class="w"> </span>approve<span class="w"> </span>./request.json<span class="w"> </span>--yes
+osprey<span class="w"> </span>write-authorization<span class="w"> </span>revoke<span class="w"> </span>3f2a…9c1e
+</pre></div>
+</div>
 </section>
 <section id="osprey-feedback">
 <h2>osprey feedback<a class="headerlink" href="#osprey-feedback" title="Link to this heading">#</a></h2>
@@ -1992,6 +2051,7 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-users">osprey users</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-write-authorization">osprey write-authorization</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-feedback">osprey feedback</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-health">osprey health</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-archive">osprey archive</a></li>

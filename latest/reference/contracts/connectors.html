@@ -837,24 +837,32 @@ ledger directory is <code class="docutils literal notranslate"><span class="pre"
 <code class="docutils literal notranslate"><span class="pre">var/write_ledger/</span></code>). The ledger is written by the holder (it opens and
 renews the lease) and by its connector child (it appends one step per write
 call), so a holder’s container needs <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code> bound
-writable and <code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_OWNER</span></code> naming the login it stands in for. An
-approver that is not the holder reads the requests from
+writable and <code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_OWNER</span></code> naming the login it stands in for. A web
+terminal reads the requests through a read-only bind,
 <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_REQUESTS_DIR</span></code>, and the holders’ self-issued grants and ledgers
-from <code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_VIEW_DIR</span></code>; it reads no other login’s grants.
+through a read-only bind of the whole ledger directory,
+<code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_VIEW_DIR</span></code>; it sees no other login’s grants. A program
+run on the host with no ledger directory bound files its request and keeps its
+ledger in its owner’s own <code class="docutils literal notranslate"><span class="pre">authorizations</span></code> directory, so every surface also
+reads the requests and ledgers there.
 <code class="docutils literal notranslate"><span class="pre">control_context.json</span></code> is not touched and keeps its schema.</p>
-<p><strong>Approval.</strong> <code class="xref py py-func docutils literal notranslate"><span class="pre">approve_request()</span></code>
-acts as the owner (<code class="docutils literal notranslate"><span class="pre">approver.identity</span></code> is the acting identity, <code class="docutils literal notranslate"><span class="pre">surface</span></code>
-the place). It takes the owner’s record lock, then the
+<p><strong>Approval.</strong> The approver acts as the owner: the web terminal’s login, or
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">write-authorization</span> <span class="pre">approve</span></code> (<code class="docutils literal notranslate"><span class="pre">approver.identity</span></code> is the acting
+identity, <code class="docutils literal notranslate"><span class="pre">surface</span></code> the place). It takes the owner’s record lock, then the
 grants directory’s — the one lock order every writer of both keeps — stamps
 the record’s <code class="docutils literal notranslate"><span class="pre">switch_epoch</span></code> on the grant, and refuses <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code> when
 a live grant of another holder lists one of the channels on the same machine:
 one in the owner’s own directory, or a self-issued one in the ledger directory
 the approver sees. Another owner’s directory is not read. A grant file that
 cannot be read is logged and left out of that check; it refuses every write
-under it already. The approving surface checks what the module cannot, and
-refuses before calling it: an acting person who is not the owner, a target the
-deployment does not configure, a ceiling of <code class="docutils literal notranslate"><span class="pre">never</span></code> or <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, a range
-outside the limits database, and a channel without a numeric range there.</p>
+under it already. Both surfaces also refuse a target the deployment does not
+configure, a ceiling of <code class="docutils literal notranslate"><span class="pre">never</span></code> or <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, a range outside the limits
+database, and a channel without a numeric range there; the chip also refuses
+in a read-only run. The ceiling is the one the program’s own writes will meet:
+for a request in <code class="docutils literal notranslate"><span class="pre">var/write_ledger/requests</span></code> (a program in a shared
+container), the login map the build staged for those containers; for one filed
+on the host, the rendered config, as the web terminal on the host reads it.
+A refusal names every channel that cannot be approved.</p>
 <p>An approval is the confirmation for every write the run makes inside it, a
 batch included, for a login whose ceiling is <code class="docutils literal notranslate"><span class="pre">asked</span></code> as much as <code class="docutils literal notranslate"><span class="pre">allowed</span></code>:
 the person confirms the channels, ranges and step count once, and the
@@ -869,10 +877,10 @@ the gateway it can reach.</p>
 (<code class="docutils literal notranslate"><span class="pre">auth_expired</span></code>); its lease lapsing — not renewed in time, or its holder
 gone (<code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code>); a stop (<code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code>); for a self-issued
 grant, its owner’s switch leaving <code class="docutils literal notranslate"><span class="pre">allowed</span></code>. None of these is undone:
-nothing renews a budget or revives a lease, and the program asks again.
-<code class="xref py py-func docutils literal notranslate"><span class="pre">listed_grants()</span></code> reads the
-holder’s ledger and reports a grant whose steps are spent or whose lease
-lapsed as ended, with its steps used of its total.</p>
+nothing renews a budget or revives a lease, and the program asks again. The
+chip, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">write-authorization</span> <span class="pre">list</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> read the
+holder’s ledger and show a grant whose steps are spent or whose lease lapsed
+as ended, with its steps used of its total.</p>
 <p><strong>Stop.</strong> <code class="xref py py-func docutils literal notranslate"><span class="pre">set_switch()</span></code> with <code class="docutils literal notranslate"><span class="pre">off</span></code>
 marks every grant on the named machines (every grant for <code class="docutils literal notranslate"><span class="pre">&quot;all&quot;</span></code>) revoked
 inside its record lock; <code class="docutils literal notranslate"><span class="pre">&quot;all&quot;</span></code> also moves the epoch, which ends every grant
@@ -929,7 +937,7 @@ under the same owner or self-issued.</p></td>
 </table>
 </div>
 <p>A grant that ended — revoked or expired — more than an hour ago is removed by
-<code class="xref py py-func docutils literal notranslate"><span class="pre">prune_grants()</span></code>.</p>
+the next listing (the chip’s, or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">write-authorization</span> <span class="pre">list</span></code>).</p>
 </section>
 <section id="upgrading-from-a-deployment-wide-write-flag">
 <span id="write-safety-upgrade"></span><h3>Upgrading from a deployment-wide write flag<a class="headerlink" href="#upgrading-from-a-deployment-wide-write-flag" title="Link to this heading">#</a></h3>

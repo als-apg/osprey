@@ -842,10 +842,11 @@ passes and from the shell you typed it in, and the two supported providers
 disagree about which wins. The precedence table, and what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does
 about the disagreement, are in <a class="reference internal" href="../../reference/configuration/config.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>.</p>
 </section>
-<section id="podman-s-network-backend-required-by-the-bluesky-stack">
-<span id="podman-network-backend"></span><h3>Podman’s network backend (required by the Bluesky stack)<a class="headerlink" href="#podman-s-network-backend-required-by-the-bluesky-stack" title="Link to this heading">#</a></h3>
+<section id="podman-s-network-backend-required-by-the-bluesky-and-optimizer-stacks">
+<span id="podman-network-backend"></span><h3>Podman’s network backend (required by the Bluesky and optimizer stacks)<a class="headerlink" href="#podman-s-network-backend-required-by-the-bluesky-and-optimizer-stacks" title="Link to this heading">#</a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> service puts its bridge, RE Manager and Redis on an internal
-network and dual-homes the queueserver across two networks. Resolving one
+network and dual-homes the queueserver across two networks; the <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>
+service does the same with the optimizer and its Redis job store. Resolving one
 container by name from another is therefore load-bearing, and on Podman that
 depends on which networking backend the host runs:</p>
 <ul class="simple">
@@ -853,14 +854,15 @@ depends on which networking backend the host runs:</p>
 container-name DNS on every network a container is attached to. <strong>Required.</strong></p></li>
 <li><p><strong>cni</strong> (the legacy backend, still configured on some RHEL 8 hosts) — has no
 aardvark-dns. A dual-homed container receives only its <em>first</em> network’s
-resolver, so <code class="docutils literal notranslate"><span class="pre">bluesky-queueserver</span></code> can never resolve <code class="docutils literal notranslate"><span class="pre">bluesky-redis</span></code>.</p></li>
+resolver, so <code class="docutils literal notranslate"><span class="pre">bluesky-queueserver</span></code> can never resolve <code class="docutils literal notranslate"><span class="pre">bluesky-redis</span></code>, nor
+<code class="docutils literal notranslate"><span class="pre">optimizer</span></code> its <code class="docutils literal notranslate"><span class="pre">optimizer-redis</span></code>.</p></li>
 </ul>
-<p>On <code class="docutils literal notranslate"><span class="pre">cni</span></code> the queueserver never becomes healthy and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> aborts before
-the web slice renders — the whole deployment is down, on a DNS fact nothing in
-the deploy output points at. So <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> checks the backend up front and
-refuses, before touching a container, when <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> is deployed on a <code class="docutils literal notranslate"><span class="pre">cni</span></code>
-host. Only the Bluesky stack needs this; every other service here runs fine on
-either backend, and a Docker host is unaffected.</p>
+<p>On <code class="docutils literal notranslate"><span class="pre">cni</span></code> that container never becomes healthy and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> aborts — the
+whole deployment is down, on a DNS fact nothing in the deploy output points at.
+So <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> checks the backend up front and refuses, before touching a
+container, when <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> or <code class="docutils literal notranslate"><span class="pre">optimizer</span></code> is deployed on a <code class="docutils literal notranslate"><span class="pre">cni</span></code> host. Only
+those two stacks need this; every other service here runs fine on either
+backend, and a Docker host is unaffected.</p>
 <p>To switch a host over, install <code class="docutils literal notranslate"><span class="pre">aardvark-dns</span></code> and set the backend in
 <code class="docutils literal notranslate"><span class="pre">containers.conf</span></code> (<code class="docutils literal notranslate"><span class="pre">/etc/containers/containers.conf</span></code>, or
 <code class="docutils literal notranslate"><span class="pre">~/.config/containers/containers.conf</span></code> for a rootless deployment):</p>
@@ -1182,7 +1184,7 @@ co-deploy, documented with the ARIEL logbook search it serves.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-provider-changes">What the provider changes</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#no-compose-profiles">No compose profiles</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-var-values-come-from">Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#podman-s-network-backend-required-by-the-bluesky-stack">Podman’s network backend (required by the Bluesky stack)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#podman-s-network-backend-required-by-the-bluesky-and-optimizer-stacks">Podman’s network backend (required by the Bluesky and optimizer stacks)</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a><ul class="visible nav section-nav flex-column">
