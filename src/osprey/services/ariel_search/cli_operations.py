@@ -2254,7 +2254,12 @@ async def _run_text_enhance(
                     stale = (
                         not force and stale_budget_s is not None and is_stale(entry, enhancer.name)
                     )
-                    if stale and stale_runs and stale_spent >= stale_budget_s:
+                    if (
+                        stale
+                        and stale_budget_s is not None
+                        and stale_runs
+                        and stale_spent >= stale_budget_s
+                    ):
                         deferred += 1
                         continue
                     ran = True
@@ -2369,7 +2374,8 @@ async def _drive_image_modules(
     async with service:
         repository = service.repository
         if entry_id is not None:
-            repository = _OneEntryRepository(repository, entry_id)
+            # A duck-typed view: every attribute but two is the wrapped repository's.
+            repository = cast("ARIELRepository", _OneEntryRepository(repository, entry_id))
         for index, module in enumerate(modules):
             if stop_event is not None and stop_event.is_set():
                 break

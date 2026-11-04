@@ -684,8 +684,8 @@ def marker_stale(module: str, stored: Any, marker: str | None) -> bool:
     if marker is None:
         return False
     if module in IMAGE_MODULES:
-        return stored != marker
-    return stored is not None and stored != marker
+        return bool(stored != marker)
+    return stored is not None and bool(stored != marker)
 
 
 def enhancement_view(

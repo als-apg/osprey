@@ -208,7 +208,7 @@ class ThreadResponse(BaseModel):
 
     @model_serializer(mode="wrap")
     def _omit_untruncated(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        data = handler(self)
+        data: dict[str, Any] = handler(self)
         if not data.get("truncated"):
             data.pop("truncated", None)
         return data
