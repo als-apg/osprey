@@ -360,6 +360,10 @@ class ARIELStatusResult:
         enabled_enhancement_modules: List of enabled enhancement modules
         last_ingestion: Timestamp of last completed ingestion
         errors: List of error messages
+        enhancement_coverage: Per enabled module, its registration ``label``
+            and the count of entries in each badge-strip state (``n/a``,
+            ``pending``, ``stale``, ``failed``, ``complete``); empty when the
+            database could not be read
     """
 
     healthy: bool
@@ -372,6 +376,7 @@ class ARIELStatusResult:
     enabled_enhancement_modules: list[str]
     last_ingestion: datetime | None
     errors: list[str]
+    enhancement_coverage: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class MetadataSchema(TypedDict, total=False):

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
+from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.models import ARIELSearchResult
 from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS, run_search_call
 from osprey.services.ariel_search.search.keyword import (
@@ -935,6 +936,21 @@ class TestServiceGetStatus:
         mock_repository = MagicMock()
         mock_repository.get_embedding_tables = AsyncMock(return_value=[])
         mock_repository.get_last_ingestion = AsyncMock(return_value=None)
+        mock_repository.schema_facts = AsyncMock(
+            return_value=SchemaFacts(has_v2_fts=True, has_copy_state=True)
+        )
+        mock_repository.text_input_key_column = AsyncMock(return_value=True)
+        coverage = {
+            "text_embedding": {
+                "label": "Text Embedding",
+                "n/a": 0,
+                "pending": 2,
+                "stale": 1,
+                "failed": 0,
+                "complete": 39,
+            }
+        }
+        mock_repository.get_enhancement_coverage = AsyncMock(return_value=coverage)
 
         service = ARIELSearchService(
             config=minimal_config,
@@ -943,6 +959,11 @@ class TestServiceGetStatus:
         )
 
         result = await service.get_status()
+
+        # The coverage is the repository's count under the store's context.
+        assert result.enhancement_coverage == coverage
+        (context,), _ = mock_repository.get_enhancement_coverage.await_args
+        assert tuple(context.enabled) == ("text_embedding",)
 
         # Verify result is ARIELStatusResult with expected structure
         assert isinstance(result, ARIELStatusResult)
@@ -976,6 +997,7 @@ class TestServiceGetStatus:
         assert result.entry_count is None
         assert result.embedding_tables == []
         assert result.last_ingestion is None
+        assert result.enhancement_coverage == {}
         # Config-derived fields still populate despite the database being down.
         assert "***" in result.database_uri
         assert result.enabled_search_modules == ["keyword", "semantic"]

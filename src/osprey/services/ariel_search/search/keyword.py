@@ -741,9 +741,14 @@ async def keyword_search(
     # The dimension filter (C-FILTER) over alias ``e``, which every tier's
     # statement uses; fuzzy receives the same filter on its own.
     if entry_filter is not None and not entry_filter.is_empty():
-        from osprey.services.ariel_search.enhancement.status import enhancement_context
+        from osprey.services.ariel_search.enhancement.status import (
+            filter_needs_build_keys,
+            store_enhancement_context,
+        )
 
-        ctx = enhancement_context(config, has_copy_state=schema_facts.has_copy_state)
+        ctx = await store_enhancement_context(
+            config, repository, text_embedding=filter_needs_build_keys(entry_filter)
+        )
         dim_clauses, dim_params = entry_filter.to_sql("e", ctx)
         filter_clauses.extend(dim_clauses)
         filter_params.extend(dim_params)

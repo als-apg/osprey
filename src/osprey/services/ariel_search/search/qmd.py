@@ -527,9 +527,14 @@ async def _hybrid_search(
 
     ctx: EnhancementContext | None = None
     if entry_filter is not None and not entry_filter.is_empty():
-        from osprey.services.ariel_search.enhancement.status import store_enhancement_context
+        from osprey.services.ariel_search.enhancement.status import (
+            filter_needs_build_keys,
+            store_enhancement_context,
+        )
 
-        ctx = await store_enhancement_context(config, repository)
+        ctx = await store_enhancement_context(
+            config, repository, text_embedding=filter_needs_build_keys(entry_filter)
+        )
     else:
         entry_filter = None
     filters = _Filters(start_date, end_date, author, source_system, entry_filter, ctx)
@@ -813,6 +818,7 @@ async def _ranked_search(
 
     entries = await repository.get_entries_by_ids([hit.entry_id for hit in ranked])
     by_id = {entry["entry_id"]: entry for entry in entries}
+    filters = await filters.for_entries(repository, list(by_id))
 
     results = []
     for hit in ranked:
@@ -878,6 +884,7 @@ async def _fused_results(
         return []
     entries = await repository.get_entries_by_ids(ids)
     by_id = {entry["entry_id"]: entry for entry in entries}
+    filters = await filters.for_entries(repository, list(by_id))
 
     text_hits: list[tuple[str, float]] = []
     snippets: dict[str, list[str]] = {}
@@ -1308,6 +1315,14 @@ class _Filters:
                 self.entry_filter is not None,
             )
         )
+
+    async def for_entries(self, repository: ARIELRepository, entry_ids: list[str]) -> _Filters:
+        """These filters with the context serving ``entry_ids``' build keys (one read)."""
+        if self.ctx is None:
+            return self
+        from osprey.services.ariel_search.enhancement.status import with_build_keys
+
+        return replace(self, ctx=await with_build_keys(self.ctx, repository, entry_ids))
 
     def accepts(self, entry: EnhancedLogbookEntry) -> bool:
         """Report whether an entry survives every active filter.

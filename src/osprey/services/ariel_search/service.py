@@ -1019,10 +1019,16 @@ class ARIELSearchService:
         entry_filter = request.entry_filter
         if entry_filter is not None and not entry_filter.is_empty():
             from osprey.services.ariel_search.enhancement.status import (
+                filter_needs_build_keys,
                 store_enhancement_context,
             )
 
-            ctx = await store_enhancement_context(self.config, self.repository)
+            ctx = await store_enhancement_context(
+                self.config,
+                self.repository,
+                entry_ids=[row[0]["entry_id"] for row in rows],
+                text_embedding=filter_needs_build_keys(entry_filter),
+            )
             kept = [row for row in rows if entry_filter.matches(row[0], ctx)]
             if filter_applied and len(kept) != len(rows):
                 logger.warning(
@@ -1413,6 +1419,7 @@ class ARIELSearchService:
         entry_count = None
         embedding_tables: list[EmbeddingTableInfo] = []
         last_ingestion = None
+        enhancement_coverage: dict[str, dict[str, Any]] = {}
 
         masked_uri = self._mask_database_uri(self.config.database.uri)
 
@@ -1428,6 +1435,15 @@ class ARIELSearchService:
                 embedding_tables = await self.repository.get_embedding_tables()
 
                 last_ingestion = await self.repository.get_last_ingestion()
+
+                # The same count ``status --json`` reports, so the two surfaces
+                # agree with each other and with the reader's badge strip.
+                from osprey.services.ariel_search.enhancement.status import (
+                    store_enhancement_context,
+                )
+
+                context = await store_enhancement_context(self.config, self.repository)
+                enhancement_coverage = await self.repository.get_enhancement_coverage(context)
 
         except Exception as e:
             errors.append(f"Database error: {e}")
@@ -1445,6 +1461,7 @@ class ARIELSearchService:
             enabled_enhancement_modules=self.config.get_enabled_enhancement_modules(),
             last_ingestion=last_ingestion,
             errors=errors,
+            enhancement_coverage=enhancement_coverage,
         )
 
     def _mask_database_uri(self, uri: str) -> str:
