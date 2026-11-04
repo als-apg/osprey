@@ -38,6 +38,9 @@ service = [
     "fastapi>=0.141.1",
     "starlette",  # imported directly by the app (middleware, responses)
     "uvicorn[standard]>=0.52.1",
+    # FastAPI parses the model upload's form body with it and refuses to build
+    # that route without it, so the app does not import.
+    "python-multipart>=0.0.32",
 ]
 
 [tool.hatch.version]
