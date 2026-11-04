@@ -202,6 +202,43 @@ DEFAULT_BPM_COUNT = 4
 VA_ARCHIVER_CI_KNOBS: dict[str, Any] = {"va_archiver": {"retention_days": 2, "hot_span_hours": 2}}
 
 
+# The services a substrate lane deploys only because the preset lists them.
+#
+# The control-assistant preset deploys the agent's knowledge services: the qmd
+# search sidecars (an image with three GGUF models baked in, ~6 GB on a CI
+# runner's disk), the graph store, ARIEL's Postgres and a ClickHouse store for
+# the agent record. A lane that proves the VA, the bluesky bridge or a sidecar
+# of it reads none of them, and together they are about 9 GB of images: enough
+# that the full stack runs a 72 GB runner out of disk. qmd is proven with its
+# models in its own lane (qmd-sidecar-e2e), ARIEL and the graph in theirs.
+#
+# Emptying `deployed_services` drops qmd, graphdb and postgresql; the build
+# then refuses any consumer still switched on for a service it no longer runs,
+# so the consumers go too. `ariel: None` is the switch for both the ARIEL
+# database and hybrid search (qmd), and the channel finder leaves graph mode
+# for the hierarchical database the bundle also ships. `agent_record: None`
+# drops the preset's ClickHouse backend for the framework default, the embedded
+# store the agent-record service keeps itself -- every deployment still records.
+# test_archiver_world_e2e.py trims the same way.
+#
+# Opt-in, merged by each lane that wants it through `knowledge_services_off`:
+# the agentic lanes share `profile_edits` but their agent may reach for search.
+KNOWLEDGE_SERVICES_OFF: dict[str, Any] = {
+    "config": {"deployed_services": [], "ariel": None},
+    "channel_finder_mode": "hierarchical",
+    "agent_record": None,
+}
+
+
+def knowledge_services_off(edits: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``edits`` with :data:`KNOWLEDGE_SERVICES_OFF` deep-merged into it.
+
+    Deep, so a lane's own ``config:`` pins sit beside the trim's rather than
+    being replaced by them. Neither input is mutated.
+    """
+    return _deep_merge(edits or {}, KNOWLEDGE_SERVICES_OFF)
+
+
 def profile_edits() -> dict[str, Any]:
     """The lane's profile pins: VA control system + the bluesky MCP server.
 

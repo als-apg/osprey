@@ -3274,21 +3274,11 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
-
     - name: Run bluesky web deploy E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 40
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_bluesky_web_deploy.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -3362,21 +3352,11 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
-
     - name: Run VA substrate equivalence E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 40
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_va_substrate_equivalence.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -3441,7 +3421,7 @@ jobs:
     timeout-minutes: 100
 
     steps:
-    # The qmd, VA, bridge and Tiled images fill the runner's ~14 GB; drop the
+    # The VA, bridge and Tiled images fill the runner's ~14 GB; drop the
     # preinstalled SDKs this job never uses.
     - name: Free runner disk
       run: |
@@ -3467,13 +3447,6 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
-
     # Step caps under the job cap, each sized from its module's own internal
     # timeouts (see the job-cap note above), so a hang fails THAT step and the
     # diagnostics step below still runs. A job-level timeout is a hard cancel
@@ -3481,33 +3454,21 @@ jobs:
     # va-substrate-equivalence-e2e's step cap).
     - name: Run ORM roundtrip E2E
       timeout-minutes: 45
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
 
     - name: Run grid scan roundtrip E2E
       timeout-minutes: 40
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
 
     - name: Run orbit bump sweep roundtrip E2E
       timeout-minutes: 45
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_bump_roundtrip.py -v --tb=short
 
     - name: Run preflight probe E2E
       timeout-minutes: 45
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_preflight_probe.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -3963,8 +3924,7 @@ jobs:
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Deploys the control-assistant preset, so the bring-up builds that preset's
-    # images (bluesky-web ~2.4GB, va ~2.4GB; qmd ~3.4GB comes from the shared
-    # layer cache, and builds cold when that misses) before the bridge image
+    # images (bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
     # and the Tiled image pull it actually tests. ~6.5min with
     # images cached, ~9-11min on a warm runner, but a fully cold one has been
     # observed still building at 15min with every build progressing normally —
@@ -4001,21 +3961,11 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
-
     - name: Run Tiled roundtrip E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 25
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_tiled_roundtrip.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -4130,10 +4080,10 @@ jobs:
     timeout-minutes: 45
 
     steps:
-    # The qmd sidecar and the deployment's generated image are built side by
-    # side, which overruns the ~14 GB a hosted runner starts with free (the
-    # 2026-10-31 attempts died in `uv` with "No space left on device" during
-    # the image build); drop the preinstalled SDKs this job never uses.
+    # The deployment's generated images overrun the ~14 GB a hosted runner
+    # starts with free (the 2026-10-31 attempts died in `uv` with "No space
+    # left on device" during the image build); drop the preinstalled SDKs this
+    # job never uses.
     - name: Free runner disk
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -4158,21 +4108,11 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
-
     - name: Run bluesky sandbox escape E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
       timeout-minutes: 40
-      env:
-        # The image built above; holds qmd out of `osprey up`'s build.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_bluesky_sandbox_escape_e2e.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -5702,10 +5642,10 @@ jobs:
     timeout-minutes: 75
 
     steps:
-    # The qmd sidecar and the deployment's generated image are built side by
-    # side, which overruns the ~14 GB a hosted runner starts with free (the
-    # 2026-10-31 attempts died in `uv` with "No space left on device" during
-    # the image build); drop the preinstalled SDKs this job never uses.
+    # The deployment's generated images overrun the ~14 GB a hosted runner
+    # starts with free (the 2026-10-31 attempts died in `uv` with "No space
+    # left on device" during the image build); drop the preinstalled SDKs this
+    # job never uses.
     - name: Free runner disk
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -5740,13 +5680,6 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Build the qmd sidecar image
-      # The preset deploys the qmd sidecar, and `osprey up` would otherwise
-      # build it cold here, fetching 2.1 GB of models from huggingface.co on
-      # every run. Built once from the layer cache the main-branch warm-up
-      # saves, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
-
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into the render image,
     # so the kernel launcher, the sidecar and the guard hook under test are all
@@ -5756,10 +5689,6 @@ jobs:
       # the capture step below room to run. A job-level timeout is a hard
       # cancel that takes the container logs with it.
       timeout-minutes: 65
-      env:
-        # Holds qmd out of `osprey up`'s build: the sidecar runs the image the
-        # step above built, so the module's `<project>-qmd:local` is never built.
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: |
         uv run pytest tests/e2e/test_jupyter_panel_lifecycle.py -v --tb=short
 
@@ -5788,8 +5717,6 @@ jobs:
           | xargs -r docker volume rm -f || true
         docker rmi -f osprey-e2e-jnb-operator:local || true
         docker rmi -f osprey-e2e-jnb-va:local || true
-        docker rmi -f osprey-e2e-jnb-qmd:local || true
-        docker rmi -f osprey-qmd:ci || true
 
   multi-user-deploy-lifecycle-e2e-podman:
     name: Multi-User Deploy Lifecycle E2E (podman runtime)

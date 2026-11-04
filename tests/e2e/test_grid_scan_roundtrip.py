@@ -159,6 +159,9 @@ def deployed_grid_scan_stack(
         # landing on a real deployment's default 10000 block.
         port_base=21300,
         timeout=BUILD_TIMEOUT_SEC,
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(),
     )
     # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
     # the orm plan, grid_scan doesn't sweep every named corrector against
