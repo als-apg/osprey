@@ -17,12 +17,13 @@ import glob
 import importlib.util
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
@@ -652,6 +653,115 @@ def _check_tracked_ignored(_context: Context) -> int:
     return CLEAN
 
 
+#: Lists every tracked prose file, NUL-separated.
+TRACKED_DOCS = ("git", "ls-files", "-z", "--", "*.md", "*.rst")
+
+#: Hand-typed parallel sweeps a document may keep, keyed by (path, command
+#: text) and valued with the reason; a key whose document holds no such line is
+#: reported.
+SWEEP_LINE_EXCEPTIONS: dict[tuple[str, str], str] = {
+    (
+        "plugins/osprey/skills/release/SKILL.md",
+        "pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile",
+    ): (
+        "the e2e lane's invocation is declared only in ci.yml's e2e-tests job"
+        " until that lane is a check"
+    ),
+}
+
+#: A ``pytest`` command word: bare, ``uv run pytest`` or ``python -m pytest``.
+_PYTEST_WORD = re.compile(r"(?<![\w./-])pytest(?=[\s`'\"]|$)")
+
+#: An xdist flag: ``-n <count>``, ``-n<count>``, ``--numprocesses`` or ``--dist``.
+_XDIST_FLAG = re.compile(
+    r"(?<![\w-])(?:-n\s*(?:\d+|auto|logical)(?![\w-])|--numprocesses\b|--dist\b)"
+)
+
+
+def _logical_lines(text: str) -> Iterable[tuple[int, str]]:
+    """Yield each line with its 1-based number, a ``\\``-continued run joined into one."""
+    start, held = 0, list[str]()
+    for number, line in enumerate(text.splitlines(), 1):
+        if not held:
+            start = number
+        if line.rstrip().endswith("\\"):
+            held.append(line.rstrip()[:-1])
+            continue
+        held.append(line)
+        yield start, " ".join(held)
+        held = []
+    if held:
+        yield start, " ".join(held)
+
+
+def hand_typed_sweeps(
+    texts: Mapping[str, str],
+    exceptions: Mapping[tuple[str, str], str] = SWEEP_LINE_EXCEPTIONS,
+) -> list[str]:
+    """Name every line that types a ``pytest`` command with an xdist flag.
+
+    A line naming ``scripts/check.py`` runs a declared check and passes; a line
+    holding an exception's command text passes, and an exception that matches
+    no line, its document gone or unread included, is reported as stale.
+    """
+    found: list[str] = []
+    used: set[tuple[str, str]] = set()
+    for path in sorted(texts):
+        held = [key for key in exceptions if key[0] == path]
+        for number, line in _logical_lines(texts[path]):
+            if "scripts/check.py" in line:
+                continue
+            if not (_PYTEST_WORD.search(line) and _XDIST_FLAG.search(line)):
+                continue
+            excepted = [key for key in held if key[1] in line]
+            if excepted:
+                used.update(excepted)
+                continue
+            found.append(
+                f"{path}:{number}: a hand-typed parallel sweep; "
+                "name scripts/check.py (quick, full, run pytest)"
+            )
+    stale = sorted(key for key in exceptions if key not in used)
+    found += [f"stale exception: {path}: {text}" for path, text in stale]
+    return found
+
+
+def read_doc_texts(paths: Iterable[str], root: Path) -> tuple[dict[str, str], list[str]]:
+    """Return each existing file's UTF-8 text, and the sorted paths that are not UTF-8."""
+    texts: dict[str, str] = {}
+    unreadable: list[str] = []
+    for path in paths:
+        file = root / path
+        if not file.is_file():
+            continue
+        try:
+            texts[path] = file.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            unreadable.append(path)
+    return texts, sorted(unreadable)
+
+
+def tracked_doc_texts() -> tuple[dict[str, str], list[str]] | None:
+    """Read every tracked ``*.md`` and ``*.rst`` file; None when git fails."""
+    status, out = kit.capture(TRACKED_DOCS)
+    if status != 0:
+        return None
+    return read_doc_texts((path for path in out.split("\0") if path), kit.ROOT)
+
+
+def _check_hand_typed_sweeps(_context: Context) -> int:
+    read = tracked_doc_texts()
+    if read is None:
+        kit.say(f"hand-typed-sweeps: {shlex.join(TRACKED_DOCS)} failed")
+        return FAILED_EXIT
+    texts, unreadable = read
+    findings = [f"{path}: not UTF-8 text" for path in unreadable]
+    findings += hand_typed_sweeps(texts, SWEEP_LINE_EXCEPTIONS)
+    for finding in findings:
+        kit.say(f"hand-typed-sweeps: {finding}")
+    return FAILED_EXIT if findings else CLEAN
+
+
 #: Run in the documentation directory; needs the docs extra, as the build does.
 DOCS_CLEAN = (*UV_RUN, "make", "clean")
 
@@ -961,6 +1071,16 @@ CHECKS: tuple[Check, ...] = (
         (*UV_RUN, "actionlint"),
         scope=(".github/workflows/**",),
         needs=("uv", "workflow-linters"),
+    ),
+    # Implemented in Python: a contributor instruction that runs the parallel
+    # sweep names a declared check, so its flags have one home.
+    Check(
+        "hand-typed-sweeps",
+        "static",
+        BOTH,
+        (),
+        scope=("*.md", "*.rst"),
+        builtin=_check_hand_typed_sweeps,
     ),
     # The parallel sweep: its selection is UNIT_SELECTION, a range picks its
     # tests through TEST_MIRRORS, and a run whose paths the marker expression

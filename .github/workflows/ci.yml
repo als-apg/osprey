@@ -998,6 +998,11 @@ jobs:
       if: ${{ !cancelled() }}
       run: python3 scripts/check.py run tracked-ignored
 
+    - name: No document hand-types the parallel sweep
+      # A contributor instruction that runs the sweep names a declared check.
+      if: ${{ !cancelled() }}
+      run: python3 scripts/check.py run hand-typed-sweeps
+
     - name: Install gitleaks
       # The secret scan's binary, at the version the pre-commit hook pins;
       # tests/deployment/test_ci_workflow_wiring.py holds the two equal. A
