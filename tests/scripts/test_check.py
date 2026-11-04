@@ -227,19 +227,67 @@ _ROOT_WALKERS = frozenset({"text_files"})
 _Value = tuple[str, Any]
 
 
+def _import_names(node: ast.Import | ast.ImportFrom, here: tuple[str, ...]) -> list[str]:
+    """The dotted names one import statement in the module at repo-relative parts *here* binds.
+
+    A relative import resolves against the module's own package; ``from X import a``
+    names both ``X`` and ``X.a``, since ``a`` may be a module or a name in ``X``.
+    """
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    package = list(here[:-1])[: len(here) - node.level] if node.level else []
+    base = ".".join([*package, *([node.module] if node.module else [])])
+    return [base, *(f"{base}.{alias.name}" for alias in node.names)]
+
+
+def _module_file(name: str, root: Path) -> Path | None:
+    """The file under *root* that the ``tests`` module *name* loads, or None."""
+    if name != "tests" and not name.startswith("tests."):
+        return None
+    parts = name.split(".")
+    for candidate in (
+        root.joinpath(*parts).with_suffix(".py"),
+        root.joinpath(*parts, "__init__.py"),
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _imported_modules(
+    source: str, here: tuple[str, ...], *, root: Path = REPO_ROOT, follow: bool = False
+) -> frozenset[str]:
+    """Every dotted name *source*, the module at repo-relative parts *here*, imports.
+
+    With *follow*, the names each imported ``tests`` module under *root* imports
+    are added too, transitively; a module already read is not read again, so a
+    cycle ends.
+    """
+    names: set[str] = set()
+    visited: set[Path] = set()
+    pending: list[tuple[str, tuple[str, ...]]] = [(source, here)]
+    while pending:
+        text, parts = pending.pop()
+        for node in ast.walk(ast.parse(text)):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            for name in _import_names(node, parts):
+                names.add(name)
+                if not follow or (path := _module_file(name, root)) is None or path in visited:
+                    continue
+                visited.add(path)
+                pending.append((path.read_text(encoding="utf-8"), path.relative_to(root).parts))
+    return frozenset(names)
+
+
 def _imports_a_tree_reader(tree: ast.Module, here: tuple[str, ...]) -> bool:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            if any(alias.name in _TREE_READER_MODULES for alias in node.names):
-                return True
-        elif isinstance(node, ast.ImportFrom):
-            package = list(here[:-1])[: len(here) - node.level] if node.level else []
-            base = ".".join([*package, *([node.module] if node.module else [])])
-            if base in _TREE_READER_MODULES:
-                return True
-            if any(f"{base}.{alias.name}" in _TREE_READER_MODULES for alias in node.names):
-                return True
-    return False
+    """Whether *tree* imports a tree-reader module itself; a helper that does is not followed."""
+    return any(
+        name in _TREE_READER_MODULES
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for name in _import_names(node, here)
+    )
 
 
 def _resolve(node: ast.expr, env: dict[str, _Value | None], here: tuple[str, ...]) -> _Value | None:
@@ -655,6 +703,18 @@ _PREAMBLE = (
 )
 def test_the_tree_reader_rule_follows_where_a_name_is_bound(body: str, reads: bool) -> None:
     assert _source_reads_the_tests_tree(_PREAMBLE + body, ("tests", "test_sample.py")) is reads
+
+
+def test_the_tree_reader_question_reads_direct_imports_only(tmp_path: Path) -> None:
+    """Importing a helper that imports the tree reader does not walk the tree: only
+    the test's own import of the reader marks it (``tests._text_sweep``)."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "__init__.py").write_text("")
+    (tmp_path / "tests" / "_helper.py").write_text("import tests._tree_scan\n")
+    source = "import tests._helper\n"
+    here = ("tests", "test_x.py")
+    assert "tests._tree_scan" in _imported_modules(source, here, root=tmp_path, follow=True)
+    assert not _imports_a_tree_reader(ast.parse(source), here)
 
 
 def test_every_literal_scope_path_exists() -> None:
