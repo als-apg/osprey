@@ -130,24 +130,15 @@ function renderStatus(container, status) {
           ])}
         </div>
       </div>
+    </div>
 
-      <!-- Enhancement Modules -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Enhancement Modules</span>
-        </div>
-        <div class="card-body">
-          ${renderModuleList([
-            {
-              name: 'Text Embedding',
-              enabled: status.enabled_enhancement_modules?.includes('text_embedding'),
-            },
-            {
-              name: 'Semantic Processor',
-              enabled: status.enabled_enhancement_modules?.includes('semantic_processor'),
-            },
-          ])}
-        </div>
+    <!-- Enhancement Coverage: full width, one column per state -->
+    <div class="card" style="margin-top: 24px;">
+      <div class="card-header">
+        <span class="card-title">Enhancement Modules</span>
+      </div>
+      <div class="card-body" style="padding: 0;">
+        ${renderCoverageTable(status.enhancement_coverage)}
       </div>
     </div>
 
@@ -213,6 +204,62 @@ function renderStatus(container, status) {
     `
         : ''
     }
+  `;
+}
+
+/** Coverage columns, in display order: [state key, column heading]. */
+const COVERAGE_COLUMNS = /** @type {const} */ ([
+  ['complete', 'Complete'],
+  ['pending', 'Pending'],
+  ['stale', 'Stale'],
+  ['failed', 'Failed'],
+  ['n/a', 'N/A'],
+]);
+
+/**
+ * One count cell: the number, or an em dash when the server sent none.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatCount(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '\u2014';
+}
+
+/**
+ * Render the per-module enhancement coverage table: one row per module the
+ * server lists (it lists only enabled ones), labelled with the server's label.
+ * @param {import('./api.js').EnhancementCoverage | undefined | null} coverage
+ * @returns {string} HTML string
+ */
+function renderCoverageTable(coverage) {
+  const modules = coverage ? Object.entries(coverage) : [];
+  if (modules.length === 0) {
+    return '<div class="text-muted" style="padding: 16px;">No enhancement modules enabled</div>';
+  }
+  return `
+    <table class="coverage-table">
+      <thead>
+        <tr>
+          <th>Module</th>
+          ${COVERAGE_COLUMNS.map(([, heading]) => `<th>${heading}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${modules
+          .map(
+            ([name, counts]) => `
+          <tr data-module="${escapeHtml(name)}">
+            <td>${escapeHtml(counts?.label || name)}</td>
+            ${COVERAGE_COLUMNS.map(
+              ([key]) =>
+                `<td class="font-mono" data-state="${key}">${formatCount(counts?.[key])}</td>`
+            ).join('')}
+          </tr>
+        `
+          )
+          .join('')}
+      </tbody>
+    </table>
   `;
 }
 
