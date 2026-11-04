@@ -9021,20 +9021,10 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 # has moved, and turns a red into an issue. Dropping the label clause is the
 # other regression — the lane is back on every push, and so is the bill.
 
-SPENDING_LANES = frozenset(
-    {
-        "agentic-per-preset",
-        "e2e-tests",
-        "dispatch-deploy-e2e",
-        "single-user-narrowing-e2e",
-        "host-record-e2e",
-        "dispatch-overlay-e2e",
-        "scan-agentic-e2e",
-        "nextcloud-talk-bridge-e2e",
-        "gchat-bridge-e2e",
-        "target-switch-agentic-e2e",
-    }
-)
+#: Each spending lane to the prefix of its rendered job name: the lanes the
+#: LANES tables mark ``why="models"``, held below against ci.yml and release.yml.
+SPENDING_PREFIXES = check_set.kit.spending(check_set.LANES)
+SPENDING_LANES = frozenset(SPENDING_PREFIXES)
 # Lanes that carry the secret but spend nothing worth gating: deploy-e2e needs
 # the key only for `osprey up`'s .env preflight and never calls a model;
 # dockerfile-e2e drives a single haiku turn; the two benchmark jobs run only on
@@ -9219,7 +9209,7 @@ def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(workflow: dict[str,
     step = _find_named_step(workflow, GATE_JOB, "Check all jobs status")
     assert step["env"]["HAS_FULL_CI"] == "${{ " + FULL_CI_LABEL_CLAUSE + " }}"
     assert "--add-label full-ci" in step["run"]
-    prefixes = _required_lane_prefixes().values()
+    prefixes = SPENDING_PREFIXES.values()
     for heading in SUMMARY_HEADINGS:
         lanes = _summary_block_lanes(step["run"], heading)
         for prefix in prefixes:
@@ -9302,7 +9292,7 @@ def _required_lane_prefixes() -> dict[str, str]:
 def test_the_tag_gate_covers_every_spending_lane() -> None:
     """A lane added to the label gate but not to the tag gate is a lane a
     release can skip silently."""
-    assert set(_required_lane_prefixes()) == set(SPENDING_LANES)
+    assert _required_lane_prefixes() == SPENDING_PREFIXES
 
 
 def _assert_lane_prefixes_match(
@@ -12274,9 +12264,9 @@ def test_the_lookup_lane_map_is_the_spending_lane_set(
     """Same pin as the tag gate's map: every spending lane, each prefix naming
     its own rendered job and no other."""
     lanes = lanes if lanes is not None else _full_ci_on_main_lanes()
-    assert set(lanes) == set(SPENDING_LANES), (
+    assert lanes == SPENDING_PREFIXES, (
         f"full_ci_on_main.py lanes differ from SPENDING_LANES: "
-        f"{sorted(set(lanes) ^ set(SPENDING_LANES))}"
+        f"{sorted(set(lanes.items()) ^ set(SPENDING_PREFIXES.items()))}"
     )
     jobs = _jobs(_load_workflow())
     for lane, prefix in lanes.items():
