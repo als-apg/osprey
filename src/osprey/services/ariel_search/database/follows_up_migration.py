@@ -61,4 +61,4 @@ class FollowsUpIndexMigration(BaseMigration):
     async def down(self, conn: "AsyncConnection") -> None:
         """Drop the index."""
         await acquire_nonqueueing_lock(conn, "enhanced_entries", "ACCESS EXCLUSIVE")
-        await conn.execute(f"DROP INDEX IF EXISTS {FOLLOWS_UP_INDEX}")  # type: ignore[arg-type]
+        await conn.execute(f"DROP INDEX IF EXISTS {FOLLOWS_UP_INDEX}")

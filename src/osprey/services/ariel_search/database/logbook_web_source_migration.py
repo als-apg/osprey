@@ -60,7 +60,7 @@ class LogbookWebSourceMigration(BaseMigration):
     async def up(self, conn: "AsyncConnection") -> None:
         """Rename every row still holding the old value."""
         result = await conn.execute(
-            _RENAME_SQL,  # type: ignore[arg-type]
+            _RENAME_SQL,
             {"new": NEW_SOURCE_SYSTEM, "old": OLD_SOURCE_SYSTEM},
         )
         logger.info(f"{self.name}: {max(result.rowcount, 0)} entries renamed")

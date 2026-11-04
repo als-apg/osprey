@@ -88,7 +88,7 @@ class EntrySubjectAndKeysetMigration(BaseMigration):
         """
         await acquire_nonqueueing_lock(conn, "enhanced_entries", "ACCESS EXCLUSIVE")
         await conn.execute("ALTER TABLE enhanced_entries ADD COLUMN IF NOT EXISTS subject TEXT")
-        await conn.execute(_GUARDED_TRIGGER_FUNCTION_SQL)  # type: ignore[arg-type]
+        await conn.execute(_GUARDED_TRIGGER_FUNCTION_SQL)
         await build_kept_indexes(
             conn,
             [
@@ -111,6 +111,6 @@ class EntrySubjectAndKeysetMigration(BaseMigration):
         """Drop the indexes and the column; restore the unguarded trigger function."""
         await acquire_nonqueueing_lock(conn, "enhanced_entries", "ACCESS EXCLUSIVE")
         for index in SUBJECT_KEYSET_INDEXES:
-            await conn.execute(f"DROP INDEX IF EXISTS {index}")  # type: ignore[arg-type]
+            await conn.execute(f"DROP INDEX IF EXISTS {index}")
         await conn.execute("ALTER TABLE enhanced_entries DROP COLUMN IF EXISTS subject")
-        await conn.execute(_PLAIN_TRIGGER_FUNCTION_SQL)  # type: ignore[arg-type]
+        await conn.execute(_PLAIN_TRIGGER_FUNCTION_SQL)

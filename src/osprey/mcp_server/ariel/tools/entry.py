@@ -657,6 +657,13 @@ async def entry_create(
             drafts_dir.mkdir(parents=True, exist_ok=True)
             from osprey.mcp_server.session import gather_session_metadata
 
+            draft_metadata: dict[str, Any] = {
+                "session_metadata": gather_session_metadata("ariel-mcp"),
+            }
+            if parent_id:
+                # The compose sheet forwards the draft's metadata on submit, so
+                # the entry threads under its parent as a Follow up does.
+                draft_metadata[FOLLOWS_UP_KEY] = parent_id
             draft_data = {
                 "draft_id": draft_id,
                 "subject": subject.strip(),
@@ -665,14 +672,8 @@ async def entry_create(
                 "logbook": logbook,
                 "shift": shift,
                 "tags": tags or [],
-                "metadata": {
-                    "session_metadata": gather_session_metadata("ariel-mcp"),
-                },
+                "metadata": draft_metadata,
             }
-            if parent_id:
-                # The compose sheet forwards the draft's metadata on submit, so
-                # the entry threads under its parent as a Follow up does.
-                draft_data["metadata"][FOLLOWS_UP_KEY] = parent_id
             if fields:
                 draft_data["fields"] = declared
             if all_file_paths:

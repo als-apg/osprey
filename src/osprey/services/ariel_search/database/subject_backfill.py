@@ -95,7 +95,7 @@ class EntrySubjectBackfillMigration(BaseMigration):
         if not (row and row[0]):
             raise MigrationSkippedError("enhanced_entries.subject does not exist yet")
 
-        await conn.execute(f"SET LOCAL {PRESERVE_UPDATED_AT_SETTING} = 'on'")  # type: ignore[arg-type]
+        await conn.execute(f"SET LOCAL {PRESERVE_UPDATED_AT_SETTING} = 'on'")
 
         backfilled = 0
         after = ""
@@ -108,7 +108,7 @@ class EntrySubjectBackfillMigration(BaseMigration):
                     params.extend(
                         (entry_id, derive_subject({"metadata": metadata, "raw_text": raw_text}))
                     )
-                written = await conn.execute(_page_update_sql(len(page)), params)  # type: ignore[arg-type]
+                written = await conn.execute(_page_update_sql(len(page)), params)
                 backfilled += max(written.rowcount, 0)
             if len(page) < BACKFILL_PAGE_SIZE:
                 break
