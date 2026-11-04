@@ -560,6 +560,7 @@ class OspreyMongoRecorderAdapter:
     def _collection(self):
         if self._client is None:
             self._client = AsyncMongoClient(self._url, **self.client_options())
+        assert self.database is not None and self.collection_name is not None
         return self._client[self.database][self.collection_name]
 
     async def _ping(self) -> None:

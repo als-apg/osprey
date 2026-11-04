@@ -54,7 +54,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         self._connected = False
         self._avg_window = None
         self._doocs4py = None
-        self._timeout = 60
+        self._timeout: float = 60
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -149,7 +149,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         """
 
         # asyncio.wait_for(timeout=None) would block indefinitely.
-        timeout = timeout if timeout is not None else self._timeout
+        bound: float = timeout if timeout is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("DOOCS archiver not connected")
@@ -176,7 +176,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             return data
 
         try:
-            series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
+            series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=bound)
 
             data = aggregate_long_frame(series_dict, resolved)
 
@@ -187,7 +187,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             return data
 
         except TimeoutError as e:
-            raise TimeoutError(f"DOOCS archiver request timed out after {timeout}s") from e
+            raise TimeoutError(f"DOOCS archiver request timed out after {bound}s") from e
 
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Get archiver metadata."""
@@ -246,19 +246,21 @@ class DOOCSArchiverConnector(ArchiverConnector):
         start_ts: int = int(start_time)
         stop_ts: int = int(end_time)
 
+        doocs4py = self._doocs4py
+        if doocs4py is None:
+            return None
+
         try:
             if not address.endswith(".HIST"):
                 address = address + ".HIST"
-            hist_address = self._doocs4py.Address(address)
+            hist_address = doocs4py.Address(address)
 
             current_stop = stop_ts
             all_data = []
 
             while True:
-                ttii = self._doocs4py.types.TTII(
-                    start_ts, current_stop, 256, 0
-                )  # 256 means Archiver
-                result = self._doocs4py.get(hist_address, ttii)
+                ttii = doocs4py.types.TTII(start_ts, current_stop, 256, 0)  # 256 means Archiver
+                result = doocs4py.get(hist_address, ttii)
 
                 # Check if the newly fetched chunk is empty to prevent infinite loops
                 if not result.value:

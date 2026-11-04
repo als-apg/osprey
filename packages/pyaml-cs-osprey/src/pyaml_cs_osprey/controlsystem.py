@@ -42,7 +42,7 @@ class OspreyControlSystem(ControlSystem, DynamicValidation):
         """Return the configured control-system name."""
         return self._name
 
-    def get_device_access(self, ref: str | BaseModel | None) -> DeviceAccess | None:  # type: ignore[override]
+    def get_device_access(self, ref: str | BaseModel | None) -> DeviceAccess | None:
         """Return the device for a channel reference, one device per reference text.
 
         Args:

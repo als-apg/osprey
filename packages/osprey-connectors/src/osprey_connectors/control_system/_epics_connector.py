@@ -94,7 +94,7 @@ class _WriteExecutor(concurrent.futures.Executor):
         self._threads: set[threading.Thread] = set()
         self._serial = 0
 
-    def submit(self, fn, /, *args, **kwargs):  # type: ignore[override]
+    def submit(self, fn, /, *args, **kwargs):
         future: concurrent.futures.Future = concurrent.futures.Future()
 
         def run() -> None:

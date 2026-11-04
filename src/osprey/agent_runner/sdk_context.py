@@ -33,7 +33,7 @@ except ImportError:
     PermissionResultAllow = object  # type: ignore[assignment,misc]
     PermissionResultDeny = object  # type: ignore[assignment,misc]
     PermissionUpdate = None  # type: ignore[assignment,misc]
-    CanUseTool = Any  # type: ignore[assignment,misc]
+    CanUseTool = Any  # type: ignore[misc]
     SystemPromptPreset = dict  # type: ignore[assignment,misc]
 
 
@@ -80,7 +80,7 @@ def make_tool_allowlist(
     allowed_set = frozenset(allowed)
     denied_tuple = tuple(denied)
 
-    async def can_use_tool(tool_name, _tool_input, _context):  # type: ignore[no-untyped-def]
+    async def can_use_tool(tool_name, _tool_input, _context):
         if matches_denylist(tool_name, denied_tuple):
             return PermissionResultDeny(
                 message=f"Tool {tool_name!r} is blocked by the dispatch server denylist",

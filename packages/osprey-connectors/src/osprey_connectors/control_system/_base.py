@@ -856,7 +856,7 @@ class ControlSystemConnector(ABC):
 
         original_subscribe = cls.__dict__.get("subscribe")
         if original_subscribe is not None and not _accepts_on_connection(original_subscribe):
-            cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)
+            cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)  # type: ignore[method-assign]  # wraps the subclass's own method
 
         original_write = cls.__dict__.get("write_channel")
         if original_write is not None:
@@ -873,7 +873,7 @@ class ControlSystemConnector(ABC):
                 with open_door():
                     return await original_write(self, channel_address, value, *args, **kwargs)
 
-            cls.write_channel = _guarded_write
+            cls.write_channel = _guarded_write  # type: ignore[method-assign]  # wraps the subclass's own method
 
         original_multi = cls.__dict__.get("write_multiple_channels")
         if original_multi is not None:
@@ -893,7 +893,7 @@ class ControlSystemConnector(ABC):
                 with open_door():
                     return await original_multi(self, operations, *args, **kwargs)
 
-            cls.write_multiple_channels = _guarded_multi
+            cls.write_multiple_channels = _guarded_multi  # type: ignore[method-assign]  # wraps the subclass's own method
 
     def _resolve_confirm(self, channel_address: str) -> bool:
         """Whether a write to this channel must be confirmed by re-reading it.
