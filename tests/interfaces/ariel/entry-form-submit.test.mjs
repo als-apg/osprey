@@ -909,6 +909,41 @@ describe('the compose host', () => {
     expect(field('subject').value).toBe(field('subject').defaultValue);
   });
 
+  test('a successful create announces the new entry to the list', async () => {
+    const { store, form } = await boot({ create: { status: 200, body: { entry_id: 'e-42' } } });
+    store.setState({ compose: { draft: null } });
+    field('subject').value = 'Typed subject';
+    /** @type {string[]} */
+    const announced = [];
+    const listener = (/** @type {Event} */ e) =>
+      announced.push(/** @type {CustomEvent} */ (e).detail?.entryId);
+    window.addEventListener('ariel:entry-created', listener);
+    try {
+      await submit(form);
+    } finally {
+      window.removeEventListener('ariel:entry-created', listener);
+    }
+
+    expect(announced).toEqual(['e-42']);
+  });
+
+  test('a failed create announces nothing', async () => {
+    const { store, form } = await boot({
+      create: { status: 502, body: { detail: 'Publish failed' } },
+    });
+    store.setState({ compose: { draft: null } });
+    field('subject').value = 'Typed subject';
+    const listener = vi.fn();
+    window.addEventListener('ariel:entry-created', listener);
+    try {
+      await submit(form);
+    } finally {
+      window.removeEventListener('ariel:entry-created', listener);
+    }
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   test('a successful create from a draft forgets the draft attachments', async () => {
     const { store, form, calls } = await boot({
       draft: { subject: 'Plot', attachment_paths: ['/tmp/plot.png'] },

@@ -5,7 +5,10 @@
  * The host relays the agent's ARIEL tool calls as same-origin
  * `osprey-agent-activity {tool, detail, ts}` messages (to the embedded
  * iframe, or to the pop-out window). `entry_create` and `entry_publish` both
- * name a new row in `detail`: publish writes a new facility entry.
+ * name a new row in `detail`: publish writes a new facility entry. An entry
+ * the operator submits from this panel's compose sheet arrives the same way,
+ * as a window `ariel:entry-created {entryId}` event (entries-form.js), and is
+ * treated as a create.
  *
  * Each frame asks one question — is that row on page 1 of the current view? —
  * by a side fetch through api.js, never reranked, built with list.js's own
@@ -36,6 +39,9 @@ import { flashElement } from '/design-system/js/highlight.js';
 
 /** The host's relay message type. */
 export const ACTIVITY_MESSAGE = 'osprey-agent-activity';
+
+/** The window event entries-form.js fires after a successful submit. */
+export const ENTRY_CREATED_EVENT = 'ariel:entry-created';
 
 /** The tools whose `detail` is the id of a new row. */
 const ROW_TOOLS = new Set(['entry_create', 'entry_publish']);
@@ -170,15 +176,29 @@ async function pump() {
   pump();
 }
 
+/**
+ * Queue a new row for the page-1 check.
+ * @param {string} id
+ * @param {string} tool - `entry_create` or `entry_publish`
+ */
+function note(id, tool) {
+  if (!id || !watching(getState())) return;
+  pending.set(id, tool);
+  pump();
+}
+
 /** @param {MessageEvent} event */
 function onMessage(event) {
   if (event.origin !== window.location.origin) return;
   const data = event.data;
   if (!data || data.type !== ACTIVITY_MESSAGE || !ROW_TOOLS.has(data.tool)) return;
-  const id = data.detail == null ? '' : String(data.detail);
-  if (!id || !watching(getState())) return;
-  pending.set(id, data.tool);
-  pump();
+  note(data.detail == null ? '' : String(data.detail), data.tool);
+}
+
+/** @param {Event} event - `ariel:entry-created` from this panel's own submit */
+function onEntryCreated(event) {
+  const id = /** @type {CustomEvent} */ (event).detail?.entryId;
+  note(id == null ? '' : String(id), 'entry_create');
 }
 
 /**
@@ -228,8 +248,10 @@ export function initListActivity({ capabilities: caps = null } = {}) {
   pill = buildPill();
   const unsubscribe = subscribe(onStoreChange);
   window.addEventListener('message', onMessage);
+  window.addEventListener(ENTRY_CREATED_EVENT, onEntryCreated);
   stop = () => {
     window.removeEventListener('message', onMessage);
+    window.removeEventListener(ENTRY_CREATED_EVENT, onEntryCreated);
     unsubscribe();
     pill?.remove();
     pill = null;

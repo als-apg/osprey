@@ -928,6 +928,12 @@ def test_req5_create_selects_the_new_entry_and_remembers_the_author(
     assert body["subject"] == "New entry subject"
     assert body["author"] == "bob"
 
+    # The list shows the new row, selected, with the new count, without a reload.
+    expect(row(page, "NEW-1")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#ariel-list [data-list-total]")).to_have_text(
+        str(len(DEFAULT_ENTRIES) + 1)
+    )
+
     # The name just used is Mine's: no prompt, the listing is scoped to it.
     page.click('#ariel-rail button[data-box="mine"]')
     expect(page.locator('[data-rail-field="mine"]')).to_be_hidden()

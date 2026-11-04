@@ -26,6 +26,7 @@ import { formatFileSize } from './entries-helpers.js';
 import { messageOf } from './utils.js';
 import { loadCompose } from './compose-autosave.js';
 import { showToast } from '/design-system/js/toast.js';
+import { ENTRY_CREATED_EVENT } from './list-activity.js';
 
 // Draft metadata (populated when loading a draft)
 /** @type {any} */
@@ -184,6 +185,11 @@ export async function handleCreateEntry(e) {
     resetCreateForm();
     rememberAuthor(String(entryData.author ?? ''));
     setState({ compose: null, sel: result.entry_id, narrowView: 'reader' });
+    // The list picks the new row up the way it does an agent's create
+    // (list-activity.js): refresh and flash at the top, else the "n new" pill.
+    window.dispatchEvent(
+      new CustomEvent(ENTRY_CREATED_EVENT, { detail: { entryId: result.entry_id } })
+    );
     if (result.attachments_published === false) {
       showToast('Entry saved, but its attachments stayed local: they were not published.', WARN);
     }

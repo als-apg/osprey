@@ -303,6 +303,35 @@ describe('entry_create', () => {
   });
 });
 
+describe('an entry submitted from this panel', () => {
+  /** @param {string} entryId */
+  function submitted(entryId) {
+    window.dispatchEvent(new CustomEvent('ariel:entry-created', { detail: { entryId } }));
+  }
+
+  test('at the top of page 1 it refreshes the list, updates the count and flashes the row', async () => {
+    await mount();
+    vi.mocked(api.entriesApi.list).mockResolvedValue(listPage(['e3', 'e2', 'e1']));
+    submitted('e3');
+    await flush();
+
+    expect(listCalls()).toBe(2); // side fetch, then refresh()
+    expect(row('e3')?.classList.contains('agent-flash')).toBe(true);
+    expect(body().querySelector('[data-list-total]')?.textContent).toBe('3');
+    expect(pillText()).toBe('');
+  });
+
+  test('while scrolled it counts on the n-new pill, like an agent create', async () => {
+    await mount();
+    scrollTo(300);
+    vi.mocked(api.entriesApi.list).mockResolvedValue(listPage(['e3', 'e2', 'e1']));
+    submitted('e3');
+    await flush();
+
+    expect(pillText()).toBe('1 new');
+  });
+});
+
 describe('entry_publish', () => {
   test('a publish at the top flashes the row and leaves the pill alone', async () => {
     await mount();
