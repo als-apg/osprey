@@ -105,7 +105,7 @@ The agent cites entries by ID. Give it your logbook's address for one entry and 
    ariel:
      entry_url_template: "https://logbook.example.org/entry/{entry_id}"
 
-``{entry_id}`` is replaced with the entry's URL-encoded id, and the ARIEL tools return the result as ``entry_url`` beside each entry. The agent links that URL as given and never builds one of its own, so without the key it shows plain IDs. Entries created through ARIEL and not yet published to the logbook get no link. The key, the tools that carry the URL and what a malformed template does are in :ref:`config-ariel-entry-url`.
+``{entry_id}`` is replaced with the entry's URL-encoded id, and the ARIEL tools return the result as ``entry_url`` beside each entry. The agent links that URL as given and never builds one of its own, so without the key it shows plain IDs. Entries that exist only in ARIEL (written directly by the agent, or saved local-only) get no link. The key, the tools that carry the URL and what a malformed template does are in :ref:`config-ariel-entry-url`.
 
 Sidecar Metadata
 ~~~~~~~~~~~~~~~~
