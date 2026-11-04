@@ -849,7 +849,8 @@ def test_req3_unfetchable_draft_leaves_the_form_empty_with_an_error(
 def test_req4_search_shows_diagnostics_and_no_answer_box(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
-    """Diagnostics, counts and rows render; a response's ``answer`` is never shown."""
+    """Diagnostics ride on the mode chip, counts and rows render; a response's
+    ``answer`` is never shown."""
     backend = FakeBackend(
         search=search_response(
             [DEFAULT_ENTRIES[1]],
@@ -864,8 +865,16 @@ def test_req4_search_shows_diagnostics_and_no_answer_box(
 
     expect(page.locator("#ariel-list .ariel-row")).to_have_count(1)
     expect(row(page, "E2")).to_be_visible()
-    expect(page.locator("#ariel-list .diagnostics-bar")).to_contain_text("1 issue detected")
-    expect(page.locator("#ariel-list .diagnostics-messages")).to_contain_text("model offline")
+    expect(page.locator("#ariel-list .diagnostics-bar")).to_have_count(0)
+    chip = page.locator("#ariel-mode-chip")
+    expect(chip.locator(".ariel-mode-chip-dot")).to_have_attribute("data-level", "warning")
+    expect(chip).to_have_attribute("aria-description", re.compile("model offline"))
+    chip.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator("#ariel-filters-popover [data-search-issues]")).to_contain_text(
+        "model offline"
+    )
+    page.keyboard.press("Escape")
     expect(page.locator("#ariel-list .results-count")).to_contain_text("1")
     expect(page.locator("body")).not_to_contain_text("THE GENERATED ANSWER")
     wait_for_hash(page, canonical(q="vacuum"))
@@ -1815,7 +1824,7 @@ def test_badge_strip_is_on_by_default_and_its_switch_persists(
     expect(
         row(page, "E1").locator('.ariel-strip-cell[data-module="text_embedding"]')
     ).to_have_attribute("data-state", "failed")
-    expect(cells).to_have_count(6)  # two modules on each of three rows
+    expect(cells).to_have_count(1)  # only E1 has a state; n/a cells render nothing
     expect(toggle).to_have_attribute("aria-checked", "true")
 
     page.click("osprey-display-menu .display-menu-trigger")

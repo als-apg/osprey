@@ -34,6 +34,7 @@ export function applyFacilityTimezone(capabilities) {
  * @property {string} [source_system]
  * @property {string|null} [subject]
  * @property {string} [snippet]
+ * @property {string} [raw_text] - A search result's full text (rows from the listing carry `snippet`)
  * @property {number|null} [score]
  * @property {number} [attachment_count]
  * @property {Record<string, string>} [enhancements]
@@ -70,21 +71,25 @@ const STRIP_STATES = /** @type {Record<string, string>} */ ({
 });
 
 /**
- * The enhancement badge strip: one cell per module, in module order, styled
- * by the entry's state for it. A missing or unknown state reads `n/a`. Each
- * cell carries its text alternative (`role="img"` with `aria-label`).
+ * The enhancement badge strip: one cell per module that applies to the entry,
+ * in module order, styled by the entry's state for it. A module that does not
+ * apply (`n/a`, or a missing or unknown state) renders no cell, and an entry
+ * no module applies to renders no strip. Each cell carries its text
+ * alternative (`role="img"` with `aria-label`).
  * @param {Record<string, string>|null|undefined} enhancements
  * @param {EnhancementModule[]} modules
  * @returns {string}
  */
 export function renderBadgeStrip(enhancements, modules) {
   if (!Array.isArray(modules) || modules.length === 0) return '';
-  const cells = modules.map((m) => {
+  const cells = modules.flatMap((m) => {
     const raw = enhancements?.[m.name];
     const state = typeof raw === 'string' && raw in STRIP_STATES ? raw : 'n/a';
+    if (state === 'n/a') return [];
     const text = `${m.label || m.name}: ${state}`;
     return `<span class="ariel-strip-cell ariel-strip-cell-${STRIP_STATES[state]}" role="img" data-module="${escapeHtml(m.name)}" data-state="${escapeHtml(state)}" title="${escapeHtml(text)}" aria-label="${escapeHtml(text)}"></span>`;
   });
+  if (cells.length === 0) return '';
   return `<span class="ariel-strip" role="group" aria-label="Enhancements">${cells.join('')}</span>`;
 }
 
@@ -121,6 +126,17 @@ export function formatTimestamp(timestamp) {
       minute: '2-digit',
     }) || timestamp
   );
+}
+
+/**
+ * Format a timestamp's time of day only, for a row under a day heading that
+ * already names the date. Same zone and convention as `formatTimestamp`.
+ * @param {string} [timestamp] - ISO timestamp
+ * @returns {string} Formatted time
+ */
+export function formatTime(timestamp) {
+  if (!timestamp) return '';
+  return formatFacilityTime(timestamp, { hour: '2-digit', minute: '2-digit' }) || timestamp;
 }
 
 /**
@@ -208,22 +224,29 @@ export function sanitizeHighlight(html) {
  * One list row from the C-ROW fields: subject (else the snippet's first
  * line), time, author, score badge, highlights or snippet, attachment count,
  * picture-match marker, keywords, and the badge strip when `strip` is on
- * (default: the display preference). Every interpolated value is escaped; the
- * entry id is carried only as a `data-*` attribute.
+ * (default: the display preference). A row with neither highlights nor a
+ * snippet (a search result, which carries the full text) previews the text
+ * after its first line. `timeOnly` is for a row under a day heading: the row
+ * shows the time and keeps the full date as its tooltip. Every interpolated
+ * value is escaped; the entry id is carried only as a `data-*` attribute.
  * @param {Entry} entry
  * @param {string|null} [selected] - The selected entry id
- * @param {{strip?: boolean}} [options]
+ * @param {{strip?: boolean, timeOnly?: boolean}} [options]
  * @returns {string}
  */
-export function renderListRow(entry, selected = null, { strip = getStripPref() } = {}) {
+export function renderListRow(
+  entry,
+  selected = null,
+  { strip = getStripPref(), timeOnly = false } = {}
+) {
   const id = String(entry.entry_id ?? '');
   const isSelected = selected !== null && selected === id;
   const score = renderScoreBadge(entry.score);
   const attachmentCount = Number(entry.attachment_count) || 0;
   const keywords = entry.keywords?.slice(0, 5) || [];
   const pictureMatch = Array.isArray(entry.matched_via) && entry.matched_via.includes('image');
-  const snippet = entry.snippet || '';
-  const subject = entry.subject || parseEntryText(snippet).subject;
+  const snippet = entry.snippet || (entry.raw_text ? parseEntryText(entry.raw_text).details : '');
+  const subject = entry.subject || parseEntryText(entry.snippet || entry.raw_text || '').subject;
 
   const highlights = entry.highlights || [];
   const preview =
@@ -251,7 +274,7 @@ export function renderListRow(entry, selected = null, { strip = getStripPref() }
          data-entry-id="${escapeHtml(id)}" aria-selected="${isSelected}">
       <div class="ariel-row-top">
         <span class="osprey-list-title ariel-row-subject">${escapeHtml(subject)}</span>
-        <time class="ariel-row-time" datetime="${escapeHtml(entry.timestamp || '')}">${escapeHtml(formatTimestamp(entry.timestamp || undefined))}</time>
+        ${renderRowTime(entry.timestamp, timeOnly)}
       </div>
       <div class="ariel-row-meta">
         <span class="ariel-row-author">${escapeHtml(entry.author || 'Unknown')}</span>
@@ -262,6 +285,21 @@ export function renderListRow(entry, selected = null, { strip = getStripPref() }
       ${foot ? `<div class="ariel-row-foot">${foot}</div>` : ''}
     </div>
   `;
+}
+
+/**
+ * A row's `<time>`: the full date and time, or under a day heading the time
+ * only with the full form as its tooltip.
+ * @param {string|null|undefined} timestamp
+ * @param {boolean} timeOnly
+ * @returns {string}
+ */
+function renderRowTime(timestamp, timeOnly) {
+  const full = formatTimestamp(timestamp || undefined);
+  const datetime = escapeHtml(timestamp || '');
+  if (!timeOnly)
+    return `<time class="ariel-row-time" datetime="${datetime}">${escapeHtml(full)}</time>`;
+  return `<time class="ariel-row-time" datetime="${datetime}" title="${escapeHtml(full)}">${escapeHtml(formatTime(timestamp || undefined))}</time>`;
 }
 
 /**
@@ -299,7 +337,7 @@ export function renderDayGroupedRows(entries, lastDay, selected) {
       html += `<div class="ariel-day-sep" role="presentation" data-day="${escapeHtml(label)}">${escapeHtml(label)}</div>`;
       day = label;
     }
-    html += renderListRow(entry, selected);
+    html += renderListRow(entry, selected, { timeOnly: true });
   }
   return { html, lastDay: day };
 }
@@ -398,22 +436,43 @@ export function renderStatCard(title, value, subtitle = '', status = null) {
 }
 
 /**
+ * The most severe level among a search's diagnostics.
+ * @param {Diagnostic[]} diagnostics
+ * @returns {'info'|'warning'|'error'}
+ */
+export function diagnosticsLevel(diagnostics) {
+  const levels = /** @type {const} */ (['info', 'warning', 'error']);
+  let maxLevel = /** @type {'info'|'warning'|'error'} */ ('info');
+  for (const d of diagnostics) {
+    const level = levels.find((l) => l === d.level);
+    if (level && levels.indexOf(level) > levels.indexOf(maxLevel)) maxLevel = level;
+  }
+  return maxLevel;
+}
+
+/**
+ * A search's diagnostics as one plain sentence, for a tooltip or an
+ * accessible description: `1 search issue: hybrid: Picture search unavailable`.
+ * @param {Diagnostic[]} diagnostics
+ * @returns {string}
+ */
+export function diagnosticsText(diagnostics) {
+  const count = diagnostics.length;
+  const head = count === 1 ? '1 search issue' : `${count} search issues`;
+  return `${head}: ${diagnostics.map((d) => `${d.source}: ${d.message}`).join('; ')}`;
+}
+
+/**
  * Render a diagnostics bar for search issues.
  * Uses native <details>/<summary> for zero-JS collapsibility.
  * @param {Diagnostic[]} diagnostics - Array of {level, source, message, category}
+ * @param {{open?: boolean}} [options] - `open` renders it expanded
  * @returns {string} HTML string (empty if no diagnostics)
  */
-export function renderDiagnosticsBar(diagnostics) {
+export function renderDiagnosticsBar(diagnostics, { open = false } = {}) {
   if (!diagnostics || diagnostics.length === 0) return '';
 
-  // Determine max severity for bar styling
-  const levels = ['info', 'warning', 'error'];
-  let maxLevel = 'info';
-  for (const d of diagnostics) {
-    if (levels.indexOf(d.level) > levels.indexOf(maxLevel)) {
-      maxLevel = d.level;
-    }
-  }
+  const maxLevel = diagnosticsLevel(diagnostics);
 
   const icon =
     maxLevel === 'info'
@@ -435,7 +494,7 @@ export function renderDiagnosticsBar(diagnostics) {
     .join('');
 
   return `
-    <details class="diagnostics-bar diagnostics-${escapeHtml(maxLevel)} animate-fade-in">
+    <details class="diagnostics-bar diagnostics-${escapeHtml(maxLevel)} animate-fade-in"${open ? ' open' : ''}>
       <summary class="diagnostics-toggle">
         ${icon}
         <span>${label}</span>

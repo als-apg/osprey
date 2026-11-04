@@ -651,7 +651,6 @@ describe('badge strip', () => {
     ['pending', 'pending'],
     ['stale', 'stale'],
     ['failed', 'failed'],
-    ['n/a', 'na'],
   ])('a %s cell carries its state, class and text alternative', async (state, token) => {
     const host = await strip({ image_caption: state });
     const cell = /** @type {HTMLElement} */ (host.querySelector('[data-module="image_caption"]'));
@@ -662,15 +661,19 @@ describe('badge strip', () => {
     expect(cell.getAttribute('title')).toBe(`Image caption: ${state}`);
   });
 
-  test('one cell per module in module order; missing or unknown states read n/a', async () => {
-    const host = await strip({ text_embedding: 'bogus', other_module: 'complete' });
+  test('one cell per module that applies, in module order; n/a cells render nothing', async () => {
+    const host = await strip({ text_embedding: 'pending', image_caption: 'n/a' });
     const cells = Array.from(host.querySelectorAll('.ariel-strip-cell'));
     expect(cells.map((c) => /** @type {HTMLElement} */ (c).dataset.module)).toEqual([
       'text_embedding',
-      'image_caption',
     ]);
-    expect(cells.map((c) => /** @type {HTMLElement} */ (c).dataset.state)).toEqual(['n/a', 'n/a']);
     expect(host.querySelector('.ariel-strip')?.getAttribute('aria-label')).toBe('Enhancements');
+  });
+
+  test('missing, unknown or n/a states everywhere: no strip at all', async () => {
+    expect((await strip({ text_embedding: 'bogus', other_module: 'complete' })).innerHTML).toBe('');
+    expect((await strip({ text_embedding: 'n/a', image_caption: 'n/a' })).innerHTML).toBe('');
+    expect((await strip(undefined)).innerHTML).toBe('');
   });
 
   test('no modules: no strip', async () => {
@@ -1036,5 +1039,47 @@ describe('notice', () => {
     store.setState({ filter: { author: ['bob'] } });
     expect(store.getState().notice).toBeNull();
     expect(notice.hidden).toBe(true);
+  });
+});
+
+describe('row times and previews', () => {
+  /** @returns {Promise<any>} */
+  async function components() {
+    return import('../../../src/osprey/interfaces/ariel/static/js/components.js');
+  }
+
+  test('a row under a day heading shows the time only; the full date is its tooltip', async () => {
+    const c = await components();
+    const { html } = c.renderDayGroupedRows([entry('E1', '2026-08-25T12:00:00Z')], null, null);
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    const time = /** @type {HTMLElement} */ (host.querySelector('.ariel-row-time'));
+    expect(time.textContent).toBe(c.formatTime('2026-08-25T12:00:00Z'));
+    expect(time.textContent).not.toContain('2026');
+    expect(time.title).toBe(c.formatTimestamp('2026-08-25T12:00:00Z'));
+  });
+
+  test('a row with no day heading (search results) keeps the full date', async () => {
+    const c = await components();
+    const host = document.createElement('div');
+    host.innerHTML = c.renderListRow(entry('E1', '2026-08-25T12:00:00Z'));
+    expect(host.querySelector('.ariel-row-time')?.textContent).toBe(
+      c.formatTimestamp('2026-08-25T12:00:00Z')
+    );
+  });
+
+  test('a search row with no highlight and no snippet previews the entry text', async () => {
+    const c = await components();
+    const row = {
+      ...entry('E1'),
+      snippet: undefined,
+      highlights: [],
+      raw_text: 'Linac gun cathode replacement\n\nReplaced the thermionic cathode.',
+    };
+    const host = document.createElement('div');
+    host.innerHTML = c.renderListRow(row);
+    expect(host.querySelector('.ariel-row-preview')?.textContent).toBe(
+      'Replaced the thermionic cathode.'
+    );
   });
 });

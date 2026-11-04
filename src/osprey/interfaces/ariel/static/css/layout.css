@@ -618,10 +618,14 @@ body.embedded .header {
   overflow-wrap: anywhere;
 }
 
+/* The list's default share is a mail client's: a third of the panel, so a
+   typical subject fits on its row beside the time at 1440 px. It never seeds
+   narrower than the 380 px row the list was laid out for, and a width the
+   operator drags is written inline by the splitter and wins. */
 .ariel-list-col {
   position: relative;
-  flex: 0 0 380px;
-  max-width: 380px;
+  flex: 0 0 max(380px, calc(100% / 3));
+  max-width: max(380px, calc(100% / 3));
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -678,6 +682,38 @@ body.embedded .header {
 .ariel-list-search {
   flex: 1;
   min-width: 0;
+}
+
+/* A search issue is a dot on the mode chip (list.js paintIssues); the text is
+   the chip's tooltip and description, and the top of its popover. */
+.ariel-mode-chip {
+  position: relative;
+}
+
+.ariel-mode-chip-dot {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-info);
+}
+
+.ariel-mode-chip-dot[data-level='warning'] {
+  background: var(--color-warning);
+}
+
+.ariel-mode-chip-dot[data-level='error'] {
+  background: var(--color-error);
+}
+
+.ariel-search-issues {
+  margin-bottom: var(--space-2);
+}
+
+.ariel-search-issues[hidden] {
+  display: none;
 }
 
 .ariel-list-banners {
