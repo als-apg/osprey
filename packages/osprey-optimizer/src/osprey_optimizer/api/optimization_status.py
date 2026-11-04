@@ -15,7 +15,7 @@ from osprey_optimizer.api.job_status import load_job_meta
 from osprey_optimizer.api.job_tracker import JobTracker
 from osprey_optimizer.api.summary import SummaryContext, compute_result_summary
 from osprey_optimizer.models.api import JobResponse, ResultSummary
-from osprey_optimizer.models.enums import JobStatus, JobType
+from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.optimization.state import (
     OptimizationStateReader,
     get_optimization_reader,
@@ -123,7 +123,6 @@ def build_optimization_response(
 
     response = JobResponse(
         job_id=job_id,
-        job_type=JobType.OPTIMIZATION,
         status=opt_status,
         created_at=created_at_iso,
         error_message=error_msg,

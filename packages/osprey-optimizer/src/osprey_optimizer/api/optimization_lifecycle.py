@@ -31,7 +31,6 @@ from osprey_optimizer.api.runner import run_optimization_process
 from osprey_optimizer.api.security import check_target_allowed
 from osprey_optimizer.models.api import JobResponse
 from osprey_optimizer.models.config import OptimizationConfig, machine_config
-from osprey_optimizer.models.enums import JobType
 from osprey_optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
 from osprey_optimizer.optimization.state import (
     get_optimization_reader,
@@ -211,7 +210,6 @@ def create_optimization_job(
     persist_created_job(
         tracker=tracker,
         job_id=job_id,
-        job_type=JobType.OPTIMIZATION,
         payload_json=config.model_dump_json(),
         make_writer=get_optimization_writer,
     )
@@ -289,7 +287,6 @@ def start_optimization_job(
     pid = launch_job(
         tracker=tracker,
         job_id=job_id,
-        job_type=JobType.OPTIMIZATION,
         make_writer=get_optimization_writer,
         spawn_target=run_optimization_process,
         spawn_args=(job_id, config.model_dump(), results_dir_str, owner),

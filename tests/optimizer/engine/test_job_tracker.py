@@ -1,7 +1,7 @@
-"""Tests for api/job_tracker.py — JobTracker, create_job_state, and JobLifecycle.
+"""Tests for api/job_tracker.py — JobTracker and JobLifecycle.
 
 Canonical home for api/job_tracker.py, covering JobTracker methods,
-claim_active_job, create_job_state, and the JobLifecycle context manager
+claim_active_job, and the JobLifecycle context manager
 (heartbeat loop, __enter__/__exit__ status transitions, and real-Redis
 integration), consolidating what was previously split out into
 test_job_lifecycle.py. Also covers the small api/ job-lifecycle ops that sit
@@ -40,12 +40,11 @@ from osprey_optimizer.api.job_tracker import (
     JobMeta,
     JobSlotLostError,
     JobTracker,
-    create_job_state,
 )
 from osprey_optimizer.core.state import TERMINAL_STATE_TTL_SECONDS
 from osprey_optimizer.models.enums import JobStatus, JobType
 from osprey_optimizer.models.exceptions import CancellationError
-from osprey_optimizer.optimization.state import OptimizationStateWriter, _OptimizationState
+from osprey_optimizer.optimization.state import OptimizationStateWriter, get_optimization_writer
 from osprey_optimizer.utils import cancellation
 from osprey_optimizer.utils.cancellation import get_cancellation_token
 from osprey_optimizer.utils.job_keys import job_scan_pattern, meta_key, state_prefix
@@ -70,18 +69,15 @@ def meta_json(
     *,
     status: JobStatus = JobStatus.RUNNING,
     pid: int = 1,
-    job_type: JobType = JobType.OPTIMIZATION,
 ) -> str:
     """A serialized ``JobMeta``, exactly as the tracker writes ``job:{id}:meta``."""
-    return JobMeta(
-        job_id=job_id, pid=pid, status=status, created_at=1712000000.0, job_type=job_type
-    ).model_dump_json()
+    return JobMeta(job_id=job_id, pid=pid, status=status, created_at=1712000000.0).model_dump_json()
 
 
 def _corrupt_meta_error() -> ValidationError:
     """The real ValidationError a corrupt ``job:{id}:meta`` record parses into."""
     with pytest.raises(ValidationError) as exc:
-        JobMeta.model_validate_json(json.dumps({"job_id": "j1", "job_type": "bogus"}))
+        JobMeta.model_validate_json(json.dumps({"job_id": "j1", "status": "bogus"}))
     return exc.value
 
 
@@ -94,7 +90,7 @@ def _corrupt_meta_error() -> ValidationError:
         # An unparsable record is skipped too, so one corrupt job cannot sink
         # the whole GET /jobs listing.
         pytest.param(
-            json.dumps({"job_id": "b", "job_type": "bogus"}), {"a"}, id="skips_unparsable_record"
+            json.dumps({"job_id": "b", "status": "bogus"}), {"a"}, id="skips_unparsable_record"
         ),
     ],
 )
@@ -114,12 +110,11 @@ def test_list_job_metas(
 def test_register_created_job_writes_created_meta_without_claiming_slot(
     seam_redis_mock: MagicMock,
 ) -> None:
-    JobTracker().register_created_job("job-1", job_type=JobType.OPTIMIZATION)
+    JobTracker().register_created_job("job-1")
 
     set_calls = {c.args[0]: c for c in seam_redis_mock.set.call_args_list}
     meta = json.loads(set_calls["job:job-1:meta"].args[1])
     assert meta["status"] == JobStatus.CREATED.value
-    assert meta["job_type"] == JobType.OPTIMIZATION.value
     # The active slot must NOT be claimed (non-reserving).
     assert ACTIVE_JOB_KEY not in set_calls
 
@@ -154,7 +149,7 @@ class TestJobTrackerMissing:
         """A record that no longer parses raises rather than returning a partial
         job — the job_status read seam maps that to a 500."""
         mock_redis, _ = redis_mocks
-        mock_redis.get.return_value = json.dumps({"job_id": "j1", "job_type": "bogus"})
+        mock_redis.get.return_value = json.dumps({"job_id": "j1", "status": "bogus"})
         with pytest.raises(ValidationError):
             JobTracker().get_job("j1")
 
@@ -163,7 +158,6 @@ class TestJobTrackerMissing:
         the tracker has always written (Redis records survive a redeploy)."""
         stored = json.loads(meta_json("j1", pid=1234))
         assert stored["status"] == JobStatus.RUNNING.value == "running"
-        assert stored["job_type"] == JobType.OPTIMIZATION.value == "optimization"
         assert stored["job_id"] == "j1"
         assert stored["pid"] == 1234
 
@@ -307,11 +301,11 @@ class TestClaimActiveJob:
 
         # Our job is registered CREATED (the launch_job pre-condition).
         created = "created-job"
-        tracker.register_created_job(created, job_type=JobType.OPTIMIZATION)
+        tracker.register_created_job(created)
         assert tracker.job_exists(created)
 
         # Contended claim loses the race.
-        claimed = tracker.claim_active_job(created, 0, job_type=JobType.OPTIMIZATION)
+        claimed = tracker.claim_active_job(created, 0)
 
         assert claimed is False
         # The CREATED meta must still be present and unchanged.
@@ -325,17 +319,17 @@ class TestClaimActiveJob:
     def test_claim_takes_the_slot_of_a_job_that_died_holding_it(self, tracker: JobTracker) -> None:
         """A job killed mid-run leaves the slot set and its keys expire; the next start still claims."""
         tracker._get_redis().set(ACTIVE_JOB_KEY, "killed-job")  # no meta: it expired
-        tracker.register_created_job("next-job", job_type=JobType.OPTIMIZATION)
+        tracker.register_created_job("next-job")
 
-        assert tracker.claim_active_job("next-job", 0, job_type=JobType.OPTIMIZATION) is True
+        assert tracker.claim_active_job("next-job", 0) is True
         assert tracker._get_redis().get(ACTIVE_JOB_KEY) == "next-job"
 
     def test_claim_success_sets_active_and_running_meta(self, tracker: JobTracker) -> None:
         """An uncontended claim takes the slot and writes RUNNING meta atomically."""
         job_id = "fresh-job"
-        tracker.register_created_job(job_id, job_type=JobType.OPTIMIZATION)
+        tracker.register_created_job(job_id)
 
-        claimed = tracker.claim_active_job(job_id, 123, job_type=JobType.OPTIMIZATION)
+        claimed = tracker.claim_active_job(job_id, 123)
 
         assert claimed is True
         redis = tracker._get_redis()
@@ -348,28 +342,8 @@ class TestClaimActiveJob:
         assert 0 < redis.ttl(meta_key(job_id)) <= 60
 
 
-class TestCreateJobState:
-    """Tests for the create_job_state factory function.
-
-    The factory is a thin JobType dispatcher over ``core.state_access``.
-    Construction + Redis wiring coverage lives in ``test_state.py``;
-    these tests only verify the dispatch contract.
-    """
-
-    @pytest.mark.parametrize(
-        ("job_type", "expected_cls"),
-        [
-            pytest.param(JobType.OPTIMIZATION, _OptimizationState, id="optimization"),
-        ],
-    )
-    def test_job_type_returns_matching_state(self, job_type: JobType, expected_cls: type) -> None:
-        with patch("osprey_optimizer.utils.redis_client.get_redis_client"):
-            writer = create_job_state(job_type, "job-1")
-        assert isinstance(writer, expected_cls)
-
-
 def test_set_and_get_current_job_round_trip(tracker: JobTracker) -> None:
-    tracker.register_created_job("job-1", job_type=JobType.OPTIMIZATION)
+    tracker.register_created_job("job-1")
     tracker.set_current_job("job-1")
     assert tracker.get_current_job() == "job-1"
 
@@ -443,15 +417,9 @@ class TestJobLifecycle:
             str_client, _ = request.getfixturevalue("redis_mocks")
             str_client.register_script.return_value.return_value = 1
 
-    @pytest.mark.parametrize(
-        "job_type",
-        [pytest.param(JobType.OPTIMIZATION, id="optimization")],
-    )
-    def test_enter_registers_the_pid_and_leaves_the_status_as_found(
-        self, redis_mocks, job_type: JobType
-    ):
+    def test_enter_registers_the_pid_and_leaves_the_status_as_found(self, redis_mocks):
         mock_redis_str, mock_redis_bin = redis_mocks
-        lc = JobLifecycle("job-1", job_type=job_type)
+        lc = JobLifecycle("job-1")
         lc.__enter__()
 
         # register_job ran the slot-checked script: RUNNING meta under the
@@ -465,7 +433,6 @@ class TestJobLifecycle:
         meta = json.loads(meta_arg)
         assert meta["status"] == JobStatus.RUNNING.value
         assert meta["pid"] == 12345
-        assert meta["job_type"] == job_type.value
         assert ttl_arg == RUNNING_STATE_TTL_SECONDS
         assert not any(c.args[0] == ACTIVE_JOB_KEY for c in mock_redis_str.set.call_args_list)
 
@@ -661,22 +628,16 @@ class TestJobLifecycle:
         assert "Error during lifecycle cleanup" in caplog.text
 
     @pytest.mark.usefixtures("redis_mocks")
-    @pytest.mark.parametrize(
-        ("job_type", "expected_cls"),
-        [
-            pytest.param(JobType.OPTIMIZATION, OptimizationStateWriter, id="optimization"),
-        ],
-    )
-    def test_job_type_creates_matching_writer(self, job_type: JobType, expected_cls: type):
-        lc = JobLifecycle("job-w", job_type=job_type)
+    def test_enter_creates_an_optimization_writer(self):
+        lc = JobLifecycle("job-w")
         lc.__enter__()
-        assert isinstance(lc.writer, expected_cls)
+        assert isinstance(lc.writer, OptimizationStateWriter)
 
 
 def _launched(job_id: str) -> str:
     """Do what the launcher does before spawning: claim the slot, set RUNNING."""
-    assert JobTracker().claim_active_job(job_id, 0, job_type=JobType.OPTIMIZATION)
-    create_job_state(JobType.OPTIMIZATION, job_id).set_status(JobStatus.RUNNING)
+    assert JobTracker().claim_active_job(job_id, 0)
+    get_optimization_writer(job_id).set_status(JobStatus.RUNNING)
     return job_id
 
 
@@ -782,7 +743,6 @@ def _call(
     return launch_job(
         tracker=tracker,
         job_id="job-1",
-        job_type=JobType.OPTIMIZATION,
         make_writer=make_writer,
         spawn_target=spawn_target or MagicMock(),
         spawn_args=("a",),
@@ -853,7 +813,7 @@ def test_success_returns_pid_and_registers_only_when_present(pid: int | None) ->
     if pid is None:
         tracker.register_job.assert_not_called()
     else:
-        tracker.register_job.assert_called_once_with("job-1", pid, job_type=JobType.OPTIMIZATION)
+        tracker.register_job.assert_called_once_with("job-1", pid)
 
 
 def test_read_job_status_builds_response_from_meta_and_state() -> None:
@@ -863,7 +823,6 @@ def test_read_job_status_builds_response_from_meta_and_state() -> None:
         pid=1,
         status=JobStatus.RUNNING,
         created_at=1700000000.0,
-        job_type=JobType.OPTIMIZATION,
     )
     reader = MagicMock()
     reader.get_status.return_value = JobStatus.RUNNING
@@ -871,16 +830,15 @@ def test_read_job_status_builds_response_from_meta_and_state() -> None:
     reader.get_error_message.return_value = None
     awaiting = {"state": "awaiting", "id": "req-1", "owner": "alice"}
     reader.get_write_authorization.return_value = awaiting
-    with patch(f"{_JS}.create_job_state", return_value=reader) as create_state:
+    with patch(f"{_JS}.get_optimization_reader", return_value=reader) as create_state:
         resp = js.read_job_status(tracker, "job-1")
 
     # Meta-derived fields exercise the coercion + ISO formatting (the real logic).
     assert resp.job_id == "job-1"
     assert resp.job_type is JobType.OPTIMIZATION
     assert resp.created_at == "2023-11-14T22:13:20+00:00"  # 1700000000.0 as UTC ISO
-    # The live reader is built from the meta-derived job_type (arg delegation that
-    # fails if the coerced type is not the one used to construct the state reader).
-    create_state.assert_called_once_with(JobType.OPTIMIZATION, "job-1")
+    # The live reader is built for the requested job.
+    create_state.assert_called_once_with("job-1")
     # Reader values are surfaced onto the response, using distinguishable values so a
     # hardcoded status or a status/logs field swap fails.
     assert resp.status is JobStatus.RUNNING
@@ -917,7 +875,7 @@ class TestJobLifecycleSlotIntegration:
         tracker = JobTracker()
         old = _launched("slot-old")
         tracker.mark_completed(old)  # released before the old worker got going
-        assert tracker.claim_active_job("slot-new", 0, job_type=JobType.OPTIMIZATION)
+        assert tracker.claim_active_job("slot-new", 0)
 
         with pytest.raises(JobSlotLostError):
             JobLifecycle(old).__enter__()
@@ -926,7 +884,7 @@ class TestJobLifecycleSlotIntegration:
 
     def test_a_pause_landed_during_the_spawn_survives_the_worker_starting(self):
         job_id = _launched("slot-paused")
-        writer = create_job_state(JobType.OPTIMIZATION, job_id)
+        writer = get_optimization_writer(job_id)
         assert writer.set_status_cas(JobStatus.RUNNING, JobStatus.PAUSED)
 
         lc = JobLifecycle(job_id)
@@ -993,14 +951,14 @@ def shutdown_seams() -> Generator[dict[str, MagicMock], None, None]:
     """Patch the cancel path's collaborators where job_control looks them up."""
     with (
         patch(f"{_JC}.cancel_with_reread") as cancel,
-        patch(f"{_JC}.create_job_state") as make_writer,
+        patch(f"{_JC}.get_optimization_writer") as make_writer,
         patch(f"{_JC}.get_cancellation_token") as get_token,
     ):
         yield {"cancel": cancel, "make_writer": make_writer, "get_token": get_token}
 
 
 def _record(job_id: str, process: object) -> None:
-    job_control._launched[job_id] = (JobType.OPTIMIZATION, process)  # type: ignore[assignment]
+    job_control._launched[job_id] = process  # type: ignore[assignment]
 
 
 class TestStopLaunchedJobs:
@@ -1121,14 +1079,14 @@ class TestStopLaunchedJobs:
         tracker = MagicMock()
         tracker.claim_active_job.return_value = True
         _record("old", _FakeProcess(exits_on="join"))
-        job_control._launched["old"][1].join()
+        job_control._launched["old"].join()
 
         with patch(f"{_JC}.reap_finished_children"), patch(f"{_JC}.multiprocessing") as mp:
             proc = mp.get_context.return_value.Process.return_value
             proc.pid = 4321
             _call(tracker, MagicMock())
 
-        assert job_control._launched == {"job-1": (JobType.OPTIMIZATION, proc)}
+        assert job_control._launched == {"job-1": proc}
 
     def test_grace_defaults_to_the_env_setting(self, shutdown_seams, monkeypatch):
         monkeypatch.setenv(SHUTDOWN_GRACE_ENV, "0")
@@ -1245,13 +1203,12 @@ class TestStopLaunchedJobsIntegration:
         launch_job(
             tracker=tracker,
             job_id=job_id,
-            job_type=JobType.OPTIMIZATION,
-            make_writer=lambda jid: create_job_state(JobType.OPTIMIZATION, jid),
+            make_writer=get_optimization_writer,
             spawn_target=target,
             spawn_args=(job_id, ready),
         )
         assert ready.wait(60), "worker never became ready"
-        return tracker, job_control._launched[job_id][1]
+        return tracker, job_control._launched[job_id]
 
     def test_a_cooperative_worker_records_its_own_cancel(self):
         tracker, process = self._launch(_shutdown_workers.cooperative_job, "shutdown-coop")
@@ -1259,7 +1216,7 @@ class TestStopLaunchedJobsIntegration:
         stop_launched_jobs(tracker, grace_s=30)
 
         assert process.exitcode == 1  # the CancellationError propagates out of the run
-        writer = create_job_state(JobType.OPTIMIZATION, "shutdown-coop")
+        writer = get_optimization_writer("shutdown-coop")
         assert writer.get_status() == JobStatus.CANCELLED
         assert writer.get_error_message() == CANCELLED_MESSAGE
         assert tracker.get_active_job() is None
@@ -1273,9 +1230,9 @@ class TestStopLaunchedJobsIntegration:
         elapsed = time.monotonic() - started
         assert process.exitcode == -signal.SIGKILL
         assert elapsed < 0.5 + TERMINATE_WAIT_SECONDS + KILL_WAIT_SECONDS + 2
-        writer = create_job_state(JobType.OPTIMIZATION, "shutdown-stuck")
+        writer = get_optimization_writer("shutdown-stuck")
         assert writer.get_status() == JobStatus.CANCELLED
         assert writer.get_error_message() == SHUTDOWN_KILLED_MESSAGE
         str_client = get_redis_client(binary=False)
         assert str_client.get(ACTIVE_JOB_KEY) is None
-        assert tracker.claim_active_job("next-job", 0, job_type=JobType.OPTIMIZATION)
+        assert tracker.claim_active_job("next-job", 0)

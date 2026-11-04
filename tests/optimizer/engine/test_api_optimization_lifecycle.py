@@ -272,7 +272,6 @@ def test_start_launches_when_created(seam_redis_mock: MagicMock) -> None:
 
     assert resp.status is JobStatus.RUNNING
     assert resp.job_id == "job-1"
-    assert launch.call_args.kwargs["job_type"] is JobType.OPTIMIZATION
     # The worker runs the config the start gates passed, never a re-read of the draft.
     assert launch.call_args.kwargs["spawn_args"][1] == _config().model_dump()
     seam_redis_mock.get.assert_not_called()

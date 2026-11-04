@@ -17,7 +17,7 @@ from osprey_optimizer.api.dependencies import (
 from osprey_optimizer.api.environment_ops import guard_environment_start, load_environment
 from osprey_optimizer.api.job_control import cancel_with_reread, raise_control_conflict_409
 from osprey_optimizer.api.job_status import read_job_status
-from osprey_optimizer.api.job_tracker import JobMeta, JobTracker, create_job_state
+from osprey_optimizer.api.job_tracker import JobMeta, JobTracker
 from osprey_optimizer.api.optimization_lifecycle import (
     read_optimization_config,
     require_model_file_under_results,
@@ -30,8 +30,8 @@ from osprey_optimizer.api.security import check_target_allowed, require_launch_t
 from osprey_optimizer.api.start_gates import run_start_gates
 from osprey_optimizer.models.api import CurrentJobRequest, CurrentJobResponse, JobResponse
 from osprey_optimizer.models.config import OptimizationConfig, machine_config
-from osprey_optimizer.models.enums import JobStatus, JobType
-from osprey_optimizer.optimization.state import get_optimization_writer
+from osprey_optimizer.models.enums import JobStatus
+from osprey_optimizer.optimization.state import get_optimization_reader, get_optimization_writer
 from osprey_optimizer.services.plugin_registry import EnvironmentRegistry
 from osprey_optimizer.utils.cancellation import get_cancellation_token
 
@@ -40,25 +40,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-def _cancel_job(job_id: str, job_type: JobType, tracker: JobTracker) -> None:
+def _cancel_job(job_id: str, tracker: JobTracker) -> None:
     """Cancel a job by setting the cancellation token and updating state."""
-    writer = create_job_state(job_type, job_id)
+    writer = get_optimization_writer(job_id)
     token = get_cancellation_token(job_id)
     cancel_with_reread(job_id, writer, token, tracker)
-
-
-def _require_optimization(meta: JobMeta, action: str) -> None:
-    """409 if the job's type does not support ``action`` (404 already handled).
-
-    start/pause/resume need the optimization lifecycle (two-phase start and
-    ``wait_if_paused``). The job's existence is the ``require_job_meta``
-    dependency's job, so this only checks the type.
-    """
-    if meta.job_type is not JobType.OPTIMIZATION:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"job type '{meta.job_type.value}' does not support {action}",
-        )
 
 
 def _control_action(
@@ -166,14 +152,14 @@ def get_job_status(
     job_id: str,
     detail: Literal["summary", "full"] | None = Query(None),
     tracker: JobTracker = Depends(get_job_tracker),
-    meta: JobMeta = Depends(require_job_meta),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
 ) -> JobResponse:
     """Get the status of any job; ``detail=summary|full`` enriches optimizations.
 
-    Default (no ``detail``) returns the basic status for any job type.
+    Default (no ``detail``) returns the basic status.
     """
     try:
-        if meta.job_type is JobType.OPTIMIZATION and detail is not None:
+        if detail is not None:
             return build_optimization_response(job_id, detail, tracker)
         response = read_job_status(tracker, job_id)
         if response.status.is_terminal:
@@ -193,12 +179,12 @@ def get_job_status(
 def cancel_job(
     job_id: str,
     tracker: JobTracker = Depends(get_job_tracker),
-    meta: JobMeta = Depends(require_job_meta),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
 ) -> JobResponse:
     """Cancel any running job."""
     logger.info("Cancel request for job %s", job_id)
 
-    current = create_job_state(meta.job_type, job_id).get_status()
+    current = get_optimization_reader(job_id).get_status()
     if current.is_terminal:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -206,7 +192,7 @@ def cancel_job(
         )
 
     try:
-        _cancel_job(job_id, meta.job_type, tracker)
+        _cancel_job(job_id, tracker)
         return read_job_status(tracker, job_id)
     except HTTPException:
         raise
@@ -271,20 +257,18 @@ def update_job_config(
     request: OptimizationConfig,
     tracker: JobTracker = Depends(get_job_tracker),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
-    meta: JobMeta = Depends(require_job_meta),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
 ) -> JobResponse:
     """Replace a CREATED optimization job's stored config (live-sync)."""
-    _require_optimization(meta, "config update")
     return update_optimization_config(job_id, request, tracker, registry)
 
 
 @router.get("/{job_id}/config", response_model=OptimizationConfig)
 def get_job_config(
     job_id: str,
-    meta: JobMeta = Depends(require_job_meta),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
 ) -> OptimizationConfig:
     """Return an optimization job's stored config (read-side of live-sync)."""
-    _require_optimization(meta, "config read")
     return read_optimization_config(job_id)
 
 
@@ -292,10 +276,9 @@ def get_job_config(
 def pause_job(
     job_id: str,
     tracker: JobTracker = Depends(get_job_tracker),
-    meta: JobMeta = Depends(require_job_meta),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
 ) -> JobResponse:
     """Pause a running optimization job."""
-    _require_optimization(meta, "pause")
     return _control_action(job_id, "pause", tracker)
 
 
@@ -307,8 +290,7 @@ def pause_job(
 def resume_job(
     job_id: str,
     tracker: JobTracker = Depends(get_job_tracker),
-    meta: JobMeta = Depends(require_job_meta),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
 ) -> JobResponse:
     """Resume a paused optimization job."""
-    _require_optimization(meta, "resume")
     return _control_action(job_id, "resume", tracker)

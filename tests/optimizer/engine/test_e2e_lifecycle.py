@@ -21,12 +21,12 @@ import polars as pl
 import pytest
 from redis import Redis
 
-from osprey_optimizer.api.job_tracker import JobLifecycle, JobTracker, create_job_state
+from osprey_optimizer.api.job_tracker import JobLifecycle, JobTracker
 from osprey_optimizer.events import EventType, OptimizationEvent
 from osprey_optimizer.models.config import OptimizationConfig
-from osprey_optimizer.models.enums import JobStatus, JobType
+from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.exceptions import CancellationError
-from osprey_optimizer.optimization.state import get_optimization_reader
+from osprey_optimizer.optimization.state import get_optimization_reader, get_optimization_writer
 from osprey_optimizer.results import load_results
 from osprey_optimizer.services.draft_resolution import resolve_draft_config
 from osprey_optimizer.services.execution import ExecutionService
@@ -239,8 +239,8 @@ def _run_service(
         side_effect=_make_redis_factory(redis_url),
     ):
         # As the launcher does before spawning: claim the slot, set RUNNING.
-        JobTracker().claim_active_job(control_key, 0, job_type=JobType.OPTIMIZATION)
-        create_job_state(JobType.OPTIMIZATION, control_key).set_status(JobStatus.RUNNING)
+        JobTracker().claim_active_job(control_key, 0)
+        get_optimization_writer(control_key).set_status(JobStatus.RUNNING)
         try:
             with JobLifecycle(control_key):
                 service = ExecutionService(
