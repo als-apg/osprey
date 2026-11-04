@@ -574,23 +574,38 @@ def _is_engine_marker(node: ast.AST) -> bool:
     )
 
 
-def _engine_reaches(source: str, recipes: frozenset[str] | None = None) -> list[str]:
-    """Every place *source* imports a container recipe or applies an engine marker."""
+def _engine_reaches(
+    source: str,
+    recipes: frozenset[str] | None = None,
+    *,
+    here: tuple[str, ...] = ("tests", "test_sample.py"),
+    root: Path = REPO_ROOT,
+) -> list[str]:
+    """Every place *source*, the module at repo-relative parts *here*, reaches a
+    container engine: an import of a recipe, directly, relatively or through a
+    ``tests`` helper that imports one, or an engine marker."""
     recipes = _container_recipes() if recipes is None else recipes
     reaches = []
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Import):
-            imported = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            imported = [node.module, *(f"{node.module}.{alias.name}" for alias in node.names)]
-        elif isinstance(node, ast.Attribute) and _is_engine_marker(node):
+        if isinstance(node, ast.Attribute) and _is_engine_marker(node):
             reaches.append(f"line {node.lineno}: applies pytest.mark.{node.attr}")
             continue
-        else:
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
             continue
-        reaches.extend(
-            f"line {node.lineno}: imports {name}" for name in imported if name in recipes
-        )
+        for name in _import_names(node, here):
+            if name in recipes:
+                reaches.append(f"line {node.lineno}: imports {name}")
+            elif (path := _module_file(name, root)) is not None:
+                closure = _imported_modules(
+                    path.read_text(encoding="utf-8"),
+                    path.relative_to(root).parts,
+                    root=root,
+                    follow=True,
+                )
+                reaches.extend(
+                    f"line {node.lineno}: imports {name}, which imports {recipe}"
+                    for recipe in sorted(closure & recipes)
+                )
     return sorted(reaches)
 
 
@@ -601,7 +616,11 @@ def test_no_invariant_test_reaches_a_container_engine() -> None:
     reaching = {
         path: found
         for path in fw.INVARIANT_TESTS
-        if (found := _engine_reaches((REPO_ROOT / path).read_text(encoding="utf-8"), recipes))
+        if (
+            found := _engine_reaches(
+                (REPO_ROOT / path).read_text(encoding="utf-8"), recipes, here=Path(path).parts
+            )
+        )
     }
     assert reaching == {}
 
@@ -617,6 +636,46 @@ def test_no_invariant_test_reaches_a_container_engine() -> None:
 )
 def test_a_source_that_reaches_a_container_engine_is_named(source: str) -> None:
     assert _engine_reaches(source) != []
+
+
+@pytest.mark.parametrize(
+    ("source", "reaches"),
+    [
+        ("from .. import _rec\n", True),
+        ("import tests._helper\n", True),
+        ("from .._helper import x\n", True),
+        ("import tests._cycle_a\n", True),
+        ("import tests._plain\n", False),
+    ],
+    ids=[
+        "relative-import-of-a-recipe",
+        "helper-that-imports-a-recipe",
+        "relative-helper",
+        "helper-cycle",
+        "helper-without-a-recipe",
+    ],
+)
+def test_a_relative_or_helper_import_of_a_recipe_is_named(
+    tmp_path: Path, source: str, reaches: bool
+) -> None:
+    tests = tmp_path / "tests"
+    (tests / "sub").mkdir(parents=True)
+    modules = {
+        "__init__.py": "",
+        "sub/__init__.py": "",
+        "_rec.py": "start_or_skip(None)\n",
+        "_helper.py": "from tests import _rec\n",
+        "_cycle_a.py": "import tests._cycle_b\n",
+        "_cycle_b.py": "import tests._cycle_a\nimport tests._rec\n",
+        "_plain.py": "import json\n",
+    }
+    for name, text in modules.items():
+        (tests / name).write_text(text)
+    found = _engine_reaches(
+        source, frozenset({"tests._rec"}), here=("tests", "sub", "test_x.py"), root=tmp_path
+    )
+    assert (found != []) is reaches
+    assert all("tests._rec" in line for line in found)
 
 
 def test_an_engine_marker_spelled_as_text_reaches_nothing() -> None:
