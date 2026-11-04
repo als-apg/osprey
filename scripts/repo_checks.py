@@ -84,6 +84,7 @@ INVARIANT_TESTS = (
     "tests/test_graphdb_container.py",
     "tests/test_mongo_container.py",
     "tests/test_no_legacy_symbols.py",
+    "tests/test_wait_ceilings.py",
 )
 
 LIVE_CA_VENUE = "linux-x86_64"

@@ -11,16 +11,18 @@ named ceilings and read both bounds from the declarations that state them.
 The CI steps that run those marks are bounded too: each step cap outlasts the
 marks it runs, and the job cap outlasts its step caps, so a slow sidecar ends
 with the wait's own message rather than a cancelled step. Every
-``wait_until_ready`` site that passes a ``ceiling=`` is declared below, against
-the mark that bounds it or the reason none has to.
+``wait_until_ready`` site that passes a ``ceiling=`` is declared once, in
+``tests/test_wait_ceilings.py``; the ceilings' values are checked here against
+the marks or the per-test cap its rows name.
 """
 
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.util
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -37,6 +39,7 @@ from tests.integration import (
     test_qmd_ariel_search_sidecar,
     test_qmd_okf_search_sidecar,
 )
+from tests.test_wait_ceilings import CEILING_SITES, Covered
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -273,3 +276,36 @@ def test_the_deploy_lifecycle_qmd_mark_is_its_longest_chain_of_waits(pytest_chec
     assert budget == test_deploy_lifecycle.DEPLOY_LIFECYCLE_QMD_TIMEOUT
     assert chain == budget
     assert budget < pytest_check.bound_s
+
+
+#: The marks a covered ceiling can sit under, by the name its row uses.
+MARKS: dict[str, Callable[[], float]] = {
+    "ARIEL module": lambda: _timeout_mark(test_qmd_ariel_search_sidecar),
+    "OKF module": lambda: _timeout_mark(test_qmd_okf_search_sidecar),
+    "deploy qmd test": _deploy_qmd_mark,
+}
+
+
+def _ceiling_value(path: str, text: str) -> float:
+    """The seconds a declared ceiling expression stands for, read from its module.
+
+    A name is looked up in the module that passes it; any other expression must
+    be a literal.
+    """
+    if not text.isidentifier():
+        return float(ast.literal_eval(text))
+    module = importlib.import_module(path.removesuffix(".py").replace("/", "."))
+    return float(getattr(module, text))
+
+
+def test_every_long_ceiling_sits_under_a_mark(pytest_check):
+    cap = _per_test_cap(pytest_check)
+    for (path, text), row in CEILING_SITES.items():
+        ceiling = _ceiling_value(path, text)
+        if isinstance(row, Covered):
+            for mark in row.marks:
+                assert mark in MARKS, f"{path} ceiling={text} names no known mark {mark!r}"
+                bound = MARKS[mark]()
+                assert ceiling < bound, f"{path} ceiling={text} {ceiling} s >= {mark} {bound} s"
+        else:
+            assert ceiling <= cap, f"{path} ceiling={text} {ceiling} s > per-test cap {cap} s"
