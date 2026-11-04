@@ -1232,7 +1232,10 @@ the current directory is used.
 
 ``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
    Print one ``<model>: <status>`` line per served physics model, sorted by
-   name, where the status is ``ok`` or the model's error text. One
+   name, where the status is ``ok``, ``no deck`` for a model that names no deck
+   and wires no channel (it is not built, by design, and its channels are the
+   texture's), or ``FAILED:`` followed by the model's error text. The command
+   exits 1 when any model failed, after printing every line. One
    ``log: <absolute path>`` line per model follows, naming the log the
    simulator appends to under ``var/simulator/``, each followed by any
    scenario-overlap records from that log. ``--target`` selects the control

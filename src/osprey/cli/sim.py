@@ -138,27 +138,16 @@ def _require_simulator_view(repo_root: Path) -> SimulatorView:
     return view
 
 
-async def _model_statuses(
-    section: dict, target: str | None, models: list[str], addresses: dict[str, str] | None
-) -> dict[str, str]:
-    """Each model's status, read through the connector built for ``target``.
+def format_model_status(status: str) -> str:
+    """A model's status as one line reads it: ``ok``, ``no deck …`` or ``FAILED: <error>``."""
+    from osprey.simulation.status import MODEL_NO_DECK, MODEL_OK, model_state
 
-    The simulator served in process answers from the composite it holds; any
-    other connector reads each model's status channel, ``addresses[model]``.
-    """
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
-    from osprey_connectors.simulation import model_status, read_model_status
-
-    register_builtin_connectors()
-    connector = await ConnectorFactory.create_control_system_connector(
-        section, control_target=target
-    )
-    try:
-        if addresses is None:
-            return {model: model_status(connector, model) for model in models}
-        return {model: await read_model_status(connector, addresses[model]) for model in models}
-    finally:
-        await connector.disconnect()
+    state = model_state(status)
+    if state == MODEL_OK:
+        return status
+    if state == MODEL_NO_DECK:
+        return f"{status} (not built by design; its channels are the texture's)"
+    return f"FAILED: {status}"
 
 
 def _overlap_records(log: Path) -> list[dict[str, Any]]:
@@ -255,7 +244,13 @@ def list_command(repo: Path | None) -> None:
     help="The control target to report on. Defaults to the deployment's own.",
 )
 def status_command(repo: Path | None, target: str | None) -> None:
-    """Show each served physics model's status and the log it writes."""
+    """Show each served physics model's status and the log it writes.
+
+    A model prints ``ok`` while it serves, ``no deck`` when it names no deck
+    and wires nothing (it is not built, by design), and ``FAILED`` with its
+    error otherwise. The command exits 1 when any model failed.
+    """
+    from osprey.simulation.status import MODEL_FAILED, model_state, target_model_statuses
     from osprey_connectors.types import (
         STANDIN_TYPES,
         TRANSPORT_IN_PROCESS,
@@ -281,20 +276,30 @@ def status_command(repo: Path | None, target: str | None) -> None:
         if connector_transport(section, connector_type) == TRANSPORT_IN_PROCESS
         else dict(view.status_addresses())
     )
-    statuses = asyncio.run(_model_statuses(section, target, models, addresses))
+    statuses = asyncio.run(target_model_statuses(section, target, models, addresses))
+    failed: list[str] = []
     for model in models:
-        output.report(f"{model}: {statuses[model]}")
+        output.report(f"{model}: {format_model_status(statuses[model])}")
+        if model_state(statuses[model]) == MODEL_FAILED:
+            failed.append(model)
 
-    from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
-    from osprey_connectors.simulation import format_overlap_record
     from osprey_connectors.simulation.composite import log_dir
 
     logs = log_dir()
-    if logs is None:
-        return
+    if logs is not None:
+        _report_logs(logs, models, connector_type in STANDIN_TYPES)
+    if failed:
+        raise SystemExit(1)
+
+
+def _report_logs(logs: Path, models: list[str], standin: bool) -> None:
+    """Print each model's log path and the overlap records it holds."""
+    from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey_connectors.simulation import format_overlap_record
+
     # The stand-in appends its model logs in its own subdirectory of the simulator
     # log directory, so the line and the records name the file its server writes.
-    if connector_type in STANDIN_TYPES:
+    if standin:
         logs = logs / SIMULATOR_STANDIN_LOG_SUBDIR
     for model in models:
         log = logs / f"{model}.log"
