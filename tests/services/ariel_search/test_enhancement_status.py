@@ -76,8 +76,10 @@ def _state(module, status, *, images=True, markers=_MARKERS):
 
 _CASES = [
     # (id, module, stored status object or _MISSING, has_images, expected)
-    ("missing-text", "text_embedding", None, True, "pending"),
-    ("missing-image", "image_caption", None, True, "pending"),
+    # Nothing stored means nothing ran: "not_run", never "pending".
+    ("missing-text", "text_embedding", None, True, "not_run"),
+    ("missing-image", "image_caption", None, True, "not_run"),
+    ("stored-pending-text", "text_embedding", {"status": "pending"}, True, "pending"),
     ("missing-image-no-pictures", "image_caption", None, False, "n/a"),
     (
         "image-marker-mismatch-stale",
@@ -242,7 +244,7 @@ def test_disabled_module_is_absent_and_order_follows_enabled():
 @pytest.mark.parametrize("raw", [None, "", "not json", "[]", 42])
 def test_unreadable_status_reads_as_no_keys(raw):
     view = enhancement_view(raw, has_images=True, enabled=["text_embedding"], markers={})
-    assert view == {"text_embedding": "pending"}
+    assert view == {"text_embedding": "not_run"}
 
 
 def test_status_given_as_json_string():
@@ -425,7 +427,7 @@ def test_python_and_sql_agree_on_every_state(module, marker):
     # (test_build_key_python_and_sql_agree_on_every_state).
     can_be_stale = marker is not None and module != "text_embedding"
     image = module in IMAGE_MODULES
-    expected_states = {"pending", "failed", "complete"}
+    expected_states = {"not_run", "pending", "failed", "complete"}
     expected_states |= {"stale"} if can_be_stale else set()
     expected_states |= {"n/a"} if image else set()
     assert seen == expected_states
@@ -708,7 +710,7 @@ def test_rerun_command_enhances_one_module_for_one_entry(module, state):
     )
 
 
-@pytest.mark.parametrize("state", ["complete", "pending", "n/a"])
+@pytest.mark.parametrize("state", ["complete", "pending", "not_run", "n/a"])
 def test_rerun_command_none_for_states_with_nothing_to_rerun(state):
     assert rerun_command("semantic_processor", "e-1", state, _CTX) is None
 
@@ -782,7 +784,7 @@ def test_build_key_python_and_sql_agree_on_every_state():
             got = _evaluate_build_key_case(sql, params, status, False, build_key)
             assert got == expected, (stored, build_key)
             seen.add(expected)
-    assert seen == {"pending", "failed", "stale", "complete"}
+    assert seen == {"not_run", "pending", "failed", "stale", "complete"}
 
 
 def test_build_key_stale_is_a_differing_row_key_and_failed_wins():

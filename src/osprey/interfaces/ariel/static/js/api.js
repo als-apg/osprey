@@ -16,7 +16,7 @@ const API_BASE = '/api';
  * @property {string} label
  * @property {number} order
  * @property {string[]} feeds
- * @property {string} state - complete | pending | stale | failed | n/a
+ * @property {string} state - complete | not_run | pending | stale | failed | n/a
  * @property {?string} [completed_at]
  * @property {?string} [failed_at]
  * @property {?string} [marker]

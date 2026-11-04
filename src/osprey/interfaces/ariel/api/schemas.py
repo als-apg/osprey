@@ -74,7 +74,7 @@ class EntryResponse(BaseModel):
     # deployment with no ``ariel.entry_url_template``.
     entry_url: str | None = None
     # The stored ``enhancement_status`` object; every enabled module's object
-    # also carries its computed ``state`` (pending, stale, failed, complete, n/a).
+    # also carries its computed ``state`` (not_run, pending, stale, failed, complete, n/a).
     enhancement_status: dict[str, Any] = {}
 
 
@@ -375,6 +375,6 @@ class StatusResponse(BaseModel):
     last_ingestion: datetime | None = None
     errors: list[str] = []
     #: Per enabled module, in execution order: ``label`` and the count of
-    #: entries in each badge-strip state (``n/a``, ``pending``, ``stale``,
+    #: entries in each badge-strip state (``n/a``, ``not_run``, ``pending``, ``stale``,
     #: ``failed``, ``complete``). A plain dict because ``n/a`` is no identifier.
     enhancement_coverage: dict[str, dict[str, Any]] = {}

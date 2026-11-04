@@ -2106,6 +2106,7 @@ _LEGACY_COVERAGE = {
     "text_embedding": {
         "label": "Text Embedding",
         "n/a": 0,
+        "not_run": 0,
         "pending": 1,
         "stale": 0,
         "failed": 0,
@@ -2114,6 +2115,7 @@ _LEGACY_COVERAGE = {
     "semantic_processor": {
         "label": "Semantic Processor",
         "n/a": 0,
+        "not_run": 0,
         "pending": 1,
         "stale": 0,
         "failed": 1,
@@ -2334,7 +2336,11 @@ class TestStatusTextCoverage:
 
         assert result.exit_code == 0, result.output
         assert "Enhancement coverage:" in result.output
-        assert "- Text Embedding: 3 complete, 1 pending, 0 stale, 0 failed, 0 n/a" in result.output
         assert (
-            "- Semantic Processor: 2 complete, 1 pending, 0 stale, 1 failed, 0 n/a" in result.output
+            "- Text Embedding: 3 complete, 0 not run, 1 pending, 0 stale, 0 failed, 0 n/a"
+            in result.output
+        )
+        assert (
+            "- Semantic Processor: 2 complete, 0 not run, 1 pending, 0 stale, 1 failed, 0 n/a"
+            in result.output
         )

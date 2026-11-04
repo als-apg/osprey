@@ -64,11 +64,32 @@ export function setEnhancementModules(modules) {
 /** Strip cell states and the class token each maps to (`n/a` is no class token). */
 const STRIP_STATES = /** @type {Record<string, string>} */ ({
   complete: 'complete',
+  not_run: 'not-run',
   pending: 'pending',
   stale: 'stale',
   failed: 'failed',
   'n/a': 'na',
 });
+
+/**
+ * An enhancement state's class token (`ariel-strip-cell-<token>`), shared by
+ * the badge strip and the inspector's chip; an unknown state reads `n/a`.
+ * @param {string} state
+ * @returns {string}
+ */
+export function stateToken(state) {
+  return STRIP_STATES[state] ?? 'na';
+}
+
+/**
+ * An enhancement state as the operator reads it: `not_run` is "not run" (no
+ * run ever recorded), every other state reads as its name.
+ * @param {string} state
+ * @returns {string}
+ */
+export function stateLabel(state) {
+  return state === 'not_run' ? 'not run' : state;
+}
 
 /**
  * The enhancement badge strip: one cell per module that applies to the entry,
@@ -86,8 +107,8 @@ export function renderBadgeStrip(enhancements, modules) {
     const raw = enhancements?.[m.name];
     const state = typeof raw === 'string' && raw in STRIP_STATES ? raw : 'n/a';
     if (state === 'n/a') return [];
-    const text = `${m.label || m.name}: ${state}`;
-    return `<span class="ariel-strip-cell ariel-strip-cell-${STRIP_STATES[state]}" role="img" data-module="${escapeHtml(m.name)}" data-state="${escapeHtml(state)}" title="${escapeHtml(text)}" aria-label="${escapeHtml(text)}"></span>`;
+    const text = `${m.label || m.name}: ${stateLabel(state)}`;
+    return `<span class="ariel-strip-cell ariel-strip-cell-${stateToken(state)}" role="img" data-module="${escapeHtml(m.name)}" data-state="${escapeHtml(state)}" title="${escapeHtml(text)}" aria-label="${escapeHtml(text)}"></span>`;
   });
   if (cells.length === 0) return '';
   return `<span class="ariel-strip" role="group" aria-label="Enhancements">${cells.join('')}</span>`;

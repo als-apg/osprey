@@ -1043,6 +1043,21 @@ body.embedded .header {
 }
 
 /* === Status drawer === */
+
+/* Coverage: one count column per enhancement state, which must fit the
+   drawer's width, so the cells are metadata-sized and the counts right-aligned. */
+.coverage-table {
+  font-size: var(--text-md);
+}
+
+.coverage-table :is(th, td) {
+  padding: var(--space-2);
+}
+
+.coverage-table td[data-state],
+.coverage-table th:not(:first-child) {
+  text-align: right;
+}
 .ariel-status-head {
   display: flex;
   align-items: center;

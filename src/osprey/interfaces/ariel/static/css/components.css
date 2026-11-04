@@ -220,8 +220,8 @@ textarea.input {
 
 /* === Enhancement Badge Strip ===
    One cell per enhancement module. The state is a shape as well as a hue:
-   filled (complete), hollow (pending), dashed (stale), filled error (failed),
-   faint hairline (n/a). */
+   filled (complete), hollow (pending), dotted grey (not run), dashed (stale),
+   filled error (failed), faint hairline (n/a). */
 .ariel-strip {
   display: inline-flex;
   align-items: center;
@@ -243,6 +243,11 @@ textarea.input {
 
 .ariel-strip-cell-pending {
   border-color: var(--color-info);
+}
+
+/* Never ran: the plain hollow cell, dotted so it is not read as pending. */
+.ariel-strip-cell.ariel-strip-cell-not-run {
+  border-style: dotted;
 }
 
 .ariel-strip-cell-stale {

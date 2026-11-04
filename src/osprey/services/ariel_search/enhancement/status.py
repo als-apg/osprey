@@ -11,7 +11,9 @@ One decision table, two forms that must agree:
 The table, first matching row wins:
 
 1. An image module and the entry has no viewable picture → ``n/a``.
-2. No key → ``pending``.
+2. No key → ``not_run``: nothing was ever recorded for the module, so no
+   run is under way or owed a retry; it runs on the next ``osprey ariel
+   enhance`` (or ``watch``) pass, if one runs at all.
 3. Status ``failed``, or ``gave_up``, or a text module with attempts ≥
    :data:`MAX_ENHANCEMENT_ATTEMPTS` → ``failed``. Failed wins over stale.
 4. The module's current marker is not null and its stored marker is "marker
@@ -27,7 +29,8 @@ The table, first matching row wins:
      unusable vocabulary, no text table — it is never stale.
 
 5. Status ``complete`` → ``complete``.
-6. Anything else → ``pending``.
+6. Anything else → ``pending``: a recorded run that has not completed (a
+   stored ``pending`` status, a retry under the attempt limit).
 
 Supporting pieces:
 
@@ -102,10 +105,10 @@ __all__ = [
 
 logger = get_logger("ariel")
 
-EnhancementState = Literal["n/a", "pending", "stale", "failed", "complete"]
+EnhancementState = Literal["n/a", "not_run", "pending", "stale", "failed", "complete"]
 
 #: Every state :func:`enhancement_view` can report.
-STATES: tuple[str, ...] = ("n/a", "pending", "stale", "failed", "complete")
+STATES: tuple[str, ...] = ("n/a", "not_run", "pending", "stale", "failed", "complete")
 
 #: The states an enhancement filter (``<module>:<state>``) can select.
 #: :func:`enhancement_state_sql` itself takes any of :data:`STATES`.
@@ -654,7 +657,7 @@ def enhancement_state(
     if image and not has_images:
         return "n/a"
     if module not in status:
-        return "pending"
+        return "not_run"
     stored = status.get(module)
     obj: Mapping[str, Any] = stored if isinstance(stored, Mapping) else {}
     state = obj.get("status")
@@ -809,8 +812,8 @@ def enhancement_state_case_sql(
     """The state of ``module`` over ``enhanced_entries <alias>``, as one SQL CASE.
 
     The decision table's rows as ``WHEN`` arms in order, yielding the same
-    state :func:`enhancement_state` gives for the row: ``n/a``, ``pending``,
-    ``stale``, ``failed`` or ``complete``. Image modules start with the
+    state :func:`enhancement_state` gives for the row: ``n/a``, ``not_run``,
+    ``pending``, ``stale``, ``failed`` or ``complete``. Image modules start with the
     :func:`has_images_sql` arm; the ``stale`` arm is left out when ``marker`` is
     None.
 
@@ -838,7 +841,7 @@ def enhancement_state_case_sql(
 
     if image:
         arms.append(f"WHEN NOT {has_images_sql(alias, has_copy_state=has_copy_state)} THEN 'n/a'")
-    arms.append(f"WHEN NOT COALESCE({alias}.enhancement_status ? %s, false) THEN 'pending'")
+    arms.append(f"WHEN NOT COALESCE({alias}.enhancement_status ? %s, false) THEN 'not_run'")
     params.append(module)
 
     failed = [

@@ -661,6 +661,18 @@ describe('badge strip', () => {
     expect(cell.getAttribute('title')).toBe(`Image caption: ${state}`);
   });
 
+  test('a module that never ran reads "not run", not "pending"', async () => {
+    const host = await strip({ image_caption: 'not_run', text_embedding: 'pending' });
+    const never = /** @type {HTMLElement} */ (host.querySelector('[data-module="image_caption"]'));
+    expect(never.dataset.state).toBe('not_run');
+    expect(never.classList.contains('ariel-strip-cell-not-run')).toBe(true);
+    expect(never.getAttribute('aria-label')).toBe('Image caption: not run');
+    const queued = /** @type {HTMLElement} */ (
+      host.querySelector('[data-module="text_embedding"]')
+    );
+    expect(queued.getAttribute('aria-label')).toBe('Text embedding: pending');
+  });
+
   test('one cell per module that applies, in module order; n/a cells render nothing', async () => {
     const host = await strip({ text_embedding: 'pending', image_caption: 'n/a' });
     const cells = Array.from(host.querySelectorAll('.ariel-strip-cell'));

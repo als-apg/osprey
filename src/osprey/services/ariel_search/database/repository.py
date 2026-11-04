@@ -2612,7 +2612,7 @@ class ARIELRepository:
                 its ``enabled`` modules are counted, in that order.
 
         Returns:
-            ``{module: {"label", "complete", "pending", "stale", "failed",
+            ``{module: {"label", "complete", "not_run", "pending", "stale", "failed",
             "n/a"}}`` in execution order. ``label`` is the registration's label,
             or the module name when it has none.
 

@@ -141,6 +141,7 @@ HEALTHY_STATUS: dict[str, Any] = {
         "text_embedding": {
             "label": "Text Embedding",
             "complete": 1200,
+            "not_run": 7,
             "pending": 30,
             "stale": 3,
             "failed": 1,
@@ -149,6 +150,7 @@ HEALTHY_STATUS: dict[str, Any] = {
         "figure_caption": {
             "label": "Figure Caption",
             "complete": 400,
+            "not_run": 0,
             "pending": 0,
             "stale": 0,
             "failed": 2,
@@ -2631,6 +2633,10 @@ def test_status_drawer_lists_every_enabled_module_with_its_coverage(
     expect(rows.nth(0).locator('td[data-state="complete"]')).to_have_text("1,200")
     expect(rows.nth(0).locator('td[data-state="failed"]')).to_have_text("1")
     expect(rows.nth(1).locator('td[data-state="n/a"]')).to_have_text("832")
+    # Never ran and ran-but-unfinished are two columns, never one "pending".
+    expect(rows.nth(0).locator('td[data-state="not_run"]')).to_have_text("7")
+    expect(rows.nth(0).locator('td[data-state="pending"]')).to_have_text("30")
+    expect(page.locator("#status-content table.coverage-table thead")).to_contain_text("Not run")
     page.close()
 
 
