@@ -27,7 +27,11 @@ from osprey_connectors.simulation.state import (
     validate_composition,
     write_active_state,
 )
-from osprey_connectors.simulation.status import model_status, read_model_status
+from osprey_connectors.simulation.status import (
+    STATUS_NO_DECK,
+    model_status,
+    read_model_status,
+)
 from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES, coerce
 
 __all__ = [
@@ -38,6 +42,7 @@ __all__ = [
     "LABELLED_TYPES",
     "OVERLAP_EVENT",
     "STILL_ALL",
+    "STATUS_NO_DECK",
     "STILL_SCENARIO",
     "Overlap",
     "TICK_KEY",

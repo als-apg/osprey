@@ -291,6 +291,7 @@ dev = [
     "types-PyYAML",  # `yaml`
     "types-Markdown",  # `markdown`
     "types-aiofiles",  # `aiofiles`
+    "types-psutil",  # `psutil`
     "pre-commit",
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook
@@ -560,7 +561,15 @@ python_version = "3.11"
 # report the same errors. `explicit_package_bases` is the half that makes the
 # roots count: it derives each module's name from them rather than from the
 # directory the file happens to live in.
-mypy_path = "src:packages/osprey-connectors/src:packages/pyaml-cs-osprey/src"
+#
+# The first two roots are directories of scripts deployed side by side, which
+# import one another by bare name (`import osprey_safety_file`, `from validation
+# import ...`). Naming them ahead of `src` resolves those imports, so a call from
+# one script into a sibling is checked rather than taken as `Any`.
+mypy_path = """\
+src/osprey/templates/claude_code/claude/hooks:\
+src/osprey/templates/services/teams_bridge/relay:\
+src:packages/osprey-connectors/src:packages/pyaml-cs-osprey/src"""
 explicit_package_bases = true
 files = [
     "src",
@@ -569,8 +578,13 @@ files = [
 ]
 warn_return_any = true
 warn_unused_configs = true
+# A suppression that no longer silences anything is reported, so a fix or a stub
+# upgrade cannot leave a `# type: ignore` behind that would hide the next error.
+warn_unused_ignores = true
 disallow_untyped_defs = false  # Gradual typing
-ignore_missing_imports = true
+# An unannotated function is not required to gain annotations, but its body is
+# still checked against the types it calls into.
+check_untyped_defs = true
 exclude = [
     "^build/",
     "^dist/",
@@ -599,6 +613,50 @@ module = [
     "jlab_archiver_client.*",
     "tango.*",
 ]
+ignore_missing_imports = true
+
+# Installed with the framework or its dev extra, but shipping no type information
+# (no `py.typed`, no stub distribution). Their values stay `Any`. A package that
+# gains types, or a stub distribution that appears for it, comes off this list.
+[[tool.mypy.overrides]]
+module = [
+    "aioca.*",
+    "at.*",  # pyAT
+    "authlib.*",
+    "bluesky_queueserver.*",
+    "bluesky_queueserver_api.*",
+    "bluesky_tiled_plugins.*",
+    "plotly.*",
+    "pyaml.*",
+    "pySC.*",
+]
+ignore_missing_imports = true
+
+# Imported only where an optional platform or service is present, and not
+# installed by the dev extra: Azure Functions and Service Bus (the Teams relay and
+# receiver), the X11 screen-capture backend (`mss`, `Xlib`), the LUME PVA runner,
+# and the CANOPY repo checks (`check_kit`).
+[[tool.mypy.overrides]]
+module = [
+    "azure.*",
+    "check_kit.*",
+    "lume_pva_apg.*",
+    "mss.*",
+    "Xlib.*",
+]
+ignore_missing_imports = true
+
+# scipy ships no types, and its stub distribution (`scipy-stubs`) is written in
+# Python 3.12 syntax that a check targeting the `python_version` above cannot
+# parse. Until that version is raised, scipy's values stay `Any`.
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true
+
+# The limits hook tries this path second, for a deployed framework older than the
+# connectors package's namespaces. It no longer exists in this tree.
+[[tool.mypy.overrides]]
+module = ["osprey_connectors.control_system.limits_validator"]
 ignore_missing_imports = true
 
 # Bluesky bridge (osprey.services.bluesky_bridge): the bridge's own HTTP core
@@ -760,6 +818,9 @@ name = "The connector package's top-level modules, in layers"
 # The read-only predicate lives in `posture_env`, a leaf, so the posture store
 # no longer imports the control-system connectors that consult it.
 #
+# `write_authorization` reads the record and the posture store and is read by
+# the write guard in the control-system connectors, so it sits between them.
+#
 # A layer written with ":" holds two modules that still import each other,
 # each in one direction from inside a function: `posture_store` reads the
 # record `control_context` parses, and `control_context` takes its root and
@@ -775,6 +836,7 @@ layers = [
     "osprey_connectors.settle",
     "osprey_connectors.recovery",
     "osprey_connectors.errors | osprey_connectors.write_target",
+    "osprey_connectors.write_authorization",
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
     "osprey_connectors.config : osprey_connectors.workspace",
@@ -801,6 +863,10 @@ ignore_imports = [
     # read from the controls server's report beside the control-context record.
     "osprey_connectors.types -> osprey_connectors.control_context",
     "osprey_connectors.types -> osprey_connectors.posture_store",
+    # A stop is one gesture: the switch's one writer marks the program
+    # authorizations on the stopped machines revoked inside its record lock,
+    # through one function-local import of the grant format's own writer.
+    "osprey_connectors.control_context -> osprey_connectors.write_authorization",
 ]
 
 # Ruff configuration for modern Python linting

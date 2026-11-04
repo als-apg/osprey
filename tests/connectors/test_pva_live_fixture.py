@@ -53,6 +53,7 @@ from osprey_connectors_tests._epics_fakes import (
     install_fake_aioca,
     writes_enabled,  # noqa: F401 - fixture, used by name
 )
+from osprey_connectors_tests._harness._guards import earlier_garbage_left_out
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 # The served namespace, kept to one prefix so a single glob routes all of it
@@ -218,13 +219,16 @@ def connector_factory(pva_server):
         built.append(connector)
         return connector
 
-    try:
-        yield build
-    finally:
-        for connector in built:
-            asyncio.run(connector.disconnect())
-        gc.collect()
-        patcher.undo()
+    # The module's tests run frozen, so the collection after the disconnects
+    # covers what they made and not the worker's earlier heap.
+    with earlier_garbage_left_out():
+        try:
+            yield build
+        finally:
+            for connector in built:
+                asyncio.run(connector.disconnect())
+            gc.collect()
+            patcher.undo()
 
 
 @pytest.fixture(scope="module")

@@ -25,7 +25,7 @@ def load_hook_config():
     global _hook_config_cache
     if _hook_config_cache is not None:
         return _hook_config_cache
-    config_path = os.environ.get("OSPREY_HOOK_CONFIG")
+    config_path: str | Path | None = os.environ.get("OSPREY_HOOK_CONFIG")
     if config_path is None:
         config_path = Path(__file__).parent / "hook_config.json"
     try:

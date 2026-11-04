@@ -216,7 +216,7 @@ async def build_kept_indexes(conn: "AsyncConnection", statements: list[str]) -> 
     await acquire_nonqueueing_lock(conn, "enhanced_entries", "SHARE")
     await conn.execute(f"SET LOCAL maintenance_work_mem = '{INDEX_BUILD_MAINTENANCE_WORK_MEM}'")
     for statement in statements:
-        await conn.execute(statement)  # type: ignore[arg-type]
+        await conn.execute(statement)
 
 
 class RawTextFtsIndexV2Migration(BaseMigration):

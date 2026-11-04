@@ -891,6 +891,7 @@ async def test_a_call_whose_deadline_passes_after_the_pool_stopped_its_child_car
         (TIMING_OUT, TimeoutError, "did not answer in time"),
     ],
 )
+@pytest.mark.usefixtures("earlier_garbage_frozen")
 async def test_a_connect_failure_reaches_the_caller_as_the_childs_own_error(
     pools, asyncio_errors, connector, error, message
 ):
@@ -905,6 +906,7 @@ async def test_a_connect_failure_reaches_the_caller_as_the_childs_own_error(
     assert asyncio_errors() == []
 
 
+@pytest.mark.usefixtures("earlier_garbage_frozen")
 async def test_failed_starts_leave_no_unhandled_asyncio_errors(asyncio_errors):
     # Many concurrent failed starts are what exposed abandoned acknowledgement
     # futures being failed after nobody waited for them.

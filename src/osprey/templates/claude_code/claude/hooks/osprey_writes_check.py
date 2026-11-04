@@ -119,7 +119,7 @@ from osprey_hook_log import (
 try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
-    _target_state = None
+    _target_state = None  # type: ignore[assignment]  # the sibling is absent
 
 #: The read-only run, restated from ``osprey_connectors.posture_env``: the
 #: variable and the one value of it that sandboxes. Spelled here rather than

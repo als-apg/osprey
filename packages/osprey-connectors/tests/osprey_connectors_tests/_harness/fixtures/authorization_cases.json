@@ -1,0 +1,220 @@
+[
+  {
+    "id": "allowed-switch-off",
+    "about": "The point of a grant: the machine's switch stays off and the listed write passes.",
+    "expect": {"allowed": true, "reason": null}
+  },
+  {
+    "id": "allowed-switch-asked",
+    "switch": "asked",
+    "expect": {"allowed": true, "reason": null}
+  },
+  {
+    "id": "allowed-at-both-bounds",
+    "about": "The range is closed.",
+    "operations": [["A:SP", 0], ["B:SP", 1.0]],
+    "expect": {"allowed": true, "reason": null}
+  },
+  {
+    "id": "allowed-a-mapping-batch",
+    "operations": {"A:SP": 2.5, "B:SP": -0.5},
+    "expect": {"allowed": true, "reason": null}
+  },
+  {
+    "id": "no-grant-file",
+    "about": "An absent grant is no authorization, which is the switch's answer.",
+    "grant": null,
+    "expect": {"allowed": false, "reason": "switch_off"}
+  },
+  {
+    "id": "pinned-launch",
+    "about": "A sandbox pinned at launch is not opened by a grant.",
+    "env": {"OSPREY_LAUNCH_POSTURE": "va=sandbox"},
+    "expect": {"allowed": false, "reason": "launch_pinned"}
+  },
+  {
+    "id": "unreadable-pin",
+    "env": {"OSPREY_LAUNCH_POSTURE": "nonsense"},
+    "expect": {"allowed": false, "reason": "launch_pinned"}
+  },
+  {
+    "id": "dispatch-run-without-owner",
+    "env": {"OSPREY_DISPATCH_RUN": "1"},
+    "expect": {"allowed": false, "reason": "owner_unscheduled"}
+  },
+  {
+    "id": "another-hosts-login",
+    "env": {"OSPREY_CONTROL_OWNER": "somebody-else"},
+    "expect": {"allowed": false, "reason": "owner_foreign"}
+  },
+  {
+    "id": "unreadable-record",
+    "record": "corrupt",
+    "expect": {"allowed": false, "reason": "record_unavailable"}
+  },
+  {
+    "id": "grant-with-a-nan-bound",
+    "grant_text_replace": ["\"max\": 10.0", "\"max\": NaN"],
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "grant-with-an-infinite-bound",
+    "grant_text_replace": ["\"min\": 0.0", "\"min\": -Infinity"],
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "grant-with-a-repeated-key",
+    "grant_text_replace": ["\"steps\": 3,", "\"steps\": 3, \"steps\": 99,"],
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "grant-of-another-schema",
+    "grant": {"schema": 2},
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "grant-with-an-unknown-field",
+    "grant": {"budget_margin": 5},
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "grant-with-min-above-max",
+    "grant": {"channels": {"A:SP": {"min": 5, "max": 1}}},
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "grant-with-no-steps",
+    "grant": {"steps": 0},
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "grant-with-boolean-steps",
+    "grant": {"steps": true},
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "grant-naming-another-id",
+    "grant": {"id": "00000000000000000000000000000000"},
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "ledger-misnumbered",
+    "ledger": {"steps": [{"n": 2, "at_ns": 1, "channels": ["A:SP"]}]},
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "ledger-of-another-schema",
+    "ledger": {"schema": 0},
+    "expect": {"allowed": false, "reason": "auth_unreadable"}
+  },
+  {
+    "id": "another-holder",
+    "grant": {"holder": "someone-else"},
+    "expect": {"allowed": false, "reason": "auth_holder"}
+  },
+  {
+    "id": "another-owner",
+    "grant": {"owner": "someone-else"},
+    "expect": {"allowed": false, "reason": "auth_holder"}
+  },
+  {
+    "id": "another-machine",
+    "grant": {"target": "live"},
+    "expect": {"allowed": false, "reason": "auth_channel"}
+  },
+  {
+    "id": "unlisted-channel",
+    "operations": [["C:SP", 1.0]],
+    "expect": {"allowed": false, "reason": "auth_channel"}
+  },
+  {
+    "id": "one-unlisted-channel-in-a-batch",
+    "about": "The whole batch is judged before anything is written.",
+    "operations": [["A:SP", 1.0], ["C:SP", 1.0]],
+    "expect": {"allowed": false, "reason": "auth_channel"}
+  },
+  {
+    "id": "empty-batch",
+    "operations": [],
+    "expect": {"allowed": false, "reason": "auth_channel"}
+  },
+  {
+    "id": "above-the-range",
+    "operations": [["A:SP", 10.000001]],
+    "expect": {"allowed": false, "reason": "auth_range"}
+  },
+  {
+    "id": "below-the-range-late-in-a-batch",
+    "operations": [["A:SP", 1.0], ["B:SP", -1.5]],
+    "expect": {"allowed": false, "reason": "auth_range"}
+  },
+  {
+    "id": "a-string-value",
+    "operations": [["A:SP", "5"]],
+    "expect": {"allowed": false, "reason": "auth_range"}
+  },
+  {
+    "id": "a-boolean-value",
+    "operations": [["A:SP", true]],
+    "expect": {"allowed": false, "reason": "auth_range"}
+  },
+  {
+    "id": "a-null-value",
+    "operations": [["A:SP", null]],
+    "expect": {"allowed": false, "reason": "auth_range"}
+  },
+  {
+    "id": "revoked-by-a-stop",
+    "grant": {"revoked": {"at_ns": 1, "by": "test-operator"}},
+    "expect": {"allowed": false, "reason": "auth_revoked"}
+  },
+  {
+    "id": "epoch-moved-since",
+    "about": "A stop of every machine moved the record's epoch after the approval.",
+    "grant": {"switch_epoch": "@stale_epoch"},
+    "expect": {"allowed": false, "reason": "auth_revoked"}
+  },
+  {
+    "id": "expired",
+    "grant": {"issued_at_ns": 0, "expires_at_ns": "@past"},
+    "expect": {"allowed": false, "reason": "auth_expired"}
+  },
+  {
+    "id": "self-issued-at-allowed",
+    "switch": "allowed",
+    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "at_ns": 1}},
+    "expect": {"allowed": true, "reason": null}
+  },
+  {
+    "id": "self-issued-at-asked",
+    "switch": "asked",
+    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "at_ns": 1}},
+    "expect": {"allowed": false, "reason": "auth_revoked"}
+  },
+  {
+    "id": "self-issued-with-the-switch-off",
+    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "at_ns": 1}},
+    "expect": {"allowed": false, "reason": "auth_revoked"}
+  },
+  {
+    "id": "no-ledger",
+    "about": "A holder that never started its lease holds none.",
+    "ledger": null,
+    "expect": {"allowed": false, "reason": "auth_lease_lapsed"}
+  },
+  {
+    "id": "lease-past-its-time",
+    "ledger": {"lease_until_ns": "@past"},
+    "expect": {"allowed": false, "reason": "auth_lease_lapsed"}
+  },
+  {
+    "id": "every-step-spent",
+    "ledger": {"steps": "@spent:3"},
+    "expect": {"allowed": false, "reason": "auth_exhausted"}
+  },
+  {
+    "id": "one-step-left",
+    "ledger": {"steps": "@spent:2"},
+    "expect": {"allowed": true, "reason": null}
+  }
+]

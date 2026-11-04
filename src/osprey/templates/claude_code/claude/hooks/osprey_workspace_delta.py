@@ -136,7 +136,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 #: Characters a session id may contain before it is joined into a file name.
 #: Must match ``osprey_panels_context.py`` — the two hooks share the file.
@@ -423,7 +423,7 @@ def _match_tiles(before, after, survivors):
 
 def _group(keys, where):
     """Group ``keys`` by tile index, keeping first-appearance order."""
-    groups = {}
+    groups: dict[object, list] = {}
     for key in keys:
         groups.setdefault(where[key], []).append(key)
     return groups
