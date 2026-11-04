@@ -102,6 +102,10 @@ def test_a_stated_false_turns_the_vocabulary_off(tmp_path: Path) -> None:
     assert fill == {}
 
 
+def test_a_profile_that_switches_ariel_off_gets_no_vocabulary(tmp_path: Path) -> None:
+    assert _fill(_tree(tmp_path, vocabulary=True), {"ariel": None}) == {}
+
+
 def test_a_stated_path_is_the_profiles_own(tmp_path: Path) -> None:
     profile = {"ariel": {"vocabulary": {"path": "data/other.yml"}}}
     facility_dir = _tree(tmp_path, vocabulary=True)
