@@ -34,8 +34,9 @@ line where it needs one, only once it is merged on main (WPF #2123, RLF
   (#2222). Until #2222 lands,
   the Removed entry for `web.bar_items` below does not say what a build does
   with a config that still sets it.
-- osprey-connectors 2026.11.2 was tagged on 2026-11-03 but was not yet on
-  PyPI then; confirm it published before the tag.
+- Final fold: fragments from #2222 (bar-key-ignored) and #2026
+  (artifacts-gallery-markdown, security), plus the follow-up PR that labels
+  the 2026.11.3 write-authorization API provisional.
 -->
 
 First stable release after the 2026.9.0b3 public beta, and the first to run
@@ -164,16 +165,22 @@ Write switch and write posture:
 osprey-connectors:
 
 - **Breaking change:** `osprey-connectors` is released on its own
-  `osprey-connectors-vYYYY.M.P` tags, separately from the framework. Six
+  `osprey-connectors-vYYYY.M.P` tags, separately from the framework. Seven
   releases since 2026.9.0b3: 2026.10.0 (the first on its own stream, with its
   public API declared, #2144), 2026.10.1 (three-position switch, #2199),
   2026.10.2 (Live wording, #2220), 2026.11.0 (session hold, #2257), 2026.11.1
   (stale-transport restart, channel keys, connection callbacks and top-off;
   tagged at #2216, notes folded in #2318) and 2026.11.2 (four more
   framework-only names leave the public API, and the env chain skips launch
-  variables; #2318). 2026.10.0 and later do not support framework 2026.9.0b1
-  to b3. This release requires `osprey-connectors>=2026.11.1` (raised in
-  #2288).
+  variables; #2318) and 2026.11.3 (a program writes under one bounded write
+  authorization, #2332, released in #2351). 2026.10.0 and later do not support
+  framework 2026.9.0b1 to b3. This release requires
+  `osprey-connectors>=2026.11.1` (raised in #2288): the framework does not yet
+  call the write authorization, so 2026.11.3 is optional.
+  The write-authorization API (`osprey_connectors.write_authorization`, the
+  `ConnectorHostPool` `owner=` and `authorization=` keys) and its on-disk
+  schemas are provisional until their first holder, the optimizer, uses them,
+  and may change shape then.
   Migration: a deployment that pins versions pins two streams now, the
     framework and `osprey-connectors`, and upgrades them together. A checkout
     that builds the package needs the `osprey-connectors-v*` tags fetched; a
