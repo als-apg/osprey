@@ -57,6 +57,7 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  *   label: string,
  *   detail?: string,
  *   searchText: string,
+ *   names?: string[],
  *   run: () => void,
  * }} NavItem
  */
@@ -97,6 +98,24 @@ const GROUP_ORDER = /** @type {const} */ ([
   'Actions',
   'CANOPY',
 ]);
+
+/**
+ * The group order for `q`: the fixed order, except that a query naming a
+ * panel outright (a whole label, id or domain synonym of a Panels row, e.g.
+ * "ariel" or "logbook") lists Panels first, so the panel is not buried under
+ * every setting whose key merely contains the word.
+ * @param {string} q
+ * @returns {ReadonlyArray<string>}
+ */
+function groupOrder(q) {
+  const word = q.toLowerCase();
+  const named =
+    word !== '' &&
+    registryItems.some(
+      (item) => item.group === 'Panels' && 'names' in item && item.names?.includes(word)
+    );
+  return named ? ['Panels', ...GROUP_ORDER.filter((g) => g !== 'Panels')] : GROUP_ORDER;
+}
 
 /** The group whose rows come from `deps.searchCanopy`. */
 const CANOPY_GROUP = 'CANOPY';
@@ -384,7 +403,7 @@ function render() {
 
   if (!q) renderRecentSection(nextId);
 
-  for (const group of GROUP_ORDER) {
+  for (const group of groupOrder(q)) {
     /** @type {Array<{ node: HTMLElement, nav?: { key: string, run: () => void } }>} */
     const rows = group === CANOPY_GROUP ? canopyRows(q, nextId) : [];
     if (rows.some((r) => !r.nav)) renderedStatus = true;
