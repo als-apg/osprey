@@ -37,8 +37,8 @@ The ratchet
 ``snippet_coverage_baseline.json`` holds each page's allowed number of untested
 blocks. ``--check`` fails when a page has more untested blocks than its entry
 (or any, for a page not in the file), and when an entry is larger than the
-page's count today, so the allowance can only shrink -- unless a landed pending
-claim reads that page, which is only noted. It also fails on a claim whose test
+page's count today, so the allowance can only shrink -- except while a pending
+claim has landed (the campaign is between merges), when that is only noted. It also fails on a claim whose test
 is missing, never names the page it claims, or reads no block. ``--update-baseline``
 rewrites the file from today's counts.
 
@@ -411,13 +411,15 @@ def _count(n: int) -> str:
 
 
 def ratchet_problems(
-    rows: list[PageCoverage], baseline: dict[str, int], explained: frozenset[str] = frozenset()
+    rows: list[PageCoverage], baseline: dict[str, int], *, deferred: bool = False
 ) -> tuple[list[str], list[str]]:
     """``(failures, notes)``: pages over their allowance, and allowances above need.
 
-    An allowance above need fails (STALE) unless a pending claim whose test has
-    landed reads a block on that page: then the drop is that PR's, and the
-    tidy-up commit that promotes the claim shrinks the allowance.
+    An allowance above need fails (STALE), except while ``deferred``: some
+    pending claim has landed, so the tree sits between the campaign's merges.
+    Then every PR would have to edit the baseline and they would conflict on
+    it; the drop is only noted, and the tidy-up commit that promotes the
+    claims shrinks the allowances in one go.
     """
     failures: list[str] = []
     notes: list[str] = []
@@ -440,8 +442,8 @@ def ratchet_problems(
         if allowed > now:
             gone = "" if row else " (the page no longer exists)"
             line = f"the baseline allows {_count(allowed)}, the page has {now}{gone}."
-            if page in explained:
-                notes.append(f"SHRINK {page}: {line} A landed pending claim explains it.")
+            if deferred:
+                notes.append(f"SHRINK {page}: {line} Deferred to the tidy-up commit.")
             else:
                 failures.append(f"STALE  {page}: {line}")
     return failures, notes
@@ -525,9 +527,11 @@ def pending_problems(pending: list[Claim], root: Path) -> list[str]:
     the PRs merge moves the claims and regenerates the baseline.
     """
     notes = []
+    seen: set[str] = set()
     for claim in pending:
-        if not landed(claim, root):
+        if claim.test in seen or not landed(claim, root):
             continue
+        seen.add(claim.test)
         how = "the file exists" if claim.marker is None else f"the file contains {claim.marker!r}"
         notes.append(
             f"PROMOTE {claim.test} (PR #{claim.pr}): {how}; it counts as tested. Move the claim "
@@ -556,12 +560,7 @@ def evaluate(root: Path, ledger: Path = LEDGER, baseline: Path = BASELINE) -> Re
     arrived = [claim for claim in pending if landed(claim, root)]
     waiting = [claim for claim in pending if claim not in arrived]
     rows = coverage(tree, live + arrived, waiting)
-    explained = frozenset(
-        page
-        for page, blocks in tree.items()
-        if any(claim.matches(block) for claim in arrived for block in blocks)
-    )
-    failures, notes = ratchet_problems(rows, load_baseline(baseline), explained)
+    failures, notes = ratchet_problems(rows, load_baseline(baseline), deferred=bool(arrived))
     failures = ledger_problems(live + arrived, tree, root) + failures
     notes = pending_problems(pending, root) + notes
     return Result(tree, rows, failures, notes)

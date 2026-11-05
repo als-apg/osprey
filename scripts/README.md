@@ -332,8 +332,8 @@ merge in any order. The default output is a Markdown table, the pages with the
 most untested blocks first, with the line of each untested block; `--page`
 narrows it to one page and lists what tests the rest, and `--json` is for
 scripts. `--check` fails when a page has more untested blocks than
-`snippet_coverage_baseline.json` allows, or fewer with no landed pending claim
-to explain it (shrink the allowance with `--update-baseline`), or when a claim
+`snippet_coverage_baseline.json` allows, or fewer (shrink the allowance with
+`--update-baseline`; while a pending claim has landed this is only noted), or when a claim
 names a missing test, a page its test never names, or no block;
 `tests/docs/test_snippet_coverage.py` runs the same check in CI.
 
