@@ -15,7 +15,7 @@ in order. Each one ends with something you can run.
    To set up OSPREY for your own facility right away, use the **guided setup**:
    :doc:`osprey-install`. It is a conversation with your coding agent. The
    agent takes stock of what you have and builds the project with you. The
-   tutorials below cover the same ground and teach the concepts step by step.
+   step-by-step tutorials cover the same ground and teach the concepts.
 
 Your path
 ---------
