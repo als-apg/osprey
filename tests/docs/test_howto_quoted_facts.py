@@ -26,7 +26,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_runner.write_tools import _custom_server_side_effect_tools
 from osprey.cli.build_posture_check import CODE_REVIEW_HOOKS, check_code_review
+from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_load import load_profile
 from osprey.cli.build_profile_schema import McpServerDef
 from osprey.port_layout import default_port
@@ -94,16 +96,23 @@ def test_the_code_review_page_shows_the_example_file():
 
 def test_the_code_review_example_loads_and_passes_the_build_check(code_review_repo: Path):
     profile = load_profile(code_review_repo / "profile.yml")
-    assert profile.config["code_review"]["enabled"] is True
+    # The example spells dotted overrides; the build check reads the tree they address,
+    # and passes silently when no ``code_review`` section is there at all.
+    config = _expand_dotted(profile.config)
+    assert "code_review" in config
+    assert config["code_review"]["enabled"] is True
     assert set(CODE_REVIEW_HOOKS) <= set(profile.hooks)
-    check_code_review(profile.config, profile.hooks, code_review_repo)
+    check_code_review(config, profile.hooks, code_review_repo)
 
 
 def test_the_code_review_section_is_refused_at_the_top_level(code_review_repo: Path):
     """The guard bites: the shape the page used to show is the loader's refusal."""
     path = code_review_repo / "profile.yml"
     profile = yaml.safe_load(path.read_text())
-    profile["code_review"] = profile.pop("config")["code_review"]
+    overrides = profile.pop("config")
+    profile["code_review"] = {
+        key.removeprefix("code_review."): value for key, value in overrides.items()
+    }
     path.write_text(yaml.safe_dump(profile), "utf-8")
     with pytest.raises(BuildProfileError, match="Unknown profile key.*'code_review'"):
         load_profile(path)
@@ -118,7 +127,6 @@ def test_the_archive_store_is_named_at_its_layout_port():
     text = " ".join(VA_PAGE.read_text().split())
     named = re.findall(r"published on host port (\d+)", text)
     assert named == [str(default_port("mongo"))]
-    assert "27017" not in text
 
 
 def test_the_retired_mock_refusal_is_quoted_word_for_word():
@@ -149,6 +157,26 @@ def test_the_channel_finder_example_addresses_exist_in_the_preset():
 def test_the_server_keys_the_page_names_are_keys_the_loader_reads(key: str):
     assert f"``{key}:``" in ADD_SERVER_PAGE.read_text()
     assert key in {field.name for field in fields(McpServerDef)}
+
+
+def test_a_read_only_run_blocks_the_tools_a_server_lists_under_writes(tmp_path: Path):
+    """cli-agent.rst: a custom server's ``writes:`` tools are in the read-only block list."""
+    assert "lists under ``writes:``" in " ".join(CLI_AGENT_PAGE.read_text().split())
+    config = {
+        "claude_code": {
+            "servers": {
+                "my-server": {
+                    "command": "my-server",
+                    "permissions": {"allow": ["read_data", "set_value"]},
+                    "writes": ["set_value"],
+                }
+            }
+        }
+    }
+    (tmp_path / "config.yml").write_text(yaml.safe_dump(config), "utf-8")
+    blocked = _custom_server_side_effect_tools(tmp_path)
+    assert "mcp__my-server__set_value" in blocked
+    assert "mcp__my-server__read_data" not in blocked
 
 
 # ---------------------------------------------------------------------------

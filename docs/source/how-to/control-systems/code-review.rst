@@ -14,9 +14,9 @@ explains how it fits with the other checks. It is off until you turn it on.
 Turn it on
 ==========
 
-Add the ``code_review`` section under ``config:`` in your profile. The two hooks have to
-be in the top-level ``hooks:`` list as well; ``osprey build`` refuses to turn code review
-on without them:
+Add the ``code_review`` keys under ``config:`` in your profile, as dotted keys. The two
+hooks have to be in the top-level ``hooks:`` list as well; ``osprey build`` refuses to
+turn code review on without them:
 
 .. literalinclude:: examples/profiles/code-review.yml
    :language: yaml
