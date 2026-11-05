@@ -19,9 +19,12 @@ commands only, never for variable assignments. Every pattern is anchored to the
 start of the line, so prose and output lines do not match.
 
 * **Variables.** ``NAME=value`` and ``export NAME=value`` at the start of a
-  line, several per line → ``NAME`` occurs as a whole word under
-  ``src/osprey`` or ``packages``, the trees
-  ``test_environment_variable_page`` searches.
+  line, several per line → ``NAME`` occurs as a word somewhere under
+  ``src/osprey`` or ``packages`` (the trees ``test_environment_variable_page``
+  searches), comments and docstrings included. That catches a name nothing
+  in the shipped tree mentions; it does not prove a module reads it, and a
+  page-local shell variable whose name happens to occur there (``LOGIN``,
+  ``HOME``) passes.
 * **Extras.** ``uv sync --extra X`` → ``X`` is in
   ``[project.optional-dependencies]``. ``pip install``, ``uv pip install`` and
   ``uv tool install|upgrade`` of a distribution whose name starts with
@@ -57,7 +60,7 @@ import re
 import shlex
 import tomllib
 from dataclasses import dataclass
-from functools import cache, lru_cache
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -365,12 +368,14 @@ def _all_names() -> list[Name]:
 # --------------------------------------------------------------------------- resolving
 
 
-@cache
+@lru_cache(maxsize=1)
+def _shipped_words() -> frozenset[str]:
+    """Every word (``[A-Za-z0-9_]+``) in the shipped tree, built once."""
+    return frozenset(re.findall(r"[A-Za-z0-9_]+", _shipped_text()))
+
+
 def _occurs_in_shipped_tree(name: str) -> bool:
-    return (
-        re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", _shipped_text())
-        is not None
-    )
+    return name in _shipped_words()
 
 
 def _module_problem(module: str) -> str | None:
@@ -409,7 +414,10 @@ def _problem(name: Name) -> str | None:
     if kind == "env":
         if _occurs_in_shipped_tree(value):
             return None
-        return f"{value} occurs nowhere under {' or '.join(_SOURCE_ROOTS)}; nothing reads it"
+        return (
+            f"{value} occurs as a word nowhere under {' or '.join(_SOURCE_ROOTS)} "
+            "(code, comments or docstrings), so no shipped module can read it"
+        )
     if kind == "extra":
         if value in _root_extras():
             return None
@@ -515,6 +523,11 @@ Page
    python -m osprey.no_such_module
    python -m some_unlisted_module
 
+.. code-block:: ini
+   :caption: my-project/.env
+
+   OSPREY_NO_SUCH_DOTENV_KNOB=1
+
 .. code-block:: yaml
 
    dependencies:
@@ -541,6 +554,7 @@ def test_negative_controls_fail() -> None:
         ("npm", "no-such-script"),
         ("claude-pin", "0.0.1"),
         ("env", "OSPREY_NO_SUCH_KNOB_EVER"),
+        ("env", "OSPREY_NO_SUCH_DOTENV_KNOB"),
         ("module", "osprey.no_such_module"),
         ("module", "some_unlisted_module"),
         ("archiver-pin", "0.0.1"),
