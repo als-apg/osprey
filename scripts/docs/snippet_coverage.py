@@ -415,11 +415,12 @@ def totals_line(rows: list[PageCoverage]) -> str:
     with_blocks = sum(1 for row in rows if row.blocks)
     covered = sum(1 for row in rows if row.blocks and not row.untested)
     return (
-        f"{t['blocks']} blocks on {with_blocks} pages: {t['tested']} tested "
+        f"{t['blocks']} blocks on {with_blocks} page{'' if with_blocks == 1 else 's'}: "
+        f"{t['tested']} tested "
         f"({_percent(t['tested'], t['blocks'])}; {t['parse_only']} parse-only), "
         f"{t['not_testable']} not testable, "
         f"{t['untested']} untested ({t['pending']} of those read by a test on an open PR); "
-        f"no untested block on {covered} of {with_blocks} pages."
+        f"pages with no untested block: {covered} of {with_blocks}."
     )
 
 

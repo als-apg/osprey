@@ -195,7 +195,7 @@ not_testable:
     languages: [bash]
     contains: "sudo apt-get install -y nodejs npm"
     reason: network
-    why: installs Node.js and npm from the Debian/Ubuntu archive with sudo (two blocks, one per tab)
+    why: installs Node.js and npm from the Debian/Ubuntu archive with sudo
   - pages: [getting-started/installation.rst]
     languages: [bash]
     contains: "brew install uv"
@@ -206,21 +206,6 @@ not_testable:
     contains: "curl -LsSf https://astral.sh/uv/install.sh | sh"
     reason: network
     why: downloads and runs Astral's uv installer script
-  - pages: [how-to/ariel/index.rst]
-    languages: [bash]
-    contains: "brew install ollama"
-    reason: network
-    why: installs Ollama from Homebrew, starts its daemon and pulls nomic-embed-text from the Ollama registry
-  - pages: [how-to/ariel/index.rst]
-    languages: [bash]
-    contains: "curl -fsSL https://ollama.com/install.sh | sh"
-    reason: network
-    why: downloads and runs Ollama's installer script, starts its daemon and pulls nomic-embed-text from the Ollama registry
-  - pages: [how-to/ariel/picture-search.rst]
-    languages: [bash]
-    contains: "sha256sum Qwen.Qwen3-VL-Embedding-2B.Q4_K_M.gguf"
-    reason: network
-    why: checksums the two Hugging Face downloads (about 1.9 GB); the repository holds only their names and hashes (tests/fixtures/llama_server/README.md), not the files
   - pages: [how-to/agent-interfaces/chat-bridges/microsoft-teams.rst]
     languages: [text]
     contains: "POST https://graph.microsoft.com/v1.0/sites/"
@@ -310,11 +295,6 @@ not_testable:
     contains: "cd ~/my-osprey-project\nclaude"
     reason: third-party-tool
     why: opens an interactive Claude Code session in a new empty directory
-  - pages: [how-to/ariel/search-modes.rst]
-    languages: [bash]
-    contains: "docker exec -e ARIEL_DB_READONLY_PASSWORD="
-    reason: third-party-tool
-    why: runs the role script inside a deployment's running Postgres container through docker exec
   - pages: [how-to/agent-interfaces/chat-bridges/microsoft-teams.rst]
     languages: [json]
     contains: '"bots": ['
@@ -326,7 +306,7 @@ not_testable:
     languages: [literal]
     contains: "> what control target are we on"
     reason: llm
-    why: what the operator types to the agent (three blocks); the agent's tool calls, not this text, are what the page's guards check
+    why: what the operator types to the agent; the agent's tool calls, not this text, are what the page's guards check
   - pages: [how-to/control-systems/switch-control-target.rst]
     languages: [literal]
     contains: "> switch to the live machine"
@@ -349,11 +329,6 @@ not_testable:
     why: a slash command typed into a Claude Code session; the plugin's skill, not a test, answers it
 
   # illustration
-  - pages: [how-to/deploy-project/project-image.rst]
-    languages: [text]
-    contains: "alice:x:1000:1000::/home/osprey:/bin/bash"
-    reason: illustration
-    why: two passwd lines showing a host user and the image's user sharing uid 1000; no file in the repository holds them
   - pages: [how-to/ariel/picture-search.rst]
     languages: [text]
     contains: "GET /orbit_kick.png HTTP/1.1"
@@ -738,8 +713,8 @@ pending:
     pages: [how-to/ariel/index.rst, how-to/ariel/picture-search.rst]
     languages: [bash]
     kind: pins
-    contains: "ollama pull qwen3-vl"
-    what: the pulled model tag equals the control-assistant preset's
+    contains: "ollama pull"
+    what: each pulled model tag equals the one the control-assistant preset names
   - test: tests/docs/test_bundle_and_tree_examples.py
     pr: W6-5
     pages: [how-to/facility-knowledge/okf-bundle.rst]
