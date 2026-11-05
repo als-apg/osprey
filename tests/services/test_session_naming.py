@@ -1,43 +1,37 @@
-"""Automatic session names: the naming call, its isolation, and the hub's scheduler.
+"""Automatic session names: the naming call and the hub's scheduler.
 
-``name_session`` is driven with a stubbed ``run_query`` (success, timeout,
-exception, trimming). The scheduler is driven with a stubbed namer against the
-real session meta: de-duplication and one naming in flight; pre-cutoff,
+``name_session`` is driven with a stubbed ``aget_chat_completion`` (success,
+timeout, exception, empty reply, provider and model resolution). The scheduler
+is driven with a stubbed namer against the real session meta: de-duplication and one naming in flight; pre-cutoff,
 truncated and bookkeeping-only rows never named; a failure retried once per hub
 start; ``pending`` held in memory only; one ``session_named`` frame per result;
-and ``GET /api/sessions`` answering while the model has not. The isolation
-tests run the real ``run_query`` and option builder against a stand-in CLI at
-the SDK client seam that files a transcript and a record row the way the CLI
-does, so what the options say is checked by what a run leaves behind.
+and ``GET /api/sessions`` answering while the model has not.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import os
 import threading
 import time
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.agent_record.client import ClientAnswer
-from osprey.agent_record.contract import RECORD_OFF_ENV, RECORD_OFF_VALUE, SPOOL_DIR_ENV
-from osprey.agent_runner import primitives, runner
-from osprey.agent_runner.project_paths import claude_project_dir
-from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
+from osprey.agent_runner import primitives
 from osprey.interfaces.web_terminal import session_meta
 from osprey.interfaces.web_terminal.routes import session as session_routes
-from osprey.services import session_naming
+from osprey.models import completion
+from osprey.models import config as model_config
 from osprey.services.session_naming import (
     MAX_TITLE_CHARS,
+    NAMING_MAX_TOKENS,
+    PROMPT_CHARS,
     SESSION_NAMED_FRAME,
     SessionNamer,
     name_session,
@@ -162,108 +156,132 @@ class TestTrimTitle:
         assert trim_title("x" * 200) == "x" * MAX_TITLE_CHARS
 
 
-# --- name_session with a stubbed run_query ---------------------------------------------
+# --- name_session with a stubbed aget_chat_completion ---------------------------------
+
+
+def _spec(**fields: Any) -> SimpleNamespace:
+    base = {
+        "provider": "gateway",
+        "default_model_id": "main-model",
+        "alias_models": {"haiku": "fast-model", "sonnet": "main-model", "opus": "big-model"},
+    }
+    return SimpleNamespace(**(base | fields))
 
 
 @pytest.fixture
 def spec(monkeypatch):
-    """The provider spec the naming model is read from: ``haiku`` → ``fast-model``."""
+    """The provider spec the route is read from: provider ``gateway``, ``haiku`` → ``fast-model``."""
+    specs: list[Path] = []
+
+    def resolve(project_dir, **_k):
+        specs.append(project_dir)
+        return _spec()
+
+    monkeypatch.setattr(primitives, "_resolve_project_spec", resolve)
     monkeypatch.setattr(
-        primitives,
-        "_resolve_project_spec",
-        lambda *_a, **_k: SimpleNamespace(alias_models={"haiku": "fast-model"}, needs_proxy=False),
+        model_config,
+        "get_provider_config",
+        lambda name, config_path=None: {"name": name, "config_path": config_path},
     )
+    return specs
 
 
-def _run(text: str | None, *, is_error: bool = False) -> SimpleNamespace:
-    result = SimpleNamespace(is_error=is_error, result=text, subtype="success")
-    return SimpleNamespace(result=result, text_blocks=[text] if text else [])
+def _completion(monkeypatch, answer: Any) -> list[dict[str, Any]]:
+    """Stub ``aget_chat_completion``: *answer* is returned, raised, or awaited."""
+    calls: list[dict[str, Any]] = []
+
+    async def fake(**kwargs):
+        calls.append(kwargs)
+        if isinstance(answer, BaseException):
+            raise answer
+        if callable(answer):
+            return await answer()
+        return answer
+
+    monkeypatch.setattr(completion, "aget_chat_completion", fake)
+    return calls
 
 
 @pytest.mark.usefixtures("spec")
 class TestNameSession:
-    async def test_success_asks_the_haiku_alias_once_without_tools_settings_or_servers(
-        self,
-        monkeypatch,
-        tmp_path,
-    ):
-        seen: list[tuple[Path, str, dict]] = []
-
-        async def fake_run_query(project_dir, prompt, **kwargs):
-            seen.append((project_dir, prompt, kwargs))
-            assert Path(kwargs["cwd"]).is_dir()
-            return _run('"Orbit correction in sector 3."')
-
-        monkeypatch.setattr(runner, "run_query", fake_run_query)
+    async def test_success_asks_the_providers_fast_model_once(self, monkeypatch, tmp_path, spec):
+        calls = _completion(monkeypatch, '"Orbit correction in sector 3."')
         project = tmp_path / "render"
 
         title = await name_session("please   correct the orbit\nin sector 3", project_dir=project)
 
         assert title == "Orbit correction in sector 3"
-        ((project_dir, prompt, kwargs),) = seen
-        assert project_dir == project
-        assert prompt == "please correct the orbit in sector 3"
-        assert kwargs["model"] == "fast-model"
-        assert kwargs["tools"] == []
-        assert kwargs["setting_sources"] == []
-        assert kwargs["mcp_servers"] == {}
-        assert kwargs["await_mcp_servers"] == ()
-        assert kwargs["max_turns"] == 1
-        assert kwargs["disallowed_tools"] == READ_ONLY_DENIED_BUILTINS
-        assert 0 < kwargs["max_budget_usd"] <= 0.1
-        assert "env" not in kwargs
-        assert kwargs["env_overrides"][RECORD_OFF_ENV] == RECORD_OFF_VALUE
-        work_dir = Path(kwargs["cwd"])
-        assert work_dir != project and not work_dir.exists()
+        assert spec == [project]
+        (kwargs,) = calls
+        assert kwargs["provider"] == "gateway"
+        assert kwargs["model_id"] == "fast-model"
+        assert kwargs["provider_config"] == {
+            "name": "gateway",
+            "config_path": str(project / "config.yml"),
+        }
+        assert kwargs["max_tokens"] == NAMING_MAX_TOKENS
+        system, user = kwargs["chat_request"].messages
+        assert system.role == "system" and "name conversations" in system.content
+        assert user.role == "user"
+        assert user.content == "please correct the orbit in sector 3"
 
-    async def test_without_a_haiku_alias_the_cli_maps_the_alias_itself(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(primitives, "_resolve_project_spec", lambda *_a, **_k: None)
-        models: list[str] = []
+    async def test_the_prompt_is_cut_to_its_cap(self, monkeypatch, tmp_path):
+        calls = _completion(monkeypatch, "Long one")
+        await name_session("word " * 2000, project_dir=tmp_path)
+        assert len(calls[0]["chat_request"].messages[1].content) == PROMPT_CHARS
 
-        async def fake_run_query(project_dir, prompt, **kwargs):  # noqa: ARG001
-            models.append(kwargs["model"])
-            return _run("Ring tuning")
-
-        monkeypatch.setattr(runner, "run_query", fake_run_query)
+    async def test_without_a_haiku_alias_the_main_model_names(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            primitives, "_resolve_project_spec", lambda *_a, **_k: _spec(alias_models={})
+        )
+        calls = _completion(monkeypatch, "Ring tuning")
         assert await name_session("tune", project_dir=tmp_path) == "Ring tuning"
-        assert models == ["haiku"]
+        assert calls[0]["model_id"] == "main-model"
+
+    async def test_without_a_provider_nothing_is_asked(self, monkeypatch, tmp_path, caplog):
+        monkeypatch.setattr(primitives, "_resolve_project_spec", lambda *_a, **_k: None)
+        calls = _completion(monkeypatch, "Ring tuning")
+        assert await name_session("tune", project_dir=tmp_path) is None
+        assert calls == []
+        assert "no provider" in caplog.text
+
+    async def test_a_resolution_error_returns_none_and_is_logged(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        def broken(*_a, **_k):
+            raise FileNotFoundError("no config.yml")
+
+        monkeypatch.setattr(primitives, "_resolve_project_spec", broken)
+        assert await name_session("tune", project_dir=tmp_path) is None
+        assert "no config.yml" in caplog.text
 
     async def test_a_timeout_returns_none_and_is_logged(self, monkeypatch, tmp_path, caplog):
-        cwds: list[Path] = []
-
-        async def slow(project_dir, prompt, **kwargs):  # noqa: ARG001
-            cwds.append(Path(kwargs["cwd"]))
+        async def slow():
             await asyncio.sleep(10)
 
-        monkeypatch.setattr(runner, "run_query", slow)
+        _completion(monkeypatch, slow)
         started = time.monotonic()
         assert await name_session("tune", project_dir=tmp_path, timeout=0.05) is None
         assert time.monotonic() - started < 5
         assert "timed out" in caplog.text
-        assert cwds and not cwds[0].exists()
 
     async def test_an_exception_returns_none_and_is_logged(self, monkeypatch, tmp_path, caplog):
-        async def broken(*_a, **_k):
-            raise RuntimeError("SDK query failed: no route")
-
-        monkeypatch.setattr(runner, "run_query", broken)
+        _completion(monkeypatch, ValueError("API key required for gateway"))
         assert await name_session("tune", project_dir=tmp_path) is None
-        assert "no route" in caplog.text
+        assert "API key required" in caplog.text
 
-    @pytest.mark.parametrize("run", [_run(None), _run("Name", is_error=True), _run("  \n")])
-    async def test_an_empty_or_failed_reply_returns_none(self, monkeypatch, tmp_path, run):
-        async def answer(*_a, **_k):
-            return run
-
-        monkeypatch.setattr(runner, "run_query", answer)
+    @pytest.mark.parametrize("reply", [None, "", "  \n", '""', ["block"]])
+    async def test_an_empty_or_unusable_reply_returns_none(
+        self, monkeypatch, tmp_path, caplog, reply
+    ):
+        _completion(monkeypatch, reply)
         assert await name_session("tune", project_dir=tmp_path) is None
+        assert "no usable title" in caplog.text
 
     async def test_an_empty_prompt_asks_nothing(self, monkeypatch, tmp_path):
-        async def never(*_a, **_k):
-            raise AssertionError("asked the model")
-
-        monkeypatch.setattr(runner, "run_query", never)
+        calls = _completion(monkeypatch, AssertionError("asked the model"))
         assert await name_session("  \n ", project_dir=tmp_path) is None
+        assert calls == []
 
 
 # --- the scheduler ---------------------------------------------------------------------
@@ -490,154 +508,3 @@ class TestListingHook:
         with TestClient(app) as client:
             row = client.get("/api/sessions").json()["sessions"][0]
         assert row["naming"] is None and row["title"] == "tune the ring"
-
-
-# --- isolation: the real run_query and option builder against a stand-in CLI ----------
-
-
-ROUTED_ENV = {
-    "ANTHROPIC_BASE_URL": "https://gateway.example",
-    "ANTHROPIC_AUTH_TOKEN": "routed-token",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "fast-model",
-}
-
-
-class StandInCli:
-    """The agent CLI at the ``ClaudeSDKClient`` seam, filing what the real one files.
-
-    Under the env the SDK gives it (the parent's overlaid with the options'), it
-    writes its transcript to ``<config dir>/projects/<encoded cwd>/<id>.jsonl``
-    and, unless the record is switched off, a record line into the spool.
-    """
-
-    def __init__(self) -> None:
-        self.options: list[Any] = []
-
-    def client(self, *, options: Any) -> StandInClient:
-        self.options.append(options)
-        return StandInClient(options)
-
-
-class StandInClient:
-    def __init__(self, options: Any) -> None:
-        self._options = options
-        self._env = {**os.environ, **options.env}
-
-    async def __aenter__(self) -> StandInClient:
-        return self
-
-    async def __aexit__(self, *_exc: object) -> None:
-        return None
-
-    async def get_mcp_status(self) -> dict[str, Any]:
-        return {"mcpServers": []}
-
-    async def query(self, prompt: Any) -> None:
-        sid = str(uuid.uuid4())
-        config = Path(self._env["CLAUDE_CONFIG_DIR"])
-        encoded = claude_project_dir(self._options.cwd).name
-        transcripts = config / "projects" / encoded
-        transcripts.mkdir(parents=True, exist_ok=True)
-        (transcripts / f"{sid}.jsonl").write_text(json.dumps({"prompt": str(prompt)}) + "\n")
-        spool = self._env.get(SPOOL_DIR_ENV, "")
-        if self._env.get(RECORD_OFF_ENV) != RECORD_OFF_VALUE and spool:
-            Path(spool).mkdir(parents=True, exist_ok=True)
-            (Path(spool) / f"{sid}.ndjson").write_text(json.dumps({"kind": "prompt"}) + "\n")
-
-    async def receive_response(self):
-        yield AssistantMessage(content=[TextBlock(text="Orbit correction")], model="fast-model")
-        yield ResultMessage(
-            subtype="success",
-            duration_ms=1,
-            duration_api_ms=1,
-            is_error=False,
-            num_turns=1,
-            session_id="namer",
-            result="Orbit correction",
-        )
-
-
-@pytest.fixture
-def stand_in(monkeypatch, tmp_path):
-    """Route seams stubbed as the option-builder tests do, the CLI stood in for."""
-    config_dir = tmp_path / "claude-config"
-    spool = tmp_path / "spool"
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setenv(SPOOL_DIR_ENV, str(spool))
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://record.example:4318")
-    monkeypatch.delenv(RECORD_OFF_ENV, raising=False)
-    monkeypatch.setattr(
-        primitives.launcher, "project_agent_cli_path", lambda *_a, **_k: "/bin/claude"
-    )
-    monkeypatch.setattr(
-        primitives.launcher,
-        "project_thinking_display",
-        lambda *_a, **_k: SimpleNamespace(flag_allowed=False, value=None),
-    )
-    monkeypatch.setattr(primitives, "sdk_env", lambda *_a, **_k: dict(ROUTED_ENV))
-    monkeypatch.setattr(primitives, "resolve_default_model", lambda *_a, **_k: "main-model")
-    monkeypatch.setattr(
-        primitives,
-        "_resolve_project_spec",
-        lambda *_a, **_k: SimpleNamespace(alias_models={"haiku": "fast-model"}, needs_proxy=False),
-    )
-    cli = StandInCli()
-    monkeypatch.setattr(runner, "ClaudeSDKClient", cli.client)
-    return SimpleNamespace(cli=cli, config_dir=config_dir, spool=spool)
-
-
-class TestIsolation:
-    async def test_the_options_switch_the_record_off_and_keep_login_and_routing(
-        self, stand_in, tmp_path
-    ):
-        project = tmp_path / "render"
-        project.mkdir()
-
-        assert await name_session("correct the orbit", project_dir=project) == "Orbit correction"
-
-        (options,) = stand_in.cli.options
-        assert options.env[RECORD_OFF_ENV] == RECORD_OFF_VALUE
-        assert options.env[SPOOL_DIR_ENV] == ""
-        assert options.env["OTEL_EXPORTER_OTLP_ENDPOINT"] == ""
-        # The parent's CLAUDE_CONFIG_DIR (a personal /login) is kept, not overridden.
-        assert options.env.get("CLAUDE_CONFIG_DIR", str(stand_in.config_dir)) == str(
-            stand_in.config_dir
-        )
-        # Provider routing as the project resolves it.
-        for key, value in ROUTED_ENV.items():
-            assert options.env[key] == value
-        assert options.model == "fast-model"
-        # A temporary directory of its own, gone after the run.
-        cwd = Path(options.cwd)
-        assert cwd != project.resolve() and project.resolve() not in cwd.parents
-        assert not cwd.exists()
-        assert options.setting_sources == []
-        assert options.mcp_servers == {}
-        assert options.tools == []
-        assert options.max_turns == 1
-
-    async def test_a_run_leaves_no_record_row_and_no_project_transcript(self, stand_in, tmp_path):
-        project = tmp_path / "render"
-        project.mkdir()
-        project_transcripts = claude_project_dir(project)
-        project_transcripts.mkdir(parents=True)
-        (project_transcripts / f"{T1}.jsonl").write_text("{}\n")
-        before = sorted(project_transcripts.glob("*.jsonl"))
-
-        await name_session("correct the orbit", project_dir=project)
-
-        assert sorted(project_transcripts.glob("*.jsonl")) == before
-        assert not stand_in.spool.exists() or list(stand_in.spool.iterdir()) == []
-        # The namer's own transcript directory is not left behind either.
-        (options,) = stand_in.cli.options
-        assert not claude_project_dir(options.cwd).exists()
-
-    async def test_the_stand_in_would_record_a_run_that_is_not_switched_off(
-        self, stand_in, tmp_path, monkeypatch
-    ):
-        """Positive control: without the overrides the same stand-in files a record row."""
-        monkeypatch.setattr(session_naming, "naming_env", dict)
-        project = tmp_path / "render"
-        project.mkdir()
-        await name_session("correct the orbit", project_dir=project)
-        assert len(list(stand_in.spool.iterdir())) == 1
