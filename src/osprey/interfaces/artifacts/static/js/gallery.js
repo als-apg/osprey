@@ -4,16 +4,19 @@
  *
  * Standalone, the page is the browse gallery: the browser
  * column (type tree or activity timeline, filter, ⋯ menu) beside the preview
- * pane and its header.
+ * pane and its header. It opens on the artifact its URL names
+ * (`?artifact=<id>`), which is how the hub's Pop out lands on the artifact
+ * its tile shows.
  *
  * Embedded in the Web Terminal hub (`?embedded=true`), the page is a viewer of
  * ONE artifact. The hub's sidebar owns the artifact list and the hub renders
- * the pane header, so this page wires no browser column (gallery.css hides
- * it), renders the preview without its header, and shows the artifact the hub
- * selects (viewer.js). It opens no event stream: every stream holds one of the
- * browser's six connections to the hub's origin, and the hub already follows
- * the panel's stream, so it forwards the shown artifact's updates and deletes
- * (viewer.js) and acts on the agent's focus itself.
+ * the tile bar, so this page wires no browser column (gallery.css hides it),
+ * renders the artifact alone, without the preview's header and details, and
+ * shows the artifact the hub selects (viewer.js). It opens no event stream:
+ * every stream holds one of the browser's six connections to the hub's
+ * origin, and the hub already follows the panel's stream, so it forwards the
+ * shown artifact's updates and deletes (viewer.js) and acts on the agent's
+ * focus itself.
  *
  * Both modes hold the session-scoped artifact list, because the logbook
  * composer's artifact picker reads it. Standalone, the event stream keeps it
@@ -47,7 +50,7 @@ import { initBrowseLayout } from './browse-layout.js';
 import { initSidebarMenu } from './sidebar-menu.js';
 import { createPreviewRenderer } from './preview.js';
 import { mountPickBar } from './pick-bar.js';
-import { createViewer } from './viewer.js';
+import { artifactInUrl, createViewer } from './viewer.js';
 import { printArtifact } from './print.js';
 import { openComposeModal } from './logbook.js';
 import { renderTimeseriesView, restyleMountedCharts } from './timeseries.js';
@@ -330,6 +333,24 @@ function showInViewer(entry) {
   previewRenderer.renderPreview();
 }
 
+/**
+ * Standalone, open on the artifact the URL names (`?artifact=<id>`: the hub's
+ * Pop out, Copy link and Open in browser tab carry it), unless the operator
+ * picked one while it loaded.
+ */
+function openNamedArtifact() {
+  const id = artifactInUrl(window.location.href);
+  if (!id) return;
+  fetchEntry(id)
+    .then((entry) => {
+      if (!entry || getSelectedArtifact()) return;
+      setSelectedArtifact(entry);
+      renderSidebar();
+      previewRenderer.renderPreview();
+    })
+    .catch(() => {});
+}
+
 // ---- Artifact changes (the stream standalone, the hub embedded) ----
 
 /**
@@ -571,6 +592,9 @@ window.addEventListener('message', (e) => {
 
 // ---- Init ----
 
+// Nothing is selected yet: the pane opens on its centred empty state.
+previewRenderer.renderPreview();
+
 if (viewerOnly) {
   // The hub says what to show, what to do with it and when it changed
   // (viewer.js). Each action runs the code path the standalone preview
@@ -603,4 +627,5 @@ initTypeRegistry().then(() => {
   if (viewerOnly) return;
   fetchFocus();
   connectSSE();
+  openNamedArtifact();
 });

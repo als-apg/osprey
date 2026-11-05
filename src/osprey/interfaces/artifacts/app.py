@@ -108,7 +108,11 @@ _ARTIFACT_MESSAGE_LISTENER = """<script>
 # overriding CSS, so the script below deletes those fixed dimensions and calls
 # Plotly.Plots.resize() once the library is ready.  Every color comes from the
 # --chart-* tokens via chartRelayout(), so all eight themes work and nothing
-# here needs to know what "light" or "dark" looks like.
+# here needs to know what "light" or "dark" looks like.  In a frame the page
+# also takes the gallery's content-strip commands (zoom, pan, autoscale, reset
+# axes, export PNG) from plot-commands.js, tells the gallery while the pointer
+# is over it (frame-pointer.js: the strip shows then), and hides Plotly's own
+# modebar, which the strip replaces; a plot opened on its own keeps the modebar.
 _RESPONSIVE_PLOTLY = (
     _DESIGN_SYSTEM_HEAD
     + "\n"
@@ -123,12 +127,19 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 .plotly-graph-div { width: 100% !important; height: 100vh !important; }
 .js-plotly-plot { width: 100% !important; height: 100vh !important; visibility: hidden; }
 table { max-width: 100%; }
+/* OSPREY: framed, the gallery's content strip replaces Plotly's modebar
+   (plot-commands.js marks the page); a plot opened on its own keeps it. */
+html[data-osprey-framed] .modebar-container,
+html[data-osprey-framed] .modebar { display: none !important; }
 /* OSPREY: the browser's own print of the sandboxed page omits plot chrome. */
 @media print { .plotly-notifier, .modebar, .modebar-container { display: none !important; } }
 </style>
 <script type="module">
-/* OSPREY: responsive sizing + live re-theming from the design tokens. */
+/* OSPREY: responsive sizing, live re-theming from the design tokens, and the
+   gallery's content-strip commands. */
 import { initTheme, subscribe, chartRelayout } from '/design-system/js/theme-manager.js';
+import { followPlotCommands, rememberViews } from '/static/js/plot-commands.js';
+import { reportPointer } from '/static/js/frame-pointer.js';
 
 function plots() { return Array.from(document.querySelectorAll('.js-plotly-plot')); }
 function reveal(gd) { gd.style.visibility = 'visible'; }
@@ -155,12 +166,15 @@ let loaded = false;
 function initAll() {
   loaded = true;
   resizeAll();
+  rememberViews(plots());
   applyTheme();
   /* Safety net: if relayout somehow fails to reveal, force-show after 400ms */
   setTimeout(() => plots().forEach(reveal), 400);
 }
 
 initTheme({ role: 'follower' });
+followPlotCommands(window, plots);
+reportPointer(window);
 // Re-theme in place on every later apply (a hub broadcast, or the gallery's
 // re-send when a hidden iframe becomes visible). Before `load` there are no
 // charts to theme, and revealing them then would flash the author's own
@@ -191,7 +205,7 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: auto; }
 table { max-width: 100%; }
 /* OSPREY: themed defaults -- zero specificity, author styles always win */
 :where(html) { background: var(--bg-primary); }
-:where(body) { color: var(--text-primary); }
+:where(body) { color: var(--text-primary); font-family: var(--font-display); }
 :where(table.artifact-table) { border-collapse: collapse; }
 :where(.artifact-table th, .artifact-table td) {
   border: 1px solid var(--border-default); padding: 4px 8px;
@@ -200,7 +214,10 @@ table { max-width: 100%; }
 </style>
 <script type="module">
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { reportPointer } from '/static/js/frame-pointer.js';
 initTheme({ role: 'follower' });
+// In a frame, the gallery shows a table's content strip while the pointer is over it.
+reportPointer(window);
 </script>"""
 )
 

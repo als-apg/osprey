@@ -37,7 +37,6 @@ EXAMPLE_TITLE = "Example: an interactive plot"
 EXAMPLE_DESCRIPTION = (
     "Shipped with the control-assistant preset so the workspace is not empty on first visit. "
     "Synthetic data, not a session result. Delete it when you no longer need it. "
-    "Hover for values, drag to zoom, double-click to reset. "
     'For a real one, ask the agent: "Plot the beam current for the last two hours."'
 )
 EXAMPLE_FILENAME = "example-interactive-plot.html"

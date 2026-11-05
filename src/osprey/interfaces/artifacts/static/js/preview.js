@@ -3,26 +3,27 @@
  * OSPREY Artifact Gallery — preview pane shell, pin/delete/fullscreen/focus.
  *
  * Owns the biggest single view in the gallery: `renderPreview` (the preview
- * pane's header/meta/viewport markup and its button wiring), pinning and
+ * pane's header/details/viewport markup and its button wiring), pinning and
  * deleting an artifact, fullscreen enter/exit (+ the "N new" badge while
  * fullscreen), and agent-focus (`setAsFocus`).
  *
  * What this pane owns is the *chrome*: the header, the action buttons, the
- * meta strip, fullscreen. The viewport inside it — which markup an artifact of
- * a given type renders as, and what has to be mounted into it afterwards —
- * belongs to artifact-viewport.js, the one dispatch for how an artifact
- * renders full-size, and this module calls it: `artifactViewportHtml(a)` for
- * the markup, then `mountArtifactViewport(...)` once it is live. That dispatch
- * in turn owns the calls into preview-content.js's markdown+KaTeX pipeline and
- * JSON viewer.
+ * details under them, fullscreen. The viewport inside it — which markup an
+ * artifact of a given type renders as, and what has to be mounted into it
+ * afterwards — belongs to artifact-viewport.js, the one dispatch for how an
+ * artifact renders full-size, and this module calls it:
+ * `artifactViewportHtml(a)` for the markup, then `mountArtifactViewport(...)`
+ * once it is live. That dispatch in turn owns the calls into
+ * preview-content.js's markdown+KaTeX pipeline and JSON viewer.
  *
  * The header is optional. Embedded in the Web Terminal hub, the gallery is a
- * viewer whose pane header the hub renders (title, pager, Open full size,
- * Save) and whose actions arrive as messages (viewer.js), so gallery.js asks
- * for a pane without one: the description, the meta strip and the viewport
- * render as they do standalone, and nothing of the header (badge, title,
- * fullscreen Back button and "N new" badge, action buttons) is rendered or
- * wired. The actions behind the header's buttons are exposed (`setPinned`,
+ * viewer whose tile bar the hub renders (the artifact's name, Info, Download)
+ * and whose actions arrive as messages (viewer.js), so gallery.js asks for a
+ * pane without one: the viewport alone fills the frame. Nothing of the header
+ * (badge, title, fullscreen Back button and "N new" badge, action buttons) or
+ * of the details under it (description, size, created time, path) is
+ * rendered or wired there; the hub's Info popover shows the details. The
+ * actions behind the header's buttons are exposed (`setPinned`,
  * `deleteArtifact`) so the viewer runs the same code paths.
  *
  * `createPreviewRenderer(callbacks, options)` follows render.js's
@@ -64,6 +65,7 @@ import { injectPrintButton } from './print.js';
 // Only for the "Open in new tab" link, which carries the theme in force —
 // the standalone page it opens has no hub to follow (see openUrl()).
 import { getTheme } from '/design-system/js/theme-manager.js';
+import { renderState } from '/design-system/js/panel-state.js';
 
 /**
  * Nudge the preview's embedded media to re-measure after a fullscreen
@@ -130,6 +132,31 @@ function headerHtml(a) {
       </div>`;
 }
 
+/**
+ * The details under the standalone header: the description, then the size,
+ * the created time and the file path, which a click copies.
+ * @param {any} a
+ * @returns {string}
+ */
+function detailsHtml(a) {
+  return `
+      ${a.description ? `<div class="preview-desc">${escapeHtml(a.description)}</div>` : ''}
+      <div class="preview-meta-strip">
+        <span class="preview-meta-item">
+          <span class="preview-meta-label">Size</span>
+          <span class="preview-meta-value">${formatSize(a.size_bytes)}</span>
+        </span>
+        <span class="preview-meta-item">
+          <span class="preview-meta-label">Created</span>
+          <span class="preview-meta-value">${formatFullTime(a.timestamp)}</span>
+        </span>
+        <span class="preview-meta-path" id="preview-copy-path" title="Click to copy path">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          <span class="preview-path-text">${escapeHtml(artifactPath(a))}</span>
+        </span>
+      </div>`;
+}
+
 // ---- Preview Renderer (factory: fullscreen state + effects this module doesn't own) ---- //
 
 /**
@@ -142,7 +169,7 @@ function headerHtml(a) {
 
 /**
  * @typedef {object} PreviewRenderOptions
- * @property {boolean} [header] - render the header row (default true). The embedded viewer passes false: the hub renders that pane's header, and its actions arrive as messages.
+ * @property {boolean} [header] - render the header row and the details under it (default true). The embedded viewer passes false: the hub renders that pane's tile bar and shows the details in its Info popover, and the actions arrive as messages.
  */
 
 /**
@@ -179,6 +206,13 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
       }
       previewEmpty.classList.remove('hidden');
       previewContent.classList.add('hidden');
+      // The one centred state look (panel-state.js); embedded, the list to
+      // pick from is the hub's sidebar.
+      renderState(previewEmpty, {
+        icon: 'file-text',
+        message: 'No artifact selected',
+        detail: header ? 'Pick one in the list.' : 'Pick one in the sidebar.',
+      });
       return;
     }
 
@@ -192,49 +226,13 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
     const viewportHtml = artifactViewportHtml(a);
 
     previewContent.innerHTML = `
-      ${header ? headerHtml(a) : ''}
-      ${a.description ? `<div class="preview-desc">${escapeHtml(a.description)}</div>` : ''}
-      <div class="preview-meta-strip">
-        <span class="preview-meta-item">
-          <span class="preview-meta-label">Size</span>
-          <span class="preview-meta-value">${formatSize(a.size_bytes)}</span>
-        </span>
-        <span class="preview-meta-item">
-          <span class="preview-meta-label">Created</span>
-          <span class="preview-meta-value">${formatFullTime(a.timestamp)}</span>
-        </span>
-        ${
-          a.tool_source
-            ? `
-        <span class="preview-meta-item">
-          <span class="preview-meta-label">Source</span>
-          <span class="preview-meta-value">${escapeHtml(a.tool_source)}</span>
-        </span>`
-            : ''
-        }
-        <span class="preview-meta-path" id="preview-copy-path" title="Click to copy path">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-          <span class="preview-path-text">${escapeHtml(artifactPath(a))}</span>
-        </span>
-      </div>
+      ${header ? `${headerHtml(a)}${detailsHtml(a)}` : ''}
       <div class="preview-viewport">
         ${viewportHtml}
       </div>
     `;
 
     if (header) wireHeader(a);
-
-    // Copy path to clipboard
-    const copyPathBtn = document.getElementById('preview-copy-path');
-    if (copyPathBtn) {
-      copyPathBtn.addEventListener('click', () => {
-        const path = artifactPath(a);
-        navigator.clipboard.writeText(path).then(() => {
-          copyPathBtn.classList.add('copied');
-          setTimeout(() => copyPathBtn.classList.remove('copied'), 1500);
-        });
-      });
-    }
 
     // Post-mount step for the types whose content is fetched (timeseries,
     // markdown, JSON), scoped to this pane's own content element.
@@ -250,7 +248,8 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
   }
 
   /**
-   * Wire the buttons {@link headerHtml} just rendered for `a`.
+   * Wire the buttons {@link headerHtml} just rendered for `a`, and the path
+   * {@link detailsHtml} rendered under them.
    * @param {any} a
    * @returns {void}
    */
@@ -263,6 +262,16 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
       'click',
       () => deleteArtifact(a)
     );
+
+    const copyPathBtn = document.getElementById('preview-copy-path');
+    if (copyPathBtn) {
+      copyPathBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(artifactPath(a)).then(() => {
+          copyPathBtn.classList.add('copied');
+          setTimeout(() => copyPathBtn.classList.remove('copied'), 1500);
+        });
+      });
+    }
 
     // Fullscreen buttons
     const enterBtn = document.getElementById('fullscreen-enter');

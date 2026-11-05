@@ -26,11 +26,14 @@ Covers:
     bar -- proving the direct-import wiring actually renders them (a
     grep-level check that no window bridge exists can't show that)
   - embedded (``?embedded=true``), the page is a viewer of one artifact:
-    no browser column and no preview header, the artifact the hub selects
-    (an ``osprey-artifact-select`` message) renders through the same
-    dispatch for every seeded type, and the hub's
+    no browser column, no preview header and no details (the hub's tile
+    bar and Info popover have them), the artifact the hub selects (an
+    ``osprey-artifact-select`` message) renders through the same dispatch
+    for every seeded type and is kept in the page's URL, and the hub's
     ``osprey-artifact-action`` messages run the gallery's own pin, logbook
     and delete paths
+  - embedded or standalone, the page opens on the artifact its URL names
+    (``?artifact=<id>``), which is how the hub's Pop out lands on it
 
 Unlike _launchers.py's `launch_artifacts` (an empty tmp_path -- fine
 there, since it only checks the page loads clean), this suite needs real
@@ -477,9 +480,12 @@ def _act_in_viewer(page: Page, artifact_id: str, action: str) -> None:
 
 
 def test_the_embedded_viewer_shows_what_the_hub_selects(tmp_path, monkeypatch, chromium_browser):
-    """Embedded, the page shows one artifact: no browser column and no
-    preview header (the hub renders both), and every seeded type the hub
-    selects renders through the shared viewport dispatch.
+    """Embedded, the page shows one artifact alone: no browser column, no
+    preview header and no description, meta strip or path (the hub renders
+    the tile bar and shows the details in its Info popover), and every seeded
+    type the hub selects renders through the shared viewport dispatch. The
+    page keeps the shown artifact in its URL for the hub's Reload, Copy link
+    and Pop out.
 
     Markdown and JSON are asserted down to their rendered output rather than
     their containers: an empty ``.md-preview-container`` would satisfy a
@@ -495,12 +501,15 @@ def test_the_embedded_viewer_shows_what_the_hub_selects(tmp_path, monkeypatch, c
         preview = page.locator("#preview-content")
 
         # Markdown: the marked/KaTeX pipeline ran, producing real headings.
-        _select_in_viewer(page, MARKDOWN_TITLE)
+        markdown_id = _select_in_viewer(page, MARKDOWN_TITLE)
         expect(preview.locator(".osprey-md-rendered h1")).to_have_text(
             "Beam Current", timeout=10_000
         )
-        expect(preview.locator(".preview-desc")).to_have_text("A markdown fixture artifact")
         expect(page.locator(".preview-header")).to_have_count(0)
+        expect(preview.locator(".preview-desc")).to_have_count(0)
+        expect(preview.locator(".preview-meta-strip")).to_have_count(0)
+        expect(preview).not_to_contain_text("A markdown fixture artifact")
+        assert page.evaluate("new URL(location.href).searchParams.get('artifact')") == markdown_id
 
         # JSON: the recursive viewer ran, producing keyed rows.
         _select_in_viewer(page, JSON_TITLE)
@@ -569,6 +578,32 @@ def test_the_embedded_viewer_runs_the_actions_the_hub_sends(
         assert messages == [f'Delete "{HTML_TITLE}"? This cannot be undone.']
         titles = [e.title for e in ArtifactStore(workspace_root=tmp_path).list_entries()]
         assert HTML_TITLE not in titles
+        page.close()
+
+
+def test_the_page_opens_on_the_artifact_its_url_names(tmp_path, monkeypatch, chromium_browser):
+    """``?artifact=<id>`` opens the page on that artifact: embedded, before
+    the hub sends any select (the tile's Reload keeps the parameter);
+    standalone, selected in the gallery under its own header (the hub's Pop
+    out, Copy link and Open in browser tab carry the parameter).
+    """
+    from osprey.stores.artifact_store import ArtifactStore
+
+    with _launch_artifacts(tmp_path, monkeypatch) as base_url:
+        entries = ArtifactStore(workspace_root=tmp_path).list_entries()
+        artifact_id = next(e.id for e in entries if e.title == MARKDOWN_TITLE)
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+
+        page.goto(f"{base_url}?embedded=true&artifact={artifact_id}", wait_until="domcontentloaded")
+        expect(page.locator("#preview-content .osprey-md-rendered h1")).to_have_text(
+            "Beam Current", timeout=10_000
+        )
+
+        page.goto(f"{base_url}?artifact={artifact_id}", wait_until="domcontentloaded")
+        expect(page.locator(".preview-header-title")).to_have_text(MARKDOWN_TITLE, timeout=10_000)
+        expect(page.locator("#preview-content .osprey-md-rendered h1")).to_have_text(
+            "Beam Current", timeout=10_000
+        )
         page.close()
 
 

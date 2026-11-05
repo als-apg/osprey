@@ -119,6 +119,23 @@ describe('renderPreview: empty state', () => {
     expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
     expect(byId('preview-content').classList.contains('hidden')).toBe(true);
   });
+
+  test('the empty pane is the centred state: no artifact selected, pick one in the list', () => {
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    const state = qs(byId('preview-empty'), '.osprey-state');
+    expect(qs(state, '.osprey-state-message').textContent).toBe('No artifact selected');
+    expect(qs(state, '.osprey-state-detail').textContent).toBe('Pick one in the list.');
+    expect(state.querySelector('.osprey-ic')).not.toBeNull();
+  });
+
+  test('embedded, the list to pick from is the hub sidebar', () => {
+    createPreviewRenderer(makeCallbacks(), { header: false }).renderPreview();
+
+    expect(qs(byId('preview-empty'), '.osprey-state-detail').textContent).toBe(
+      'Pick one in the sidebar.'
+    );
+  });
 });
 
 describe('renderPreview: per-type viewport dispatch', () => {
@@ -345,22 +362,17 @@ describe('renderPreview: header badge names the form', () => {
 });
 
 describe('renderPreview: header/meta content', () => {
-  test('renders title, size, created time, and (when present) tool_source', () => {
+  test('renders title, size, created time and the path, and never a Source item', () => {
     setSelectedArtifact(makeArtifact({ tool_source: 'channel_finder', size_bytes: 1024 }));
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
     expect(qs(document, '.preview-header-title').textContent).toBe('Beam Profile');
     expect(qs(document, '.preview-meta-value').textContent).toBe('1.0 KB');
-    expect(document.body.innerHTML).toContain('channel_finder');
-  });
-
-  test('omits the Source meta item when tool_source is absent', () => {
-    setSelectedArtifact(makeArtifact());
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
     expect(
       Array.from(document.querySelectorAll('.preview-meta-label')).map((el) => el.textContent)
-    ).not.toContain('Source');
+    ).toEqual(['Size', 'Created']);
+    expect(document.querySelector('.preview-meta-strip .preview-path-text')).not.toBeNull();
+    expect(document.body.innerHTML).not.toContain('channel_finder');
   });
 
   test("pin button reflects the artifact's pinned state", () => {
@@ -383,16 +395,19 @@ describe('renderPreview: header/meta content', () => {
 });
 
 describe('renderPreview without a header (the embedded viewer)', () => {
-  test('renders the description, the meta strip and the viewport, and no header', () => {
+  test('renders the artifact alone: no header, description, meta strip or path', () => {
     setSelectedArtifact(
       makeArtifact({ description: 'Horizontal beam size', tool_source: 'channel_finder' })
     );
     createPreviewRenderer(makeCallbacks(), { header: false }).renderPreview();
 
+    const content = byId('preview-content');
+    expect(Array.from(content.children, (el) => el.className)).toEqual(['preview-viewport']);
     expect(document.querySelector('.preview-header')).toBeNull();
-    expect(qs(document, '.preview-desc').textContent).toBe('Horizontal beam size');
-    expect(qs(document, '.preview-meta-strip').textContent).toContain('channel_finder');
-    expect(document.querySelector('.preview-meta-strip .preview-path-text')).not.toBeNull();
+    expect(document.querySelector('.preview-desc')).toBeNull();
+    expect(document.querySelector('.preview-meta-strip')).toBeNull();
+    expect(document.getElementById('preview-copy-path')).toBeNull();
+    expect(content.textContent).not.toContain('Horizontal beam size');
     expect(document.querySelector('.preview-viewport img')).not.toBeNull();
   });
 
