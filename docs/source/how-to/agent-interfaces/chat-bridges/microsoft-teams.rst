@@ -81,6 +81,7 @@ The block is only meaningful next to a ``dispatch:`` block:
 
 .. literalinclude:: ../examples/profile-teams-bridge.yml
    :language: yaml
+   :caption: profile.yml
 
 .. note::
 
@@ -214,9 +215,10 @@ the missing variables at once.
           agent reads the rest only if it needs it. ``0`` always sends every
           answer in full.
       * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
-        - Where to file an issue when a question is finally given up on. Leave
-          unset if you have no such host: nothing is filed and nothing is
-          checked.
+        - Optional alert host. With ``GITLAB_URL`` and ``GITLAB_ISSUES_TOKEN``
+          set, the bridge holds queued questions while ``GITLAB_PROJECT`` has an
+          open ``osprey-alert`` issue, or while GitLab cannot be reached. Leave
+          them unset to skip the check.
       * - ``APP_VERSION_DISPLAY``
         - A release label shown with each acknowledgement, so a conversation
           shows which version answered: the acknowledgement reads ``On it —

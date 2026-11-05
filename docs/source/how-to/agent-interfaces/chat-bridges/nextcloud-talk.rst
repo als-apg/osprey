@@ -48,6 +48,7 @@ allowed to do with a chat question — and whether the agent may @mention people
 
 .. literalinclude:: ../examples/profile-nextcloud-bridge.yml
    :language: yaml
+   :caption: profile.yml
 
 .. note::
 
@@ -145,9 +146,10 @@ Runtime settings
           agent reads the rest only if it needs it. ``0`` always sends every
           answer in full.
       * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
-        - Where to file an issue when a question is finally given up on. Leave
-          unset if you have no such host: nothing is filed and nothing is
-          checked.
+        - Optional alert host. With ``GITLAB_URL`` and ``GITLAB_ISSUES_TOKEN``
+          set, the bridge holds queued questions while ``GITLAB_PROJECT`` has an
+          open ``osprey-alert`` issue, or while GitLab cannot be reached. Leave
+          them unset to skip the check.
       * - ``DEDUP_PATH``, ``OFFSETS_PATH``
         - Where the bridge keeps what it remembers: the questions it has
           answered and how far it has read in each room. Both default to files
