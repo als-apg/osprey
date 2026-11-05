@@ -1566,7 +1566,7 @@ CHECKS: tuple[Check, ...] = (
 )
 
 #: The CI jobs that call the check command; every other required job is a lane.
-CALLER_JOBS = ("test", "lint", "docs", "package", "frontend-js")
+CALLER_JOBS = ("test", "serial-suites", "lint", "docs", "package", "frontend-js")
 
 #: The paths of the scan stack: a range that touches one needs the container lanes.
 SCAN_STACK = (

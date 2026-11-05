@@ -104,6 +104,10 @@ INVARIANT_CHECKS = {
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
 UNIT_TEST_JOB = "test"
+#: The job that runs the suites which time the box or need a process of their
+#: own, beside the unit sweep rather than after it.
+SERIAL_SUITES_JOB = "serial-suites"
+LIVE_CA_STEP = "Run live Channel Access suites in isolation"
 E2E_TESTS_JOB = "e2e-tests"
 GATE_JOB = "all-checks-passed"
 SECRET_TOKEN = "secrets.ALS_APG_API_KEY"
@@ -309,7 +313,11 @@ LANE_LEAVING_MARKERS = (
     # spinner advancing between frames.
     LaneLeavingMarker(
         "pty",
-        (SerialHost("test", "Run real-terminal pty suite serially", "tests/pty/", "-m pty"),),
+        (
+            SerialHost(
+                SERIAL_SUITES_JOB, "Run real-terminal pty suite serially", "tests/pty/", "-m pty"
+            ),
+        ),
     ),
     # Tests that read a wall clock (a latency budget or a readiness window):
     # a clock read beside loaded workers measures the workers.
@@ -324,7 +332,9 @@ LANE_LEAVING_MARKERS = (
             ),
             # The image-free budgets, on every event: the step selects the
             # marker over the tree, minus the directories with hosts of their own.
-            SerialHost("test", "Run the wall-clock budgets serially", "tests/", "-m wallclock"),
+            SerialHost(
+                SERIAL_SUITES_JOB, "Run the wall-clock budgets serially", "tests/", "-m wallclock"
+            ),
         ),
     ),
 )
@@ -1965,7 +1975,7 @@ def test_marker_runs_in_its_own_serial_step__mutation_neighbour_line_drops_the_t
     """A host step may run other tests on a line of its own; that line without
     the term times the budgets a second time, among the others."""
     row = _row("wallclock")
-    host = next(h for h in row.hosts if h.job == UNIT_TEST_JOB)
+    host = next(h for h in row.hosts if h.job == SERIAL_SUITES_JOB)
     mutated = _load_workflow()
     step = _find_named_step(mutated, host.job, host.step)
     assert row.deselect_term() not in step["run"], "neighbour line already present; stale"
@@ -2083,6 +2093,152 @@ def test_pty_step_runs_only_where_a_terminal_is_real__mutation_drops_the_gate() 
     del _find_named_step(mutated, TERMINAL_HOST.job, TERMINAL_HOST.step)["if"]
     with pytest.raises(AssertionError):
         test_pty_step_runs_only_where_a_terminal_is_real(mutated)
+
+
+# The suites that time the box (pty, the image-free wall-clock budgets) and the
+# live Channel Access modules, which need a process of their own, run in a job
+# of their own beside the unit sweep. They used to run after the sweep in the
+# rest-b cells, five minutes of that shard's critical path for nothing the sweep
+# produced. The move is safe only while the job keeps what the cells gave them:
+# every ubuntu Python, the same install, every event, a gate that reads it, and
+# a cap that covers its steps; and only while no unit cell runs them as well.
+
+#: The checks the serial-suites job runs, one step each, in this order.
+SERIAL_SUITE_CHECKS = ("pytest-pty", "pytest-wallclock-unit", "live-ca")
+#: Minutes the serial-suites job keeps outside its three capped steps: checkout,
+#: uv, the install and the pinned CLI, about a minute on a healthy runner.
+SERIAL_SUITES_OUTSIDE_STEPS_MINUTES = 10
+
+
+def _checks_called_by(wf: dict[str, Any], job: str) -> list[str]:
+    """The check ids *job*'s steps call, in step order."""
+    declared = {check.id for check in check_set.CHECKS}
+    return [
+        word
+        for step in _jobs(wf)[job]["steps"]
+        for call in _check_calls(step)
+        for word in (call[1:] if call[:1] == ["run"] else [])
+        if word in declared
+    ]
+
+
+def _serial_suites_problems(wf: dict[str, Any]) -> list[str]:
+    """What is wrong with the serial-suites job as the suites' home."""
+    jobs = _jobs(wf)
+    job, unit = jobs[SERIAL_SUITES_JOB], jobs[UNIT_TEST_JOB]
+    problems = []
+    called = _checks_called_by(wf, SERIAL_SUITES_JOB)
+    if called != list(SERIAL_SUITE_CHECKS):
+        problems.append(f"{SERIAL_SUITES_JOB} calls {called}, not {list(SERIAL_SUITE_CHECKS)}")
+    in_unit = [c for c in _checks_called_by(wf, UNIT_TEST_JOB) if c in SERIAL_SUITE_CHECKS]
+    if in_unit:
+        problems.append(f"{UNIT_TEST_JOB} still calls {in_unit}; they would run twice")
+    matrix, unit_matrix = job["strategy"]["matrix"], unit["strategy"]["matrix"]
+    if sorted(matrix["python-version"]) != sorted(unit_matrix["python-version"]):
+        problems.append(
+            f"{SERIAL_SUITES_JOB} runs Pythons {matrix['python-version']}, the unit "
+            f"cells {unit_matrix['python-version']}"
+        )
+    if matrix.get("os") != ["ubuntu-latest"] or "include" in matrix:
+        problems.append(f"{SERIAL_SUITES_JOB} must run on the ubuntu cells alone")
+    if "if" in job:
+        problems.append(f"{SERIAL_SUITES_JOB} has a job if: {job['if']!r}; it runs on every event")
+    install = _find_named_step(wf, SERIAL_SUITES_JOB, "Install dependencies")["run"]
+    unit_install = _find_named_step(wf, UNIT_TEST_JOB, "Install dependencies")["run"]
+    if install != unit_install:
+        problems.append(
+            f"{SERIAL_SUITES_JOB} installs {install!r}, the unit cells {unit_install!r}"
+        )
+    caps = []
+    for step in job["steps"]:
+        if not _check_calls(step):
+            continue
+        cap = step.get("timeout-minutes")
+        if not isinstance(cap, int):
+            problems.append(f"'{step.get('name')}' has no int timeout-minutes: {cap!r}")
+        else:
+            caps.append(cap)
+    if sum(caps) + SERIAL_SUITES_OUTSIDE_STEPS_MINUTES > job.get("timeout-minutes", 0):
+        problems.append(
+            f"step caps {caps} + outside {SERIAL_SUITES_OUTSIDE_STEPS_MINUTES} exceed the "
+            f"job cap {job.get('timeout-minutes')}"
+        )
+    return problems
+
+
+def test_serial_suites_run_in_their_own_job(raw_workflow: dict[str, Any]) -> None:
+    """The pty suite, the image-free wall-clock budgets and the live Channel
+    Access gate run in the serial-suites job, one step each, on every Python
+    and the OS the unit cells ran them on, with the same install, on every
+    event; no unit cell runs them too; and the job cap covers its step caps
+    plus the setup around them, so a hung step fails by its own cap."""
+    assert _serial_suites_problems(raw_workflow) == []
+
+
+def test_serial_suites_run_in_their_own_job__mutation_back_in_the_unit_cells() -> None:
+    mutated = _load_raw_workflow()
+    step = copy.deepcopy(_find_named_step(mutated, SERIAL_SUITES_JOB, TERMINAL_HOST.step))
+    step["if"] = "matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'"
+    _jobs(mutated)[UNIT_TEST_JOB]["steps"].append(step)
+    assert _serial_suites_problems(mutated) == [
+        f"{UNIT_TEST_JOB} still calls ['pytest-pty']; they would run twice"
+    ]
+
+
+def test_serial_suites_run_in_their_own_job__mutation_drops_the_live_ca_step() -> None:
+    mutated = _load_raw_workflow()
+    steps = _jobs(mutated)[SERIAL_SUITES_JOB]["steps"]
+    steps.remove(_find_named_step(mutated, SERIAL_SUITES_JOB, LIVE_CA_STEP))
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith(f"{SERIAL_SUITES_JOB} calls ['pytest-pty', 'pytest-wallclock-unit']")
+
+
+def test_serial_suites_run_in_their_own_job__mutation_drops_a_python() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[SERIAL_SUITES_JOB]["strategy"]["matrix"]["python-version"].remove("3.11")
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith(f"{SERIAL_SUITES_JOB} runs Pythons")
+
+
+def test_serial_suites_run_in_their_own_job__mutation_adds_macos() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[SERIAL_SUITES_JOB]["strategy"]["matrix"]["os"].append("macos-latest")
+    assert _serial_suites_problems(mutated) == [
+        f"{SERIAL_SUITES_JOB} must run on the ubuntu cells alone"
+    ]
+
+
+def test_serial_suites_run_in_their_own_job__mutation_gates_the_job_on_an_event() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[SERIAL_SUITES_JOB]["if"] = "github.event_name == 'push'"
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith(f"{SERIAL_SUITES_JOB} has a job if:")
+
+
+def test_serial_suites_run_in_their_own_job__mutation_drops_the_va_extra() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, SERIAL_SUITES_JOB, "Install dependencies")
+    step["run"] = step["run"].replace(" --extra virtual-accelerator", "")
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith(f"{SERIAL_SUITES_JOB} installs")
+
+
+def test_serial_suites_run_in_their_own_job__mutation_drops_a_step_cap() -> None:
+    mutated = _load_raw_workflow()
+    del _find_named_step(mutated, SERIAL_SUITES_JOB, LIVE_CA_STEP)["timeout-minutes"]
+    assert _serial_suites_problems(mutated) == [
+        f"'{LIVE_CA_STEP}' has no int timeout-minutes: None"
+    ]
+
+
+def test_serial_suites_run_in_their_own_job__mutation_lowers_the_job_cap_to_the_steps() -> None:
+    mutated = _load_raw_workflow()
+    job = _jobs(mutated)[SERIAL_SUITES_JOB]
+    job["timeout-minutes"] = sum(
+        step["timeout-minutes"] for step in job["steps"] if _check_calls(step)
+    )
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith("step caps")
 
 
 #: The unit-lane step that runs the readonly gate's warm-up module under 3.14 on
@@ -2432,7 +2588,8 @@ def test_the_full_tier_runs_what_the_sweep_deselects__mutation_parallelizes_it(
 
 
 @pytest.mark.parametrize(
-    ("marker", "jobs"), [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e", "test"])]
+    ("marker", "jobs"),
+    [("pty", [SERIAL_SUITES_JOB]), ("wallclock", ["qmd-sidecar-e2e", SERIAL_SUITES_JOB])],
 )
 def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
     marker: str, jobs: list[str], workflow: dict[str, Any]
@@ -13557,10 +13714,10 @@ def test_no_ci_step_passes_execution_flags_through_the_check_command(
 
 def test_no_ci_step_passes_execution_flags__mutation_the_pty_step_passes_v() -> None:
     mutated = _load_raw_workflow()
-    step = _find_named_step(mutated, UNIT_TEST_JOB, TERMINAL_HOST.step)
+    step = _find_named_step(mutated, TERMINAL_HOST.job, TERMINAL_HOST.step)
     step["run"] = f"{step['run'].rstrip()} -- -v"
     assert _steps_passing_execution_flags(mutated) == [
-        f"test: '{TERMINAL_HOST.step}' passes '-v' through {CHECK_SCRIPT}"
+        f"{TERMINAL_HOST.job}: '{TERMINAL_HOST.step}' passes '-v' through {CHECK_SCRIPT}"
     ]
 
 
@@ -13773,10 +13930,10 @@ def test_every_full_check_is_called_on_ci__mutation_runs_live_ca_on_every_cell()
     """Off its venue the check reports that it did not run and exits clean, so
     a step on a macOS cell would be green over nothing."""
     mutated = _load_raw_workflow()
-    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run live Channel Access suites in isolation")
+    step = _find_named_step(mutated, SERIAL_SUITES_JOB, LIVE_CA_STEP)
     del step["if"]
     (problem,) = _checks_missing_from_ci(mutated)
-    assert problem.startswith("live-ca: ['Run live Channel Access suites in isolation']")
+    assert problem.startswith(f"live-ca: ['{LIVE_CA_STEP}']")
 
 
 def test_every_full_check_is_called_on_ci__mutation_calls_an_exempted_check() -> None:
