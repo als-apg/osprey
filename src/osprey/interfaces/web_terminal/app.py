@@ -36,6 +36,7 @@ from osprey.interfaces.common_middleware import (
     resolve_storage_scope,
 )
 from osprey.interfaces.vendor import vendor_url
+from osprey.interfaces.web_terminal import session_meta
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.feedback_destination import (
@@ -86,6 +87,7 @@ from osprey.profiles.web_panels import (
     sidecar_panel_descriptors,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
+from osprey.services.session_naming import SessionNamer
 from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.utils.seconds import positive_seconds
 from osprey.utils.workspace import session_hold_dir
@@ -1366,6 +1368,12 @@ def _create_lifespan(
         # user badge / logout control is rendered.
         app.state.terminal_user = os.environ.get("OSPREY_TERMINAL_USER", "").strip()
         app.state.landing_url = os.environ.get("OSPREY_TERMINAL_LANDING_URL", "").strip()
+        # A hub serves one identity: its per-operator session stores are filed
+        # under the acting identity, so a terminal user that differs from it
+        # would read and write another operator's sessions. Refused here, then
+        # the session meta (titles, last-active, naming_since) is read once.
+        session_meta.check_identity(app.state.terminal_user)
+        await asyncio.to_thread(session_meta.load, app)
         # Whether the render zone (``config.yml`` + ``.claude/``) is read-only to
         # this process. In a privilege-split container the render zone is
         # root-owned and the root entrypoint performs the regen and the scaffold
@@ -1433,6 +1441,15 @@ def _create_lifespan(
         app.state.safety_switches = SafetySwitches()
         _start_watchdogs(app, resolved_config_path)
         await _serve_code_review_switch(app, resolved_config_path)
+        # Automatic session names (Decision 8): `GET /api/sessions` hands its
+        # rows to this scheduler, which names them in the background through
+        # the project's provider. Without a project config there is no provider
+        # to ask, and the rows keep their first-prompt titles.
+        app.state.session_namer = (
+            SessionNamer(app, project_dir=resolved_config_path.parent)
+            if resolved_config_path is not None
+            else None
+        )
 
         # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>
@@ -1797,6 +1814,10 @@ def _create_lifespan(
         # What the terminal recorded about each sidecar's start, read back by
         # `osprey health` from this same root.
         app.state.panel_status_root = shared_data_root
+        # The session ledger's one-time seeding from pre-feature state, when no
+        # ledger file exists yet; it reads the transcript map, the transcripts
+        # on disk and the artifact store under this root. Never raises.
+        await asyncio.to_thread(session_meta.backfill_ledger, app)
         app.state.panel_status_dir = shared_data_root / PANEL_STATUS_DIRNAME
         # Workspace-relative form of the store: the *file watcher's* form,
         # used below to drop change events for writes into it. The file
@@ -1981,6 +2002,10 @@ def _create_lifespan(
             await app.state.watchdog_runner.shutdown()
 
         await app.state.control_context_task.stop()
+
+        # In-flight and queued namings end with the hub; ``pending`` is memory only.
+        if app.state.session_namer is not None:
+            await app.state.session_namer.shutdown()
 
         if app.state.code_review_switch_listener is not None:
             await app.state.code_review_switch_listener.close()

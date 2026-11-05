@@ -103,12 +103,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
-from osprey.interfaces.web_terminal import transcript_map
+from osprey.interfaces.web_terminal import session_meta, transcript_map
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.process_tree import ProcessTableUnreadable
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.interfaces.web_terminal.turn_state import IDLE, get_turn_state, reset_turn_state
 from osprey.mcp_server.workspace.transcript_reader import TranscriptReader, tail_state
+from osprey.stores import session_ledger
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
@@ -1699,6 +1701,7 @@ async def _teardown_and_spawn(
             raise HandoffError.not_pooled(key, plan.surface)
         if plan.surface == SURFACE_TERMINAL:
             reset_turn_state(app, key)
+        await asyncio.to_thread(_record_spawn, app, key, resume_id)
 
     if plan.surface == SURFACE_TERMINAL and not registry.attach_session(key, plan.channel):
         raise HandoffRefused.attached_elsewhere(key)
@@ -1819,6 +1822,28 @@ async def _observed_dead(state: HandoffState, dead: Callable[[], bool]) -> bool:
         if now >= deadline:
             return False
         await state.sleep(min(DEATH_POLL_S, deadline - now))
+
+
+def _record_spawn(app: Any, key: str, resume_id: str | None) -> None:
+    """Append the spawn's transcript to the session ledger (Decision 5's spawn write).
+
+    A resume records ``(key, resume_id)``. A fresh spawn records ``(key, key)``
+    only for a canonical UUID key the ledger has no row for: such a child takes
+    the key as its session id, so the key's first transcript is the key itself.
+    A non-UUID embedder key gets no row until a turn reports its transcript.
+    Runs off the loop (it reads and may write the ledger file); never raises.
+    """
+    try:
+        if resume_id:
+            if is_posture_key(resume_id):
+                session_meta.record_transcript_move(app, key, resume_id)
+            return
+        if not is_posture_key(key):
+            return
+        if session_ledger.load(session_meta.ledger_state_dir()).current(key) is None:
+            session_meta.record_transcript_move(app, key, key)
+    except Exception:  # the ledger is history, never a reason to fail a spawn
+        logger.warning("Could not record the spawn of session %s in the ledger", key, exc_info=True)
 
 
 async def _spawn_request(app: Any, key: str, surface: Surface) -> SpawnRequest:
