@@ -84,6 +84,7 @@ ERROR_CLASS_MAP = {
     # not answer, and the previous target is still active.
     "target_switch_failed": "Connection",
     "bluesky_bridge_unreachable": "Connection",
+    "optimizer_unreachable": "Connection",
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
@@ -114,6 +115,9 @@ ERROR_CLASS_MAP = {
     "limits_violation": "Validation",
     # This deployment simply has no such target to switch to.
     "target_switch_unavailable": "Validation",
+    # The optimizer does not serve the target asked about; the detail lists
+    # the ones it does, and naming one changes which machine is described.
+    "optimizer_target_refused": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
     # A panel url that is not a root-relative path or an http(s) URL: pass one.
@@ -242,6 +246,10 @@ ERROR_CLASS_MAP = {
     # the operator, not a policy gate the agent should explain.
     "permission_denied": "Internal",
     "bluesky_bridge_error": "Internal",
+    # A 5xx (or other unclassed answer) from the optimizer; details.status and
+    # details.detail say which. A 404 or 422 is relayed as not_found or
+    # validation_error instead.
+    "optimizer_error": "Internal",
     "phoebus_error": "Internal",
     "phoebus_open_failed": "Internal",
     "gallery_error": "Internal",

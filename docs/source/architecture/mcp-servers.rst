@@ -387,3 +387,42 @@ Phoebus product, not a connector: see :ref:`A Phoebus drive
   under ``phoebus.agent_access: read_write`` and asked for approval.
 - ``phoebus_open_databrowser`` -- Open a Data Browser plot of a channel list over a
   time range, bound to the archiver when ``phoebus.archiver_url`` is set.
+
+
+Optimizer
+---------
+
+``optimizer``
+~~~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.optimizer``
+
+Reads the optimizer service a profile deploys with its ``optimizer:`` section
+(:doc:`/reference/configuration/profile`). It is off in every preset and
+switched on with ``claude_code.servers.optimizer.enabled: true``. The build
+refuses that switch on a render with no optimizer to dial: a deployment that
+does not run one, or an attached render whose host publishes no
+``services.optimizer.port``. The server dials ``services.optimizer.port`` on
+loopback, or ``OPTIMIZER_URL`` when that is set.
+
+The server holds no launch token and cannot start a run: a person starts
+every run. A tool that reads a machine (``environment_status``,
+``read_observables``, ``initial_bounds``) asks about the session's current
+control target unless it is given a ``target``; the optimizer serves only the
+targets its profile lists (``va`` and ``standin`` today), and refuses any other.
+
+**Tools:**
+
+- ``list_environments`` -- List the optimization environments the service offers.
+- ``get_environment`` -- Read one environment's variable and observable definitions.
+- ``environment_status`` -- Check whether an environment is reachable on a machine.
+- ``read_observables`` -- Read the current values of an environment's observables.
+- ``list_presets`` -- List the run presets an environment offers.
+- ``initial_bounds`` -- Resolve each variable's starting bounds from its current setpoint.
+- ``list_jobs`` -- List the jobs that have not finished.
+- ``get_job`` -- Read one job's status, optionally with its result summary or full data.
+- ``current_job`` -- Read the current-job pointer, the job a start launches.
+- ``get_job_config`` -- Read an optimization job's stored config and its revision.
+- ``list_results`` -- List the stored runs.
+- ``get_result`` -- Read one stored run: config, best point and evaluated records.
+- ``list_models`` -- List the saved surrogate model files.

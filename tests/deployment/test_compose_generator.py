@@ -1530,6 +1530,38 @@ def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
 
 
+def test_worker_optimizer_link_names_the_optimizer_service_on_the_bridge() -> None:
+    """On the compose network the optimizer is reached by its service key.
+
+    Left unset, the agent's optimizer server dials the published port on the
+    worker container's own loopback, and every optimizer tool fails on connect.
+    """
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=["optimizer"],
+        services_extra={"optimizer": {"port": 10182}},
+    )
+    environment = _worker_service(rendered)["environment"]
+
+    assert environment["OPTIMIZER_URL"] == "http://optimizer:10182"
+
+
+@pytest.mark.parametrize(
+    ("deployed", "network"), [(["optimizer"], "host"), ([], None), ([], "host")]
+)
+def test_worker_optimizer_link_is_absent_on_the_host_or_without_an_optimizer(
+    deployed: list[str], network: str | None
+) -> None:
+    """Host mode reaches the published port on loopback; no optimizer, no link."""
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=deployed,
+        dispatch_worker={} if network is None else {"network": network},
+        services_extra={"optimizer": {"port": 10182}},
+    )
+    assert "OPTIMIZER_URL" not in rendered
+
+
 @pytest.mark.parametrize("key", list(SECOND_LANE_KEYS.values()))
 def test_worker_plan_queue_link_covers_a_second_lane(key: str) -> None:
     """Each deployed lane is addressed under its own env prefix.
