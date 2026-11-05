@@ -53,6 +53,7 @@ body {
   display: flex;
   flex-direction: column;
 }
+
 /* ============================================================
    Views — exactly one is visible at a time.
    ============================================================ */
@@ -1185,10 +1186,10 @@ function panelState() {
   // A 401 leaves state.triggers empty, so every list would report "none
   // registered" — a claim about a dispatcher we were not allowed to read.
   if (authBlocked) {
-    return { icon: 'x', message: 'Not authorised to read the dispatcher.', ...UNAUTHORIZED_STATE, action: RETRY };
+    return { icon: 'triangle-alert', message: 'Not authorised to read the dispatcher.', ...UNAUTHORIZED_STATE, action: RETRY };
   }
   if (!loaded && dispatcherError) {
-    return { icon: 'x', message: 'Cannot reach the dispatcher.', tip: dispatcherError, action: RETRY };
+    return { icon: 'triangle-alert', message: 'Cannot reach the dispatcher.', tip: dispatcherError, action: RETRY };
   }
   if (!loaded) return { icon: 'refresh', message: 'Connecting to the dispatcher…' };
   return null;
@@ -1334,7 +1335,7 @@ function renderRunList() {
   if (lastWorkerError) {
     // The dispatcher answered without runs: a down worker must not read as an
     // empty history.
-    boxedState(host, { icon: 'x', message: 'Cannot reach the dispatch worker.', tip: lastWorkerError, action: RETRY });
+    boxedState(host, { icon: 'triangle-alert', message: 'Cannot reach the dispatch worker.', tip: lastWorkerError, action: RETRY });
     return;
   }
 

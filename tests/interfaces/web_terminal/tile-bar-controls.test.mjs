@@ -15,11 +15,18 @@ const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
 
 const { openTerminalPanel, panelLink, reloadPanel, helpUrl, openHelp } = vi.hoisted(() => ({
   openTerminalPanel: vi.fn(() => true),
-  panelLink: vi.fn(() => 'http://localhost/panel/lattice/?model=sr#tunes'),
+  panelLink: vi.fn(
+    /** @returns {string | null} */ () => 'http://localhost/panel/lattice/?model=sr#tunes'
+  ),
   reloadPanel: vi.fn(() => true),
-  helpUrl: vi.fn(() => 'https://docs.example/how-to/web-terminal/lattice-dashboard.html'),
+  helpUrl: vi.fn(
+    /** @returns {string | null} */ () =>
+      'https://docs.example/how-to/web-terminal/lattice-dashboard.html'
+  ),
   openHelp: vi.fn(() => true),
 }));
+
+/** @typedef {import('/design-system/js/context-menu.js').MenuItem} MenuItem */
 
 // The dock (dockview itself) is out of scope: the control only has to open the
 // Agent pane through the layout holder's verb.
@@ -50,7 +57,7 @@ function configure(value) {
   document.documentElement.setAttribute('data-tile-bar-controls', value);
 }
 
-/** @param {HTMLElement} el @returns {string[]} */
+/** @param {HTMLElement} el @returns {(string | undefined)[]} */
 const controlIds = (el) =>
   [...el.querySelectorAll('[data-control]')].map(
     (b) => /** @type {HTMLElement} */ (b).dataset.control
@@ -196,14 +203,18 @@ describe('foldedControlRows', () => {
     help.classList.add('contrib-hidden');
     help.hidden = true;
     const rows = foldedControlRows('lattice');
-    expect(rows.map((r) => [r.label, r.disabled])).toEqual([['Reload panel', false]]);
+    expect(rows.map((/** @type {MenuItem} */ r) => [r.label, r.disabled])).toEqual([
+      ['Reload panel', false],
+    ]);
     rows[0].run?.();
     expect(reloadPanel).toHaveBeenCalledWith('lattice');
 
     // A disabled folded control stays a disabled row, under the control's name.
     showTerminalSurface();
     ask.classList.add('contrib-hidden');
-    expect(foldedControlRows('lattice').map((r) => [r.label, r.disabled])).toEqual([
+    expect(
+      foldedControlRows('lattice').map((/** @type {MenuItem} */ r) => [r.label, r.disabled])
+    ).toEqual([
       ['Ask the agent about this panel', true],
       ['Reload panel', false],
     ]);
@@ -217,7 +228,9 @@ describe('foldedControlRows', () => {
     );
     // The rebuild registers before the old tile disposes; the old dispose is a no-op.
     unregisterSharedControls('lattice', first);
-    expect(foldedControlRows('lattice').map((r) => r.label)).toEqual(['Reload panel']);
+    expect(foldedControlRows('lattice').map((/** @type {MenuItem} */ r) => r.label)).toEqual([
+      'Reload panel',
+    ]);
 
     unregisterSharedControls('lattice', second);
     expect(foldedControlRows('lattice')).toEqual([]);

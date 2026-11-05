@@ -3313,7 +3313,7 @@ describe('tile ⋯ menu — the tile’s sections and verbs (openTileContextMenu
       'Remove from rail',
       'Reset layout',
     ]);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('Ariel actions');
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Logbook actions');
     // No "Focus …" row: the tile is already showing the panel.
     expect(menuLabels().some((l) => l?.startsWith('Focus '))).toBe(false);
     expect(menuRow('Remove from rail')?.classList.contains('danger')).toBe(true);
@@ -3430,20 +3430,15 @@ describe('tile ⋯ menu — the tile’s sections and verbs (openTileContextMenu
     expect(menuLabels()).toEqual(['Reset layout', 'Close Agent pane']);
   });
 
-  test('on the terminal surface the Agent tile keeps the session verbs first', async () => {
+  test('on the terminal surface the Agent tile keeps the PTY verb first', async () => {
     await bootWorkspace({ surface: 'terminal' });
 
     await openTileMenu('terminal');
 
-    expect(menuLabels()).toEqual([
-      'Restart terminal',
-      'New session',
-      'Reset layout',
-      'Close Agent pane',
-    ]);
+    expect(menuLabels()).toEqual(['Restart terminal', 'Reset layout', 'Close Agent pane']);
   });
 
-  test('the Agent ROW keeps its verbs and adds the chat’s rows under a divider', async () => {
+  test('the Agent ROW keeps the session tree’s menu: the chat’s rows are the tile’s alone', async () => {
     await bootWorkspace();
     const policy = await import(POLICY_PATH);
     policy.setServiceMenuExtras('terminal', () => [
@@ -3457,7 +3452,7 @@ describe('tile ⋯ menu — the tile’s sections and verbs (openTileContextMenu
     );
 
     expect(headings()).toEqual([]);
-    expect(menuLabels()).toEqual(['Reset layout', 'Close Agent pane', 'Export conversation']);
+    expect(menuLabels()).toEqual(['New session', 'Expand all']);
     policy.setServiceMenuExtras('terminal', null);
   });
 });

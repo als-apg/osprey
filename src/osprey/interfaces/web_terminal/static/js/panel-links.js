@@ -3,9 +3,10 @@
  *
  * Three verbs that every service tile shares, whether they come from the tile
  * bar's shared controls or from the tile ⋯ menu: copy a panel's link, open it
- * in a browser tab, and reload it. All three need the panel's live iframe, so
- * they find it through tile-header-contrib's iframeForPanel and hold no state
- * of their own.
+ * in a browser tab, and reload it — and the page a Pop out opens, which is
+ * the same link. All of them need the panel's live iframe, so they find it
+ * through tile-header-contrib's iframeForPanel and hold no state of their
+ * own.
  *
  * The deep link is the panel's standalone URL carrying its current state. The
  * iframe's own location is the best source (a panel keeps its filters and
@@ -19,6 +20,7 @@
 
 import { copyText } from '/design-system/js/clipboard.js';
 
+import { buildPopoutSrc } from './panel-iframe-sync.js';
 import { iframeForPanel } from './tile-header-contrib.js';
 
 /** Query params that describe the hosting frame, not the panel's state. */
@@ -58,6 +60,22 @@ export function panelLink(panelId) {
     if (url.searchParams.has(param)) url.searchParams.delete(param);
   }
   return url.toString();
+}
+
+/**
+ * The page a panel's pop-out window opens: the deep link when the frame can
+ * be read, so the window shows what the tile showed (the artifact, the
+ * concept, the view), else `standaloneUrl`, the panel's plain page — either
+ * one stamped for a pop-out (`popout=true` and the theme, panel-iframe-sync.js).
+ * panel-manager's `popoutUrl` gate decides first whether the panel may pop
+ * out at all.
+ *
+ * @param {string} panelId
+ * @param {string} standaloneUrl
+ * @returns {string}
+ */
+export function popoutSrc(panelId, standaloneUrl) {
+  return buildPopoutSrc(panelLink(panelId) ?? standaloneUrl);
 }
 
 /**

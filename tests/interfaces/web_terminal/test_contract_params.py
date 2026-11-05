@@ -357,9 +357,9 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 # launcher -- session.html is a static page under the hub's /static
 # mount, not a second app.
 # `branding_selector` is the per-page standalone-only element the D15
-# narrowing keeps hidden in embedded mode; okf_panel has no branding
-# chrome of its own to hide, so its entry is `None` and the branding
-# assertion is skipped for it.
+# narrowing keeps hidden in embedded mode; okf_panel and lattice_dashboard
+# have no branding chrome of their own to hide, so their entry is `None` and
+# the branding assertion is skipped for them.
 # `theme_control_selector` + `toggle_action` are the per-panel pair the
 # two chrome tests below drive: the element the D15 embedded-hide rule
 # targets, and the callable that flips its appearance away from dark. Every
@@ -406,7 +406,7 @@ _CHROME_CONTRACT_PANELS = [
         "lattice_dashboard",
         launch_lattice_dashboard,
         "",
-        ".topbar-logo",
+        None,
         "osprey-display-menu",
         _toggle_via_display_menu,
     ),

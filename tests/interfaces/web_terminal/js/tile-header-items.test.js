@@ -632,7 +632,9 @@ describe('v3 icon items', () => {
     );
 
     expect(
-      [...host.querySelectorAll('[data-contrib-key]')].map((el) => el.dataset.contribKey)
+      [...host.querySelectorAll('[data-contrib-key]')].map((el) =>
+        el.getAttribute('data-contrib-key')
+      )
     ).toEqual(['icon:ok']);
   });
 });

@@ -107,14 +107,14 @@ describe('the Agent tile header', () => {
 
   test('in chat the PTY verb is withheld', () => {
     surface.terminal = false;
-    expect(policy.buildTerminalMenuItems().map((i) => i.label)).toEqual([
+    expect(policy.buildTerminalTileMenuItems().map((i) => i.label)).toEqual([
       'Reset layout',
       'Close Agent pane',
     ]);
   });
 
   test('the verbs reach the terminal and the dock', async () => {
-    const items = policy.buildTerminalMenuItems();
+    const items = policy.buildTerminalTileMenuItems();
     await items.find((i) => i.label === 'Restart terminal').run();
     expect(term.restartTerminal).toHaveBeenCalled();
     expect(term.startTerminal).toHaveBeenCalled();

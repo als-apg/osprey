@@ -342,7 +342,9 @@ export function openTileContextMenu(id, opts) {
  * The shared tail of both surface openers: build the id's rows for the
  * surface, decline by empty list, and open the popover. Items, label and the
  * decline signal live in this one place, so the two-surfaces-one-verb-set
- * contract is mechanical rather than maintained in parallel.
+ * contract is mechanical rather than maintained in parallel. The Agent
+ * reaches here from its tile only (openRailContextMenu gives its row the
+ * session tree's menu).
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
  * @param {'rail' | 'tile'} surface
  * @param {import('./dock-tab.js').TileMenuRequest} opts  position, anchor and
@@ -351,14 +353,11 @@ export function openTileContextMenu(id, opts) {
  */
 function openSurfaceMenu(id, surface, opts) {
   const agent = id === TERMINAL_RAIL_ID;
-  const items =
-    surface === 'tile'
-      ? agent
-        ? buildTerminalTileMenuItems()
-        : buildTileMenuItems(id)
-      : agent
-        ? buildTerminalMenuItems()
-        : buildServiceMenuItems(id);
+  const items = agent
+    ? buildTerminalTileMenuItems()
+    : surface === 'tile'
+      ? buildTileMenuItems(id)
+      : buildServiceMenuItems(id);
   // No rows is a decline, never an empty popover.
   if (!items.length) return false;
   const label = agent ? TERMINAL_RAIL_LABEL : ctx().labelOf(id);
@@ -580,25 +579,15 @@ function moveToNewGroup(id) {
 }
 
 /**
- * The Agent tile's verbs with the rows the chat registered through
- * {@link setServiceMenuExtras} under TERMINAL_RAIL_ID appended under a
- * divider. The Agent row in the sidebar heads the session tree and has its
- * own menu (buildAgentRowMenuItems, sidebar-artifact-menus.js), which is
- * where New session lives.
+ * The Agent pane's TILE ⋯ menu: "This panel" — the rows the chat registered
+ * through {@link setServiceMenuExtras} under TERMINAL_RAIL_ID — then "Tile",
+ * the Agent pane's own verbs. The Agent row in the sidebar heads the session
+ * tree and has its own menu (buildAgentRowMenuItems,
+ * sidebar-artifact-menus.js), which is where New session lives.
  *
  * In chat the tile hosts the operator console, so the PTY verb would act on a
  * surface the operator cannot see and is withheld (the palette never offers
  * it). The layout rows are the same on both surfaces.
- * @returns {import('./panel-context-menu.js').MenuItem[]}
- */
-export function buildTerminalMenuItems() {
-  const extras = serviceMenuExtras.get(TERMINAL_RAIL_ID)?.() ?? [];
-  return [...terminalTileRows(), ...(extras.length ? [{ divider: true }, ...extras] : [])];
-}
-
-/**
- * The Agent pane's TILE ⋯ menu: "This panel" — the rows the chat registered
- * under TERMINAL_RAIL_ID — then "Tile", the Agent pane's own verbs.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalTileMenuItems() {

@@ -17,11 +17,15 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contr
   iframeForPanel: (/** @type {string} */ id) => frames.get(id) ?? null,
 }));
 vi.mock('/design-system/js/clipboard.js', () => ({ copyText }));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-sync.js', () => ({
+  buildPopoutSrc: (/** @type {string} */ url) => `stamped:${url}`,
+}));
 
 import {
   copyPanelLink,
   openPanelInTab,
   panelLink,
+  popoutSrc,
   reloadPanel,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-links.js';
 
@@ -92,6 +96,22 @@ describe('panelLink', () => {
   test('is null when the frame is unreadable and has no src', () => {
     frames.set('a', fakeFrame({ href: throwing, src: null }));
     expect(panelLink('a')).toBeNull();
+  });
+});
+
+describe('popoutSrc', () => {
+  test('stamps the deep link when the frame can be read', () => {
+    frames.set(
+      'artifacts',
+      fakeFrame({ href: 'http://host/panel/artifacts/?embedded=true&artifact=a1&theme=dark' })
+    );
+    expect(popoutSrc('artifacts', '/panel/artifacts/')).toBe(
+      'stamped:http://host/panel/artifacts/?artifact=a1'
+    );
+  });
+
+  test('stamps the standalone URL when the panel has no frame to read', () => {
+    expect(popoutSrc('artifacts', '/panel/artifacts/')).toBe('stamped:/panel/artifacts/');
   });
 });
 

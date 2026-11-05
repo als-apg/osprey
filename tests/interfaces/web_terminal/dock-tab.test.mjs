@@ -397,7 +397,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: dot, Agent, pen, bell, share, more, then ⋯ and close', async () => {
+    test('the chat adopts the console bar: dot, session switcher, pen, bell, share, then ⋯ and close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -421,7 +421,6 @@ describe('tile-tab renderer', () => {
         'New conversation',
         'Desktop notifications',
         'Export',
-        'Earlier conversations',
         'Panel menu',
         'Close Agent pane',
       ]);

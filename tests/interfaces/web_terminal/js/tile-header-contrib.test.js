@@ -838,7 +838,8 @@ describe('fold ladder', () => {
     expect(host.querySelectorAll('[data-contrib-key]').length).toBe(2);
 
     const rows = panelMenuRows(panelId);
-    expect(rows.map(({ run, ...rest }) => rest)).toEqual([
+    expect(rows.every((r) => typeof r.run === 'function')).toBe(true);
+    expect(rows.map((r) => ({ ...r, run: undefined }))).toEqual([
       { label: 'Compact rows', checked: true, disabled: false, danger: false, separator: false },
       { label: 'Export CSV', disabled: true, danger: false, separator: false },
       { label: 'Clear all', disabled: false, danger: true, separator: true },

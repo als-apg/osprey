@@ -174,8 +174,9 @@ describe('hub with no dockview', () => {
     // The ⋯ asks the policy for the ACTIVE panel's menu.
     /** @type {HTMLButtonElement} */ (bar().querySelector('.tile-tab-more')).click();
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler.mock.calls[0][0]).toBe('tuning');
-    expect(/** @type {any} */ (handler.mock.calls[0][1]).anchorEl).toBe(bar());
+    const [id, opts] = /** @type {any[]} */ (handler.mock.calls[0]);
+    expect(id).toBe('tuning');
+    expect(opts.anchorEl).toBe(bar());
     setTileContextMenuHandler(null);
     document.documentElement.removeAttribute('data-tile-bar-controls');
   });
