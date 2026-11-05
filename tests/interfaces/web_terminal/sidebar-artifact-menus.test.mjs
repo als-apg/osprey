@@ -18,7 +18,9 @@ const sessionModel = vi.hoisted(() => ({
 }));
 const listing = vi.hoisted(() => ({
   ARTIFACTS_BASE: '/panel/artifacts',
-  fetchArtifact: vi.fn(async () => null),
+  fetchArtifact: /** @type {import('vitest').Mock<(id: string) => Promise<any>>} */ (
+    vi.fn(async () => null)
+  ),
   readTreeView: vi.fn(() => 'kind'),
 }));
 const confirm = vi.hoisted(() => ({ showConfirm: vi.fn() }));
@@ -109,7 +111,10 @@ beforeEach(() => {
   );
   buildTree();
   menus.initTreeMenus();
-  globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+  );
 });
 
 afterEach(() => {
@@ -121,7 +126,9 @@ afterEach(() => {
 describe('the Agent row', () => {
   test('New session, Expand all — and New session goes through switchTo({new: true})', async () => {
     const items = menus.buildAgentRowMenuItems();
-    expect(items.filter((i) => i.label).map((i) => i.label)).toEqual(['New session', 'Expand all']);
+    /** @param {{label?: string}} i */
+    const label = (i) => i.label;
+    expect(items.filter(label).map(label)).toEqual(['New session', 'Expand all']);
     items[0].run();
     await vi.waitFor(() => expect(sessionModel.switchTo).toHaveBeenCalledWith({ new: true }));
   });
@@ -171,10 +178,13 @@ describe('a session row', () => {
   });
 
   test('Export transcript downloads the session’s transcript.md', async () => {
+    /** @type {(string | null)[]} */
     const clicked = [];
-    const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
-      clicked.push(this.getAttribute('href'));
-    });
+    const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+      /** @this {HTMLAnchorElement} */ function () {
+        clicked.push(this.getAttribute('href'));
+      }
+    );
     await rightClick($('.osprey-tree-title'));
     menuRow('Export transcript').click();
     expect(clicked).toEqual(['/api/sessions/t1/transcript.md']);
@@ -260,7 +270,10 @@ describe('an artifact row', () => {
   test('a failed delete keeps the dialog open with the error', async () => {
     await rightClick($('[data-id="a1"]'));
     menuRow('Delete…').click();
-    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 404 }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 404 }))
+    );
     const ui = { done: vi.fn(), error: document.createElement('div') };
     ui.error.hidden = true;
     await confirm.showConfirm.mock.calls[0][0].onConfirm(ui);

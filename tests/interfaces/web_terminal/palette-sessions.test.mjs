@@ -296,7 +296,9 @@ describe('Artifacts', () => {
     const head = { id: 'h', title: 'Run: fit', form: 'runs', exec_id: 'x1', run_part: 'result' };
     const part = { id: 'p', title: 'Review: fit', form: null, exec_id: 'x1', run_part: 'preview' };
     const output = { id: 'o', title: 'fit.png', form: 'plots', exec_id: 'x1', run_part: 'output' };
-    expect(collapseRuns([part, head, output]).map((e) => e.id)).toEqual(['h', 'o']);
+    expect(collapseRuns([part, head, output]).map((/** @type {{id: string}} */ e) => e.id)).toEqual(
+      ['h', 'o']
+    );
     const { p } = provider({ searchArtifacts: vi.fn(async () => [part, head]) });
     const hits = await settle(p, 'fit');
     expect(hits.map((h) => h.label)).toEqual(['Run: fit']);

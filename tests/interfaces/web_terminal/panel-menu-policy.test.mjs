@@ -43,6 +43,8 @@ vi.mock(
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js', () => sessions);
 
 const policy = await import(`${JS}/panel-menu-policy.js`);
+
+/** @typedef {{label?: string, run?: () => unknown}} Item */
 const { TERMINAL_RAIL_ID } = await import(`${JS}/panel-catalog.js`);
 
 /** @returns {string[]} the open menu's row labels */
@@ -61,6 +63,7 @@ function menuRow(label) {
   );
 }
 
+/** @type {HTMLElement} */
 let rail;
 
 beforeEach(() => {
@@ -84,7 +87,7 @@ beforeEach(() => {
     activateTab: () => {},
     showPanel: () => {},
     retireTile: () => {},
-    labelOf: (id) => id,
+    labelOf: (/** @type {string} */ id) => id,
     retryStart: () => {},
   });
 });
@@ -107,18 +110,19 @@ describe('the Agent tile header', () => {
 
   test('in chat the PTY verb is withheld', () => {
     surface.terminal = false;
-    expect(policy.buildTerminalMenuItems().map((i) => i.label)).toEqual([
+    expect(policy.buildTerminalMenuItems().map((/** @type {Item} */ i) => i.label)).toEqual([
       'Reset layout',
       'Close Agent pane',
     ]);
   });
 
   test('the verbs reach the terminal and the dock', async () => {
+    /** @type {Item[]} */
     const items = policy.buildTerminalMenuItems();
-    await items.find((i) => i.label === 'Restart terminal').run();
+    await items.find((i) => i.label === 'Restart terminal')?.run?.();
     expect(term.restartTerminal).toHaveBeenCalled();
     expect(term.startTerminal).toHaveBeenCalled();
-    items.find((i) => i.label === 'Reset layout').run();
+    items.find((i) => i.label === 'Reset layout')?.run?.();
     expect(dock.resetDockLayout).toHaveBeenCalledTimes(1);
   });
 });

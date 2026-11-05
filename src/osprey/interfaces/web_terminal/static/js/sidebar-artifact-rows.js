@@ -394,7 +394,7 @@ export function runTreeRows(head, { shownId, highlightId = null, open }) {
   );
   for (const part of others) {
     const kid = treeRow(
-      { id: part.id, title: PART_TITLES[/** @type {keyof PART_TITLES} */ (part.role)] },
+      { id: part.id, title: PART_TITLES[/** @type {keyof typeof PART_TITLES} */ (part.role)] },
       'notebook',
       { shownId, highlightId },
       3

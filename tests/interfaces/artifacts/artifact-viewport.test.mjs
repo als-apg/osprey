@@ -399,7 +399,9 @@ describe('the viewer hook', () => {
   const beamLog = () => makeArtifact({ kind: 'beam_log', artifact_type: 'table_html' });
 
   test('the fixture declares beam_log with a viewer and orbit_fit without', () => {
-    const byKey = Object.fromEntries(REGISTRY.extension_types.map((e) => [e.key, e]));
+    const byKey = Object.fromEntries(
+      REGISTRY.extension_types.map((/** @type {{key: string}} */ e) => [e.key, e])
+    );
     expect(byKey.beam_log.viewer_url).toBeTruthy();
     expect(byKey.orbit_fit.viewer_url).toBeNull();
   });
@@ -407,7 +409,8 @@ describe('the viewer hook', () => {
   test('render receives the container, the artifact and ctx {fileUrl, theme, tokens}', async () => {
     themeState.current = 'retro-light';
     document.documentElement.style.setProperty('--bg-primary', '#123456');
-    const render = vi.fn((/** @type {HTMLElement} */ el) => {
+    /** @type {import('vitest').Mock<(el: HTMLElement, artifact: unknown, ctx: {fileUrl: string, theme: string, tokens: Record<string, string>}) => void>} */
+    const render = vi.fn((el) => {
       el.textContent = 'rendered by beam_log';
     });
     importer.mockResolvedValue({ render });
