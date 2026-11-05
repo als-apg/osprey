@@ -42,6 +42,10 @@ takes ``file_path`` and optional ``script_args`` in place of ``code``).
    * - ``save_output``
      - ``True``
      - Save code and output to a workspace data file and artifact store.
+   * - ``approved_target``
+     - set by the hook
+     - The control target the approval hook admitted the call on. The hook
+       fills it in; a value the agent passes is overwritten.
 
 On success the tool returns a JSON object whose top level describes the saved
 run:
@@ -119,6 +123,14 @@ is refused without asking.
        role names) once, from its present
        setting, by the same integrated strength. Group stepping is unipolar:
        an omitted modulation is ``"unipolar"`` and ``"bipolar"`` is refused.
+   * - ``approved_target``
+     - set by the hook
+     - The control target the approval hook admitted the call on. The hook
+       fills it in; a value the agent passes is overwritten.
+   * - ``approved_view_sha256``
+     - set by the hook
+     - The ``sha256`` of the pyAML view the approval names. The hook fills it
+       in; a value the agent passes is overwritten.
 
 Each step comes from the measurement file (``corrector_delta``,
 ``frequency_delta``, ``quad_delta``, ``sextu_delta``) and is shrunk until no
@@ -190,14 +202,3 @@ text; a defective facility file is refused the same way with the remedy to
 rebuild. When the whole request has no solve, the call fails as an
 ``execution_error`` with the engine's text. Any other engine error is an
 ``execution_error`` carrying the solve's stderr.
-
-Installation
-============
-
-The Python executor is included in the default Osprey installation:
-
-.. code-block:: bash
-
-   uv sync
-
-No additional setup is needed.
