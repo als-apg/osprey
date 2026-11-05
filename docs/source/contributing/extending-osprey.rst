@@ -13,15 +13,15 @@ extend.
 This page is the map, not the tutorial. For each seam it names the class or
 registry to work against, one test that pins that seam's behaviour, and the
 how-to a deployer uses to switch your implementation on. The base classes and
-the tests beside them are written to be read, so the fastest route to working
+the tests beside them are written to be read. So the fastest route to working
 code is to hand both to a coding agent and let it draft against them.
 
 Everything on this page assumes a development checkout --- see
 :doc:`development-setup`.
 
-Each seam's registration lives in your deployment's own registry module, and
-the framework finds that file through the ``registry_path`` key in its
-``config.yml`` --- set it in your profile's ``config:`` block, as
+Each seam's registration lives in your deployment's own registry module. The
+framework finds that file through the ``registry_path`` key in its
+``config.yml``. Set it in your profile's ``config:`` block, as
 ``registry_path: project/registry.py``. ``application.registry_path`` is
 accepted as an alias, and the ``REGISTRY_PATH`` environment variable outranks
 both, as :doc:`/reference/configuration/environment-variables` records. Without
@@ -39,9 +39,9 @@ A connector is Osprey's single interface to one control system. Subclass
 ``packages/osprey-connectors/src/osprey_connectors/control_system/`` --- and
 return the ``ChannelValue``, ``ChannelMetadata`` and ``ChannelWriteResult``
 models it defines. A write's result carries the ``outcome`` your connector
-determined --- use the shared ``values_match`` helper from the same module to
-compare what you read back against what was sent, so your connector confirms a
-write exactly as every other one does. Register it with
+determined. Use the shared ``values_match`` helper from the same module to
+compare what you read back against what was sent. That way your connector
+confirms a write exactly as every other one does. Register it with
 ``ConnectorFactory.register_control_system``, or ship it as an
 ``osprey.registry.base.ConnectorRegistration`` passed to
 ``osprey.registry.helpers.extend_framework_registry``. Pinning test:
@@ -63,8 +63,8 @@ the same two ways, with ``ConnectorFactory.register_archiver`` or a
 can also select one without registering it, by setting ``archiver.type`` to its
 dotted module path. Either way it is configured from ``archiver.settings``, which
 the factory hands to ``connect()``. The return
-shape is a contract of its own --- one row per sample, historical enum values
-as strings rather than indices --- and it is written down under "Archiver
+shape is a contract of its own: one row per sample, historical enum values
+as strings rather than indices. It is written down under "Archiver
 Connectors" in :doc:`/reference/contracts/connectors`. Pinning test:
 ``tests/connectors/test_archiver_mock_default.py``, which holds the
 ``archiver.type`` key to a fail-closed default so a missing archiver never
@@ -81,8 +81,8 @@ needs no Python at all --- it is an entry in the ``mcp_servers:`` block of
 :doc:`/how-to/agent-interfaces/add-mcp-server`. A *framework* server is the
 developer seam: a package under ``src/osprey/mcp_server/`` holding a
 module-level ``FastMCP`` instance and a ``create_server()`` factory in
-``server.py``, one tool per module under ``tools/``, and an
-``osprey.registry.mcp.ServerDefinition`` added to ``FRAMEWORK_SERVERS`` in
+``server.py``, and one tool per module under ``tools/``. The server also needs
+an ``osprey.registry.mcp.ServerDefinition`` added to ``FRAMEWORK_SERVERS`` in
 ``src/osprey/registry/mcp.py``. The controls server
 (``osprey.mcp_server.control_system``) is the canonical example to copy.
 Pinning test: ``tests/registry/test_mcp.py``, which resolves those definitions
@@ -102,8 +102,8 @@ and one class, ``osprey.bridges.core.ports.ChannelOps``. Read that module's
 docstring first: it carries the failure contract member by member, and getting
 it wrong is the one mistake that leaves a bridge looking healthy while losing
 answers. A bridge that can list who is in a conversation also implements the
-optional ``osprey.bridges.core.ports.RoomRoster``; the engine then tells the
-agent who is in the room, and the bridge renders the agent's ``<@ID>`` mentions
+optional ``osprey.bridges.core.ports.RoomRoster``. The engine then tells the
+agent who is in the room. The bridge renders the agent's ``<@ID>`` mentions
 in its own chat system's syntax. Copy ``src/osprey/bridges/google_chat/``,
 ``src/osprey/bridges/nextcloud_talk/`` or ``src/osprey/bridges/teams/``, and
 expect to touch the build-profile
@@ -117,36 +117,46 @@ Trigger source
 --------------
 
 A trigger source is what wakes the event dispatcher, as a webhook call, a
-fixed interval or an EPICS channel crossing does; a message queue or a file
-drop would each be a new one. Write a class matching
-``osprey.dispatch.sources.base.TriggerSource``: a ``source_type`` class
-attribute, ``register_routes``, which runs before the dispatcher's app is built
-and does something only for a source that serves HTTP routes, and ``start`` and
-``stop``, which run with the event loop going. ``start`` receives the triggers
-that name this source and a fire callback. The source reads each trigger's own
-``source_config`` and awaits the callback with the trigger and a payload
-mapping for every event it detects. Stamp the event's instant as a
-timezone-aware ``datetime``: the dispatcher stores it as given and shows it to
-the agent in the facility zone, while a time carried as text reaches the agent
-unchanged. The callback returns the queued run's id, returns ``None`` when the
-trigger is disabled, and raises
-``osprey.dispatch.pool.QueueFullError`` when the queue is full; what happens
-then is the source's decision, and every shipped source logs the event and
-drops it. A fire from a source is attributed to nobody.
+fixed interval or an EPICS channel crossing does. A message queue or a file
+drop would each be a new one. To write a trigger source:
+
+#. Write a class matching ``osprey.dispatch.sources.base.TriggerSource``.
+#. Give it a ``source_type`` class attribute.
+#. Implement ``register_routes``. It runs before the dispatcher's app is built,
+   and does something only for a source that serves HTTP routes.
+#. Implement ``start`` and ``stop``, which run with the event loop going.
+   ``start`` receives the triggers that name this source and a fire callback.
+#. Read each trigger's own ``source_config``. For every event the source
+   detects, await the callback with the trigger and a payload mapping.
+#. Stamp the event's instant as a timezone-aware ``datetime``. The dispatcher
+   stores it as given and shows it to the agent in the facility zone. A time
+   carried as text reaches the agent unchanged.
+#. Handle the callback's result. It returns the queued run's id, or ``None``
+   when the trigger is disabled. It raises
+   ``osprey.dispatch.pool.QueueFullError`` when the queue is full. What happens
+   then is the source's decision; every shipped source logs the event and
+   drops it.
+#. Declare the class as an entry point (below) and install the package where
+   the dispatcher runs.
+
+A fire from a source is attributed to nobody.
 
 This seam is the exception to the registry-module paragraph that opens this
-page: sources are not registered in a registry module. They are found through a Python package
-entry point, in the group OSPREY declares its own three under ---
-``[project.entry-points."osprey.trigger_sources"]`` in ``pyproject.toml`` ---
-and the entry point's name is the ``source:`` value a trigger writes.
+page: sources are not registered in a registry module. They are found through
+a Python package entry point in
+``[project.entry-points."osprey.trigger_sources"]``, the group under which
+OSPREY's own ``pyproject.toml`` declares its three sources. The entry point's name is
+the ``source:`` value a trigger writes.
 ``osprey.dispatch.source_registry.SourceRegistry`` loads the group when the
-dispatcher starts, and the dispatcher does not start when an entry point's
+dispatcher starts. The dispatcher does not start when an entry point's
 class lacks the three methods, or when one name is claimed by two different
-classes. The package has to be installed wherever the dispatcher runs: a
+classes.
+
+The package has to be installed wherever the dispatcher runs. A
 dispatcher started with ``python -m osprey.dispatch`` finds it in that
-environment, while the image OSPREY builds for the containerized dispatcher
-installs OSPREY alone, so a container deployment names an image that carries
-the package through ``services.event_dispatcher.image``
+environment. The image OSPREY builds for the containerized dispatcher
+installs OSPREY alone. So a container deployment names an image that carries
+the package, through ``services.event_dispatcher.image``
 (:ref:`deployment-image-overrides`). Copy
 ``src/osprey/dispatch/sources/cron.py`` for a source with no routes, or
 ``src/osprey/dispatch/sources/webhook.py`` for one that serves them. Pinning
@@ -158,12 +168,17 @@ test: ``tests/dispatch/test_source_registry.py``; deployer view:
 ARIEL
 -----
 
-ARIEL is the interface to logbook data, and it has three seams: a **facility
-adapter** (``osprey.services.ariel_search.ingestion.base.FacilityAdapter``)
-that reads your logbook and normalises it, an **enhancement module**
-(``osprey.services.ariel_search.enhancement.base.BaseEnhancementModule``) that
-enriches stored entries, and a **search module** that exposes a new way to
-query them. All three are registered through
+ARIEL is the interface to logbook data, and it has three seams:
+
+- a **facility adapter**
+  (``osprey.services.ariel_search.ingestion.base.FacilityAdapter``) that reads
+  your logbook and normalises it
+- an **enhancement module**
+  (``osprey.services.ariel_search.enhancement.base.BaseEnhancementModule``)
+  that enriches stored entries
+- a **search module** that exposes a new way to query them
+
+All three are registered through
 ``osprey.registry.helpers.extend_framework_registry`` with the matching
 ``osprey.registry.base.ArielIngestionAdapterRegistration``,
 ``ArielEnhancementModuleRegistration`` or ``ArielSearchModuleRegistration``,
@@ -173,7 +188,7 @@ your build profile, not an ARIEL extension. Pinning test:
 :doc:`/how-to/ariel/data-ingestion`.
 
 A facility adapter may also declare the fields an author fills in when writing
-an entry, through two optional hooks on the same class:
+an entry. It does so through two optional hooks on the same class:
 ``get_entry_field_descriptors`` returns ``ParameterDescriptor`` declarations
 and ``get_entry_field_options`` lists a ``dynamic_select`` field's choices.
 Both default to declaring nothing, which keeps the built-in entry form. The
@@ -190,28 +205,36 @@ Health plugin
 -------------
 
 Most health checks are declarative YAML. A plugin is for the ones that need
-real Python --- querying a facility service, computing a derived state. Write a
-module that exposes ``get_health_categories()``, returning a mapping of
-category name to a callable (sync or async) that produces a list of
-``osprey.health.models.CheckResult``, then name it under ``health.plugins`` —
-either as a dotted path to an importable module (``my_package.health_checks``)
-or as a path to a ``.py`` file (``./health/facility_checks.py``). A relative
-file path is resolved against the project root, the same anchor ``data/`` and
-``plans/`` use, so a deployment can keep its checks beside its profile without
-packaging them or setting ``PYTHONPATH``. A file loaded that way is given a
-synthetic module name derived from its path and is **re-executed** every time
-the health config is reloaded, so it must not keep state at module level.
-``osprey.health.plugins.load_plugin_categories`` loads it, and does so
-fail-safe: a plugin that will not import, returns the wrong type, or collides
+real Python --- querying a facility service, computing a derived state. To
+write a health plugin:
+
+#. Write a module that exposes ``get_health_categories()``. It returns a
+   mapping of category name to a callable (sync or async) that produces a list
+   of ``osprey.health.models.CheckResult``.
+#. Name the module under ``health.plugins``, either as a dotted path to an
+   importable module (``my_package.health_checks``) or as a path to a ``.py``
+   file (``./health/facility_checks.py``).
+
+A relative file path is resolved against the project root, the same anchor
+``data/`` and ``plans/`` use. So a deployment can keep its checks beside its
+profile without packaging them or setting ``PYTHONPATH``. A file loaded that
+way is given a synthetic module name derived from its path. It is
+**re-executed** every time the health config is reloaded, so it must not keep
+state at module level.
+
+``osprey.health.plugins.load_plugin_categories`` loads the plugin, and does so
+fail-safe. A plugin that will not import, returns the wrong type, or collides
 with an existing category name becomes one ``error`` row rather than a crashed
-suite. A category callable normally takes no arguments. An ``async def`` one
+suite.
+
+A category callable normally takes no arguments. An ``async def`` one
 may instead declare a ``runtime`` parameter and receive the suite's shared
-``osprey.health.runtime.HealthRuntime``, so ``await runtime.get_connector()``
-hands back the one control-system connector the whole run shares instead of
+``osprey.health.runtime.HealthRuntime``. Then ``await runtime.get_connector()``
+hands back the one control-system connector the whole run shares, instead of
 opening a second Channel Access context. The runtime is valid only for that
-call. A sync callable cannot take it — it runs on a worker thread with no event
-loop — and one that declares ``runtime`` is refused with an ``error`` row
-saying to make it ``async def``. Pinning test:
+call. A sync callable cannot take it: it runs on a worker thread with no event
+loop. A sync callable that declares ``runtime`` is refused with an ``error``
+row saying to make it ``async def``. Pinning test:
 ``tests/health/test_plugins.py``. Config side:
 :doc:`/how-to/health-and-monitoring/configure-health-checks`.
 
@@ -220,9 +243,9 @@ saying to make it ``async def``. Pinning test:
 Panel
 -----
 
-A panel is a tab in the Web Terminal. The supported route is the guided skill
---- ``/osprey:panel``, whose source is ``plugins/osprey/skills/panel/`` ---
-which walks a coding agent through a bundle that already meets every rule: a
+A panel is a tab in the Web Terminal. The supported route is the guided skill,
+``/osprey:panel``, whose source is ``plugins/osprey/skills/panel/``. The skill
+walks a coding agent through a bundle that already meets every rule: a
 directory under the project's ``panels/`` holding a ``manifest.json`` and an
 entry HTML file. Discovery is off until a deployer sets
 ``web.allow_runtime_panels``, and it is fail-closed, so a malformed bundle is
@@ -273,29 +296,41 @@ What a plug-in is given and asked for:
   composite looks it up with ``metadata.entry_points(group=ENGINE_GROUP,
   name=...)``; an engine no package registers fails that model.
 - **Build-time contract.** ``osprey build`` calls four pure functions of the
-  module, none of which builds a model: ``locate`` gives an element's place
-  along the deck, ``prepare`` checks the deck against the model's settings,
-  ``start_values`` derives each wired channel's operating point from the deck,
-  and ``describe(record)`` says what one wiring record is. ``describe``
-  returns ``{role, plane, refresh}``: ``role`` is ``setpoint``, ``readback``,
-  ``monitor`` or ``output``; ``plane`` is ``x`` or ``y`` for a record that
-  steers or reads one transverse plane, else ``None``; ``refresh`` is
-  ``pass`` for a value each write's solve updates, or ``periodic`` for one
-  only the periodic solve publishes. The build stamps the description into each wiring record
-  of the simulator view, so no reader re-derives it from engine attributes.
+  module, none of which builds a model:
+
+  - ``locate`` gives an element's place along the deck.
+  - ``prepare`` checks the deck against the model's settings.
+  - ``start_values`` derives each wired channel's operating point from the
+    deck.
+  - ``describe(record)`` says what one wiring record is.
+
+  ``describe`` returns ``{role, plane, refresh}``:
+
+  - ``role`` is ``setpoint``, ``readback``, ``monitor`` or ``output``.
+  - ``plane`` is ``x`` or ``y`` for a record that steers or reads one
+    transverse plane, else ``None``.
+  - ``refresh`` is ``pass`` for a value each write's solve updates, or
+    ``periodic`` for one only the periodic solve publishes.
+
+  The build stamps the description into each wiring record of the simulator
+  view, so no reader re-derives it from engine attributes.
 - **Build.** The composite calls the module's
   ``build(model, wiring, deck, settings, active=...)`` once per served model.
-  ``wiring`` is the model's wiring records from the simulator view's
-  ``variables.json``, ``deck`` is the path of the model's deck,
-  ``decks/<model>.<its suffix>``, or ``None`` for a model that names none,
-  ``settings`` is the model record's settings, and ``active`` holds the active
-  scenarios' setpoint values and fault seeds. It returns the ``LUMEModel``.
+  It returns the ``LUMEModel``. The arguments:
+
+  - ``wiring`` is the model's wiring records from the simulator view's
+    ``variables.json``.
+  - ``deck`` is the path of the model's deck, ``decks/<model>.<its suffix>``,
+    or ``None`` for a model that names none.
+  - ``settings`` is the model record's settings.
+  - ``active`` holds the active scenarios' setpoint values and fault seeds.
+
 - **Set and get.** The composite reaches the model only through its ``set()``
   and ``get()``. Each variable is named for the channel address its wiring
   record claims, so a plug-in parses no channel names.
-- **Report a failed build.** A ``build`` that raises leaves the model failed:
-  its ``<code>:SIM:<model>:STATUS`` channel carries the text the module's
-  optional ``error_text(exc)`` gives, else the exception's own text, and the
+- **Report a failed build.** A ``build`` that raises leaves the model failed.
+  Its ``<code>:SIM:<model>:STATUS`` channel carries the text the module's
+  optional ``error_text(exc)`` gives, else the exception's own text. The
   rest of the namespace is still served.
 - **The contract in code.** ``osprey.simulation.engines.EnginePlugin`` names
   the five functions above, and ``isinstance(module, EnginePlugin)`` checks a
@@ -323,8 +358,8 @@ What the container keeps the same for every engine:
   read the count out of it. A first pass that fails exits non-zero without
   it.
 - **SIGTERM.** The image's command ``exec``\ s Python, so the entrypoint is
-  the container's first process and receives ``docker stop``'s SIGTERM
-  itself; it handles SIGTERM as it handles SIGINT and leaves through the
+  the container's first process. It receives ``docker stop``'s SIGTERM
+  itself. It handles SIGTERM as it handles SIGINT and leaves through the
   runner's own exit.
 - **One image for every instance.** With a live stand-in, both containers run
   the same image and the same entrypoint; ``VA_INSTANCE`` tells them apart.
@@ -367,7 +402,7 @@ comes from ``src/osprey/agent_runner/tool_names.py``.
 
 A lint holds the boundary. Ruff's banned-api rule (``TID251``, configured in
 ``pyproject.toml``) refuses an import of ``claude_agent_sdk`` anywhere in
-``src/`` or ``packages/`` outside the adapter, and the unit suite refuses the
+``src/`` or ``packages/`` outside the adapter. The unit suite refuses the
 same import, including the dynamic imports ruff cannot see. No module is exempt
 by name. Tests and developer scripts sit outside the shipped trees and drive the
 SDK directly. New code that needs the agent calls the adapter; a Claude-specific
