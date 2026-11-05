@@ -228,6 +228,7 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
     assert written == [
         render_dir / relative
         for relative in (
+            "data/benchmarks/queries.json",
             "data/bluesky_devices.yml",
             "data/channel_limits.json",
             "data/facility_facts.json",

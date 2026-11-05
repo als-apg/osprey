@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Subsystem
 title: Personnel Safety System (PSS)
 description: Access control and radiation interlock system governing beam permits, door status, and area searches.

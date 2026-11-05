@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.build import build_facility
+from osprey.facility.records import FacilityRecords
 from osprey.facility.sources import group_families, read_yaml, slot_names
 from osprey.facility.views.limits import limits_document
 from tests._builds import BuiltProject
@@ -159,7 +160,7 @@ def test_limits_golden_holds_the_three_resolved_rows() -> None:
 
 def test_limits_golden_resolves_the_committed_records() -> None:
     """The limits view of the committed tree is the golden, a bound left unstated absent."""
-    resolved = limits_document(build_facility(FACILITY_TREE, project_name="ca"))
+    resolved = limits_document(FacilityRecords(build_facility(FACILITY_TREE, project_name="ca")))
     del resolved["_version"]
     golden = {
         address: {slot: value for slot, value in row.items() if value is not None}

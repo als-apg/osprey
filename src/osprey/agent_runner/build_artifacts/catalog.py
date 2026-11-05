@@ -197,7 +197,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="rules/facility",
             template_path="claude/rules/facility.md.j2",
             output_path=".claude/rules/facility.md",
-            description="Facility identity & context",
+            description="Operator guidance for the facility",
         ),
         BuildArtifact(
             canonical_name="rules/workflows",
@@ -605,6 +605,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="bluesky_web",
             output_path="services/bluesky_web",
             description="Bluesky operator-facing web sidecar compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/optimizer",
+            template_path="optimizer",
+            output_path="services/optimizer",
+            description="Optimizer service compose template + image context",
             template_root="services",
             is_directory=True,
         ),

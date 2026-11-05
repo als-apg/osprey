@@ -22,6 +22,7 @@ from osprey.facility.layers.mml.mapping import (
     parse_mapping,
     read_mapping,
 )
+from osprey.facility.records import FacilityRecords
 
 at = pytest.importorskip("at")
 
@@ -137,7 +138,7 @@ def test_the_built_spear3_tree_serves_measured_tune_as_the_deck_s_tunes(tmp_path
     widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
     (model,) = [entry for entry in document["models"] if entry["name"] == MODEL]
-    wiring = simulator_wiring(document, MODEL)
+    wiring = simulator_wiring(FacilityRecords(document), MODEL)
     deck = facility / model["deck"]
 
     built = engine.build(MODEL, wiring, deck, model.get("settings"))
@@ -159,7 +160,9 @@ def test_the_built_measured_tune_starts_from_a_waveform_of_its_shape(tmp_path: P
     import_mml([EXPORT], facility)
     widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
-    (record,) = [r for r in simulator_wiring(document, MODEL) if r["address"] == "MeasTune"]
+    (record,) = [
+        r for r in simulator_wiring(FacilityRecords(document), MODEL) if r["address"] == "MeasTune"
+    ]
 
     assert record["default"] == [0.0, 0.0, 0.0]
     assert values.coerce(record["default"], "waveform", None, [3]) is not None
@@ -188,7 +191,10 @@ async def test_the_in_process_simulator_serves_measured_tune_as_the_deck_s_tunes
     render_facility_outputs(render, document, IN_PROCESS_RENDER_CONFIG, facility)
     (model,) = [entry for entry in document["models"] if entry["name"] == MODEL]
     built = engine.build(
-        MODEL, simulator_wiring(document, MODEL), facility / model["deck"], model.get("settings")
+        MODEL,
+        simulator_wiring(FacilityRecords(document), MODEL),
+        facility / model["deck"],
+        model.get("settings"),
     )
     expected = at.get_optics(built.lattice.deepcopy(), get_chrom=False)[1].tune
 

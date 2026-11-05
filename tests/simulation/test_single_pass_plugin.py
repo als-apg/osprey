@@ -24,6 +24,7 @@ import numpy as np  # noqa: E402
 from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
 
 from osprey.facility.errors import FacilityBuildError  # noqa: E402
+from osprey.facility.records import FacilityRecords  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.engines import pyat_single_pass  # noqa: E402
 from osprey.simulation.engines.pyat_model import (  # noqa: E402
@@ -332,7 +333,7 @@ def demo_line(built_control_assistant: Any) -> dict[str, Any]:
     facility = built_control_assistant.facility
     (model,) = [entry for entry in facility["models"] if entry["name"] == DEMO_LINE]
     return {
-        "wiring": simulator_wiring(facility, DEMO_LINE),
+        "wiring": simulator_wiring(FacilityRecords(facility), DEMO_LINE),
         "deck": built_control_assistant.facility_dir / model["deck"],
         "settings": model["settings"],
     }

@@ -212,8 +212,11 @@ PY
 # and state subdirs) and, where
 # they are mounted, OSPREY_FACILITY_BUNDLE_DIR (the knowledge bundle),
 # OSPREY_ARIEL_MIRROR_DIR (the ARIEL qmd mirror this container's own exporter
-# writes), OSPREY_SIMULATOR_LOG_DIR (the simulator's model logs) and
-# OSPREY_GUARDED_RUN_DIR (guarded runs' locks). Iterating what
+# writes), OSPREY_SIMULATOR_LOG_DIR (the simulator's model logs),
+# OSPREY_GUARDED_RUN_DIR (guarded runs' locks), OSPREY_WRITE_REQUESTS_DIR
+# (programs' write-authorization requests, read-only) and
+# OSPREY_WRITE_LEDGER_VIEW_DIR (the programs' write ledger, read-only).
+# Iterating what
 # those name and skipping any that is unset or not a
 # directory is what lets one script serve a web terminal, a dispatch worker
 # with no bundle mount, and a bare `docker run` with none, without a single
@@ -502,6 +505,12 @@ join_mounted_groups() {
 
     join_mounted_group OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}"
     probe_mounted_dir OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}" write
+
+    join_mounted_group OSPREY_WRITE_REQUESTS_DIR "${OSPREY_WRITE_REQUESTS_DIR:-}"
+    probe_mounted_dir OSPREY_WRITE_REQUESTS_DIR "${OSPREY_WRITE_REQUESTS_DIR:-}" read
+
+    join_mounted_group OSPREY_WRITE_LEDGER_VIEW_DIR "${OSPREY_WRITE_LEDGER_VIEW_DIR:-}"
+    probe_mounted_dir OSPREY_WRITE_LEDGER_VIEW_DIR "${OSPREY_WRITE_LEDGER_VIEW_DIR:-}" read
 
     join_mounted_group OSPREY_AGENT_RECORD_SPOOL_ROOT "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}"
     probe_mounted_dir OSPREY_AGENT_RECORD_SPOOL_ROOT "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}" write

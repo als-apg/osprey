@@ -1135,6 +1135,14 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         no_client_reach=True,
         note="the worker dials the render's project, never the reverse",
     ),
+    "optimizer": ReachContract(
+        service="optimizer",
+        no_client_reach=True,
+        note=(
+            "no agent-side client dials the optimizer yet; its MCP server, when it "
+            "lands, is the consumer that projects services.optimizer.port"
+        ),
+    ),
     **_outbound_only_contracts(),
 }
 

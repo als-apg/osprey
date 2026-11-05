@@ -80,6 +80,7 @@ from .build_profile_schema import (
     LifecycleStep,
     McpServerDef,
     NextcloudBridgeProfileConfig,
+    OptimizerConfig,
     ProfileProvenance,
     ServiceDef,
     TeamsBridgeProfileConfig,
@@ -269,6 +270,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "bluesky",
         "virtual_accelerator",
         "bluesky_web",
+        "optimizer",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -322,6 +324,7 @@ LOGIN_DEPLOYMENT_FACTS = frozenset(
         "dispatch",
         "bluesky",
         "bluesky_web",
+        "optimizer",
         "virtual_accelerator",
         "nextcloud_bridge",
         "gchat_bridge",
@@ -569,6 +572,11 @@ _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
 # removal instead of being silently ignored.
 _KNOWN_BLUESKY_KEYS = frozenset(f.name for f in fields(BlueskyConfig))
 
+# Keys recognized inside the ``optimizer:`` block, derived from its dataclass
+# for the same reason the bluesky set is: a misspelled `target:` would leave the
+# deployment on its default target with no word said.
+_KNOWN_OPTIMIZER_KEYS = frozenset(f.name for f in fields(OptimizerConfig))
+
 # Keys recognized inside the ``bluesky.external:`` block, derived from its
 # dataclass exactly as the parent block's are, and for the same reason.
 _KNOWN_BLUESKY_EXTERNAL_KEYS = frozenset(f.name for f in fields(BlueskyExternalConfig))
@@ -690,6 +698,36 @@ def config_image_platform(config: Any) -> str | None:
         return stated_image_platform(images.get("platform"))
     except ValueError as error:
         raise BuildProfileError(f"{PROFILE_FILENAME} config: {error}") from error
+
+
+def _parse_optimizer(raw: Any, base: int) -> OptimizerConfig | None:
+    """Parse the ``optimizer:`` block, or ``None`` when the profile has none.
+
+    Shapes are checked here; which targets are allowed is a validation rule
+    (:func:`~.build_profile_schema.optimizer_errors`), reported with the rest.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise BuildProfileError("Profile 'optimizer' must be a mapping")
+    _reject_unknown_block_keys(raw, _KNOWN_OPTIMIZER_KEYS, "optimizer")
+    targets = raw.get("targets", ["va"])
+    if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets):
+        raise BuildProfileError(
+            f"optimizer.targets must be a list of target names (got {targets!r})"
+        )
+    environments_dir = raw.get("environments_dir")
+    if environments_dir is not None and (
+        not isinstance(environments_dir, str) or not environments_dir
+    ):
+        raise BuildProfileError(
+            f"optimizer.environments_dir must be a non-empty path string (got {environments_dir!r})"
+        )
+    return OptimizerConfig(
+        port=raw.get("port", default_port("optimizer", base=base)),
+        targets=list(targets),
+        environments_dir=environments_dir,
+    )
 
 
 def _parse_live_standin(value: Any, base: int) -> int | None:
@@ -1040,7 +1078,8 @@ def _check_default_scenarios(raw: dict[str, Any]) -> None:
             ``simulation.default_scenarios`` if the value is not a list of
             non-empty strings.
     """
-    from osprey.simulation.apply import DEFAULT_SCENARIOS_KEY, resolve_default_scenarios
+    from osprey.simulation import DEFAULT_SCENARIOS_KEY
+    from osprey.simulation.apply import resolve_default_scenarios
 
     try:
         resolve_default_scenarios(_expand_dotted(raw.get("config")))
@@ -2024,6 +2063,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_web_raw.get("port", default_port("bluesky_web", base=port_base)),
         )
 
+    optimizer = _parse_optimizer(raw.get("optimizer"), port_base)
+
     nextcloud_bridge_raw = raw.get("nextcloud_bridge")
     nextcloud_bridge = None
     if nextcloud_bridge_raw is not None:
@@ -2147,6 +2188,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
         bluesky_web=bluesky_web,
+        optimizer=optimizer,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,

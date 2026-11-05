@@ -32,6 +32,7 @@ import math
 import numbers
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from dataclasses import fields as dataclass_fields
 from functools import cache
 from importlib import resources
 from pathlib import Path
@@ -39,7 +40,7 @@ from typing import IO, Any
 
 import click
 
-from osprey.facility import DEFAULT_ROLE, fold_code
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
 from osprey.facility.errors import (
     FacilityBuildError,
@@ -47,10 +48,11 @@ from osprey.facility.errors import (
     exact_number,
     quoted_slots,
 )
+from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
-from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES, STILL_ALL
+from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 
 __all__ = [
     "FACILITY_HEADER",
@@ -72,7 +74,6 @@ __all__ = [
     "schema_document",
     "signal_roles",
     "sort_errors",
-    "stale_scenarios",
     "stating_files",
     "tolerance_bound",
     "tolerance_warnings",
@@ -879,6 +880,12 @@ class _References:
             listed = still if isinstance(still, list) else ()
             for address in sorted({entry for entry in listed if isinstance(entry, str)}):
                 yield from self._missing("scenario", name, files, "still", "channel", address)
+            for entry in listed:
+                for kind in ("model", "place", "group") if isinstance(entry, dict) else ():
+                    if isinstance(entry.get(kind), str):
+                        yield from self._missing(
+                            "scenario", name, files, "still", kind, entry[kind]
+                        )
             channel_faults = scenario.get("channel_faults")
             for address in sorted(
                 channel_faults if isinstance(channel_faults, dict) else (), key=str
@@ -923,57 +930,6 @@ class _References:
                 yield from self._missing(
                     "measurement", model, files, f"instruments.{role}", "channel", address
                 )
-
-
-def stale_scenarios(facility_dir: Path, *, project_name: str) -> list[str]:
-    """The scenarios that name something the facility does not have, sorted.
-
-    A scenario counts when the reference stage finds a channel or model it
-    names missing (``reference-missing``), or when a fault it keys under an
-    engine model is neither a channel nor one of that engine's variables
-    (``engine-invalid``). Both are the build's own checks, run over the tree
-    as it stands.
-
-    Args:
-        facility_dir: The ``data/facility`` directory.
-        project_name: The project's name, as the build is given it.
-
-    Returns:
-        Each such scenario's name. Empty when the tree does not load or
-        combine, since the build then stops on that first. Only the reference
-        stage counts when a model states an engine no plug-in is registered
-        under, since the build then stops on the missing engine.
-    """
-    from importlib import metadata
-
-    from osprey.facility.scenarios import check_scenario_engines
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
-
-    loaded = load_sources(facility_dir)
-    if loaded.errors:
-        return []
-    combined = combine(loaded.sources)
-    if combined.errors:
-        return []
-    names = {
-        error.record_id
-        for error in check_references(loaded.sources, combined)
-        if error.record_kind == "scenario" and error.kind == "reference-missing"
-    }
-    document = schema_document(combined.document, loaded.sources, project_name=project_name)
-    registered = metadata.entry_points(group=ENTRY_POINT_GROUP).names
-    engines = {
-        str(model["engine"])
-        for model in document.get("models") or []
-        if isinstance(model, dict) and "engine" in model
-    }
-    if engines <= set(registered):
-        names |= {
-            error.record_id
-            for error in check_scenario_engines(document)
-            if error.kind == "engine-invalid"
-        }
-    return sorted(names)
 
 
 def _provenance_defaults(record: Mapping[str, Any]) -> list[str]:
@@ -1869,25 +1825,34 @@ class _Records:
     def _still(
         self, name: str, files: list[str], scenario: Mapping[str, Any]
     ) -> Iterator[FacilityBuildError]:
-        """A scenario's ``still``: ``all`` or float readings, none of whose motion it sets."""
+        """A scenario's ``still``: ``all``, or float readings and well-formed selections.
+
+        A scenario sets the motion of no reading it stills here by address; the
+        render checks what a selection resolves to.
+        """
         still = scenario.get("still")
         if still is None:
             return
         if still != STILL_ALL and (
             not isinstance(still, list)
             or not still
-            or not all(isinstance(address, str) for address in still)
+            or not all(isinstance(entry, str | dict) for entry in still)
         ):
             yield self._error(
                 "value-invalid",
                 "scenario",
                 name,
                 files,
-                f"`still` is {still!r}, neither `{STILL_ALL}` nor a list of addresses",
-                f"write `still: {STILL_ALL}` or a list of addresses",
+                f"`still` is {still!r}, neither `{STILL_ALL}` nor a list of addresses and "
+                "selections",
+                f"write `still: {STILL_ALL}` or a list of addresses and selections",
             )
             return
-        stilled = set() if still == STILL_ALL else set(still)
+        listed = () if still == STILL_ALL else still
+        for entry in listed:
+            if isinstance(entry, dict):
+                yield from self._still_selection(name, files, entry)
+        stilled = {entry for entry in listed if isinstance(entry, str)}
         for address in sorted(stilled):
             if address in self.index.channels and self._type(address) != "float":
                 yield self._error(
@@ -1910,6 +1875,34 @@ class _Records:
                         f"`{slot}.{address}` sets the motion of a reading `still` stills",
                         "a scenario either stills a reading or sets its motion",
                     )
+
+    def _still_selection(
+        self, name: str, files: list[str], entry: Mapping[str, Any]
+    ) -> Iterator[FacilityBuildError]:
+        """One selection of a scenario's ``still``: the read model's selection builds from it."""
+        keys = {field.name for field in dataclass_fields(ChannelSelection)}
+        unknown = sorted(str(key) for key in entry if key not in keys)
+        if unknown:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`still` selection {entry!r} has no key `{unknown[0]}`",
+                f"use only {', '.join(field.name for field in dataclass_fields(ChannelSelection))}",
+            )
+            return
+        try:
+            ChannelSelection(**entry)
+        except ValueError as refusal:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`still` selection {entry!r}: {refusal}",
+                "correct this selection in `still`",
+            )
 
     def _channel_faults(
         self, name: str, files: list[str], block: Any
@@ -2158,6 +2151,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         tune_references,
     )
 
+    records = FacilityRecords(document)
     for model in sorted(document.get("models", []), key=lambda record: str(record["name"])):
         measurement = model.get("measurement")
         if not isinstance(measurement, dict):
@@ -2185,7 +2179,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 record_kind="measurement",
                 detail=(f"`groups.{first}` and `groups.{second}` both name group {shared[0]}"),
             )
-        grouped = measurement_groups(document, name)
+        grouped = measurement_groups(records, name)
         for kind in measurement.get("kinds") or []:
             if kind not in SINGLE_PASS_KINDS and _single_pass(model):
                 yield _measurement_missing(
@@ -2226,7 +2220,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"kind {kind} needs `{slot}`; model {name} does not wire {named}",
                         f"wire {named} in model {name}, or name a channel it wires as `{slot}`",
                     )
-                elif member == "tune" and tune_references(document, name, str(named)) is None:
+                elif member == "tune" and tune_references(records, name, str(named)) is None:
                     yield _measurement_missing(
                         name,
                         f"kind {kind} needs `{slot}`; {named} reads one plane and model {name} "

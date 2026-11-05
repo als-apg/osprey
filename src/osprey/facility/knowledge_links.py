@@ -87,9 +87,7 @@ def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingL
             continue
         page = path.relative_to(facility_dir).as_posix()
         device_id, references = _page_links(path, records)
-        if device_id is not None and not any(
-            found.kind == "device" for found in records.resolve(device_id)
-        ):
+        if device_id is not None and records.record("device", device_id) is None:
             links.append(DanglingLink(page, device_id, "frontmatter"))
         links.extend(
             DanglingLink(page, found.target, "body") for found in references if not found.kinds

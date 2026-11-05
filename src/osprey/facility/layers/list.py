@@ -18,7 +18,8 @@ A file whose first row names no ``address`` column has no header and holds one
 address per line. Blank lines are skipped and every cell is stripped.
 
 The layer writes ``imported/list/channels.yaml``, one record per row sorted by
-address, holding only the fields its row fills; it seeds no authored file.
+address, holding only the fields its row fills; the import step seeds the
+knowledge stub, and the layer seeds no authored file of its own.
 ``s`` and ``model`` state the position of the row's device, never of the
 channel: for each device a row states ``s`` for, the layer writes ``{id, s}``,
 plus ``model`` when stated, to ``imported/list/devices.yaml``, and no other

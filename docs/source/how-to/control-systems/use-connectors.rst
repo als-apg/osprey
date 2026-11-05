@@ -602,9 +602,9 @@ the alternative while the owner's switch for the machine stands at
 ``allowed``: the program writes its own grant, honoured only while the switch
 stays there.
 
-**2. Wait for the approval.** A person acting as the owner approves it:
-the approving surface reads the request and calls ``approve_request()``,
-which issues the grant under the request's id, so the program polls for it:
+**2. Wait for the approval.** The owner approves from the chip
+(:ref:`web-terminal-approve-program`) or with ``osprey write-authorization
+approve``. The grant carries the request's id, so the program polls for it:
 
 .. code-block:: python
 
@@ -649,9 +649,9 @@ written: the step budget and the lease are kept in the program's own ledger,
 which it can write, so the boundary for a program that must not write at all
 is the gateway it can reach.
 
-**5. Stop.** A person's stop is one gesture: the machine's *off* control or
-**Turn all writes off** on the chip, or ``revoke_grants()``. Each marks the
-grant revoked, and the program's
+**5. Stop.** A person's stop is one gesture: the machine's *off* control,
+**Turn all writes off**, **Revoke** on the card, or ``osprey
+write-authorization revoke``. Each marks the grant revoked, and the program's
 next write is refused ``auth_revoked``. A write already past its check when the
 stop lands goes out as judged.
 

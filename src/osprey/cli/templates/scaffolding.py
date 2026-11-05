@@ -1,16 +1,11 @@
-"""Project creation helpers: directory structure, services, data files.
-
-Includes :func:`materialize_benchmark_queries`, the build-time step that copies
-the selected mode's benchmark query file to ``data/benchmarks/queries.json``
-and removes the facility tree's channel-finder staging subtrees from the
-render.
-"""
+"""Project creation helpers: directory structure, services, data files."""
 
 import logging
 import shutil
 from pathlib import Path
 
 from osprey.cli.templates._rendering import render_template
+from osprey.cli.templates.preset_data import FACILITY_DATA_DIRNAME
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -198,6 +193,9 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
         "IOC (only on a deployment with `bluesky.second_lane`)"
     ),
     "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
+    "OPTIMIZER_LAUNCH_TOKEN": (
+        "arms the optimizer API's routes that start runs, write to the machine or load a model"
+    ),
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "ARIEL_DB_READONLY_PASSWORD": (
         "password of the SELECT-only Postgres role the agent's SQL tool queries through"
@@ -427,71 +425,31 @@ def copy_template_data(
 
     dst_data = project_dir / "data"
 
-    def _drop_runtime_output(directory: str, names: list[str]) -> set[str]:
+    root = Path(data_root)
+    benchmarks = root / FACILITY_DATA_DIRNAME / "benchmarks"
+
+    def _skip_unrendered(directory: str, names: list[str]) -> set[str]:
         # data/.runtime/ is runtime-minted material (`osprey up`'s CURVE
         # certificates) — private keys that must not be staged into
-        # build/ or into the images built from it. Top level only, the
-        # same anchoring the fingerprint fold applies to the same name.
-        if Path(directory) == Path(data_root) and RUNTIME_DATA_DIR_NAME in names:
-            return {RUNTIME_DATA_DIR_NAME}
+        # build/ or into the images built from it. data/raw/ holds raw
+        # staging inputs no render reads. Both top level only, the
+        # same anchoring the fingerprint fold applies to the runtime name.
+        # The benchmark query sources reach a render only through the
+        # benchmarks view, so their subtree is not copied, nor a
+        # facility/benchmarks/ that holds nothing else.
+        here = Path(directory)
+        if here == root:
+            return {RUNTIME_DATA_DIR_NAME, "raw"} & set(names)
+        if (
+            here == benchmarks.parent
+            and "benchmarks" in names
+            and {entry.name for entry in benchmarks.iterdir()} <= {"cross_paradigm"}
+        ):
+            return {"benchmarks"}
+        if here == benchmarks and "cross_paradigm" in names:
+            return {"cross_paradigm"}
         return set()
 
     # dirs_exist_ok is defensive — no build path reaches here with data/ present.
-    shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_drop_runtime_output)
+    shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_skip_unrendered)
     logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
-
-
-#: The staging subtrees a facility data tree may carry that no render needs:
-#: the benchmark query sources and the raw inputs. Relative to the render's
-#: ``data/``.
-_RENDER_EXCLUDED_DATA_DIRS: tuple[tuple[str, ...], ...] = (
-    ("benchmarks", "cross_paradigm"),
-    ("raw",),
-)
-
-
-def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -> None:
-    """Copy the mode's benchmark query file into place and prune the staging trees.
-
-    The facility tree ships its benchmark query sources under
-    ``data/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
-    for ``in_context`` and ``tree_queries.json`` for every other mode. The selected
-    one is copied to ``data/benchmarks/queries.json``. Then
-    ``data/benchmarks/cross_paradigm/`` and ``data/raw/`` are removed from the
-    render; the facility tree they were copied from is never touched. Each channel-finder index is the view the
-    build writes at its own path, so nothing is flattened here.
-
-    A render whose tree ships no ``data/benchmarks/cross_paradigm/`` subtree
-    gets no ``queries.json``.
-
-    Args:
-        project_dir: Root directory of the rendered project.
-        channel_finder_mode: Channel-finder mode from the build profile.
-
-    Raises:
-        FileNotFoundError: If the tree ships query sources but none for this
-            mode. Raised before anything is copied or removed.
-    """
-    data_dir = project_dir / "data"
-    queries_root = data_dir / "benchmarks" / "cross_paradigm" / "queries"
-    if queries_root.exists():
-        source_name = (
-            "in_context_queries.json"
-            if channel_finder_mode == "in_context"
-            else "tree_queries.json"
-        )
-        queries_src = queries_root / source_name
-        if not queries_src.exists():
-            raise FileNotFoundError(
-                f"Benchmark queries file not found: {queries_src} "
-                f"(channel_finder_mode={channel_finder_mode!r})"
-            )
-        queries_dst = data_dir / "benchmarks" / "queries.json"
-        shutil.copy2(queries_src, queries_dst)
-        logger.debug("Copied benchmark queries %s to %s", queries_src, queries_dst)
-
-    for parts in _RENDER_EXCLUDED_DATA_DIRS:
-        excluded = data_dir.joinpath(*parts)
-        if excluded.exists():
-            shutil.rmtree(excluded)
-            logger.debug("Removed %s from the render", excluded)

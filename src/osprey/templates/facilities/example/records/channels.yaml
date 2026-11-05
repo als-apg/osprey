@@ -1,3 +1,4 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 - id: BR:DIAG:BPM:01:POSITION:X
   'on':
     device: BR/BPM01

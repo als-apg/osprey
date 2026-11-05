@@ -25,6 +25,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs
 
 __all__ = ["LIMITS_FILE", "LIMITS_VERSION", "limits_document", "write_limits_view"]
@@ -45,21 +46,21 @@ def _entry(record: Mapping[str, Any], role: str) -> dict[str, Any]:
     return entry
 
 
-def limits_document(doc: Mapping[str, Any]) -> dict[str, Any]:
+def limits_document(records: FacilityRecords) -> dict[str, Any]:
     """The limits database of one facility file.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
 
     Returns:
         ``_version`` first, then one entry per limits record, sorted by address.
     """
-    roles = {str(channel["id"]): channel.get("role") for channel in doc.get("channels", [])}
-    records = (doc.get("limits") or {}).get("records") or []
+    rows = (records.document.get("limits") or {}).get("records") or []
     document: dict[str, Any] = {"_version": LIMITS_VERSION}
-    for record in sorted(records, key=lambda record: str(record["address"])):
-        address = str(record["address"])
-        document[address] = _entry(record, str(roles.get(address)))
+    for row in sorted(rows, key=lambda row: str(row["address"])):
+        address = str(row["address"])
+        channel = records.record("channel", address) or {}
+        document[address] = _entry(row, str(channel.get("role")))
     return document
 
 
@@ -77,6 +78,8 @@ def write_limits_view(root: Path, inputs: ViewInputs) -> list[Path]:
 
     root.mkdir(parents=True, exist_ok=True)
     target = root / LIMITS_FILE
-    text = json.dumps(limits_document(inputs.doc), indent=2, ensure_ascii=False, allow_nan=False)
+    text = json.dumps(
+        limits_document(inputs.records), indent=2, ensure_ascii=False, allow_nan=False
+    )
     target.write_bytes((text + "\n").encode("utf-8"))
     return [target]

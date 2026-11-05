@@ -41,7 +41,7 @@ import osprey.cli.deploy_cmd as deploy_cmd
 from osprey.cli import styles
 from osprey.cli.deploy_cmd import logs_verb, status_verb
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
-from osprey.cli.styles import osprey_theme
+from osprey.cli.styles import Styles, osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
 from osprey.deployment.deployment_record import (
@@ -1606,3 +1606,122 @@ def test_status_prints_the_writes_section_after_the_endpoints(lifecycle_repo):
 
     assert "Writes:" in text
     assert text.index("Writes:") < text.index("Agent:")
+
+
+# ---------------------------------------------------------------------------
+# Writes: programs' authorizations in force
+# ---------------------------------------------------------------------------
+
+
+def _approve_program(repo: Path, owner: str, *, holder: str = "optimizer", target: str = "standin"):
+    """An approval of *holder*'s request by *owner*, as the CLI on the host issues it."""
+    import time
+    import uuid
+
+    from osprey.deployment.compose_generator import control_target_identity_dir
+    from osprey_connectors import write_authorization as wa
+    from osprey_connectors.control_context import RECORD_FILENAME
+
+    request = wa.parse_request(
+        {
+            "schema": 1,
+            "id": uuid.uuid4().hex,
+            "owner": owner,
+            "holder": holder,
+            "target": target,
+            "channels": {"SR:A": {"min": 0.0, "max": 1.0}},
+            "steps": 4,
+            "requested_at_ns": time.time_ns(),
+            "expires_at_ns": time.time_ns() + 3600 * 10**9,
+            "lease_s": 30.0,
+            "label": "run-7",
+            "completion": "apply_best",
+        }
+    )
+    record = control_target_identity_dir({}, repo, owner) / RECORD_FILENAME
+    return wa.approve_request(request, surface="cli", record_file=record, peers=(), approver=owner)
+
+
+def _spend(repo: Path, grant, steps: int, lease_left_s: float, *, directory=None) -> None:
+    import time
+
+    from osprey_connectors import write_authorization as wa
+
+    ledger = wa.Ledger(
+        authorization=grant.id,
+        holder_pid=None,
+        holder_start=None,
+        pid_ns=None,
+        lease_until_ns=time.time_ns() + int(lease_left_s * 1e9),
+        steps=tuple(wa.LedgerStep(n=n, at_ns=n, channels=("SR:A",)) for n in range(1, steps + 1)),
+    )
+    directory = repo / "var" / "write_ledger" if directory is None else directory
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{grant.id}.ledger.json").write_text(json.dumps(ledger.to_payload()))
+
+
+def test_a_programs_authorization_in_force_is_a_row_with_its_steps_and_lease(tmp_path):
+    from osprey_connectors import control_context
+
+    _write_record(tmp_path, "alice", target="standin")
+    held = _approve_program(tmp_path, "alice")
+    _spend(tmp_path, held, steps=1, lease_left_s=20)
+    pending = _approve_program(tmp_path, "alice", holder="tuning", target="va")
+    stopped = _approve_program(tmp_path, "alice", holder="old", target="live")
+    from osprey.deployment.compose_generator import control_target_identity_dir
+
+    control_context.set_switch(
+        ["live"],
+        "off",
+        path=control_target_identity_dir({}, tmp_path, "alice") / "control_context.json",
+    )
+
+    rows = status_display.authorization_rows({}, tmp_path)
+
+    assert [row[:4] for row in rows] == [
+        ("alice", "optimizer", "standin", "1/4"),
+        ("alice", "tuning", "va", "0/4"),
+    ]
+    assert rows[0][5].endswith("left of 30s")
+    assert rows[1][5] == status_display.LEASE_NOT_STARTED
+    assert pending.id and stopped.id
+    text = _writes_text({"control_system": {"writes": "allowed"}}, tmp_path)
+    assert "Holder (program)" in text and "optimizer" in text and "1/4" in text
+    assert "Owner (program)" not in text
+
+
+def test_a_program_on_the_host_is_counted_from_the_ledger_beside_its_grant(tmp_path):
+    """A program run on the host with no ledger bound keeps its ledger in its owner's directory."""
+    from osprey.deployment.compose_generator import control_target_identity_dir
+
+    _write_record(tmp_path, "alice", target="standin")
+    held = _approve_program(tmp_path, "alice")
+    own = control_target_identity_dir({}, tmp_path, "alice") / "authorizations"
+    _spend(tmp_path, held, steps=2, lease_left_s=20, directory=own)
+
+    (row,) = status_display.authorization_rows({}, tmp_path)
+
+    assert row[3] == "2/4"
+    assert row[5].endswith("left of 30s")
+
+
+@pytest.mark.parametrize(
+    ("spent", "lease_left_s"), [(4, 20.0), (1, -1.0)], ids=["steps-spent", "lease-lapsed"]
+)
+def test_a_grant_its_ledger_ended_is_not_a_row(tmp_path, spent, lease_left_s):
+    _write_record(tmp_path, "alice", target="standin")
+    held = _approve_program(tmp_path, "alice")
+    _spend(tmp_path, held, steps=spent, lease_left_s=lease_left_s)
+    assert status_display.authorization_rows({}, tmp_path) == []
+
+
+def test_a_lease_not_started_is_muted_not_success():
+    assert status_display._LEASE_STYLES[status_display.LEASE_NOT_STARTED] == Styles.DIM
+
+
+def test_no_program_authorization_prints_no_program_table(tmp_path):
+    _write_record(tmp_path, "alice", target="standin")
+    assert status_display.authorization_rows({}, tmp_path) == []
+    assert "Holder (program)" not in _writes_text(
+        {"control_system": {"writes": "allowed"}}, tmp_path
+    )

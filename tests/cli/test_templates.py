@@ -65,17 +65,13 @@ class TestTemplateManager:
         assert (project_dir / ".mcp.json").exists()
 
     @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
-    def test_create_project_takes_the_modes_benchmark_queries(self, tmp_path, mode):
-        """The render carries the mode's query set and none of its sources.
+    def test_create_project_carries_no_staging_tree(self, tmp_path, mode):
+        """The render carries none of the facility tree's staging sources.
 
-        ``in_context`` takes the tier-1 query file, every other mode the tier-3
-        one; the two sets differ, so the byte comparison tells them apart. The
-        staging trees the query file and the channel-finder indexes come from
-        stay in the facility tree and never reach the render, and no paradigm
-        database is flattened beside them: each index is the view the build
-        writes at its own path.
+        The query sources and the raw inputs stay in the facility tree and never
+        reach the render, and no paradigm database is flattened beside them:
+        each index and the benchmark query file are views the build writes.
         """
-        from pathlib import Path
 
         manager = TemplateManager()
         project_dir = create_project_as_built(
@@ -86,22 +82,8 @@ class TestTemplateManager:
             context={"channel_finder_mode": mode},
         )
 
-        preset_data = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "osprey"
-            / "templates"
-            / "apps"
-            / "control_assistant"
-            / "data"
-        )
-        source = "in_context_queries.json" if mode == "in_context" else "tree_queries.json"
-        expected = preset_data / "benchmarks" / "cross_paradigm" / "queries" / source
-        queries = project_dir / "data" / "benchmarks" / "queries.json"
-        assert queries.read_bytes() == expected.read_bytes()
-
         data = project_dir / "data"
-        assert not (data / "benchmarks" / "cross_paradigm").exists()
+        assert not (data / "facility" / "benchmarks" / "cross_paradigm").exists()
         assert not (data / "raw").exists()
         for paradigm in VALID_CHANNEL_FINDER_MODES:
             assert not (data / "channel_databases" / f"{paradigm}.json").exists()

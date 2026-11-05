@@ -110,6 +110,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "agent_record",
         "watchdogs",
         "bluesky_web",
+        "optimizer",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -535,6 +536,18 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # bluesky_web:
 #   port: <host port>
 """,
+    "optimizer": """
+# --- Optimizer ---------------------------------------------------------------
+# Tunes machine variables against an objective with Bayesian optimization. The
+# service takes the optimizer slot of this deployment's port block and keeps
+# its jobs in a Redis sidecar. `targets` lists the control targets it may
+# drive (va, standin); the live machine is not allowed yet. Environment files
+# (YAML) in `environments_dir` are mounted read-only into the service.
+#
+# optimizer:
+#   targets: [va]
+#   environments_dir: optimizer/environments
+""",
     "nextcloud_bridge": """
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
@@ -635,6 +648,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "agent_record",
     "watchdogs",
     "bluesky_web",
+    "optimizer",
     "nextcloud_bridge",
     "gchat_bridge",
     "teams_bridge",

@@ -38,7 +38,8 @@ _REWRITE_ROW = """
             THEN jsonb_set(metadata, '{subject}', to_jsonb(%s::text))
             ELSE metadata
         END,
-        enhancement_status = '{}'::jsonb
+        enhancement_status = '{}'::jsonb,
+        facility_refs = NULL
     WHERE entry_id = %s
 """
 
@@ -70,7 +71,8 @@ class ALSPlainTextMigration(BaseMigration):
     its ``enhancement_status`` is reset to ``{}``. What derives from the text
     then refreshes: the text indexes on the update itself, the qmd mirror
     through the ``updated_at`` trigger, and embeddings and summaries on the next
-    enhance pass. A row that is empty without its markup is left as stored.
+    enhance pass. Its ``facility_refs`` become ``NULL`` (not checked), since they
+    index the old text; the next ingest recomputes them. A row that is empty without its markup is left as stored.
 
     The rewrite is one-way: ``down()`` is not implemented.
     """
@@ -82,8 +84,8 @@ class ALSPlainTextMigration(BaseMigration):
 
     @property
     def depends_on(self) -> list[str]:
-        """Depends on core schema for the enhanced_entries table."""
-        return ["core_schema"]
+        """Depends on the table and on the references column its rewrite clears."""
+        return ["core_schema", "facility_refs_column"]
 
     async def up(self, conn: "AsyncConnection") -> None:
         """Rewrite every stored row whose text the cleaner changes."""

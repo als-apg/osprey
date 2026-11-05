@@ -125,6 +125,7 @@ RETIRED_ROSTER_READERS: dict[str, str] = {
     ),
     "tests/cli/test_retired_roster_keys.py": "the retired-key rewrite's own test",
     "tests/fixtures/previous_release_repo/**": "the frozen repo of the previous release",
+    "tests/cli/test_init_revalidate.py": "the previous release's profile text, held as the swap table",
     "CHANGELOG.md": "released notes describe what shipped then",
 }
 

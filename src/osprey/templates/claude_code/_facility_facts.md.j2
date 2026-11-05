@@ -11,7 +11,9 @@ These facts are read from this facility's build.
 - Code: `{{ facility_facts.identity.code }}`
 - Channels: {{ facility_facts.channel_count }}
 - Place levels: {{ facility_facts.place_levels | join(', ') if facility_facts.place_levels else 'none' }}
-
+{% if facility_facts.channel_count == 0 %}
+The facility file holds no channels yet.
+{% endif %}
 ## Places
 
 {% if facility_facts.places -%}

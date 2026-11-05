@@ -1,3 +1,4 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 description: 'Two independent faults live at once, each invisible to single-channel telemetry: BPM 17''s
   horizontal readback has an inverted polarity (wiring/cabling fault), and corrector HCM01 is desensitized
   to half its nominal gain (a stuck/degraded driver). Neither shows up as an out-of-range channel -- both

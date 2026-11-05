@@ -1043,8 +1043,10 @@ class TestDisableServers:
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
+        # A Read() entry holds a host path, whose directories may spell any word.
         for entry in allow:
-            assert "ariel" not in entry, f"ariel found in allow: {entry}"
+            if not entry.startswith("Read("):
+                assert "ariel" not in entry, f"ariel found in allow: {entry}"
 
     def test_disable_server_removes_from_claude_md(self, tmp_path):
         """Disabling ariel removes ariel row from CLAUDE.md tool table."""
@@ -1447,8 +1449,8 @@ class TestFacilityMd:
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
         assert facility_file.exists()
         content = facility_file.read_text()
-        assert "Facility Identity" in content
-        assert "Example Research Facility" in content
+        assert "data/facility_facts.md" in content
+        assert "Facility Identity" not in content
 
     def test_facility_md_user_owned_on_init(self, tmp_path):
         """Init auto-registers facility.md as user-owned in config.yml."""
@@ -1522,7 +1524,7 @@ class TestFacilityMd:
 
         assert facility_file.exists()
         content = facility_file.read_text()
-        assert "Facility Identity" in content
+        assert "data/facility_facts.md" in content
 
 
 class TestUserOwned:

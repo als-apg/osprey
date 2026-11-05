@@ -62,6 +62,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
 from tests.e2e._deploy_support import find_osprey_console_script
@@ -149,10 +150,10 @@ def _render_view(facility: Path, root: Path) -> tuple[Any, SimulatorView]:
     write_simulator_view(
         root / VIEW_RELPATH.name,
         ViewInputs(
-            doc=doc,
+            records=FacilityRecords(doc),
             rendered_config=VIEW_CONFIG,
             facility_dir=facility,
-            served=resolve_served(VIEW_CONFIG, doc),
+            served=resolve_served(VIEW_CONFIG, FacilityRecords(doc)),
             reported=None,
         ),
     )
@@ -181,7 +182,9 @@ def _render_limits_view(document: Any) -> Path:
     root = Path(tempfile.mkdtemp(prefix="osprey-va-e2e-limits-"))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
     target = root / LIMITS_FILE
-    target.write_text(json.dumps(limits_document(document), indent=2), encoding="utf-8")
+    target.write_text(
+        json.dumps(limits_document(FacilityRecords(document)), indent=2), encoding="utf-8"
+    )
     return target
 
 

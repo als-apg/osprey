@@ -180,10 +180,8 @@ va_archiver:
   hot_cadence_sec: 10      # seconds between samples inside the hot span
   tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
   recorder_cadence_sec: 10  # how often the recorder samples the machine
-  # A channel `osprey health` watches to check the archive is still recording:
-  # if this stops moving, history has quietly stopped. Point it at something on
-  # your machine that always changes; delete the key for no check at all.
-  freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+  # The build derives `freshness_channel`, the channel `osprey health` watches,
+  # from the facility file; a stated line is an override checked against it.
 
 # ── Agent record ─────────────────────────────────────────────────────────────
 # Every prompt, answer, tool call and decision, kept once. `clickhouse` keeps
@@ -325,9 +323,8 @@ config:
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
   # control_system.connector.virtual_accelerator.response_delay_ms: 10
-  # Channel the target switch reads to prove this target is reachable before
-  # making it active. The simulator serves it from the built facility.
-  control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+  # The build derives `probe_channel`, the channel the target switch reads, from
+  # the facility file; a stated line is an override checked against it.
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
   # port is written: the connector follows `services.virtual_accelerator.port`,
@@ -495,12 +492,9 @@ config:
   # ── Channel finder ─────────────────────────────────────────────────────────
   # The pipeline itself is derived from `channel_finder_mode:` above. When that
   # field selects the graph paradigm it answers from the `services.graphdb.*`
-  # store below.
+  # store below. The build states `channel_finder.benchmark.dataset_path` when
+  # the facility ships benchmark query sources.
   #
-  # The scored benchmark query set every paradigm reads, materialized by the
-  # build; `osprey channel-finder benchmark` runs it (`--queries-path FILE`
-  # for another).
-  channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
   # Rows one `run_sql` answer carries before it is cut. The cap is on the
   # AGENT's context, not on DuckDB: a truncated answer says so and names this
   # key, so the agent narrows the query rather than presenting a partial list.
@@ -597,16 +591,11 @@ config:
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
-  # reported back as `expanded_terms`. The file is read once at startup; a
-  # broken one fails loudly there (panel in CONFIGURATION INVALID mode, search
-  # 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/ariel/vocabulary.yml`.
-  ariel.vocabulary.enabled: true
-  # A twenty-concept EXAMPLE covering what most circular-accelerator facilities
-  # share (a linac or FEL should delete the group the file's header marks for
-  # it). A starting point, not your vocabulary: edit it. Relative to the
-  # project root.
-  ariel.vocabulary.path: data/ariel/vocabulary.yml
+  # reported back as `expanded_terms`. The build turns it on when the facility
+  # ships data/facility/ariel/vocabulary.yml. The file is read once at startup;
+  # a broken one fails loudly there (panel in CONFIGURATION INVALID mode,
+  # search 503, MCP server refuses to start). Check edits with
+  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true
@@ -1219,6 +1208,7 @@ config:
   # Scenarios a deployment that never chose a set starts in, by name from
   # the facility's scenarios; `osprey sim apply` replaces the set.
   # Absent or [] starts in nominal alone.
+  # A stated start set is checked against the file at build.
   simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────

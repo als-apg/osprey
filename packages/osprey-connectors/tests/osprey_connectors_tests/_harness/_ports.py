@@ -41,13 +41,18 @@ PORT_FLOOR = 20000
 #: deployment derives a port from every slot of its block and binds them without
 #: taking a lock, and refuses a pinned port that lands on one, so a reservation
 #: inside a block can collide with that stack or fail its build.
-#: ``tests/infrastructure/test_ports.py`` fails when a test pins a block these
-#: ranges do not cover.
+#: The e2e stacks' store host ports (Mongo, qmd) are booked with them: a stack
+#: publishes one at a literal, so a reservation on it collides with that stack
+#: or fails its build. ``tests/infrastructure/test_ports.py`` fails when a test
+#: pins a block or a store port these ranges do not cover.
 BOOKED_BLOCKS: tuple[range, ...] = (
     range(20000, 26700),
+    range(27100, 27300),
+    range(28180, 28181),
     range(29000, 32000),
     range(40000, 41000),
     range(42000, 43000),
+    range(47000, 48000),
 )
 
 #: The one directory every test process on the host locks ports in, shared by

@@ -1,6 +1,7 @@
 [
-  "fixes_applied",
-  "kind",
-  "provenance",
-  "record"
+  "records",
+  "records[].fixes_applied",
+  "records[].kind",
+  "records[].provenance",
+  "records[].record"
 ]

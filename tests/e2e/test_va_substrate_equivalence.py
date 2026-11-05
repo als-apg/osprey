@@ -86,6 +86,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
+from osprey.facility.records import FacilityRecords
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
@@ -314,7 +315,7 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
         str(entry["address"])
         for model in facility.get("models") or []
         if model.get("engine") != TEXTURE
-        for entry in simulator_wiring(facility, str(model["name"]))
+        for entry in simulator_wiring(FacilityRecords(facility), str(model["name"]))
     }
     low, high = SP_ECHO_BAND
     in_band = {
@@ -324,7 +325,7 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
         and isinstance(nominal := (channel.get("simulation") or {}).get("nominal"), int | float)
         and low <= nominal <= high
     }
-    document = bluesky_document(facility)
+    document = bluesky_document(FacilityRecords(facility))
     pairs = sorted(
         (entry["setpoint"], entry["readback"])
         for entry in document[SETTABLES_KEY]
@@ -358,7 +359,7 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     readback_of = {
         entry["setpoint"]: entry["readback"]
-        for entry in bluesky_document(facility)[SETTABLES_KEY]
+        for entry in bluesky_document(FacilityRecords(facility))[SETTABLES_KEY]
         if "readback" in entry
     }
     candidates = []
@@ -366,7 +367,10 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
         if model.get("engine") == TEXTURE:
             continue
         name = str(model["name"])
-        bindings = [Binding.from_record(name, entry) for entry in simulator_wiring(facility, name)]
+        bindings = [
+            Binding.from_record(name, entry)
+            for entry in simulator_wiring(FacilityRecords(facility), name)
+        ]
         wired = {binding.address for binding in bindings}
         for binding in bindings:
             setpoint = binding.address
@@ -491,15 +495,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # to a CI-sized one -- this proof deploys the store (the preset's
     # `va_archiver:` block is what makes the VA's history real) but reads none
     # of its history, and seeding a tutorial-sized month costs every run.
-    edits = {
-        "config": {
-            "control_system.type": "virtual_accelerator",
-            "modules.web_terminals.enabled": False,
-        },
-        "dispatch": None,
-        "services": {},
-        **_orm_stack.VA_ARCHIVER_CI_KNOBS,
-    }
+    # `_orm_stack.knowledge_services_off` drops the agent's knowledge services
+    # (qmd, the graph store, ARIEL's Postgres, the ClickHouse record store):
+    # nothing in this proof reads them, and they are most of the stack's disk.
+    edits = _orm_stack.knowledge_services_off(
+        {
+            "config": {
+                "control_system.type": "virtual_accelerator",
+                "modules.web_terminals.enabled": False,
+            },
+            "dispatch": None,
+            "services": {},
+            **_orm_stack.VA_ARCHIVER_CI_KNOBS,
+        }
+    )
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory

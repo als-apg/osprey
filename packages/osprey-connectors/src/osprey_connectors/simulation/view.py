@@ -75,7 +75,7 @@ VARIABLES_SCHEMA = "osprey.facility.simulator/2"
 SEEDS_FILE = "seeds.json"
 SEEDS_SCHEMA = "osprey.facility.seeds/2"
 SCENARIOS_FILE = "scenarios.json"
-SCENARIOS_SCHEMA = "osprey.facility.scenarios/2"
+SCENARIOS_SCHEMA = "osprey.facility.scenarios/3"
 #: The directory holding a byte copy of each deck-bearing model's deck.
 DECKS_DIR = "decks"
 #: The directory holding each scenario's attached files, ``scenarios/<name>/``,
@@ -129,7 +129,7 @@ class NoSimulatorView(LookupError):
 
 
 class ViewSchemaError(ValueError):
-    """A view file's ``schema`` is absent or not the one this OSPREY reads."""
+    """A view file's ``schema`` is not the one this OSPREY reads, or its shape breaks that schema."""
 
 
 def _freeze(value: Any) -> Any:
@@ -528,8 +528,21 @@ class SimulatorView:
         return seed
 
     def scenarios(self) -> tuple[Mapping[str, Any], ...]:
-        """Every scenario of ``scenarios.json``, sorted by name."""
+        """Every scenario of ``scenarios.json``, sorted by name.
+
+        Raises:
+            ViewSchemaError: A scenario's ``still`` is not a list of addresses.
+        """
         scenarios: tuple[Mapping[str, Any], ...] = self.document(SCENARIOS_FILE)["scenarios"]
+        for scenario in scenarios:
+            still = scenario.get("still")
+            if still is not None and not (
+                isinstance(still, tuple) and all(isinstance(address, str) for address in still)
+            ):
+                raise ViewSchemaError(
+                    f"{self.path / SCENARIOS_FILE}: scenario {scenario.get('name')!r} states "
+                    f"`still` as {still!r}, not a list of addresses: run osprey build"
+                )
         return scenarios
 
     def motion_envelope(self, address: str, active: Sequence[str] = ()) -> float:
