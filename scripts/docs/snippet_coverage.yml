@@ -22,11 +22,16 @@
 # word bans that scan every page (they are listed under `not_counted:` so a
 # reader can see they were weighed).
 #
+# The ledger is kept by hand. The only automatic honesty checks: the test file
+# exists, names each claimed page (its stem, or `docs/source` for a `**` glob)
+# and the claim matches at least one block.
+#
 # `pending:` holds claims of tests on open pull requests, with the PR number.
-# The report shows what they would cover; --check ignores them. When the PR
-# merges, tests/docs/test_snippet_coverage.py fails until the claim moves up to
-# `tested:` (a new file exists on disk, or a widened file contains `marker:`),
-# then regenerate the baseline.
+# Until the test is on disk the report shows what it would cover. Once it is (a
+# new file exists, or a widened file contains `marker:`) the claim counts as
+# tested, so the PRs can merge in any order; --check only notes it. A tidy-up
+# commit after they merge moves the claims to `tested:` and regenerates the
+# baseline.
 
 tested:
   - test: tests/docs/test_cli_page_commands.py
@@ -278,6 +283,13 @@ pending:
     languages: [yaml]
     kind: runs
     what: each block loads with load_profile and moves the port base
+  - test: tests/docs/test_environment_variant_block.py
+    pr: 2410
+    pages: [reference/configuration/environment-variables.rst]
+    languages: [text]
+    kind: runs
+    contains: ".env.variant:"
+    what: the shown line, written to the shown file, selects the variant through resolve_variant_selection
   - test: tests/docs/test_web_terminal_quoted_strings.py
     pr: 2409
     pages: [how-to/web-terminal/notebooks.rst]

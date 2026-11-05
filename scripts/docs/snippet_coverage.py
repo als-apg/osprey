@@ -27,14 +27,19 @@ reads, how it reads them (``kind``) and, optionally, a text the block must
 contain. A block is tested when a claim matches its page and language. A
 ``literalinclude`` block is tested when a ``literalinclude`` claim matches its
 page or the file it includes. Claims under ``pending:`` belong to tests on open
-pull requests: the report shows what they would cover, ``--check`` ignores them.
+pull requests. Until the test is on disk the report shows what it would cover;
+once it is (the file exists, or holds the claim's ``marker``) it counts as
+tested, so the PRs can merge in any order. A tidy-up commit after they merge
+moves the claims to ``tested:`` and regenerates the baseline.
 
 The ratchet
 -----------
 ``snippet_coverage_baseline.json`` holds each page's allowed number of untested
 blocks. ``--check`` fails when a page has more untested blocks than its entry
 (or any, for a page not in the file), and when an entry is larger than the
-page's count today, so the allowance can only shrink. ``--update-baseline``
+page's count today, so the allowance can only shrink -- unless a landed pending
+claim reads that page, which is only noted. It also fails on a claim whose test
+is missing, never names the page it claims, or reads no block. ``--update-baseline``
 rewrites the file from today's counts.
 
 Usage::
@@ -401,33 +406,45 @@ def write_baseline(rows: list[PageCoverage], path: Path = BASELINE) -> None:
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
 
-def ratchet_problems(rows: list[PageCoverage], baseline: dict[str, int]) -> list[str]:
-    """Every page over its allowance, and every allowance larger than its page needs."""
-    problems: list[str] = []
+def _count(n: int) -> str:
+    return f"{n} untested block{'' if n == 1 else 's'}"
+
+
+def ratchet_problems(
+    rows: list[PageCoverage], baseline: dict[str, int], explained: frozenset[str] = frozenset()
+) -> tuple[list[str], list[str]]:
+    """``(failures, notes)``: pages over their allowance, and allowances above need.
+
+    An allowance above need fails (STALE) unless a pending claim whose test has
+    landed reads a block on that page: then the drop is that PR's, and the
+    tidy-up commit that promotes the claim shrinks the allowance.
+    """
+    failures: list[str] = []
+    notes: list[str] = []
     current = {row.page: row for row in rows}
     for row in rows:
         allowed = baseline.get(row.page, 0)
         if len(row.untested) > allowed:
-            where = _lines_by_language(row.untested)
             allowance = (
                 f"the baseline allows {allowed}"
                 if row.page in baseline
                 else "the page is not in the baseline, so it may have none"
             )
-            problems.append(
-                f"GREW   {row.page}: {len(row.untested)} untested blocks, {allowance}. "
-                f"Untested now: {where}."
+            failures.append(
+                f"GREW   {row.page}: {_count(len(row.untested))}, {allowance}. "
+                f"Untested now: {_lines_by_language(row.untested)}."
             )
     for page, allowed in sorted(baseline.items()):
         row = current.get(page)
         now = len(row.untested) if row else 0
         if allowed > now:
             gone = "" if row else " (the page no longer exists)"
-            problems.append(
-                f"STALE  {page}: the baseline allows {allowed} untested blocks, "
-                f"the page has {now}{gone}."
-            )
-    return problems
+            line = f"the baseline allows {_count(allowed)}, the page has {now}{gone}."
+            if page in explained:
+                notes.append(f"SHRINK {page}: {line} A landed pending claim explains it.")
+            else:
+                failures.append(f"STALE  {page}: {line}")
+    return failures, notes
 
 
 FIX_GREW = f"""\
@@ -435,7 +452,10 @@ A page with a GREW line has more code blocks that no test reads than before.
 Either:
   1. add or extend a test under tests/docs that reads the new block (load it,
      run it, or compare it with the code), and add a claim for it to
-     scripts/docs/snippet_coverage.yml (test, pages, languages, kind, what); or
+     scripts/docs/snippet_coverage.yml (test, pages, languages, kind, what).
+     If your PR already has a claim under `pending:` that should cover the
+     block, check its pages, languages and `contains`, and that its test file
+     (or `marker:`) is on disk; or
   2. if the block cannot be tested (it needs Docker, a network install, an LLM),
      run `uv run python {SCRIPT} --update-baseline` and say why in the PR, so a
      reviewer sees the allowance grow in the diff."""
@@ -448,11 +468,26 @@ and commit scripts/docs/snippet_coverage_baseline.json."""
 
 
 def ledger_problems(live: list[Claim], tree: dict[str, list[Block]], root: Path) -> list[str]:
-    """A live claim must name a test file that exists and read at least one block."""
+    """A claim must name a test that exists, names the pages it claims, and reads a block.
+
+    "Names the pages" is a cheap honesty guard: each page pattern's stem (the
+    last path part without glob characters or suffix; ``docs/source`` for a
+    ``**`` pattern) must appear in the test file's text.
+    """
     problems = []
     for claim in live:
-        if not (root / claim.test).is_file():
+        path = root / claim.test
+        if not path.is_file():
             problems.append(f"LEDGER {claim.test}: no such test file (moved or deleted?).")
+        else:
+            text = path.read_text(encoding="utf-8")
+            for pattern in claim.pages:
+                needle = page_stem(pattern)
+                if needle not in text:
+                    problems.append(
+                        f"LEDGER {claim.test}: claims {pattern}, but the test never names "
+                        f"{needle!r}."
+                    )
         if claim.kind not in KINDS:
             problems.append(f"LEDGER {claim.test}: kind {claim.kind!r} is not one of {KINDS}.")
         if not any(claim.matches(block) for blocks in tree.values() for block in blocks):
@@ -461,6 +496,16 @@ def ledger_problems(live: list[Claim], tree: dict[str, list[Block]], root: Path)
                 f"{', '.join(claim.languages)}) matches no block on any page."
             )
     return problems
+
+
+def page_stem(pattern: str) -> str:
+    """What a test reading ``pattern`` must spell: see :func:`ledger_problems`."""
+    if "**" in pattern:
+        return "docs/source"
+    for part in reversed(pattern.split("/")):
+        if not any(char in part for char in "*?["):
+            return posixpath.splitext(part)[0]
+    return "docs/source"
 
 
 def landed(claim: Claim, root: Path) -> bool:
@@ -472,24 +517,54 @@ def landed(claim: Claim, root: Path) -> bool:
 
 
 def pending_problems(pending: list[Claim], root: Path) -> list[str]:
-    """A pending claim whose test has landed must move up to ``tested:``.
+    """Notes, not failures: a pending claim whose test has landed can move up to ``tested:``.
 
-    A claim for a new test file is due when the file exists; a claim for a file
-    the PR widens is due when the file contains the claim's ``marker``.
+    A claim for a new test file has landed when the file exists; a claim for a
+    file the PR widens, when the file contains the claim's ``marker``. A landed
+    claim already counts as tested, so nothing fails; the tidy-up commit after
+    the PRs merge moves the claims and regenerates the baseline.
     """
-    problems = []
+    notes = []
     for claim in pending:
         if not landed(claim, root):
             continue
-        landed_how = (
-            "the file exists" if claim.marker is None else f"the file contains {claim.marker!r}"
+        how = "the file exists" if claim.marker is None else f"the file contains {claim.marker!r}"
+        notes.append(
+            f"PROMOTE {claim.test} (PR #{claim.pr}): {how}; it counts as tested. Move the claim "
+            f"to `tested:` (drop `pr:` and `marker:`) and run --update-baseline in the tidy-up."
         )
-        problems.append(
-            f"PROMOTE {claim.test} (PR #{claim.pr}): {landed_how}, so the PR has merged. Move the "
-            f"claim from `pending:` to `tested:` in scripts/docs/snippet_coverage.yml (drop "
-            f"`pr:` and `marker:`), then run `uv run python {SCRIPT} --update-baseline`."
-        )
-    return problems
+    return notes
+
+
+@dataclass
+class Result:
+    """Everything one run measures."""
+
+    tree: dict[str, list[Block]]
+    rows: list[PageCoverage]
+    failures: list[str]
+    notes: list[str]
+
+
+def evaluate(root: Path, ledger: Path = LEDGER, baseline: Path = BASELINE) -> Result:
+    """Scan, apply the ledger (landed pending claims count) and judge the ratchet.
+
+    The command line and the test both call this, so they agree.
+    """
+    tree = scan_tree(root / DOCS_SOURCE)
+    live, pending = load_ledger(ledger)
+    arrived = [claim for claim in pending if landed(claim, root)]
+    waiting = [claim for claim in pending if claim not in arrived]
+    rows = coverage(tree, live + arrived, waiting)
+    explained = frozenset(
+        page
+        for page, blocks in tree.items()
+        if any(claim.matches(block) for claim in arrived for block in blocks)
+    )
+    failures, notes = ratchet_problems(rows, load_baseline(baseline), explained)
+    failures = ledger_problems(live + arrived, tree, root) + failures
+    notes = pending_problems(pending, root) + notes
+    return Result(tree, rows, failures, notes)
 
 
 # -- command line --------------------------------------------------------------
@@ -501,41 +576,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     parser.add_argument("--check", action="store_true", help="fail if any page's count grew")
     parser.add_argument("--update-baseline", action="store_true", help="rewrite the baseline")
-    parser.add_argument(
-        "--with-pending",
-        action="store_true",
-        help="count a pending claim as tested when its test is on disk under --root "
-        "(a preview of a tree with those PRs merged)",
-    )
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="repository to scan")
     parser.add_argument("--ledger", type=Path, default=LEDGER)
     parser.add_argument("--baseline", type=Path, default=BASELINE)
     args = parser.parse_args(argv)
 
-    tree = scan_tree(args.root / DOCS_SOURCE)
-    live, pending = load_ledger(args.ledger)
-    if args.with_pending:
-        arrived = [claim for claim in pending if landed(claim, args.root)]
-        live = live + arrived
-        pending = [claim for claim in pending if claim not in arrived]
-    rows = coverage(tree, live, pending)
+    result = evaluate(args.root, args.ledger, args.baseline)
+    rows = result.rows
 
     if args.update_baseline:
         write_baseline(rows, args.baseline)
         print(f"wrote {args.baseline}: {totals_line(rows)}")
         return 0
     if args.check:
-        problems = ledger_problems(live, tree, args.root) + ratchet_problems(
-            rows, load_baseline(args.baseline)
-        )
-        if not problems:
+        for note in result.notes:
+            print(f"note: {note}")
+        if not result.failures:
             print(f"snippet coverage: ok. {totals_line(rows)}")
             return 0
-        print(f"snippet coverage: {len(problems)} problem(s)\n")
-        print("\n".join(problems))
-        if any(p.startswith("GREW") for p in problems):
+        print(f"snippet coverage: {len(result.failures)} problem(s)\n")
+        print("\n".join(result.failures))
+        if any(p.startswith("GREW") for p in result.failures):
             print("\n" + FIX_GREW)
-        if any(p.startswith("STALE") for p in problems):
+        if any(p.startswith("STALE") for p in result.failures):
             print("\n" + FIX_STALE)
         return 1
     if args.page:

@@ -180,6 +180,20 @@ def test_every_live_claim_names_a_real_test_and_reads_a_block():
     assert module.ledger_problems(live, tree, _REPO_ROOT) == []
 
 
+def test_the_honesty_guard_holds_for_every_live_claim():
+    """Each claimed page's stem (``docs/source`` for a ``**`` glob) is in the test's text."""
+    module, _, live, _ = _live()
+
+    unnamed = [
+        f"{claim.test}: {module.page_stem(pattern)}"
+        for claim in live
+        for pattern in claim.pages
+        if module.page_stem(pattern) not in (_REPO_ROOT / claim.test).read_text(encoding="utf-8")
+    ]
+
+    assert unnamed == []
+
+
 def test_every_claimed_page_or_include_exists():
     """Live claims only: a pending claim may name a page or example its PR adds."""
     _, tree, live, _ = _live()
@@ -213,11 +227,10 @@ def test_every_claimed_language_is_one_the_scanner_produces():
     assert {claim.kind for claim in live + pending} <= set(module.KINDS)
 
 
-def test_no_pending_claim_has_landed():
-    module, _, _, pending = _live()
+def test_every_pending_claim_names_its_pr():
+    _, _, _, pending = _live()
 
-    assert all(isinstance(claim.pr, int) for claim in pending), "every pending claim names its PR"
-    assert module.pending_problems(pending, _REPO_ROOT) == []
+    assert all(isinstance(claim.pr, int) for claim in pending)
 
 
 def test_every_not_counted_test_exists():
@@ -228,15 +241,20 @@ def test_every_not_counted_test_exists():
     assert missing == [], "stale `not_counted:` entries: the test is gone"
 
 
-def test_no_page_has_more_untested_blocks_than_its_baseline_allows():
-    module, tree, live, pending = _live()
-    rows = module.coverage(tree, live, pending)
+def test_the_check_passes_on_this_tree():
+    """What ``snippet_coverage.py --check`` judges, judged here: the CLI and CI agree.
 
-    problems = module.ratchet_problems(rows, module.load_baseline())
+    A pending claim whose test is on disk counts as tested, so an open PR that
+    brings its own test and claim passes whatever order the PRs merge in.
+    """
+    module = _coverage()
 
-    if problems:
+    result = module.evaluate(_REPO_ROOT)
+
+    if result.failures:
         pytest.fail(
-            "\n".join([*problems, "", module.FIX_GREW, "", module.FIX_STALE]), pytrace=False
+            "\n".join([*result.failures, "", module.FIX_GREW, "", module.FIX_STALE]),
+            pytrace=False,
         )
 
 
@@ -247,7 +265,7 @@ def _repo(root: Path, *, allowed: dict[str, int], pending: list[dict] | None = N
     """A synthetic repo with one live claim, and the CLI flags that point the script at it."""
     _tree(root)
     (root / "tests" / "docs").mkdir(parents=True)
-    (root / "tests" / "docs" / "test_demo.py").write_text("", encoding="utf-8")
+    (root / "tests" / "docs" / "test_demo.py").write_text("# reads guide/*.rst\n", encoding="utf-8")
     ledger = {
         "tested": [
             {
@@ -291,7 +309,7 @@ def test_a_new_page_with_an_untested_block_fails_the_check(tmp_path, capsys):
     (tmp_path / "docs" / "source" / "new.rst").write_text("New\n===\n\nRun::\n\n   make\n")
 
     assert _coverage().main(["--check", *flags]) == 1
-    assert "new.rst: 1 untested blocks, the page is not in the baseline" in capsys.readouterr().out
+    assert "new.rst: 1 untested block, the page is not in the baseline" in capsys.readouterr().out
 
 
 def test_an_allowance_larger_than_the_page_needs_fails_as_stale(tmp_path, capsys):
@@ -315,8 +333,8 @@ def test_update_baseline_writes_what_the_check_then_accepts(tmp_path):
     assert written == {"guide/page.rst": 6}
 
 
-def test_pending_claims_are_reported_but_not_counted(tmp_path, capsys):
-    claim = {
+def _pending_yaml_claim() -> dict:
+    return {
         "test": "tests/docs/test_future.py",
         "pr": 9999,
         "pages": ["guide/page.rst"],
@@ -324,25 +342,45 @@ def test_pending_claims_are_reported_but_not_counted(tmp_path, capsys):
         "kind": "runs",
         "what": "future",
     }
-    flags = _repo(tmp_path, allowed={"guide/page.rst": 6}, pending=[claim])
-    module = _coverage()
 
-    assert module.main(["--check", *flags]) == 0
+
+def _row(module, flags, capsys) -> tuple[int, int, int]:
     capsys.readouterr()
     module.main(["--json", *flags])
     (row,) = json.loads(capsys.readouterr().out)["pages"]
-    assert (row["tested"], row["untested"], row["pending"]) == (1, 6, 1)
-    # --with-pending counts a pending claim only once its test is on disk.
-    module.main(["--json", "--with-pending", *flags])
-    (row,) = json.loads(capsys.readouterr().out)["pages"]
-    assert (row["tested"], row["untested"], row["pending"]) == (1, 6, 1)
-    (tmp_path / "tests" / "docs" / "test_future.py").write_text("", encoding="utf-8")
-    module.main(["--json", "--with-pending", *flags])
-    (row,) = json.loads(capsys.readouterr().out)["pages"]
-    assert (row["tested"], row["untested"], row["pending"]) == (2, 5, 0)
+    return row["tested"], row["untested"], row["pending"]
 
 
-def test_a_pending_claim_whose_test_landed_must_be_promoted(tmp_path):
+def test_a_pending_claim_counts_once_its_test_is_on_disk(tmp_path, capsys):
+    flags = _repo(tmp_path, allowed={"guide/page.rst": 6}, pending=[_pending_yaml_claim()])
+    module = _coverage()
+
+    assert _row(module, flags, capsys) == (1, 6, 1)
+    assert module.main(["--check", *flags]) == 0
+
+    (tmp_path / "tests" / "docs" / "test_future.py").write_text("# guide/page.rst\n")
+
+    assert _row(module, flags, capsys) == (2, 5, 0)
+    # The allowance is now above need, but the landed claim explains it: noted, not failed.
+    assert module.main(["--check", *flags]) == 0
+    out = capsys.readouterr().out
+    assert "note: PROMOTE tests/docs/test_future.py (PR #9999)" in out
+    assert "note: SHRINK guide/page.rst" in out
+
+
+def test_a_pr_adding_a_block_and_its_test_passes_before_promotion(tmp_path):
+    """The merge-order case: a new block, read by the PR's own still-pending claim."""
+    flags = _repo(tmp_path, allowed={"guide/page.rst": 6}, pending=[_pending_yaml_claim()])
+    page = tmp_path / "docs" / "source" / "guide" / "page.rst"
+    page.write_text(page.read_text() + "\n.. code-block:: yaml\n\n   added: true\n")
+    module = _coverage()
+
+    assert module.main(["--check", *flags]) == 1
+    (tmp_path / "tests" / "docs" / "test_future.py").write_text("# guide/page.rst\n")
+    assert module.main(["--check", *flags]) == 0
+
+
+def test_a_landed_widened_claim_needs_its_marker(tmp_path):
     module = _coverage()
     new = module.Claim("tests/docs/test_new.py", ("x.rst",), ("bash",), "checks", "", pr=1)
     widened = module.Claim(
@@ -352,15 +390,38 @@ def test_a_pending_claim_whose_test_landed_must_be_promoted(tmp_path):
     demo = tmp_path / "tests" / "docs" / "test_demo.py"
     demo.write_text("def narrow(): ...\n")
 
+    assert [module.landed(c, tmp_path) for c in (new, widened)] == [False, False]
     assert module.pending_problems([new, widened], tmp_path) == []
 
     (tmp_path / "tests" / "docs" / "test_new.py").write_text("")
     demo.write_text("def wider(): ...\n")
-    problems = module.pending_problems([new, widened], tmp_path)
-    assert [p.split(":")[0] for p in problems] == [
+    notes = module.pending_problems([new, widened], tmp_path)
+    assert [module.landed(c, tmp_path) for c in (new, widened)] == [True, True]
+    assert [n.split(":")[0] for n in notes] == [
         "PROMOTE tests/docs/test_new.py (PR #1)",
         "PROMOTE tests/docs/test_demo.py (PR #2)",
     ]
+
+
+def test_a_claim_on_a_page_its_test_never_names_fails(tmp_path, capsys):
+    flags = _repo(tmp_path, allowed={"guide/page.rst": 6})
+    (tmp_path / "tests" / "docs" / "test_demo.py").write_text("# reads some other page\n")
+
+    assert _coverage().main(["--check", *flags]) == 1
+    assert "claims guide/*.rst, but the test never names 'guide'" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("pattern", "stem"),
+    [
+        ("**/*.rst", "docs/source"),
+        ("reference/cli.rst", "cli"),
+        ("how-to/control-systems/examples/*.py", "examples"),
+        ("getting-started/hello-world-tutorial.sql", "hello-world-tutorial"),
+    ],
+)
+def test_page_stem(pattern, stem):
+    assert _coverage().page_stem(pattern) == stem
 
 
 def test_a_claim_that_reads_no_block_is_a_ledger_problem(tmp_path):

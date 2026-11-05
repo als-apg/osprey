@@ -325,15 +325,17 @@ uv run python scripts/va/capture_nominals.py --check tests/facility/golden/nomin
 **Purpose**: Show, page by page, how many code blocks under `docs/source` a test
 reads, and keep that number from falling. Every `code-block`, `literalinclude`
 and `::` literal block is counted; `scripts/docs/snippet_coverage.yml` is the
-ledger of which tests read which pages and languages, and how (`runs`, `checks`
-or `pins`). The default output is a Markdown table, the pages with the most
-untested blocks first, with the line of each untested block; `--page` narrows
-it to one page and lists what tests the rest, `--json` is for scripts and
-`--with-pending` previews the coverage once the ledger's pending pull requests
-merge. `--check` fails when a page has more untested blocks than
-`snippet_coverage_baseline.json` allows, or fewer (so the allowance is
-shrunk with `--update-baseline`); `tests/docs/test_snippet_coverage.py` runs it
-in CI.
+hand-kept ledger of which tests read which pages and languages, and how
+(`runs`, `checks` or `pins`). A claim under `pending:` (a test on an open pull
+request) counts as soon as its test file is on disk, so the pull requests can
+merge in any order. The default output is a Markdown table, the pages with the
+most untested blocks first, with the line of each untested block; `--page`
+narrows it to one page and lists what tests the rest, and `--json` is for
+scripts. `--check` fails when a page has more untested blocks than
+`snippet_coverage_baseline.json` allows, or fewer with no landed pending claim
+to explain it (shrink the allowance with `--update-baseline`), or when a claim
+names a missing test, a page its test never names, or no block;
+`tests/docs/test_snippet_coverage.py` runs the same check in CI.
 
 ---
 
