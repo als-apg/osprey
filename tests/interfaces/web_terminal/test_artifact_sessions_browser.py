@@ -785,3 +785,36 @@ def test_palette_find_enters_a_session_and_delete_asks_first(hub, page):
     _menu(page, row, "Delete…")
     page.locator(_DIALOG).locator(".posture-modal-confirm").click()
     expect(row).to_have_count(0, timeout=_TIMEOUT_MS)
+
+
+def test_deleting_a_past_session_drops_its_row_and_its_artifacts(hub, page):
+    profile = next(e for e in _store(hub).list_entries() if e.kind == BEAM_PROFILE_KIND)
+    sid = _PROFILE.transcript_id
+    _boot(page, hub)
+    current = _session(page, _RF_AFTER_CLEAR.transcript_id)
+    current.locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute(
+        "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
+    )
+    _settle_pointer(page)
+
+    # The session the Agent is on offers Delete… disabled.
+    current.click(button="right")
+    expect(page.get_by_role("menuitem", name="Delete…")).to_have_attribute("aria-disabled", "true")
+    page.keyboard.press("Escape")
+
+    row = _session(page, sid)
+    expect(row).to_have_attribute("data-count", _re(r"^[1-9]"), timeout=_TIMEOUT_MS)
+    _menu(page, row, "Delete…")
+    dialog = page.locator(_DIALOG)
+    expect(dialog.locator(".posture-modal-title")).to_have_text("Delete session?")
+    expect(dialog).to_contain_text("This deletes the session")
+    dialog.locator(".posture-modal-confirm").click()
+    expect(row).to_have_count(0, timeout=_TIMEOUT_MS)
+    assert _store(hub).get_entry(profile.id) is None
+
+    page.reload(wait_until="domcontentloaded")
+    expect(_active(page)).to_have_attribute(
+        "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
+    )
+    expect(_session(page, sid)).to_have_count(0)

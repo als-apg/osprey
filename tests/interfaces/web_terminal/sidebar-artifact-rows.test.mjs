@@ -224,6 +224,18 @@ describe('a session row', () => {
     expect(row.textContent).not.toContain('naming…');
   });
 
+  test('data-count only once the summary counted the session (the Delete… dialog reads it)', () => {
+    const unknown = rows.sessionRow(session(), { active: false, open: false, count: 0 });
+    expect(unknown.dataset.count).toBeUndefined();
+    const known = rows.sessionRow(session(), {
+      active: false,
+      open: false,
+      count: 0,
+      summarized: true,
+    });
+    expect(known.dataset.count).toBe('0');
+  });
+
   test('the active session is tinted; a live one has a filled dot', () => {
     const active = rows.sessionRow(session({ state: 'live' }), {
       active: true,

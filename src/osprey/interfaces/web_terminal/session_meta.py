@@ -9,7 +9,7 @@ sidebar is a transcript, not a key::
     {
       "sessions": {transcript_id: {"title", "title_source": "user"|"auto",
                                    "auto_title", "naming": "done"|"failed",
-                                   "last_artifact_id"}},
+                                   "last_artifact_id", "deleted"}},
       "last_active": {"session_key", "at"},
       "naming_since": ISO time of the document's first creation
     }
@@ -18,7 +18,10 @@ sidebar is a transcript, not a key::
 else the auto title. Clearing a user title (``set_title(tid, "")``) reverts to the
 auto title rather than to nothing. ``naming_since`` bounds auto-naming to sessions
 that began after the feature existed, so turning it on does not spend a model call
-per historical conversation. A naming that is in flight lives in memory only
+per historical conversation. ``deleted`` (an ISO time) is a deleted session's
+tombstone: the agent record keeps its rows, so the listing, the namer, ``enter``,
+the ledger's write point and the backfill all read :func:`deleted_ids` to keep it
+from coming back. A naming that is in flight lives in memory only
 (``app.state.session_naming_pending``): a restart must retry it, not believe it.
 
 Like the transcript map the document is best-effort durable: no location keeps it
@@ -54,15 +57,18 @@ from osprey_connectors.identity import acting_identity
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "SESSION_DELETED_FRAME",
     "SESSION_TRANSCRIPT_FRAME",
     "STORE_FILENAME",
     "backfill_ledger",
     "backfill_rows",
     "check_identity",
+    "deleted_ids",
     "get",
     "get_last_active",
     "ledger_state_dir",
     "load",
+    "mark_deleted",
     "naming_since",
     "record_transcript_move",
     "set_auto_title",
@@ -77,6 +83,9 @@ STORE_FILENAME = "session-meta.json"
 
 #: The hub page frame sent on every ledger append.
 SESSION_TRANSCRIPT_FRAME = "session_transcript"
+
+#: The hub page frame sent when the operator deletes a session.
+SESSION_DELETED_FRAME = "session_deleted"
 
 _TITLE_SOURCES = ("user", "auto")
 _NAMING_STATES = ("done", "failed")
@@ -149,6 +158,18 @@ def _clean_session(raw: Any) -> dict[str, Any] | None:
         "auto_title": _str_or_none(raw.get("auto_title")),
         "naming": naming if naming in _NAMING_STATES else None,
         "last_artifact_id": _str_or_none(raw.get("last_artifact_id")),
+        "deleted": _str_or_none(raw.get("deleted")),
+    }
+
+
+def _blank() -> dict[str, Any]:
+    return {
+        "title": None,
+        "title_source": None,
+        "auto_title": None,
+        "naming": None,
+        "last_artifact_id": None,
+        "deleted": None,
     }
 
 
@@ -226,30 +247,26 @@ def _document(app) -> dict[str, Any]:
 
 def _entry(document: dict[str, Any], tid: str) -> dict[str, Any]:
     sessions: dict[str, dict[str, Any]] = document["sessions"]
-    return sessions.setdefault(
-        tid,
-        {
-            "title": None,
-            "title_source": None,
-            "auto_title": None,
-            "naming": None,
-            "last_artifact_id": None,
-        },
-    )
+    return sessions.setdefault(tid, _blank())
 
 
 def get(app, tid: str) -> dict[str, Any]:
     """A copy of *tid*'s record (every field ``None`` for an unknown transcript)."""
     entry = _document(app)["sessions"].get(tid)
-    if entry is None:
-        return {
-            "title": None,
-            "title_source": None,
-            "auto_title": None,
-            "naming": None,
-            "last_artifact_id": None,
-        }
-    return dict(entry)
+    return _blank() if entry is None else dict(entry)
+
+
+def deleted_ids(app) -> set[str]:
+    """The transcripts the operator deleted (their tombstones)."""
+    return {tid for tid, entry in _document(app)["sessions"].items() if entry.get("deleted")}
+
+
+def mark_deleted(app, tid: str) -> dict[str, Any]:
+    """Replace *tid*'s record with a tombstone: no title, no last artifact, ``deleted`` now."""
+    document = _document(app)
+    document["sessions"][tid] = {**_blank(), "deleted": _now()}
+    _persist(app, document)
+    return dict(document["sessions"][tid])
 
 
 def set_title(app, tid: str, title: str) -> dict[str, Any]:
@@ -326,8 +343,11 @@ def record_transcript_move(
 
     The one routine every hub write point calls, so each sends exactly one
     ``session_transcript {session_key}`` per row actually appended and none for a
-    repeat. A hub without a broadcaster (a bare test app) still appends.
+    repeat. A hub without a broadcaster (a bare test app) still appends. A
+    deleted transcript is never written back.
     """
+    if transcript_id in deleted_ids(app):
+        return False
     if not session_ledger.append(ledger_state_dir(), key, transcript_id, from_ts):
         return False
     broadcaster = getattr(app.state, "broadcaster", None)
@@ -430,7 +450,10 @@ def backfill_ledger(app) -> int:
             artifact_ids = list(
                 dict.fromkeys(e.session_id for e in store.list_entries() if e.session_id)
             )
-        rows = backfill_rows(mapping, sessions_dir, artifact_ids)
+        deleted = deleted_ids(app)
+        rows = [
+            r for r in backfill_rows(mapping, sessions_dir, artifact_ids) if r[1] not in deleted
+        ]
     except Exception:
         logger.warning("The session ledger backfill could not read its sources", exc_info=True)
         return 0

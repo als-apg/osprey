@@ -564,7 +564,7 @@ session; **More sessions** loads older ones.
 Right-click a session to rename it, export its transcript or group its
 artifacts by day (**Group by Activity**); a run to open its result, approval
 preview or code; an artifact to pin it. Runs and artifacts also have
-**Delete…**.
+**Delete…**; on a past session it deletes the session and its artifacts.
 
 A reload, a new tab or another device resumes your last session. Its
 last-open artifact is shown in the Artifacts panel if that panel is docked,

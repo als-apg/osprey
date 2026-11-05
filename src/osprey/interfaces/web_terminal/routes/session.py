@@ -240,6 +240,8 @@ def _session_listing(
     rows, answer = session_record.own_sessions(identity, client=client, drain=drain, before=before)
     ledger = session_ledger.load(session_meta.ledger_state_dir())
     live = _live_keys(app)
+    # The record keeps a deleted session's rows; its tombstone keeps it unlisted.
+    deleted = session_meta.deleted_ids(app)
     more = False
     next_cursor = None
     record_rows: list[Mapping[str, Any]] = []
@@ -257,7 +259,7 @@ def _session_listing(
             oldest = session_ledger.aware_time(raw[-1].get("last_ts"))
         if more and oldest is not None:
             next_cursor = _encode_cursor(oldest.isoformat())
-        record_rows = [r for r in rows if _operator_row(r)]
+        record_rows = [r for r in rows if _operator_row(r) and r["session_id"] not in deleted]
         candidates = _ledger_only(ledger, listed, before, oldest if more else None)
         unknown, why = _unknown_to_record(candidates, client)
         if unknown is None:
@@ -285,6 +287,8 @@ def _session_listing(
         tid = row["session_id"]
         placed.append((at, tid, _session_row(app, tid, row, ledger, live)))
     for at, tid in extra:
+        if tid in deleted:
+            continue
         placed.append((at, tid, _session_row(app, tid, None, ledger, live)))
     placed.sort(key=lambda p: (p[0], p[1]), reverse=True)
     return {
@@ -407,8 +411,166 @@ async def enter_session(request: Request, transcript_id: str):
     ``transcript_map.get(K\u2032)``.
     """
     tid = _uuid_id(transcript_id, "transcript_id")
+    if tid in await asyncio.to_thread(session_meta.deleted_ids, request.app):
+        raise HTTPException(status_code=404, detail="This session was deleted.")
     key = await asyncio.to_thread(_enter, request.app, tid)
     return {"session_key": key}
+
+
+# ---- delete ----------------------------------------------------------------------
+
+
+def _sessions_dir(app) -> Path | None:
+    """This hub's Claude Code transcript directory, or ``None`` without a project."""
+    cwd = getattr(app.state, "project_cwd", None)
+    if not cwd:
+        return None
+    from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+
+    return SessionDiscovery(cwd)._resolve_sessions_dir()
+
+
+def _owned(app, tid: str, ledger: session_ledger.Ledger, sessions_dir: Path | None) -> bool:
+    """Whether *tid* is this operator's: in their ledger, their meta or their transcripts.
+
+    All three are filed under this hub's one identity, so another operator's
+    session is in none of them.
+    """
+    if tid in ledger.transcripts() or any(session_meta.get(app, tid).values()):
+        return True
+    return sessions_dir is not None and (sessions_dir / f"{tid}.jsonl").is_file()
+
+
+def _keys_on(app, tid: str, ledger: session_ledger.Ledger) -> set[str]:
+    """The session keys whose current transcript is *tid*."""
+    keys = {row.session_key for row in ledger.rows if ledger.current(row.session_key) == tid}
+    keys.update(transcript_map.keys_on(app, tid))
+    if ledger.current(tid) in (None, tid):
+        keys.add(tid)  # a key's first transcript is the key itself
+    return keys
+
+
+def _refusal(app, keys: set[str]) -> str | None:
+    """Why the session on *keys* cannot be deleted now (the Agent is on it, or it runs), else ``None``."""
+    last = session_meta.get_last_active(app)
+    if last is not None and last["session_key"] in keys:
+        return "The Agent is on this session. Switch to another session to delete this one."
+    registry = getattr(app.state, "pty_registry", None)
+    operators = getattr(app.state, "operator_registry", None)
+    chats = getattr(operators, "chats", None) if operators is not None else None
+    for key in keys:
+        pty = registry.get_session(key) if registry is not None else None
+        if pty is not None and pty.is_alive:
+            return "This session is open in a terminal. Close it there to delete it."
+        chat = chats.get(key) if chats is not None else None
+        if chat is not None and chat.is_busy:
+            return "A turn is running in this session. Wait for it to end to delete it."
+    return None
+
+
+def _delete_artifacts(app, tid: str, ledger: session_ledger.Ledger) -> list[str]:
+    """Delete the artifacts the tree lists under *tid*; the ids removed.
+
+    The same set ``session-list`` shows (operator-visible, owned by *tid* over
+    the ledger as it was before the delete), each through the store's own
+    delete, so a run's head takes its run and every removal is announced.
+    """
+    root = getattr(app.state, "panel_status_root", None)
+    if root is None:
+        return []
+    from osprey.stores.artifact_store import (
+        ArtifactStore,
+        artifact_mutation_actor,
+        operator_visible,
+        owner_of,
+    )
+
+    store = ArtifactStore(workspace_root=Path(root), auto_launch=False)
+    owned = [
+        e.id for e in store.list_entries() if operator_visible(e) and owner_of(e, ledger) == tid
+    ]
+    removed: list[str] = []
+    with artifact_mutation_actor("human"):
+        for artifact_id in owned:
+            removed.extend(e.id for e in store.delete_with_group(artifact_id))
+    return removed
+
+
+def _remove_transcript_files(tid: str, sessions_dir: Path | None) -> int:
+    """Remove ``<tid>.jsonl`` and its sibling ``<tid>/`` (subagents) from this hub's
+    transcript directory; how many were there."""
+    if sessions_dir is None:
+        return 0
+    import shutil
+
+    removed = 0
+    jsonl = sessions_dir / f"{tid}.jsonl"
+    if jsonl.is_file():
+        jsonl.unlink()
+        removed += 1
+    folder = sessions_dir / tid
+    if folder.is_dir() and not folder.is_symlink():
+        shutil.rmtree(folder)
+        removed += 1
+    return removed
+
+
+def _delete_session(
+    app, tid: str, ledger: session_ledger.Ledger, sessions_dir: Path | None
+) -> dict[str, Any]:
+    """Tombstone *tid*, then delete its artifacts, ledger rows, map entries and files.
+
+    The tombstone goes first, so a delete cut short leaves the session hidden
+    rather than half-there. The agent record is not touched.
+    """
+    session_meta.mark_deleted(app, tid)
+    getattr(app.state, "session_naming_pending", set()).discard(tid)
+    artifacts = _delete_artifacts(app, tid, ledger)
+    state_dir = session_meta.ledger_state_dir()
+    session_ledger.remove_transcript(state_dir, tid)
+    after = session_ledger.load(state_dir)
+    for key in transcript_map.keys_on(app, tid):
+        transcript_map.set(app, key, after.current(key) or key)
+    files = _remove_transcript_files(tid, sessions_dir)
+    return {"transcript_id": tid, "deleted_artifacts": artifacts, "transcript_files": files}
+
+
+@router.delete("/api/sessions/{transcript_id}")
+async def delete_session(request: Request, transcript_id: str):
+    """Delete one of the operator's past sessions with its artifacts.
+
+    404 for a session that is not this operator's (or is already deleted);
+    409 while the Agent is on it, a terminal has it open or a turn runs in it.
+    An idle chat still holding it is stopped. Every tab drops the row on the
+    ``session_deleted`` frame.
+    """
+    tid = _uuid_id(transcript_id, "transcript_id")
+    app = request.app
+    ledger = await asyncio.to_thread(session_ledger.load, session_meta.ledger_state_dir())
+    sessions_dir = _sessions_dir(app)
+    deleted = await asyncio.to_thread(session_meta.deleted_ids, app)
+    if tid in deleted or not await asyncio.to_thread(_owned, app, tid, ledger, sessions_dir):
+        raise HTTPException(status_code=404, detail="No such session.")
+    keys = _keys_on(app, tid, ledger)
+    refusal = _refusal(app, keys)
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+    operators = getattr(app.state, "operator_registry", None)
+    chats = getattr(operators, "chats", None) if operators is not None else None
+    if chats is not None:
+        for key in keys:
+            if chats.get(key) is not None:
+                await chats.terminate(key)
+    body = await asyncio.to_thread(_delete_session, app, tid, ledger, sessions_dir)
+    broadcaster = getattr(app.state, "broadcaster", None)
+    if broadcaster is not None:
+        try:
+            broadcaster.broadcast(
+                {"type": session_meta.SESSION_DELETED_FRAME, "transcript_id": tid}
+            )
+        except Exception:  # a frame is a hint; the next listing omits the row anyway
+            logger.warning("Could not send the session_deleted frame", exc_info=True)
+    return body
 
 
 def facility_timezone():

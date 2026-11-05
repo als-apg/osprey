@@ -365,6 +365,12 @@ class TestScheduler:
         assert _namer(app, stub, tmp_path).schedule([_row(T1)]) == []
         assert stub.calls == []
 
+    async def test_a_deleted_session_is_never_named(self, app, tmp_path):
+        session_meta.mark_deleted(app, T1)
+        stub = StubNamer()
+        assert _namer(app, stub, tmp_path).schedule([_row(T1)]) == []
+        assert stub.calls == []
+
     @pytest.mark.parametrize(
         "answer", [None, "", RuntimeError("boom")], ids=["none", "blank", "raises"]
     )

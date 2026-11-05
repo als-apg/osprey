@@ -227,12 +227,12 @@ export function agentDisclosure(open) {
 
 /**
  * One session row: a disclosure, the live dot, the title (or "naming…"), the
- * artifact count from the session summary.
+ * artifact count from the session summary (`data-count` once it is summarized).
  * @param {SessionRow} session
- * @param {{active: boolean, open: boolean, count: number}} options
+ * @param {{active: boolean, open: boolean, count: number, summarized?: boolean}} options
  * @returns {HTMLElement}
  */
-export function sessionRow(session, { active, open, count }) {
+export function sessionRow(session, { active, open, count, summarized = false }) {
   const pending = session.naming === 'pending';
   const title = treeSpan(
     'osprey-tree-title',
@@ -245,6 +245,7 @@ export function sessionRow(session, { active, open, count }) {
   const row = topRow('osprey-tree-session', open, [dot, title]);
   row.dataset.sessionId = session.transcript_id;
   if (active) row.classList.add('active');
+  if (summarized) row.dataset.count = String(count);
   if (pending && session.title) row.append(treeSpan('osprey-tree-naming', 'naming…'));
   row.append(treeSpan('osprey-tree-n', String(count)));
   return row;

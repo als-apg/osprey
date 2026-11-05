@@ -490,6 +490,7 @@ function treeNodes() {
       active: treeId === active,
       open,
       count,
+      summarized: treeId in data.totals.counts,
     });
     node.dataset.sessionId = treeId;
     nodes.push(node);

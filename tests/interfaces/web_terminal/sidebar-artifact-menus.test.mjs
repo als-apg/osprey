@@ -2,7 +2,7 @@
  * The session tree's context menus (sidebar-artifact-menus.js): each row
  * kind's exact items, New session through switchTo, rename in place, the
  * transcript export, a disabled approval preview, and the delete guard on an
- * artifact and on a run head.
+ * artifact, on a run head and on a past session.
  *
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifact-menus.test.mjs
  */
@@ -15,6 +15,7 @@ const sessionModel = vi.hoisted(() => ({
   switchTo: vi.fn(async () => true),
   rows: vi.fn(() => [{ transcript_id: 't1', session_key: 'k1', title: 'Beam study' }]),
   refresh: vi.fn(),
+  forgetSession: vi.fn(),
 }));
 const listing = vi.hoisted(() => ({
   ARTIFACTS_BASE: '/panel/artifacts',
@@ -57,7 +58,7 @@ const PLOT = { id: 'a1', title: 'BPM plot', pinned: false };
 function buildTree() {
   document.body.innerHTML = `
     <div data-session-tree>
-      <div class="osprey-tree-session osprey-tree-d0" data-session-id="t1" aria-expanded="false">
+      <div class="osprey-tree-session osprey-tree-d0" data-session-id="t1" data-count="3" aria-expanded="false">
         <span class="osprey-tree-disc" data-tree-disc></span>
         <span class="osprey-tree-title">Beam study</span>
       </div>
@@ -147,6 +148,7 @@ describe('a session row', () => {
       'Use automatic name',
       'Export transcript',
       'Copy ID',
+      'Delete…',
     ]);
     expect(menuRow('Group by Kind').getAttribute('aria-checked')).toBe('true');
   });
@@ -206,6 +208,72 @@ describe('a session row', () => {
     $('.osprey-tree-title').dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
     await vi.waitFor(() => expect(menuLabels()[0]).toBe('Open in Agent'));
+  });
+});
+
+describe('Delete… on a session row', () => {
+  test('a past session: enabled, danger, and asks with the session and its count', async () => {
+    await rightClick($('.osprey-tree-title'));
+    const item = menuRow('Delete…');
+    expect(item.getAttribute('aria-disabled')).toBeNull();
+    expect(item.classList.contains('danger')).toBe(true);
+    item.click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    const spec = confirm.showConfirm.mock.calls[0][0];
+    expect(spec.title).toBe('Delete session?');
+    expect(spec.body).toEqual([
+      ['This deletes the session ', { em: 'Beam study' }, ' and its 3 artifacts.'],
+    ]);
+    expect(spec.confirmLabel).toBe('Delete');
+    expect(spec.focus).toBe('cancel');
+    const ui = { done: vi.fn(), error: document.createElement('div') };
+    await spec.onConfirm(ui);
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/t1', { method: 'DELETE' });
+    expect(ui.done).toHaveBeenCalled();
+    expect(sessionModel.forgetSession).toHaveBeenCalledWith('t1');
+  });
+
+  test('without a summary the dialog says "and its artifacts"', async () => {
+    delete $('.osprey-tree-session').dataset.count;
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Delete…').click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
+    expect(JSON.stringify(confirm.showConfirm.mock.calls[0][0].body)).toContain(
+      ' and its artifacts.'
+    );
+  });
+
+  test('the session the Agent is on: disabled, with the tip', async () => {
+    $('.osprey-tree-session').classList.add('active');
+    await rightClick($('.osprey-tree-title'));
+    const item = menuRow('Delete…');
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+    expect(item.title).toBe('Switch to another session to delete this one');
+    item.click();
+    await Promise.resolve();
+    expect(confirm.showConfirm).not.toHaveBeenCalled();
+  });
+
+  test('a refusal keeps the dialog open with the hub’s reason', async () => {
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Delete…').click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        json: async () => ({ detail: 'A turn is running in this session.' }),
+      }))
+    );
+    const ui = { done: vi.fn(), error: document.createElement('div') };
+    ui.error.hidden = true;
+    await confirm.showConfirm.mock.calls[0][0].onConfirm(ui);
+    expect(ui.done).not.toHaveBeenCalled();
+    expect(ui.error.hidden).toBe(false);
+    expect(ui.error.textContent).toContain('A turn is running');
+    expect(sessionModel.forgetSession).not.toHaveBeenCalled();
   });
 });
 

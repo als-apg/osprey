@@ -191,7 +191,7 @@ class SessionNamer:
     def eligible(self, row: Mapping[str, Any], since: datetime | None) -> str:
         """The prompt to name *row* from, or ``""`` when it is not to be named.
 
-        Named: a non-bookkeeping first prompt, not ``truncated``, no auto title,
+        Named: not deleted, a non-bookkeeping first prompt, not ``truncated``, no auto title,
         ``first_ts ≥ naming_since``, not pending, not failed this hub start.
         """
         from osprey.interfaces.web_terminal import session_meta
@@ -208,7 +208,7 @@ class SessionNamer:
         if since is None or first is None or first < since:
             return ""
         meta = session_meta.get(self._app, tid)
-        if meta.get("auto_title") or meta.get("naming") == "done":
+        if meta.get("deleted") or meta.get("auto_title") or meta.get("naming") == "done":
             return ""
         return prompt
 
