@@ -245,9 +245,10 @@ cannot call any of these tools even if it tries. The list is the union of:
 - **Destructive workspace tools** — ``artifact_delete`` and
   ``artifact_delete_all``, which permanently remove stored artifacts.
 - **Facility-custom write tools** — any tool a custom MCP server in
-  ``claude_code.servers`` marks under ``permissions.ask`` (or a custom server
-  that writes-check-gates all its tools) is blocked too. Declare custom write
-  tools under ``permissions.ask`` so the read-only path recognises them.
+  ``claude_code.servers`` lists under ``writes:`` or marks under
+  ``permissions.ask`` (or a custom server that writes-check-gates all its
+  tools) is blocked too. Declare custom write tools under ``permissions.ask``
+  so the read-only path recognises them.
 
 Audited *read* tools (e.g. ``mcp__controls__channel_read``) remain available.
 The agent may still **create** workspace artifacts (plots, documents) and write
