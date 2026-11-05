@@ -23,8 +23,8 @@ from osprey_optimizer.api.job_control import (
     launch_job,
     load_stored_config,
     persist_created_job,
+    replace_created_config,
     require_created_or_409,
-    store_created_config,
 )
 from osprey_optimizer.api.job_status import read_job_status
 from osprey_optimizer.api.job_tracker import JobTracker
@@ -232,7 +232,8 @@ def update_optimization_config(
     """Replace a CREATED job's stored config and refresh its TTL (live-sync).
 
     409 unless the job is in CREATED state — a running/finished job's config is
-    immutable. Partial configs are allowed; full validation (objective present,
+    immutable — checked again atomically with the write, since preparing the
+    draft reads setpoints and a start can land meanwhile. Partial configs are allowed; full validation (objective present,
     objective exists in the env) happens at start, so the explicit-objective rule
     is untouched.
     """
@@ -241,7 +242,7 @@ def update_optimization_config(
     _apply_preset(config, registry)
     _prepare_draft(config, registry)
 
-    store_created_config(tracker, job_id, config.model_dump_json())
+    replace_created_config(tracker, job_id, config.model_dump_json())
 
     logger.info("Updated config for optimization job %s", job_id)
     return read_job_status(tracker, job_id)
@@ -262,27 +263,8 @@ def read_optimization_config(job_id: str) -> OptimizationConfig:
 
 
 def config_revision(config: OptimizationConfig) -> str:
-    """The revision of a stored draft: the SHA-256 of its config's JSON.
-
-    Every write that changes a draft's config changes it. ``GET
-    /jobs/{id}/config`` sends it with the config it shows, and ``POST
-    /jobs/{id}/start`` runs only the revision its caller names, so a draft
-    edited after it was reviewed is refused instead of run.
-    """
+    """The SHA-256 of a draft config's JSON: the revision a start must name."""
     return hashlib.sha256(config.model_dump_json().encode()).hexdigest()
-
-
-def require_config_revision(job_id: str, config: OptimizationConfig, revision: str) -> None:
-    """409 unless *revision* is the revision of *config*, the draft about to start."""
-    current = config_revision(config)
-    if revision != current:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Job {job_id}'s draft changed after revision {revision!r} was shown "
-                f"(it is now {current!r}); review the draft again before starting it."
-            ),
-        )
 
 
 def start_optimization_job(

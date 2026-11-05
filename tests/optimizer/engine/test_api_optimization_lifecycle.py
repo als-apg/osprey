@@ -7,12 +7,15 @@ import pytest
 from fastapi import HTTPException
 
 from osprey_optimizer.api import optimization_lifecycle as ol
+from osprey_optimizer.api.job_tracker import JobTracker
 from osprey_optimizer.api.optimization_lifecycle import read_optimization_config
 from osprey_optimizer.models.api import JobResponse
 from osprey_optimizer.models.config import ConstraintSpec, OptimizationConfig, Preset
 from osprey_optimizer.models.enums import AlgorithmType, ConstraintType, JobStatus, JobType
 from osprey_optimizer.models.protocols import PVReading
 from osprey_optimizer.models.types import Direction
+from osprey_optimizer.optimization.state import get_optimization_writer
+from osprey_optimizer.utils.job_keys import config_key
 from osprey_optimizer.utils.redis_state_store import CREATED_STATE_TTL_SECONDS
 
 from ._injector_data import VARIABLES
@@ -429,14 +432,45 @@ def test_update_config_writes_refreshes_ttl_and_materializes_direction() -> None
     ):
         reader_f.return_value.get_status.return_value = JobStatus.CREATED
         redis = MagicMock()
+        redis.register_script.return_value.return_value = 1  # the job is still CREATED
         redis_f.return_value = redis
         status_f.return_value = JobResponse(
             job_id="j1", job_type=JobType.OPTIMIZATION, status=JobStatus.CREATED
         )
         result = ol.update_optimization_config("j1", cfg, tracker, _registry_with_sim())
 
-    redis.set.assert_called_once()
+    store = redis.register_script.return_value
+    store.assert_called_once()
     tracker.expire_job.assert_called_once_with("j1", CREATED_STATE_TTL_SECONDS)
     assert result.status == JobStatus.CREATED
-    persisted = OptimizationConfig.model_validate_json(redis.set.call_args[0][1])
+    persisted = OptimizationConfig.model_validate_json(store.call_args.kwargs["args"][1])
     assert persisted.objective_direction is Direction.MAXIMIZE
+
+
+@pytest.mark.usefixtures("redis_server")
+def test_an_edit_that_loses_the_race_to_a_start_is_refused() -> None:
+    """A start that lands while the edit reads setpoints wins: the edit answers
+    409 and the stored config stays the one the start ran."""
+    tracker = JobTracker()
+    redis = tracker._get_redis()
+    redis.flushdb()
+    job_id = "raced"
+    tracker.register_created_job(job_id, job_type=JobType.OPTIMIZATION)
+    get_optimization_writer(job_id).set_status(JobStatus.CREATED)
+    original = _config().model_dump_json()
+    redis.set(config_key(job_id), original)
+
+    def start_lands(*_: object) -> None:
+        get_optimization_writer(job_id).set_status(JobStatus.RUNNING)
+
+    edit = _config().model_copy(update={"n_iterations": 99})
+    try:
+        with (
+            patch(f"{_OL}._prepare_draft", side_effect=start_lands),
+            pytest.raises(HTTPException) as exc,
+        ):
+            ol.update_optimization_config(job_id, edit, tracker, _registry_with_sim())
+        assert exc.value.status_code == 409
+        assert redis.get(config_key(job_id)) == original
+    finally:
+        redis.flushdb()

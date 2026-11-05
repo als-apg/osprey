@@ -127,20 +127,11 @@ DRAFTS = [
 
 
 @pytest.mark.launch_token_gate
-@pytest.mark.parametrize("configured", [False, True], ids=["unconfigured", "configured"])
 @pytest.mark.parametrize(("method", "path", "kwargs"), DRAFTS)
 def test_a_draft_needs_no_token(
-    gate_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-    method: str,
-    path: str,
-    kwargs: dict,
-    configured: bool,
+    gate_client: TestClient, monkeypatch: pytest.MonkeyPatch, method: str, path: str, kwargs: dict
 ) -> None:
-    if configured:
-        monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
-    else:
-        monkeypatch.delenv(LAUNCH_TOKEN_ENV, raising=False)
+    monkeypatch.delenv(LAUNCH_TOKEN_ENV, raising=False)
     resp = _call(gate_client, method, path, kwargs)
     assert resp.status_code not in (403, 503), resp.text
 

@@ -34,8 +34,7 @@ def create_optimization(
     start that runs it must name the draft's current ``config_revision``.
     """
     job_id = create_optimization_job(request, tracker, registry)
-    # Point the server-side current-job at the new draft, atomically with
-    # creation, so the web follow-poll can't read a stale pointer and revert the
-    # selection before Start (which would start the wrong job).
+    # Point the server-side current-job at the new draft, so a UI that follows
+    # the pointer shows it.
     tracker.set_current_job(job_id)
     return read_job_status(tracker, job_id)

@@ -1563,16 +1563,15 @@ its put-log entries name it as ``osprey-optimizer``. A run writes for the login
 that started it: ``POST /jobs/{id}/start`` reads that login from the
 ``X-Osprey-Owner`` header, and the run's writes follow that login's tier (the
 staged ``login_tiers`` map). A run started with no owner has every write
-refused. The routes that move hardware or load a model are guarded by
+refused. The routes that move hardware are guarded by
 ``OPTIMIZER_LAUNCH_TOKEN``, which ``osprey up`` mints into the project ``.env``;
 the token says a caller may start a run, not whose run it is. Drafts are not
 guarded: creating one (``POST /optimizations``), editing it (``PUT
 /jobs/{id}/config``) and selecting it (``PUT /jobs/current``) need no token. A
-draft write reads the target's setpoints, to centre the draft's bounds on them,
-and writes nothing. ``GET /jobs/{id}/config`` returns the draft's revision in
-its ``X-Config-Revision`` header, and ``POST /jobs/{id}/start`` must name it
-(``?config_revision=``): a draft written after it was shown answers ``409``
-rather than run. The image is built locally on the first
+draft write reads the target's setpoints and writes nothing. ``GET
+/jobs/{id}/config`` returns the draft's revision in its ``X-Config-Revision``
+header, and ``POST /jobs/{id}/start`` must name it (``?config_revision=``): a
+draft written after it was shown answers ``409`` rather than run. The image is built locally on the first
 ``osprey up``; set ``OSPREY_OPTIMIZER_IMAGE`` to run a published one.
 
 A run writes only under one **write authorization** (:ref:`how-to-write-from-a-program`),

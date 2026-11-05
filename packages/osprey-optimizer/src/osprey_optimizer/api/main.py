@@ -23,7 +23,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from osprey_optimizer.api.job_control import stop_launched_jobs
 from osprey_optimizer.api.job_tracker import JobTracker
-from osprey_optimizer.api.optimization_lifecycle import CONFIG_REVISION_HEADER
 from osprey_optimizer.api.routers.environments import router as environments_router
 from osprey_optimizer.api.routers.jobs import router as jobs_router
 from osprey_optimizer.api.routers.models import MAX_MODEL_UPLOAD_BYTES
@@ -172,7 +171,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=[CONFIG_REVISION_HEADER],
 )
 
 

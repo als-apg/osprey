@@ -22,7 +22,6 @@ from osprey_optimizer.api.optimization_lifecycle import (
     CONFIG_REVISION_HEADER,
     config_revision,
     read_optimization_config,
-    require_config_revision,
     require_model_file_under_results,
     start_optimization_job,
     update_optimization_config,
@@ -246,7 +245,14 @@ def start_job(
     showed, and answers 409 when the draft was written since.
     """
     config = read_optimization_config(job_id)  # 404 when no config is stored
-    require_config_revision(job_id, config, revision)
+    if revision != config_revision(config):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Job {job_id}'s draft changed since it was shown; read it again "
+                f"(GET /jobs/{job_id}/config) before starting it."
+            ),
+        )
     env_name = config.environment_name
     target = config.control_target
     if env_name is None or target is None:

@@ -13,6 +13,7 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, MagicMock, patch
 
@@ -530,7 +531,7 @@ class TestStartJob:
             # endpoint test below, so the config/gate seams are stubbed out here.
             patch(f"{_JOBS}.read_optimization_config") as read_cfg,
             patch(f"{_JOBS}.run_start_gates") as gates,
-            patch(f"{_JOBS}.require_config_revision"),
+            patch(f"{_JOBS}.config_revision", return_value="r"),
             patch(
                 f"{_JOBS}.start_optimization_job",
                 return_value=JobResponse(
@@ -596,39 +597,56 @@ class TestStartJob:
         assert resp.json()["detail"][0]["loc"] == ["query", "config_revision"]
         start.assert_not_called()
 
-    def test_start_runs_only_the_revision_the_config_read_showed(
-        self, client: TestClient, mock_job_tracker: MagicMock, seam_redis_mock: MagicMock
-    ) -> None:
-        """The revision GET /config sends is the one start takes; a draft written
-        since is refused with 409, and its new revision starts."""
-        mock_job_tracker.get_job.return_value = job_meta()
-        shown = make_gate_config()
-        seam_redis_mock.get.return_value = shown.model_dump_json()
-        stale = client.get("/jobs/test-job-id/config").headers["X-Config-Revision"]
-        assert stale == config_revision(shown)
+    @pytest.mark.usefixtures("redis_server")
+    def test_start_runs_only_the_revision_the_config_read_showed(self) -> None:
+        """End to end on Redis: the revision GET /config sends is the one start
+        takes; a draft edited since is refused with 409, and its new revision starts."""
+        tracker = JobTracker()
+        redis = tracker._get_redis()
+        redis.flushdb()
+        registry = MagicMock()
+        registry.list_environments.return_value = [SimpleNamespace(name="als_injector_sim")]
+        registry.load_environment.return_value = MockEnvironment()
+        app.dependency_overrides[get_job_tracker] = lambda: tracker
+        app.dependency_overrides[get_environment_registry] = lambda: registry
+        draft = make_gate_config()
+        try:
+            with (
+                patch(f"{_JOBS}.run_start_gates"),
+                patch(
+                    f"{_JOBS}.start_optimization_job",
+                    return_value=JobResponse(
+                        job_id="j", job_type=JobType.OPTIMIZATION, status=JobStatus.RUNNING
+                    ),
+                ) as start,
+                TestClient(app) as test_client,
+            ):
+                created = test_client.post("/optimizations", json=draft.model_dump(mode="json"))
+                assert created.status_code == 200, created.text
+                job_id = created.json()["job_id"]
+                stale = test_client.get(f"/jobs/{job_id}/config").headers["X-Config-Revision"]
 
-        edited = make_gate_config().model_copy(update={"n_iterations": shown.n_iterations + 1})
-        seam_redis_mock.get.return_value = edited.model_dump_json()
-        with (
-            patch(f"{_JOBS}.load_environment"),
-            patch(f"{_JOBS}.run_start_gates"),
-            patch(
-                f"{_JOBS}.start_optimization_job",
-                return_value=JobResponse(
-                    job_id="test-job-id", job_type=JobType.OPTIMIZATION, status=JobStatus.RUNNING
-                ),
-            ) as start,
-        ):
-            resp = client.post("/jobs/test-job-id/start", params={"config_revision": stale})
-            assert resp.status_code == 409, resp.text
-            assert "review the draft again" in resp.json()["detail"]
-            start.assert_not_called()
+                edit = draft.model_copy(update={"n_iterations": draft.n_iterations + 1})
+                put = test_client.put(f"/jobs/{job_id}/config", json=edit.model_dump(mode="json"))
+                assert put.status_code == 200, put.text
 
-            current = client.get("/jobs/test-job-id/config").headers["X-Config-Revision"]
-            assert current != stale
-            resp = client.post("/jobs/test-job-id/start", params={"config_revision": current})
-        assert resp.status_code == 200, resp.text
-        start.assert_called_once()
+                resp = test_client.post(f"/jobs/{job_id}/start", params={"config_revision": stale})
+                assert resp.status_code == 409, resp.text
+                assert "changed since it was shown" in resp.json()["detail"]
+                start.assert_not_called()
+
+                shown = test_client.get(f"/jobs/{job_id}/config")
+                current = shown.headers["X-Config-Revision"]
+                assert current != stale
+                assert shown.json()["n_iterations"] == edit.n_iterations
+                resp = test_client.post(
+                    f"/jobs/{job_id}/start", params={"config_revision": current}
+                )
+                assert resp.status_code == 200, resp.text
+                start.assert_called_once()
+        finally:
+            app.dependency_overrides.clear()
+            redis.flushdb()
 
     @pytest.mark.usefixtures("redis_server")
     def test_contended_start_preserves_created_job_then_succeeds(self) -> None:

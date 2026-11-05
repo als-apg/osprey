@@ -16,9 +16,10 @@ from osprey_optimizer.models.enums import JobStatus, JobType
 from osprey_optimizer.models.protocols import JobStateWriter
 from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.cancellation import CancellationToken, get_cancellation_token
-from osprey_optimizer.utils.job_keys import config_key
+from osprey_optimizer.utils.job_keys import config_key, state_prefix
 from osprey_optimizer.utils.process import reap_finished_children, shutdown_grace_seconds
 from osprey_optimizer.utils.redis_state_store import CREATED_STATE_TTL_SECONDS
+from osprey_optimizer.utils.serialization import serialize_obj
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,18 @@ SHUTDOWN_KILLED_MESSAGE = (
     "worker left them, possibly part-way through a write; check the machine before the "
     "next run."
 )
+
+# Write a draft's config only while its status is still CREATED. KEYS[1]=the
+# job's pickled status key, KEYS[2]=its config key. ARGV[1]=pickled CREATED,
+# ARGV[2]=config JSON, ARGV[3]=ttl. Byte equality on the pickle, as the status
+# CAS in core.state does. Returns 1 on write, 0 when the job left CREATED.
+_STORE_IF_CREATED_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
+    return 1
+end
+return 0
+"""
 
 
 def require_created_or_409(job_id: str, action: str, current: JobStatus | None) -> None:
@@ -84,6 +97,26 @@ def store_created_config(tracker: JobTracker, job_id: str, payload_json: str) ->
     """
     client = _redis_client.get_redis_client(binary=False)
     client.set(config_key(job_id), payload_json, ex=CREATED_STATE_TTL_SECONDS)
+    tracker.expire_job(job_id, CREATED_STATE_TTL_SECONDS)
+
+
+def replace_created_config(tracker: JobTracker, job_id: str, payload_json: str) -> None:
+    """Replace a draft's stored config, atomically with its still being CREATED.
+
+    409 when the job left CREATED before the write (a start or cancel landed
+    while the draft was prepared), so the stored config stays the one that ran.
+    The TTL is normalized as :func:`store_created_config` does.
+    """
+    client = _redis_client.get_redis_client(binary=False)
+    stored = client.register_script(_STORE_IF_CREATED_LUA)(
+        keys=[f"{state_prefix(job_id)}:status", config_key(job_id)],
+        args=[serialize_obj(JobStatus.CREATED), payload_json, CREATED_STATE_TTL_SECONDS],
+    )
+    if stored != 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot update job {job_id}: it left status 'created' before the edit was written.",
+        )
     tracker.expire_job(job_id, CREATED_STATE_TTL_SECONDS)
 
 
