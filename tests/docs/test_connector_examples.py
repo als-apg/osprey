@@ -240,8 +240,10 @@ def test_the_timezone_config_the_page_shows_sets_the_zone(tmp_path):
         [
             sys.executable,
             "-c",
-            "from osprey_connectors.config import get_facility_timezone; "
-            "print(get_facility_timezone())",
+            (
+                "from osprey_connectors.config import get_facility_timezone; "
+                "print(get_facility_timezone())"
+            ),
         ],
         cwd=tmp_path,
         env=_clean_env(tmp_path, CONFIG_FILE=str(config)),

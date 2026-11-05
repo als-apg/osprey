@@ -20,10 +20,9 @@ from its registered type name. Three subpackages --
 namespace, and their names are imported from the subpackage itself.
 
 How the package versions, and what each release promises to keep compatible,
-is in the
-`Stability <https://github.com/als-apg/osprey/blob/main/packages/osprey-connectors/README.md#stability>`_
-section of its README. These pages are built from the same tree as the rest of
-this site, so they can describe a connectors release newer or older than the
+is in the Stability section of the package's
+`README <https://github.com/als-apg/osprey/blob/main/packages/osprey-connectors/README.md>`_.
+These pages are built from the same tree as the rest of this site, so they can describe a connectors release newer or older than the
 one you have installed; the package's
 `changelog <https://github.com/als-apg/osprey/blob/main/packages/osprey-connectors/CHANGELOG.md>`_
 says which release added what.
