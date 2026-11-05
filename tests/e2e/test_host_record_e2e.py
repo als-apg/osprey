@@ -438,7 +438,7 @@ def test_host_sessions_record_without_a_container(deployment, web_port):
             _await(_signed_in, 120, "the web login")
             listed = b.get("/api/sessions").json()
             assert listed.get("record") == "complete", listed
-            assert new <= {s["session_id"] for s in listed["sessions"]}, listed
+            assert new <= {s["transcript_id"] for s in listed["sessions"]}, listed
             for session in new:
                 chat = b.get(
                     "/api/session-chat", params={"session_id": session, "events": "1"}
