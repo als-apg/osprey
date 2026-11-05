@@ -165,11 +165,8 @@ subtree (see :ref:`reference-profile`).
    * - ``port_base``
      - --
      - Top level
-     - Shorthand for ``deployment.port_base``: the build writes the value into
-       ``config:`` under that key. It must be an integer the base rules below
-       accept. It replaces any ``deployment.port_base`` the ``config:`` block
-       sets, including one a child profile sets over a parent's
-       ``port_base:``, and says nothing.
+     - Shorthand for ``deployment.port_base``, and wins over it when both are
+       set.
    * - ``worker_port_stride``
      - ``1``
      - Top-level ``dispatch:``

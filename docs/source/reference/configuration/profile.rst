@@ -89,10 +89,9 @@ Profile YAML reference
      - absent
      - Shorthand for ``config: {deployment.port_base: ...}``, the first port of
        the deployment's thousand-port block (see :ref:`reference-ports`). It
-       must be an integer the port layout accepts; the build refuses any other
-       value. It replaces any ``deployment.port_base`` the ``config:`` block
-       sets, dotted or nested, including one a child profile sets over a
-       parent's ``port_base:``, and says nothing.
+       must be an integer the port layout accepts. When ``config:`` also sets
+       ``deployment.port_base``, dotted or nested, even in a child profile,
+       this value wins without a warning.
    * - ``web_panels``
      - list
      - ``[]``
@@ -696,9 +695,9 @@ Each entry under ``mcp_servers:`` takes these keys:
      - ``{pre_tool_use: [<preset>, ...]}``: hook presets (``approval``,
        ``writes_check``, ``limits``) attached to every tool of the server.
        ``pre_tool_use`` is the only event; any other is refused, as is a value
-       that is not a list of names. An unknown preset name is skipped with a
-       warning. The build records the block in the server's
-       ``claude_code.servers`` entry.
+       that is not a list of names. An unknown preset name, and
+       ``writes_check`` on a whole server (declare ``writes`` instead), are
+       read with a warning that names the release that refuses them.
    * - ``writes``
      - absent
      - The server's write tools, as bare names: no ``mcp__`` prefix, no
