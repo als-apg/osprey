@@ -752,10 +752,11 @@ server {
     # So these paths, and only these, skip the subrequest. They are the app's
     # own unauthenticated static mounts (`/design-system/`, `/static/fonts/`)
     # and the hub-local asset routes under `/panel/<id>/` (the shared design
-    # system and fonts for any panel id, and the artifacts panel's own `js/` and
-    # `css/` trees) — `STATIC_MOUNT_PREFIXES`, `PANEL_ASSET_SUBPATHS` and
-    # `FIRST_PARTY_PANEL_STATIC` in osprey.interfaces.common_middleware, which
-    # the app's gate exempts the same way. Nothing agent-writable is served
+    # system and fonts for any panel id, the artifacts panel's own `js/` and
+    # `css/` trees, and its extension-type viewers, one `<key>.js` segment each)
+    # — `STATIC_MOUNT_PREFIXES`, `PANEL_ASSET_SUBPATHS`, `FIRST_PARTY_PANEL_STATIC`
+    # and `FIRST_PARTY_PANEL_VIEWERS` in osprey.interfaces.common_middleware,
+    # which the app's gate exempts the same way. Nothing agent-writable is served
     # under any of them: `/files/`, `/api/`, `/panel-static/`, a runtime
     # panel's `/panel/<id>/static/` and Jupyter's `/panel/jupyter/files/` all
     # stay in the gated location above.
@@ -773,7 +774,7 @@ server {
     # identity names are still claimed explicitly, as in every proxying
     # location, with nothing to speak for: an asset needs no credential. GET
     # only (HEAD comes with it), and no websocket upgrade.
-    location ~ ^{{ url_mount_root_pattern }}/{{ svc.user }}/(?:design-system/|static/fonts/|panel/[A-Za-z0-9][A-Za-z0-9._-]*/(?:design-system|static/fonts)/|panel/artifacts/static/(?:js|css)/) {
+    location ~ ^{{ url_mount_root_pattern }}/{{ svc.user }}/(?:design-system/|static/fonts/|panel/[A-Za-z0-9][A-Za-z0-9._-]*/(?:design-system|static/fonts)/|panel/artifacts/static/(?:js|css)/|panel/artifacts/viewers/[^/]+\.js$) {
         limit_except GET {
             deny all;
         }

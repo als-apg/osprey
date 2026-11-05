@@ -49,7 +49,8 @@ import {
   setFocusedArtifact,
 } from './state.js';
 import {
-  typeBadge,
+  formBadge,
+  formKey,
   escapeHtml,
   formatSize,
   formatFullTime,
@@ -108,7 +109,7 @@ function headerHtml(a) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             Back
           </button>
-          <span class="badge badge-${escapeHtml(a.category || a.artifact_type)}">${typeBadge(a.category || a.artifact_type)}</span>
+          <span class="badge badge-${escapeHtml(formKey(a))}">${formBadge(a)}</span>
           <span class="preview-header-title">${escapeHtml(a.title)}</span>
         </div>
         <div class="preview-header-actions">

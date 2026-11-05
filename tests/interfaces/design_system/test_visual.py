@@ -322,10 +322,9 @@ TARGETS: list[VisualTarget] = [
         "web_terminal_hub",
         _web_terminal_hub_server,
         path="/",
-        # Scope to the rail button: overlay iframes now also carry
-        # data-panel-id="artifacts" in the docked shell, so the bare attribute
-        # selector is ambiguous.
-        wait_selector='button.panel-rail-button[data-panel-id="artifacts"]',
+        # The sidebar's Agent row: every hub renders it, and the artifacts
+        # panel has no rail entry.
+        wait_selector="#sidebar-agent-row",
         dock_shell=True,
     ),
     VisualTarget(

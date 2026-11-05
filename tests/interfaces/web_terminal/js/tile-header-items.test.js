@@ -13,6 +13,9 @@
  * its panel re-sending the whole contribution underneath it.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { test, expect, describe, beforeAll, afterEach, vi } from 'vitest';
 
 // happy-dom provides no ResizeObserver; the module observes contribution
@@ -226,7 +229,7 @@ describe('menu items', () => {
     expect(btn.getAttribute('aria-expanded')).toBe('true');
 
     const pop = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-popover'));
-    // Body-level: the contribution region is overflow:hidden and one bar tall.
+    // Body-level: the contribution region clips its overflow and is one bar tall.
     expect(pop.parentElement).toBe(document.body);
 
     const rows = [...pop.querySelectorAll('.contrib-menu-item')];
@@ -625,5 +628,29 @@ describe('popover close-on-scroll', () => {
     const { strip } = openOverflow();
     strip.dispatchEvent(new Event('scroll'));
     expect(document.querySelector('.contrib-menu-popover')).toBeNull();
+  });
+
+  // The browser half of the rule above, which happy-dom cannot lay out. The
+  // contribution region was `overflow: hidden`, which is still a scroll
+  // container: pressing the ⋯ button at its clipped edge focused it, the
+  // browser scrolled the region to reveal it, and that scroll — of an element
+  // holding the button — closed the menu the press had just opened. A
+  // clipped region cannot scroll, by focus or by script.
+  test('the contribution region clips its overflow, so focusing ⋯ cannot scroll it', () => {
+    const css = readFileSync(
+      join(
+        import.meta.dirname,
+        '../../../../src/osprey/interfaces/web_terminal/static/css/dockview-overrides.css'
+      ),
+      'utf8'
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    const overflow = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selectors]) =>
+        selectors.split(',').some((s) => s.trim() === '.tile-tab .tile-tab-contrib')
+      )
+      .flatMap(([, , body]) =>
+        [...body.matchAll(/(?:^|;)\s*overflow\s*:\s*([^;]+)/g)].map((d) => d[1].trim())
+      );
+    expect(overflow).toEqual(['clip']);
   });
 });

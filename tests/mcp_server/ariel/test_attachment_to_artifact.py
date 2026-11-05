@@ -63,7 +63,7 @@ async def test_keeps_the_rendition_as_an_image_artifact(keyset_harness, store, g
     assert Path(store.get_file_path(entry.id)).read_bytes() == KEYSET_RENDITION_BYTES
     assert entry.artifact_type == "image"
     assert entry.mime_type == "image/png"
-    assert entry.category == "visualization"
+    assert entry.category == ""
     assert entry.tool_source == "attachment_to_artifact"
     assert entry.origin == ""
     assert entry.title == f"orbit-plot.png (entry {KEYSET_ENTRY_ID})"

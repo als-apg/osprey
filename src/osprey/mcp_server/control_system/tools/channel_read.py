@@ -215,8 +215,7 @@ def _save_series_reading(store, address: str, value, summary: dict, np) -> dict:
 
     ``metadata.data_type = "timeseries"`` is what the gallery keys on to pick the
     interactive chart viewport, and ``metadata.channel`` is the key the retention
-    sweep selects this channel's readings by; ``category`` must be
-    ``channel_values`` for the same reason.
+    sweep selects this channel's readings by (with ``tool_source="channel_read"``).
     """
     values = _series_values(value, np)
     store_summary = _reading_store_summary(address, summary)
@@ -250,7 +249,6 @@ def _save_series_reading(store, address: str, value, summary: dict, np) -> dict:
             },
             "view_hint": "Open this artifact in the gallery to see the interactive chart.",
         },
-        category="channel_values",
         metadata={"data_type": "timeseries", "channel": address},
     )
 
@@ -448,7 +446,6 @@ def _save_image_reading(store, address: str, value, summary: dict, np, png_bytes
                 "extension) with your file-reading tool to view the image."
             ),
         },
-        category="channel_values",
         metadata={
             "channel": address,
             "data_type": "ndarray",
@@ -494,7 +491,7 @@ def _save_data_only_reading(store, address: str, value, reason: str) -> dict:
     frame whose render failed - have no honest image, but they still have data,
     and losing it because it could not be drawn would be the worse failure. The
     array is stored as a plain ``.npy`` artifact carrying the same
-    ``channel_values`` category and ``metadata.channel`` key the image path
+    ``channel_read`` tool source and ``metadata.channel`` key the image path
     uses, so retention sweeps it on the same schedule.
     """
     entry = store.save_object(
@@ -505,7 +502,6 @@ def _save_data_only_reading(store, address: str, value, reason: str) -> dict:
             f"{_shape_text(value)} {value.dtype} (no preview: {reason})"
         ),
         tool_source="channel_read",
-        category="channel_values",
         metadata={
             "channel": address,
             "data_type": "ndarray",

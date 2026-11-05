@@ -52,12 +52,11 @@ export function buildConsole() {
   // label beside it names the pane.
   const led = elem('span', 'osprey-dot ok op-session-led');
   led.setAttribute('aria-hidden', 'true');
+  // The session switcher (session-switcher.js) fills it with the session's
+  // title and a ▾ once chat.js attaches it.
   const label = elem('span', 'op-session-label', 'Agent');
   const newBtn = barButton('op-session-new', 'pen', 'New conversation');
   bar.append(led, label, newBtn);
-  const moreBtn = barButton('op-session-more', 'more', 'Earlier conversations');
-  moreBtn.setAttribute('aria-haspopup', 'menu');
-  moreBtn.setAttribute('aria-expanded', 'false');
 
   const messages = elem('div', 'op-messages');
   // A log by role, but silent by itself: a log is polite by default, and streamed
@@ -118,8 +117,8 @@ export function buildConsole() {
 
   return {
     bar,
+    label,
     newBtn,
-    moreBtn,
     messages,
     overlay,
     overlayMessage,

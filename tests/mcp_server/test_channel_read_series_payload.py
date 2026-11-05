@@ -124,8 +124,8 @@ async def test_data_file_is_openable_and_json_loads(tmp_path, monkeypatch):
     assert payload["series"][ADDRESS]["values"][0] == 0.0
 
 
-async def test_artifact_metadata_and_category_drive_the_gallery(tmp_path, monkeypatch):
-    """data_type=timeseries picks the chart viewport; channel+category feed retention."""
+async def test_artifact_metadata_and_tool_source_drive_the_gallery(tmp_path, monkeypatch):
+    """data_type=timeseries picks the chart viewport; channel+tool_source feed retention."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _oversized()})
 
     artifact_id = data["summary"]["readings"][ADDRESS]["artifact_id"]
@@ -134,7 +134,7 @@ async def test_artifact_metadata_and_category_drive_the_gallery(tmp_path, monkey
     assert stored is not None
     assert stored.metadata["data_type"] == "timeseries"
     assert stored.metadata["channel"] == ADDRESS
-    assert stored.category == "channel_values"
+    assert stored.category == ""
     assert stored.tool_source == "channel_read"
     assert stored.summary["channel"] == ADDRESS
     assert stored.summary["sample_count"] == 5000

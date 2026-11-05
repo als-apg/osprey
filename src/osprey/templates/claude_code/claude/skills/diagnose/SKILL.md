@@ -184,8 +184,7 @@ artifact_register(
     title="Diagnostic Report — <brief failure description>",
     description="Infrastructure failure investigation: <1-line summary>",
     content=<the HTML string>,
-    content_type="html",
-    category="diagnostic_report"
+    content_type="html"
 )
 ```
 

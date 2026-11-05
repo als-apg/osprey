@@ -40,7 +40,10 @@ from osprey.interfaces.artifacts.content_sandbox import (
 )
 from osprey.interfaces.opaque_origin import OPAQUE_CSP
 from osprey.interfaces.panel_urls import navigation_url_refusal, normalise_navigation_url
-from osprey.interfaces.web_terminal.agent_content_routes import AGENT_CONTENT_ROUTES
+from osprey.interfaces.web_terminal.agent_content_routes import (
+    AGENT_CONTENT_ROUTES,
+    SHELL_ASSET_ROUTES,
+)
 from osprey.interfaces.web_terminal.panel_discovery import DiscoveredPanel
 from osprey.interfaces.web_terminal.routes.proxy import _PANEL_STATE_MAP
 from tests.interfaces.web_terminal._proxy_fakes import panel_app
@@ -120,12 +123,16 @@ class TestArtifactSandbox:
         assert any(m.cls is ContentSandboxMiddleware for m in artifact_client.app.user_middleware)
 
     def test_only_the_shell_opts_out(self, artifact_client):
+        """The shell page and the script modules it imports; nothing else."""
         exempt = {
             path
             for path, route in _get_routes(artifact_client.app).items()
             if is_not_content(route.endpoint)
         }
-        assert exempt == {"/"}
+        shell_assets = {
+            ref.template for ref in SHELL_ASSET_ROUTES if ref.module == ARTIFACTS_MODULE
+        }
+        assert exempt == {"/"} | shell_assets
 
     @pytest.mark.parametrize("template", _artifact_refs())
     def test_every_enumerated_route_exists_and_is_not_exempt(self, artifact_client, template):
@@ -204,9 +211,11 @@ class TestPanelSandbox:
     def test_the_enumeration_matches_the_companion_servers(self):
         scanned = _scan_non_json_get_routes()
         listed = {ref for row in AGENT_CONTENT_ROUTES for ref in row.routes}
-        classified = {
-            ref for ref in listed if _in_scanned_packages(ref)
-        } | _framework_entry_routes()
+        classified = (
+            {ref for ref in listed if _in_scanned_packages(ref)}
+            | _framework_entry_routes()
+            | set(SHELL_ASSET_ROUTES)
+        )
 
         assert scanned - classified == set(), "unenumerated non-JSON GET routes"
         assert classified - scanned == set(), "enumerated routes that no longer exist"

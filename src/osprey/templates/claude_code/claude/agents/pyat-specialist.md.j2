@@ -184,7 +184,6 @@ Your last action is one `submit_response` call carrying your answer:
   simulated design lattice. Put more than two or three quantities in a
   markdown table, one row per element or plane, so the numbers stay readable and
   unambiguous.
-- `data_type`: "lattice_analysis"
 - `source_agent`: "pyat-specialist"
 
 Report the values your code actually produced, at full useful precision — never
@@ -197,7 +196,7 @@ answer stays inspectable without you filing it a second time.
 For a **large array** the operator wants plotted (beta along the whole lattice, a
 response matrix), do not retype it into your prose: save it from inside the
 computing `mcp__python__execute` call with the injected `save_artifact(obj, title,
-description, artifact_type="json", category="lattice_analysis")`, coerced to native
+description, artifact_type="json")`, coerced to native
 types first (`np.asarray(x).tolist()`), and cite the returned artifact id in your
 answer so the parent can hand it to `data-visualizer`.
 

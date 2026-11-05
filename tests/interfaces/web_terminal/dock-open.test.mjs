@@ -4,12 +4,14 @@
  * The dock's placement rules (dock-open.js), as pure operations on a layout:
  *   npx vitest run tests/interfaces/web_terminal/dock-open.test.mjs
  *
- * The open rule: a panel opens as a new tab, in front, in the service tile the
- * operator used last, and nothing resizes; a panel already docked is shown
- * where it is; open-at splits where a drop said and moves an already-docked
- * panel; with no service tile the first one opens left of the terminal at
- * 0.6 / 0.4; the terminal reopens at the right edge at 0.4 and closes as its
- * tile.
+ * Every tile holds one panel. The open rule: a panel takes the service tile
+ * the operator used last, replacing the panel that tile showed, and nothing
+ * resizes; a panel already docked is focused where it is; open-at splits
+ * where a drop said and moves an already-docked panel; with no service tile
+ * the first one opens left of the terminal at 0.6 / 0.4; a set opens side by
+ * side; an arrangement giving a tile several panels is refused by the
+ * policy's name; the terminal reopens at the right edge at 0.4 and closes as
+ * its tile.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -17,16 +19,29 @@ import { describe, expect, test } from 'vitest';
 import {
   SERVICE_SHARE,
   TERMINAL_SHARE,
+  arrange,
   closeKey,
   closeKeys,
   defaultLayout,
   firstTile,
+  focusKey,
   openAt,
-  openTab,
+  openPanel,
+  openPanelSet,
   reopenTerminal,
   serviceTileTarget,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/dock-open.js';
-import { MIN_PX, keysOf, tileOf, validateLayout } from '/static/vendor/dock-engine.mjs';
+import {
+  ONE_PANEL_PER_TILE,
+  crowdedTile,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/dock-policy.js';
+import {
+  MIN_PX,
+  TOO_MANY_FOR_SIDE,
+  keysOf,
+  tileOf,
+  validateLayout,
+} from '/static/vendor/dock-engine.mjs';
 
 /** @typedef {import('/static/vendor/dock-engine.mjs').Layout} Layout */
 
@@ -117,47 +132,64 @@ describe('firstTile — the classic 60/40 split', () => {
   });
 });
 
-describe('openTab — a new tab in front of the service tile used last', () => {
-  test('lands in the focused service tile, in front; nothing else changes', () => {
-    const layout = row(tile('a', ['alpha']), TERMINAL);
-    const out = openTab(layout, 'beta', ctx({ focusedTile: 'a' }));
-    expect(out.changed).toBe(true);
-    expect(tileOf(out.layout, 'beta')).toMatchObject({
-      tile: 'a',
-      tabs: ['alpha', 'beta'],
-      showing: 'beta',
-    });
-    expect(out.focus).toBe('a');
-    // Nothing resizes and nothing leaves: the same tiles at the same sizes.
-    expect(tiles(out.layout).map((t) => [t.tile, t.size])).toEqual(
-      tiles(layout).map((t) => [t.tile, t.size])
-    );
-    expect(keysOf(out.layout)).toEqual(['alpha', 'beta', 'terminal']);
-    expect(validateLayout(out.layout).valid).toBe(true);
-  });
-
-  test('a panel already docked stays where it is; the caller brings its tab forward', () => {
+describe('openPanel — the open rule replaces the panel of the service tile used last', () => {
+  test('the focused service tile shows the panel instead; no tile resizes and no other changes', () => {
     const layout = row(tile('a', ['alpha']), tile('b', ['beta']), TERMINAL);
-    const out = openTab(layout, 'alpha', ctx({ focusedTile: 'b' }));
-    expect(out).toEqual({ layout, changed: false });
+    const before = structuredClone(layout);
+    const out = openPanel(layout, 'gamma', ctx({ focusedTile: 'b' }));
+    expect(out.changed).toBe(true);
+    expect(out.focus).toBe('b');
+    // Tile b now shows gamma alone; beta left the dock (its sidebar row
+    // opens it again), and the other tiles are as they were.
+    expect(tiles(out.layout)).toEqual([
+      { tile: 'a', tabs: ['alpha'], showing: 'alpha', size: 1 / 3 },
+      { tile: 'b', tabs: ['gamma'], showing: 'gamma', size: 1 / 3 },
+      { tile: 'tt', tabs: ['terminal'], showing: 'terminal', size: 1 / 3 },
+    ]);
+    expect(keysOf(out.layout)).toEqual(['alpha', 'gamma', 'terminal']);
+    expect(crowdedTile(out.layout)).toBeNull();
+    expect(validateLayout(out.layout).valid).toBe(true);
+    expect(layout).toEqual(before);
   });
 
-  test('with the terminal focused, the last service tile takes the tab — never the terminal', () => {
-    const layout = row(tile('a', ['alpha']), TERMINAL);
-    const out = openTab(layout, 'okf', ctx({ focusedTile: 'tt', lastServiceTile: 'a' }));
-    expect(tileOf(out.layout, 'terminal')?.tabs).toEqual(['terminal']);
-    expect(tileOf(out.layout, 'okf')).toMatchObject({ tile: 'a', tabs: ['alpha', 'okf'] });
+  test('a panel already docked changes nothing; focusKey focuses its tile where it is', () => {
+    const layout = row(tile('a', ['alpha']), tile('b', ['beta']), TERMINAL);
+    expect(openPanel(layout, 'alpha', ctx({ focusedTile: 'b' }))).toEqual({
+      layout,
+      changed: false,
+    });
+    const focused = focusKey(layout, 'alpha');
+    expect(focused).toEqual({ layout, changed: false, focus: 'a' });
+    expect(focused.layout).toBe(layout);
+    // A key the dock does not hold has no tile to focus.
+    expect(focusKey(layout, 'gamma')).toEqual({ layout, changed: false });
+  });
+
+  test('with the terminal focused, the last service tile takes the panel — never the terminal', () => {
+    const layout = row(tile('a', ['alpha']), tile('b', ['beta']), TERMINAL);
+    const out = openPanel(layout, 'okf', ctx({ focusedTile: 'tt', lastServiceTile: 'a' }));
+    expect(tileOf(out.layout, 'terminal')).toEqual({
+      tile: 'tt',
+      tabs: ['terminal'],
+      showing: 'terminal',
+      size: 1 / 3,
+    });
+    expect(tileOf(out.layout, 'okf')).toMatchObject({ tile: 'a', tabs: ['okf'], showing: 'okf' });
+    expect(tileOf(out.layout, 'beta')?.tile).toBe('b');
     expect(out.focus).toBe('a');
   });
 
   test('with no service tile it opens the first tile left of the terminal at the classic split', () => {
-    const out = openTab(TERMINAL, 'alpha', ctx({ focusedTile: 'tt' }));
-    expect(tiles(out.layout).map((t) => t.tabs[0])).toEqual(['alpha', 'terminal']);
-    expect(tiles(out.layout)[0].size).toBeCloseTo(SERVICE_SHARE, 3);
+    const out = openPanel(TERMINAL, 'alpha', ctx({ focusedTile: 'tt' }));
+    const [left, right] = tiles(out.layout);
+    expect([left.tabs, right.tabs]).toEqual([['alpha'], ['terminal']]);
+    expect(left.size).toBeCloseTo(SERVICE_SHARE, 3);
+    expect(right.size).toBeCloseTo(1 - SERVICE_SHARE, 3);
+    expect(out.focus).toBe(left.tile);
   });
 
   test('an empty dock gets one tile', () => {
-    expect(openTab(null, 'alpha', ctx())).toEqual({
+    expect(openPanel(null, 'alpha', ctx())).toEqual({
       layout: { tile: 't1', tabs: ['alpha'], showing: 'alpha' },
       changed: true,
       focus: 't1',
@@ -218,6 +250,72 @@ describe('openAt — placement at an explicit position', () => {
         ctx()
       ).changed
     ).toBe(false);
+  });
+});
+
+describe('openPanelSet — side by side, each panel in a tile of its own', () => {
+  test('the set shares the span of the service tile used last; the terminal keeps its share', () => {
+    const layout = row(tile('a', ['alpha']), TERMINAL);
+    const out = openPanelSet(
+      layout,
+      ['beta', 'gamma'],
+      'side',
+      undefined,
+      ctx({ focusedTile: 'a' })
+    );
+    expect(out.changed).toBe(true);
+    const all = tiles(out.layout);
+    expect(all.map((t) => t.tabs)).toEqual([['alpha'], ['beta'], ['gamma'], ['terminal']]);
+    expect(all[3]).toMatchObject({ tile: 'tt', size: 0.5 });
+    expect(all.slice(0, 3).reduce((sum, t) => sum + t.size, 0)).toBeCloseTo(0.5, 3);
+    expect(out.focus).toBe(tileOf(out.layout, 'beta')?.tile);
+    expect(crowdedTile(out.layout)).toBeNull();
+    expect(validateLayout(out.layout).valid).toBe(true);
+  });
+
+  test('with no service tile the first member opens beside the terminal at 60/40, the rest beside it', () => {
+    const out = openPanelSet(TERMINAL, ['alpha', 'beta'], 'side', undefined, ctx());
+    expect(out.changed).toBe(true);
+    const all = tiles(out.layout);
+    expect(all.map((t) => t.tabs)).toEqual([['alpha'], ['beta'], ['terminal']]);
+    expect(all[2].size).toBeCloseTo(1 - SERVICE_SHARE, 3);
+    expect(all[0].size + all[1].size).toBeCloseTo(SERVICE_SHARE, 3);
+    expect(out.focus).toBe(all[0].tile);
+    expect(crowdedTile(out.layout)).toBeNull();
+  });
+
+  test('a first tile too narrow to share is refused by the engine’s name; nothing changes', () => {
+    // At 120 x 60 the first tile (72 px wide) cannot hold two tiles of 40 px.
+    const narrow = { ...ctx(), dock: { px: { width: 120, height: 60 }, minPx: MIN_PX } };
+    const out = openPanelSet(TERMINAL, ['alpha', 'beta'], 'side', undefined, narrow);
+    expect(out).toEqual({ layout: TERMINAL, changed: false, refusal: TOO_MANY_FOR_SIDE });
+    expect(out.layout).toBe(TERMINAL);
+  });
+});
+
+describe('arrange — a given layout replaces the service tiles', () => {
+  const layout = row(tile('a', ['alpha']), TERMINAL);
+
+  test.each([
+    ['a split', { split: 'row', items: [{ tabs: ['ariel', 'lattice'] }, { tabs: ['okf'] }] }],
+    ['a root tile', { tabs: ['ariel', 'lattice'], showing: 'lattice' }],
+  ])('%s giving a tile several panels is refused by the policy’s name', (_name, given) => {
+    const set = /** @type {any} */ (given);
+    const refused = { layout, changed: false, refusal: ONE_PANEL_PER_TILE };
+    expect(arrange(layout, set, ctx({ focusedTile: 'a' }))).toEqual(refused);
+    // An open_set "as layout" is the same arrangement.
+    expect(openPanelSet(layout, ['ariel', 'lattice'], 'layout', set, ctx())).toEqual(refused);
+  });
+
+  test('a layout of one panel per tile replaces the services; the terminal keeps its tile', () => {
+    const given = { split: 'column', items: [{ tabs: ['ariel'] }, { tabs: ['lattice'] }] };
+    const out = arrange(layout, /** @type {any} */ (given), ctx({ focusedTile: 'a' }));
+    expect(out.changed).toBe(true);
+    expect(out.refusal).toBeUndefined();
+    expect(tiles(out.layout).map((t) => t.tabs)).toEqual([['ariel'], ['lattice'], ['terminal']]);
+    expect(tileOf(out.layout, 'terminal')?.tile).toBe('tt');
+    expect(out.pruned).toEqual(['alpha']);
+    expect(crowdedTile(out.layout)).toBeNull();
   });
 });
 

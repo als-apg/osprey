@@ -548,14 +548,15 @@ class TestLoadPanelPresets:
             assert _load_panel_presets({"artifacts"}, []) == []
 
     def test_drops_unknown_members_keeps_known(self):
-        """Unknown tabs are pruned; the known tabs keep their tiles, normalised."""
+        """Unknown panels are pruned with their tiles; the known keep theirs, normalised."""
         cfg = {
             "web": {
                 "presets": {
                     "Setup": {
                         "split": "row",
                         "items": [
-                            {"tabs": ["artifacts", "ghost"], "showing": "ghost", "size": 3},
+                            {"tabs": ["artifacts"], "size": 3},
+                            {"tabs": ["ghost"], "showing": "ghost"},
                             {"tabs": ["ariel"]},
                         ],
                     }
@@ -599,8 +600,9 @@ class TestLoadPanelPresets:
         assert [p["name"] for p in presets] == ["B", "A"]
 
     def test_custom_panel_ids_are_known_members(self):
-        """Custom panel ids (not just built-ins) count as known preset tabs."""
-        cfg = {"web": {"presets": {"Dash": {"tabs": ["my-dash", "artifacts"]}}}}
+        """Custom panel ids (not just built-ins) count as known preset panels."""
+        layout = {"split": "row", "items": [{"tabs": ["my-dash"]}, {"tabs": ["artifacts"]}]}
+        cfg = {"web": {"presets": {"Dash": layout}}}
         custom = [{"id": "my-dash", "label": "DASH", "url": "http://x:9000"}]
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, custom)
@@ -612,6 +614,7 @@ class TestLoadPanelPresets:
             pytest.param("artifacts", id="string"),
             pytest.param(["artifacts"], id="retired-list-form"),
             pytest.param({"tabs": ["terminal", "artifacts"]}, id="names-the-terminal"),
+            pytest.param({"tabs": ["artifacts", "ariel"]}, id="two-panels-in-a-tile"),
             pytest.param({"tabs": [0]}, id="member-index"),
             pytest.param({"slot": 0}, id="not-a-layout"),
         ],

@@ -67,11 +67,12 @@ def test_no_tool_spells_the_record_id_entry_id(workspace_tools):
     assert offenders == [], f"{offenders} spell the artifact id 'entry_id'; use 'artifact_id'"
 
 
-def test_artifact_list_filters_by_category_not_a_separate_tool_family(workspace_tools):
-    """The data views are a ``category`` argument on the one list tool."""
+def test_artifact_list_filters_by_form_not_a_separate_tool_family(workspace_tools):
+    """The data views are a ``form`` argument on the one list tool."""
     props = workspace_tools["artifact_list"].parameters["properties"]
     # The filtering data_list had must survive the rename.
-    assert {"category", "tool", "last_n", "source_agent"} <= set(props), props
+    assert {"form", "tool", "last_n", "source_agent"} <= set(props), props
+    assert "category" not in props
 
 
 #: The panel verbs, by the axis each one moves. Rail membership is "can the
@@ -83,7 +84,7 @@ def test_artifact_list_filters_by_category_not_a_separate_tool_family(workspace_
 #: panel unlaunchable.
 PANEL_VERBS_BY_AXIS = {
     "rail membership": ("add_panel_to_rail", "remove_panel_from_rail"),
-    "on screen": ("open_panel", "close_panel_tab"),
+    "on screen": ("open_panel", "close_panel"),
 }
 
 
@@ -100,6 +101,18 @@ def test_no_panel_verb_names_an_axis_it_does_not_move(workspace_tools):
         f"{offenders} name the on-screen axis but move rail membership; "
         f"the honest verbs are {PANEL_VERBS_BY_AXIS}"
     )
+
+
+def test_the_dock_verbs_offer_no_way_to_stack_panels_in_one_tile(workspace_tools):
+    """A tile shows one panel: one close verb, no set mode, no ``tabs`` arrangement.
+
+    This is the schema an MCP client sees, so a mode that came back here would
+    reach the agent whatever the tool's docstring says.
+    """
+    assert sorted(name for name in workspace_tools if name.startswith("close_")) == ["close_panel"]
+    assert set(workspace_tools["open_panel_set"].parameters["properties"]) == {"panels"}
+    open_as = workspace_tools["arrange_workspace"].parameters["properties"]["open_as"]
+    assert [option.get("enum") for option in open_as["anyOf"]] == [["side", "layout"], None]
 
 
 def test_registry_allowlist_names_only_tools_the_server_registers(workspace_tools):

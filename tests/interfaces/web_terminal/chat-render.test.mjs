@@ -283,6 +283,17 @@ describe('tool vocabulary', () => {
     );
   });
 
+  test('the agent closing a panel reads as one verb; the two close tools it replaced have no phrase', () => {
+    expect(
+      activityLabel({ type: 'tool_use', tool_name_raw: 'mcp__osprey_workspace__close_panel' })
+    ).toBe('Closing a panel…');
+    for (const retired of ['close_panel_tab', 'close_panel_tile']) {
+      expect(
+        toolPhrase({ type: 'tool_use', tool_name_raw: `mcp__osprey_workspace__${retired}` })
+      ).toBeNull();
+    }
+  });
+
   test('an unmapped tool has no phrase and keeps its raw name', () => {
     const event = /** @type {const} */ ({
       type: 'tool_use',

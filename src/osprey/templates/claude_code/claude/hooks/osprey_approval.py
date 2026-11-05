@@ -2783,6 +2783,10 @@ _REVIEW_OUTCOME_WORDS = {
 }
 
 
+#: The settle a run's stored result head implies, by its ``run_status``.
+_SETTLE_FOR_RUN_STATUS = {"succeeded": "ran", "failed": "failed", "not_run": "not_run"}
+
+
 #: The artifact-metadata field holding what the code review said about the previewed code.
 _REVIEW_FINDINGS_KEY = "code_review"
 
@@ -2835,7 +2839,7 @@ def _review_outcome_state(outcome: str, stamp) -> str:
 
 
 def _create_pre_execution_notebook(
-    code: str, exec_mode: str, config: dict, review=None
+    code: str, exec_mode: str, config: dict, review=None, tool_use_id=None
 ) -> tuple[str | None, str | None]:
     """Save the review notebook for *code* as ``(gallery URL, artifact id)``.
 
@@ -2845,12 +2849,17 @@ def _create_pre_execution_notebook(
 
     *review* is what the code review said ahead of the prompt, kept in the
     entry's metadata so that settling the notebook can write it out again.
+    *tool_use_id* is the asked call's id: a valid one files the notebook as
+    that run's ``preview`` part (``exec_id``); anything else leaves it standing alone.
     """
     artifact_id = None
     try:
         from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
 
-        metadata = {"exec_mode": exec_mode or "", RUN_RECORD_KEY: True}
+        call_id = _valid_tool_use_id(tool_use_id) or ""
+        metadata = {"exec_mode": exec_mode or "", RUN_RECORD_KEY: True, "run_part": "preview"}
+        if call_id:
+            metadata["call_id"] = call_id
         if review:
             metadata[_REVIEW_FINDINGS_KEY] = review
         # The hook is a one-shot process, so it must not start a gallery of its
@@ -2865,6 +2874,7 @@ def _create_pre_execution_notebook(
             mime_type="application/x-ipynb+json",
             tool_source="osprey_approval",
             metadata=metadata,
+            exec_id=call_id,
         )
         artifact_id = entry.id
 
@@ -2889,6 +2899,11 @@ def _settle_review(stamp, outcome: str) -> None:
     Only the status line and the gallery description change: the code and the mode
     are read back from the notebook and written again as they were. A stamp with no
     review id, or a review no longer in the store, is left alone.
+
+    When the run's result head is already stored, its ``run_status`` decides the
+    outcome (a ``PostToolUseFailure`` for a call the executor refused before launch
+    reads ``not_run``). The outcome is merged into the entry's metadata as
+    ``settled``, keeping every other writer's keys.
     """
     try:
         artifact_id = stamp.get(REVIEW_ARTIFACT_KEY)
@@ -2907,6 +2922,13 @@ def _settle_review(stamp, outcome: str) -> None:
         )
         code = next(cell.source for cell in notebook.cells if cell.cell_type == "code")
         exec_mode = entry.metadata.get("exec_mode", "")
+        group = store.run_group(entry.exec_id) if entry.exec_id else None
+        if (
+            group is not None
+            and group.run_status is not None
+            and group.roles.get(group.head_id) == "result"
+        ):
+            outcome = _SETTLE_FOR_RUN_STATUS.get(group.run_status, outcome)
         state = _review_outcome_state(outcome, stamp)
         store.replace_file(
             artifact_id,
@@ -2915,6 +2937,7 @@ def _settle_review(stamp, outcome: str) -> None:
             ),
             description=_review_description(exec_mode, state),
         )
+        store.merge_entry_metadata({artifact_id: {"settled": outcome}})
     except Exception:
         return
 
@@ -3810,7 +3833,7 @@ def _describe_ask(hook_input, tool_name, short_name, tool_input, config, read_re
         exec_mode = tool_input.get("execution_mode", "")
         if isinstance(code, str) and code.strip():
             gallery_link, review_id = _create_pre_execution_notebook(
-                code, exec_mode, config, review_text
+                code, exec_mode, config, review_text, hook_input.get("tool_use_id")
             )
             if gallery_link:
                 lines.append(f"\nApproval preview: {gallery_link}")
@@ -4106,7 +4129,7 @@ def main():
                 review_id = None
                 if code.strip():
                     gallery_link, review_id = _create_pre_execution_notebook(
-                        code, exec_mode, config, review_text
+                        code, exec_mode, config, review_text, hook_input.get("tool_use_id")
                     )
                     if gallery_link:
                         reason_parts.append(f"\nApproval preview: {gallery_link}")

@@ -150,7 +150,7 @@ def _asset_exemption_location(user: str) -> str:
     return (
         f"~ ^/u/{user}/(?:design-system/|static/fonts/|"
         "panel/[A-Za-z0-9][A-Za-z0-9._-]*/(?:design-system|static/fonts)/|"
-        "panel/artifacts/static/(?:js|css)/)"
+        "panel/artifacts/static/(?:js|css)/|panel/artifacts/viewers/[^/]+\\.js$)"
     )
 
 

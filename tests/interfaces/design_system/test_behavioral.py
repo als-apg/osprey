@@ -153,8 +153,11 @@ def _hub_live_server(
 # ---------------------------------------------------------------------------
 
 
-def _open_hub(page: Page, base_url: str, first_tab_id: str = "artifacts") -> None:
+def _open_hub(page: Page, base_url: str, first_tab_id: str = "terminal") -> None:
     """Navigate to the hub and wait for its first tab to render.
+
+    The default waits on the sidebar's Agent row (``data-panel-id="terminal"``),
+    which every hub renders; the artifacts panel has no rail entry.
 
     The one navigation entry point in this module — ``_goto_with_seeded_theme``
     goes through it too — so a change to how the hub is reached lands once.
@@ -164,7 +167,7 @@ def _open_hub(page: Page, base_url: str, first_tab_id: str = "artifacts") -> Non
 
 
 def _goto_with_seeded_theme(
-    page: Page, base_url: str, theme: str, first_tab_id: str = "artifacts"
+    page: Page, base_url: str, theme: str, first_tab_id: str = "terminal"
 ) -> None:
     """Navigate, force the stored theme preference, then reload.
 
@@ -253,7 +256,7 @@ def test_theme_boot_applies_stored_preference_pre_paint(tmp_path, chromium_brows
         _open_hub(page, base_url)
         page.evaluate("localStorage.setItem('osprey-theme', 'light')")
         page.reload(wait_until="domcontentloaded")
-        expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
+        expect(page.locator('button[data-panel-id="terminal"]')).to_be_attached(timeout=10_000)
 
         history = page.evaluate("window.__themeHistory")
         assert history, "expected at least one data-theme write on load"
@@ -288,7 +291,7 @@ def test_toggle_flips_theme_and_persists_across_reload(tmp_path, chromium_browse
         expect(page.locator("html")).to_have_attribute("data-theme", "light", timeout=5_000)
 
         page.reload(wait_until="domcontentloaded")
-        expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
+        expect(page.locator('button[data-panel-id="terminal"]')).to_be_attached(timeout=10_000)
         assert page.evaluate("document.documentElement.getAttribute('data-theme')") == "light", (
             "toggled theme did not persist across reload"
         )
@@ -419,7 +422,10 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
             "healthEndpoint": None,
             "path": "/",
         }
-        with _hub_live_server(workspace, {"artifacts"}, [follower_panel]) as base_url:
+        # A second rail panel to switch to: opening it replaces the follower in
+        # the service tile, which backgrounds the follower's iframe.
+        decoy_panel = {**follower_panel, "id": "decoy", "label": "DECOY"}
+        with _hub_live_server(workspace, {"artifacts"}, [follower_panel, decoy_panel]) as base_url:
             page = chromium_browser.new_page()
             errors = _collect_sentinel_errors(page)
 
@@ -444,7 +450,7 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
             # cached iframe element — and so the follower's live theme state —
             # persists across the hide for the re-activation repair below.
             follower_iframe = page.locator('iframe[data-panel-id="follower"]')
-            page.locator('button[data-panel-id="artifacts"]').click()
+            page.locator('button[data-panel-id="decoy"]').click()
             expect(follower_iframe).to_be_hidden(timeout=5_000)
 
             # Change theme while the panel is hidden.

@@ -424,6 +424,7 @@ EXPECTED_ERROR_CLASSES = {
     "web_terminal_unreachable": "Connection",
     "no_web_terminal": "Connection",
     "no_dock_client": "Connection",
+    "no_dock_answer": "Connection",
     "record_unavailable": "Connection",
     "incomplete": "Connection",
     "manager_unreachable": "Connection",
@@ -467,6 +468,7 @@ EXPECTED_ERROR_CLASSES = {
     "stale_base": "Validation",
     "terminal_in_layout": "Validation",
     "too_many_for_side": "Validation",
+    "one_panel_per_tile": "Validation",
     "popped_out": "Validation",
     # Data
     "not_found": "Data",

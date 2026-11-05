@@ -30,9 +30,11 @@ import logging
 import os
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_record.reader import is_bookkeeping_prompt as _is_bookkeeping_prompt
 from osprey.mcp_server.workspace.transcript_reader import MAX_CHAT_MESSAGE_LENGTH
 from osprey_connectors.identity import acting_identity
 
@@ -153,18 +155,29 @@ def read_timeline(
     return SessionRead(session_id, nodes)
 
 
-def own_sessions(identity: str | None = None, *, client: Any = None) -> tuple[list[dict], Any]:
+def own_sessions(
+    identity: str | None = None,
+    *,
+    client: Any = None,
+    drain: bool = True,
+    before: datetime | None = None,
+) -> tuple[list[dict], Any]:
     """The sessions the login lists that *identity* took part in, newest first.
 
     Returns the rows (``list_sessions`` rows) and the answer they came from,
     so the caller can render an unavailable or incomplete list as such. A
     row belongs to *identity* when it names it among its identities or its
-    persons; ``None`` keeps every row the login sees.
+    persons; ``None`` keeps every row the login sees. *drain* waits for what
+    ingest has pending first; *before* reads the page of sessions whose
+    activity ended before it.
     """
     from osprey.agent_record.contract import Drain
 
     client = client if client is not None else record_client()
-    answer = client.list_sessions(wait=Drain())
+    kwargs: dict[str, Any] = {"wait": Drain() if drain else None}
+    if before is not None:
+        kwargs["before"] = before
+    answer = client.list_sessions(**kwargs)
     rows = answer.data if answer.available and isinstance(answer.data, list) else []
     rows = [r for r in rows if isinstance(r, dict) and r.get("session_id")]
     if identity:
@@ -174,6 +187,45 @@ def own_sessions(identity: str | None = None, *, client: Any = None) -> tuple[li
             if identity in (r.get("identities") or []) or identity in (r.get("persons") or [])
         ]
     return rows, answer
+
+
+#: Session ids one :func:`known_sessions` read asks about.
+KNOWN_BATCH = 100
+
+
+def known_sessions(
+    session_ids: Iterable[str], *, client: Any = None
+) -> tuple[set[str] | None, Any]:
+    """Which of *session_ids* the record has rows of, whoever's they are.
+
+    Every id a ``list_sessions`` read narrowed to them returns is known; an
+    incomplete read (a scan cut by one large session) asks again for the
+    ones it did not return. ``None`` when that could not be settled: a read
+    was unavailable or refused, or returned nothing it was not complete
+    about. Returns the last answer read beside it (``None`` when there was
+    nothing to ask), for the reason it names.
+    """
+    ids = sorted({s for s in session_ids if s})
+    client = client if client is not None else record_client()
+    known: set[str] = set()
+    answer = None
+    for start in range(0, len(ids), KNOWN_BATCH):
+        pending = ids[start : start + KNOWN_BATCH]
+        while pending:
+            answer = client.list_sessions(session_ids=pending, limit=len(pending))
+            if not answer.available:
+                return None, answer
+            rows = answer.data if isinstance(answer.data, list) else []
+            found = {
+                r["session_id"] for r in rows if isinstance(r, Mapping) and r.get("session_id")
+            } & set(pending)
+            known |= found
+            if answer.complete and not answer.more:
+                break
+            if not found:
+                return None, answer
+            pending = [s for s in pending if s not in found]
+    return known, answer
 
 
 def current_session_id(project_dir: Path | str | None = None) -> str | None:
@@ -263,17 +315,9 @@ def prompt_text(body: Mapping[str, Any]) -> str:
     return text if isinstance(text, str) else ""
 
 
-def is_bookkeeping_prompt(body: Mapping[str, Any]) -> bool:
-    """Whether a prompt is the TUI's own accounting rather than the operator's words."""
-    from osprey.mcp_server.workspace.transcript_reader import (
-        _BOOKKEEPING_PREFIXES,
-        INTERRUPT_MARKER,
-    )
-
-    if body.get("is_meta"):
-        return True
-    text = prompt_text(body).strip()
-    return bool(text) and text.startswith((INTERRUPT_MARKER, *_BOOKKEEPING_PREFIXES))
+# The record's session rows name their first prompt by this same rule, so it
+# lives with the reader; re-exported here for the session readers.
+is_bookkeeping_prompt = _is_bookkeeping_prompt
 
 
 # ---------------------------------------------------------------------------

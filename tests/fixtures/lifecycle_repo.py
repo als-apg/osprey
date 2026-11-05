@@ -1063,12 +1063,11 @@ config:
   # It fetches more as the list is scrolled.
   # Lowering it suits a slow link; raising it suits a small store.
   # artifact_server.page_size: 20
-  # Extra artifact categories on top of the ones the gallery ships, so a badge
-  # reads in this facility's own vocabulary. One dotted line per category, each
-  # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
-  # category nobody declared is still stored — it just keeps the default badge,
-  # and the save logs a warning naming this key.
-  # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
+  # Facility artifact kinds on top of the gallery's base forms, so a listing
+  # reads in this facility's own vocabulary. One dotted line per type, each
+  # value a `label` and the `base_form` it is listed under (plots, trends,
+  # tables, documents, dashboards, images, data).
+  # artifact_server.extension_types.beam_diagnostics: {label: Beam Diagnostics, base_form: plots}
   # Seed one shipped example (an interactive plot, synthetic data) into an
   # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
   artifact_server.example_artifact: true
@@ -1493,17 +1492,20 @@ panel_presets: {}
 #     permissions:
 #       allow: [get_twiss]
 
-# --- Artifacts gallery: custom categories ------------------------------------
-# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
-# tool passes as category="<key>" when it saves an artifact; label and color
-# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
-# block also accepts host/port/auto_launch overrides for the gallery server.
+# --- Artifacts gallery: extension types -------------------------------------
+# Facility artifact kinds, each conforming to one gallery base form (plots,
+# trends, tables, documents, dashboards, images, data) and listed under it.
+# A label may not repeat a base form's or another type's. The optional viewer
+# is a .js/.mjs ES module under this profile's project/ directory, given
+# relative to it. The block also accepts host/port/auto_launch overrides for
+# the gallery server.
 #
 # artifact_server:
-#   categories:
-#     optics:
-#       label: Optics
-#       color: "#4C9AFF"
+#   extension_types:
+#     beam_scan:
+#       label: Beam scan
+#       base_form: plots
+#       viewer: viewers/beam_scan.js
 
 # --- Optimizer ---------------------------------------------------------------
 # Tunes machine variables against an objective with Bayesian optimization. The
@@ -2437,13 +2439,13 @@ mcp_servers:
 ```
 
 The hello-world preset ships `example_server` as a worked copy to read. Which
-buckets the artifact gallery sorts into is a separate, top-level key, one entry
-per bucket:
+facility artifact kinds the gallery lists is a separate, top-level key, each
+type conforming to one base form:
 
 ```yaml
 artifact_server:
-  categories:
-    beam_studies: {label: Beam studies, color: "#4C6EF5"}
+  extension_types:
+    beam_study: {label: Beam study, base_form: plots}
 ```
 
 ### Adding a panel of your own

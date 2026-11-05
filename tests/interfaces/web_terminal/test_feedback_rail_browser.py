@@ -57,7 +57,8 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
 
     The same patch set every hub browser suite uses: the companion backends are
     bypassed and the artifacts panel reports the standard fallback URL, so the
-    sidebar renders one real panel row without a backend process.
+    hub serves without a backend process. Artifacts has no rail row; the
+    sidebar's panel row is the Agent's.
 
     Yields:
         The hub's base URL.
@@ -79,9 +80,10 @@ def _open_hub_page(browser: Browser, url: str) -> Page:
     """
     page = browser.new_page(viewport=_SMALL_VIEWPORT)
     page.goto(url, wait_until="domcontentloaded")
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=10_000
-    )
+    # The page ships the Agent row disabled; the rail render enables it.
+    expect(
+        page.locator('button.panel-rail-button[data-panel-id="terminal"]:not(.disabled)')
+    ).to_be_attached(timeout=10_000)
     expect(page.locator("#panel-feedback-btn")).to_be_visible(timeout=10_000)
     return page
 

@@ -10,7 +10,7 @@
  * that applies a `panel_op` frame — an agent's drop, close, open, set or
  * arrangement, and a person's preset click, which the server relays the same
  * way — to the layout holder. An open itself follows the open rule in
- * dock-open.js (a new tab, in front, in the service tile used last).
+ * dock-open.js (the service tile used last, replacing the panel it showed).
  *
  * It reaches the dock only through the existing seams: dock-sync's placement
  * verbs (dockPanelBesideActive) and echo guard, dock-open.js (the open rule,
@@ -38,20 +38,14 @@ import { dockPanelBesideActive } from './dock-sync.js';
 import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
 import {
   arrange,
+  focusKey,
+  openPanel,
   openPanelSet,
-  openTab,
-  showTab,
   PANEL_UNHEALTHY,
   TERMINAL_IN_LAYOUT,
 } from './dock-open.js';
-import {
-  closeTab,
-  closeTile,
-  findTile,
-  keysOf,
-  planDrop,
-  tileOf,
-} from '/static/vendor/dock-engine.mjs';
+import { ONE_PANEL_PER_TILE } from './dock-policy.js';
+import { closeTab, findTile, keysOf, planDrop, tileOf } from '/static/vendor/dock-engine.mjs';
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 import { isPoppedOut } from './popout.js';
 
@@ -99,7 +93,7 @@ function ctx() {
 }
 
 /**
- * Whether a service panel currently holds a tab in the dock, read off the
+ * Whether a service panel currently holds a tile in the dock, read off the
  * layout holder. False with no holder (fallback mode has no tiles at all).
  * @param {string} panelId
  * @returns {boolean}
@@ -129,7 +123,7 @@ function revealOpenedPanel(panelId, wasOnScreen) {
 
 /**
  * Open a panel as a NEW tile beside the active tile — the row menu's "Open in
- * a new tile", the one open that splits instead of adding a tab. An
+ * a new tile", the one open that splits instead of replacing. An
  * already-open panel is MOVED beside the active tile (dockPanelAt's move
  * semantics), never duplicated. In fallback mode the placement no-ops in
  * dock-sync and the reveal tail takes the single surface over like a rail click.
@@ -147,10 +141,10 @@ export function openPanelBeside(panelId) {
 
 /**
  * Reveal a panel a sidebar row's drop has just placed (rail-drag.js's landing):
- * the engine put its tab where the row was dropped and the holder has applied
+ * the engine put its tile where the row was dropped and the holder has applied
  * it; what is left is the activation tail every other open uses.
  * @param {string} panelId
- * @param {{ wasOnScreen: boolean }} info  whether the panel held a tab before the drop
+ * @param {{ wasOnScreen: boolean }} info  whether the panel held a tile before the drop
  */
 export function landDroppedPanel(panelId, { wasOnScreen }) {
   revealOpenedPanel(panelId, wasOnScreen);
@@ -175,7 +169,7 @@ export const NO_DOCK_CLIENT = 'no_dock_client';
  * @property {'panel_op'} type
  * @property {string} request_id
  * @property {string} target_client
- * @property {string} op - drop | close_tab | close_tile | open | open_set | open_arrangement
+ * @property {string} op - drop | close | open | open_set | open_arrangement
  * @property {Record<string, any>} args
  * @property {number} [base_rev]
  * @property {string} [source]
@@ -239,10 +233,12 @@ function targetTiles(target) {
  * Check one op against the held layout and build the holder operation that
  * runs it, or name why it is refused. The terminal invariant is enforced here
  * a second time (the server checked it against its copy of the layout): the
- * terminal tab, and a tile holding it, is never an agent drop source or close
- * target, no tab is dropped into that tile, and a set never names it. So is the pop-out rule: a panel in its own
- * window is never moved or closed by an op, and an `open` of it brings the
- * window forward.
+ * terminal, and its tile, is never an agent drop source or close target, and
+ * a set never names it. So is the one-panel-per-tile rule (dock-policy.js): a
+ * set opened as anything but side by side or a layout, and a drop into a
+ * tile's centre or header, are refused by the policy's name. So is the
+ * pop-out rule: a panel in its own window is never moved or closed by an op,
+ * and an `open` of it brings the window forward.
  * @param {PanelOpFrame} frame
  * @param {any} layout  the held layout
  * @param {(key: string) => boolean} isHealthy
@@ -260,9 +256,9 @@ function planOp(frame, layout, isHealthy) {
       if (isPoppedOut(member)) {
         return { run: (l) => ({ layout: l, changed: false }), popout: member };
       }
-      if (tileOf(layout, member)) return { run: (l) => showTab(l, member) };
+      if (tileOf(layout, member)) return { run: (l) => focusKey(l, member) };
       if (!isHealthy(member)) return { refusal: PANEL_UNHEALTHY };
-      return { run: (l, ctx) => openTab(l, member, ctx) };
+      return { run: (l, ctx) => openPanel(l, member, ctx) };
     }
     case 'open_set':
     case 'open_arrangement': {
@@ -281,7 +277,8 @@ function planOp(frame, layout, isHealthy) {
         if (given === undefined) return { refusal: INVALID_LAYOUT };
         return { run: (l, ctx) => arrange(l, given, setCtx(ctx)) };
       }
-      return { run: (l, ctx) => openPanelSet(l, members, as, undefined, setCtx(ctx)) };
+      if (as !== 'side') return { refusal: ONE_PANEL_PER_TILE };
+      return { run: (l, ctx) => openPanelSet(l, members, 'side', undefined, setCtx(ctx)) };
     }
     case 'drop': {
       const source = args.source ?? {};
@@ -307,11 +304,9 @@ function planOp(frame, layout, isHealthy) {
       if (targetTiles(args.target).some((id) => findTile(layout, id) === null)) {
         return { refusal: UNKNOWN_TILE };
       }
-      // The Agent pane is always its own tile: a centre or tab-bar target on
-      // it is admitted nowhere (dock-drop.js refuses a person's too).
-      if ('zone' in args.target && holdsTerminal(layout, args.target.tile)) {
-        return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
-      }
+      // A tile holds one panel: its centre and header are no target
+      // (dock-drop.js refuses a person's drop there too).
+      if ('zone' in (args.target ?? {})) return { refusal: ONE_PANEL_PER_TILE };
       const src = engineSource;
       return {
         run: (l, ctx) => {
@@ -325,16 +320,11 @@ function planOp(frame, layout, isHealthy) {
         },
       };
     }
-    case 'close_tab': {
+    case 'close': {
       if (args.key === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
       if (typeof args.key === 'string' && isPoppedOut(args.key)) return { refusal: POPPED_OUT };
       if (tileOf(layout, args.key) === null) return { refusal: UNKNOWN_KEY };
       return { run: (l) => closeTab(l, args.key) };
-    }
-    case 'close_tile': {
-      if (findTile(layout, args.tile) === null) return { refusal: UNKNOWN_TILE };
-      if (holdsTerminal(layout, args.tile)) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
-      return { run: (l) => closeTile(l, args.tile) };
     }
     default:
       return { refusal: UNKNOWN_OP, detail: `unknown op ${String(frame.op)}` };

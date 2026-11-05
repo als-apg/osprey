@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
@@ -42,7 +42,7 @@ from pydantic import BaseModel
 
 from osprey.agent_runner import HAS_SDK, AgentRunError
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS
-from osprey.interfaces.web_terminal import transcript_map
+from osprey.interfaces.web_terminal import session_meta, transcript_map
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionTerminatedError
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
@@ -366,13 +366,15 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
         # The client hung up while the session key was being handed over.
         # Nothing is left holding anything; there is simply nobody to answer.
         return Response(status_code=204)
-    # The prompt is accepted: the files it carries are the conversation's now.
-    mark_sent(request.app, body.chat_id, prompt)
+    # The prompt is accepted: the files it carries are the conversation's now,
+    # and each new one is an artifact of this chat. File and index I/O, so off
+    # the loop. The ids go to the turn-end record.
+    upload_ids = await asyncio.to_thread(mark_sent, request.app, body.chat_id, prompt)
 
     turn_timeout_s = _turn_timeout_s(request)
 
     def follow_transcript() -> None:
-        _record_transcript(request.app, body.chat_id, session)
+        _record_transcript(request.app, body.chat_id, session, upload_ids)
 
     if not stream:
         return await _buffered_response(
@@ -397,8 +399,16 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
     )
 
 
-def _record_transcript(app, key: str, session: OperatorSession) -> None:
+def _record_transcript(
+    app,
+    key: str,
+    session: OperatorSession,
+    upload_ids: Mapping[str, str] | None = None,
+) -> None:
     """Point *key* at the transcript its live child is on, once a turn has run.
+
+    *upload_ids* are the artifacts :func:`mark_sent` saved for this turn's
+    uploads, by stored name.
 
     The terminal's child reports every turn through the agent-turn hook,
     which writes the same map; the chat child runs with no such hook, so the
@@ -408,11 +418,36 @@ def _record_transcript(app, key: str, session: OperatorSession) -> None:
     pointer rather than keeping one to a conversation it has left. The map
     holds only canonical session UUIDs, so an embedder-chosen key or an id
     that is not one is left alone, as the hook route leaves them.
+
+    The same move is appended to the session ledger (one ``session_transcript``
+    frame when a row is written, none for a repeat), and the turn's uploads are
+    stamped with ``metadata.transcript_id`` — the transcript the turn ended on,
+    so an upload sent with a ``/clear`` belongs to the conversation it started.
+    A failed stamp is logged: the upload then falls back to the key's ledger
+    history, never fails the turn.
     """
     transcript_id = session.transcript_id
     if not transcript_id or not is_posture_key(key) or not is_posture_key(transcript_id):
         return
     transcript_map.set(app, key, transcript_id)
+    session_meta.record_transcript_move(app, key, transcript_id)
+    if upload_ids:
+        _stamp_uploads(app, upload_ids.values(), transcript_id)
+
+
+def _stamp_uploads(app, artifact_ids, transcript_id: str) -> None:
+    """Merge ``metadata.transcript_id`` into each upload artifact; failures are logged."""
+    root = getattr(app.state, "panel_status_root", None)
+    ids = [aid for aid in artifact_ids if aid]
+    if root is None or not ids:
+        return
+    try:
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=Path(root), auto_launch=False)
+        store.merge_entry_metadata({aid: {"transcript_id": transcript_id} for aid in ids})
+    except Exception:
+        logger.warning("Could not stamp the turn's uploads with their transcript", exc_info=True)
 
 
 async def _stream_events(

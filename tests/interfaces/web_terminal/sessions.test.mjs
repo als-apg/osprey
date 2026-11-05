@@ -1,358 +1,120 @@
 // @ts-check
 /**
- * Unit tests for the Web Terminal session picker (sessions.js):
+ * Unit tests for the two session moves (sessions.js):
  *   npx vitest run tests/interfaces/web_terminal/sessions.test.mjs
  *
- * `initSessionSelector(containerId)` builds the picker button + dropdown
- * shell. The session list is rendered lazily: the picker button's click
- * handler `await`s a private `fetchSessions()` (which GETs `/api/sessions`
- * into module-private `sessionsData`), then `renderSessionList()`, then opens
- * the dropdown. These tests drive that real click path with a stubbed `fetch`
- * and assert on the parsed DOM the list actually produces -- one record per
- * `.session-item`, id round-trips through `data-session-id`, previews are
- * escaped inert, selection closes the dropdown, and an empty result renders
- * the placeholder.
+ * `resumeSession(key)` and `startNewSession()` are the low-level moves the
+ * session model drives; operators pick sessions in the header switcher
+ * (session-switcher.test.mjs) and the model guards the pick
+ * (session-model.test.mjs). What is pinned here is what each move does on
+ * each surface: in chat, a resume only moves the pointer — the console replays
+ * the key and no terminal is started beside it; on the terminal, a resume
+ * takes the warm socket's fast path, and falls back to a full stop/start when
+ * no socket is open.
  *
- * Module isolation: `sessionsData` is a module-private `let` that survives
- * across calls within one module instance. `vi.resetModules()` + a fresh
- * dynamic `import()` per test gives each test a never-before-touched instance,
- * so a session list loaded by one test cannot leak into the next.
+ * terminal.js, agent-surface.js and session-pointer.js are stubbed at the
+ * module boundary, so each move is asserted as the calls it makes.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
+const mocks = vi.hoisted(() => ({
+  terminalSurface: false,
+  stopTerminal: vi.fn(),
+  startTerminal: vi.fn(),
+  restartTerminal: vi.fn(async () => {}),
+  notifySessionChange: vi.fn(),
+  switchSession: vi.fn(() => false),
+  setSessionLabel: vi.fn(),
+  setPointer: vi.fn(),
+}));
 
-/** @typedef {{ session_id: string, last_modified: string, message_count: number, first_message?: string }} SessionRecord */
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
+  stopTerminal: mocks.stopTerminal,
+  startTerminal: mocks.startTerminal,
+  restartTerminal: mocks.restartTerminal,
+  notifySessionChange: mocks.notifySessionChange,
+  switchSession: mocks.switchSession,
+  setSessionLabel: mocks.setSessionLabel,
+}));
 
-/** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js')} */
-let sessions;
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/agent-surface.js', () => ({
+  isTerminalSurface: () => mocks.terminalSurface,
+}));
 
-/** A recent ISO timestamp so `relativeTime` stays deterministic-ish ("just now"). */
-const NOW_ISO = new Date().toISOString();
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js', () => ({
+  setPointer: mocks.setPointer,
+}));
 
-/** @type {SessionRecord[]} */
-const RECORDS = [
-  {
-    session_id: 'aaaaaaaa-1111-2222-3333-444444444444',
-    last_modified: NOW_ISO,
-    message_count: 7,
-    first_message: 'Investigate the vacuum pressure spike',
-  },
-  {
-    session_id: 'bbbbbbbb-5555-6666-7777-888888888888',
-    last_modified: NOW_ISO,
-    message_count: 2,
-    first_message: 'Check corrector magnet limits',
-  },
-];
+const { resumeSession, startNewSession } =
+  await import('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js');
 
-/** Resolve after the current microtask queue drains (the click handler is async). */
-const flush = () => new Promise((r) => setTimeout(r, 0));
+const KEY = 'aaaaaaaa-1111-2222-3333-444444444444';
 
-/**
- * Install a `fetch` stub whose `/api/sessions` response yields `sessions`.
- * @param {SessionRecord[]} records
- */
-function stubSessions(records) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      json: async () => ({ sessions: records }),
-    }))
-  );
-}
-
-function mountFixture() {
-  document.body.innerHTML = `<div id="session-selector"></div>`;
-}
-
-/** Open the picker: click `#session-picker-btn` and let the async handler settle. */
-async function openPicker() {
-  const btn = /** @type {HTMLElement} */ (document.getElementById('session-picker-btn'));
-  btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  await flush();
-}
-
-beforeEach(async () => {
-  vi.resetModules();
-  mountFixture();
-  sessions = await import('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js');
+beforeEach(() => {
+  mocks.terminalSurface = false;
+  for (const fn of [
+    mocks.stopTerminal,
+    mocks.startTerminal,
+    mocks.restartTerminal,
+    mocks.notifySessionChange,
+    mocks.switchSession,
+    mocks.setSessionLabel,
+    mocks.setPointer,
+  ])
+    fn.mockClear();
+  mocks.switchSession.mockImplementation(() => false);
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
-describe('initSessionSelector: dropdown shell', () => {
-  test('builds the picker button in the container, with no dropdown until it is opened', () => {
-    sessions.initSessionSelector('session-selector');
-
-    const container = /** @type {HTMLElement} */ (document.getElementById('session-selector'));
-    expect(container.querySelector('#session-picker-btn')).not.toBeNull();
-    // The dropdown is built on demand, so nothing exists while closed.
-    expect(document.getElementById('session-dropdown')).toBeNull();
-    expect(container.getAttribute('aria-expanded')).toBeNull();
-    expect(
-      /** @type {HTMLElement} */ (container.querySelector('#session-picker-btn')).getAttribute(
-        'aria-expanded'
-      )
-    ).toBe('false');
+describe('resumeSession in chat', () => {
+  test('moves the pointer and starts no terminal', async () => {
+    await resumeSession(KEY);
+    expect(mocks.setPointer).toHaveBeenCalledWith(KEY);
+    expect(mocks.switchSession).not.toHaveBeenCalled();
+    expect(mocks.stopTerminal).not.toHaveBeenCalled();
+    expect(mocks.startTerminal).not.toHaveBeenCalled();
   });
 });
 
-/**
- * The picker button is adopted into dockview's tab strip (dock-tab.js relocates
- * the live `.terminal-header` there). That strip is `overflow: hidden` AND
- * `transform: translate3d(...)`, which both clips an in-place dropdown and traps
- * its `z-index` in a stacking context that paints under the terminal content
- * pane -- the dropdown rendered *behind* the terminal. The dropdown therefore
- * mounts at body level and is positioned from JS, matching `.contrib-menu-popover`.
- */
-describe('dropdown portal: escaping the dockview tab strip', () => {
-  test('mounts the dropdown as a direct child of <body>, not inside the picker container', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const dropdown = /** @type {HTMLElement} */ (document.getElementById('session-dropdown'));
-    expect(dropdown).not.toBeNull();
-    expect(dropdown.parentElement).toBe(document.body);
-
-    // Nothing of the dropdown is left inside the (clipped, transformed) container.
-    const container = /** @type {HTMLElement} */ (document.getElementById('session-selector'));
-    expect(container.querySelector('#session-dropdown')).toBeNull();
-    expect(container.querySelector('.session-dropdown')).toBeNull();
-    // The list still resolves globally, so rendering is unaffected.
-    expect(document.getElementById('session-dropdown-list')).not.toBeNull();
+describe('resumeSession on the terminal', () => {
+  beforeEach(() => {
+    mocks.terminalSurface = true;
   });
 
-  test('pins the dropdown with JS-computed viewport coordinates', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const dropdown = /** @type {HTMLElement} */ (document.getElementById('session-dropdown'));
-    // `position: fixed` placement is meaningless without both coordinates set.
-    expect(dropdown.style.left).not.toBe('');
-    expect(dropdown.style.top).not.toBe('');
+  test('a warm socket takes the fast path: switch_session and nothing else', async () => {
+    mocks.switchSession.mockImplementation(() => true);
+    await resumeSession(KEY);
+    expect(mocks.switchSession).toHaveBeenCalledWith(KEY);
+    expect(mocks.setPointer).not.toHaveBeenCalled();
+    expect(mocks.stopTerminal).not.toHaveBeenCalled();
+    expect(mocks.startTerminal).not.toHaveBeenCalled();
   });
 
-  test('closing removes the dropdown from the document entirely', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-    expect(document.getElementById('session-dropdown')).not.toBeNull();
-
-    // Second click on the picker toggles it shut.
-    await openPicker();
-    expect(document.getElementById('session-dropdown')).toBeNull();
-    const btn = /** @type {HTMLElement} */ (document.getElementById('session-picker-btn'));
-    expect(btn.getAttribute('aria-expanded')).toBe('false');
-  });
-
-  test.each([
-    [
-      'Escape',
-      () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
-    ],
-    // The anchor lives in a scrollable tab strip, so a scroll would strand it.
-    ['a scroll', () => window.dispatchEvent(new Event('scroll'))],
-    [
-      'a pointerdown outside the picker',
-      () => document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })),
-    ],
-  ])('%s closes the dropdown', async (_trigger, dismiss) => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    dismiss();
-    expect(document.getElementById('session-dropdown')).toBeNull();
-  });
-
-  // The close-on-scroll listener is capture-phase on window, so it also sees
-  // the list's own scroll -- scrolling to an older session closed the picker.
-  test('scrolling the session list itself keeps the dropdown open', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const list = /** @type {HTMLElement} */ (document.getElementById('session-dropdown-list'));
-    list.dispatchEvent(new Event('scroll'));
-    expect(document.getElementById('session-dropdown')).not.toBeNull();
-  });
-
-  // The chat pane auto-scrolls on every new line of output; that scroll moves
-  // nothing the picker hangs off, so it must not close it mid-turn.
-  test('a scroll elsewhere on the page keeps the dropdown open', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const chat = document.createElement('div');
-    document.body.appendChild(chat);
-    chat.dispatchEvent(new Event('scroll'));
-    expect(document.getElementById('session-dropdown')).not.toBeNull();
-  });
-
-  test('a scroll that moves the picker button closes the dropdown', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const strip = /** @type {HTMLElement} */ (document.getElementById('session-selector'));
-    strip.dispatchEvent(new Event('scroll'));
-    expect(document.getElementById('session-dropdown')).toBeNull();
-  });
-
-  test('re-initializing the selector tears down a dropdown left open', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-    expect(document.getElementById('session-dropdown')).not.toBeNull();
-
-    sessions.initSessionSelector('session-selector');
-    expect(document.getElementById('session-dropdown')).toBeNull();
+  test('no socket open: a full stop, label, start-in-resume, then the change notice', async () => {
+    vi.useFakeTimers();
+    const done = resumeSession(KEY);
+    expect(mocks.stopTerminal).toHaveBeenCalledTimes(1);
+    expect(mocks.setSessionLabel).toHaveBeenCalledWith(KEY);
+    expect(mocks.startTerminal).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
+    await done;
+    expect(mocks.startTerminal).toHaveBeenCalledWith(KEY, 'resume');
+    expect(mocks.notifySessionChange).toHaveBeenCalledWith(KEY);
+    expect(mocks.setPointer).not.toHaveBeenCalled();
   });
 });
 
-describe('renderSessionList: one item per record', () => {
-  test('renders exactly one .session-item per fetched record and round-trips each id through data-session-id', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const dropdown = /** @type {HTMLElement} */ (document.getElementById('session-dropdown'));
-    expect(dropdown.classList.contains('open')).toBe(true);
-
-    const items = document.querySelectorAll('.session-item[data-session-id]');
-    expect(items.length).toBe(RECORDS.length);
-
-    const ids = Array.from(items).map((el) => /** @type {HTMLElement} */ (el).dataset.sessionId);
-    expect(ids).toEqual(RECORDS.map((r) => r.session_id));
-
-    // Each item exposes the header/preview/meta sub-structure the CSS targets.
-    const first = /** @type {HTMLElement} */ (items[0]);
-    expect(first.querySelector('.session-item-id')?.textContent).toBe(
-      RECORDS[0].session_id.slice(0, 8)
-    );
-    expect(first.querySelector('.session-item-time')).not.toBeNull();
-    expect(first.querySelector('.session-item-meta')?.textContent).toBe('7 messages');
-  });
-});
-
-describe("renderSessionList: an old session's date", () => {
-  afterEach(() => stampFacilityZone(null));
-
-  test('a session older than a week shows its date on the facility calendar', async () => {
-    // 23:30Z is already the next day in Tokyo and Berlin and still the same
-    // day in New York.
-    const old = new Date(Date.now() - 30 * 86_400_000);
-    old.setUTCHours(23, 30, 0, 0);
-    stampFacilityZone(FACILITY_ZONE);
-    stubSessions([
-      {
-        session_id: 'dddddddd-3333-4444-5555-666666666666',
-        last_modified: old.toISOString(),
-        message_count: 3,
-        first_message: 'An old session',
-      },
-    ]);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const expected = new Intl.DateTimeFormat(undefined, {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      timeZone: FACILITY_ZONE,
-    }).format(old);
-    expect(document.querySelector('.session-item-time')?.textContent).toBe(expected);
-  });
-});
-
-describe('renderSessionList: preview escaping', () => {
-  test('an HTML-bearing first_message renders inert -- no live element, raw markup survives as escaped text', async () => {
-    const payload = '<img src=x onerror=alert(1)>';
-    stubSessions([
-      {
-        session_id: 'cccccccc-9999-0000-1111-222222222222',
-        last_modified: NOW_ISO,
-        message_count: 1,
-        first_message: payload,
-      },
-    ]);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const item = /** @type {HTMLElement} */ (
-      document.querySelector('.session-item[data-session-id]')
-    );
-    const preview = /** @type {HTMLElement} */ (item.querySelector('.session-item-preview'));
-
-    // No live <img> was parsed out of the injected markup.
-    expect(preview.querySelector('img[onerror]')).toBeNull();
-    expect(preview.querySelector('img')).toBeNull();
-    // The markup survives verbatim as text, proving escapeHtml neutered it.
-    expect(preview.textContent).toBe(payload);
-  });
-  test('a markup-bearing session_id stays inert in the attribute, the title and the id text', async () => {
-    const hostileId = '"><img src=x onerror=alert(1)>';
-    stubSessions([
-      {
-        session_id: hostileId,
-        last_modified: NOW_ISO,
-        message_count: 1,
-        first_message: 'hello',
-      },
-    ]);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const list = /** @type {HTMLElement} */ (document.getElementById('session-dropdown-list'));
-    // Nothing was parsed out of the id: no live element, no broken-out attribute.
-    expect(list.querySelector('img')).toBeNull();
-    const items = list.querySelectorAll('.session-item[data-session-id]');
-    expect(items.length).toBe(1);
-    const item = /** @type {HTMLElement} */ (items[0]);
-    // The id round-trips verbatim, so selecting it resumes the session it names.
-    expect(item.dataset.sessionId).toBe(hostileId);
-    expect(item.title).toBe(hostileId);
-    expect(item.querySelector('.session-item-id')?.textContent).toBe(hostileId.slice(0, 8));
-  });
-});
-
-describe('session selection', () => {
-  test('clicking a .session-item closes the dropdown', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    expect(document.getElementById('session-dropdown')).not.toBeNull();
-
-    const item = /** @type {HTMLElement} */ (
-      document.querySelector('.session-item[data-session-id]')
-    );
-    item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    expect(document.getElementById('session-dropdown')).toBeNull();
-  });
-});
-
-describe('renderSessionList: empty state', () => {
-  test('an empty sessions list renders the "No previous sessions" placeholder', async () => {
-    stubSessions([]);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    const empty = /** @type {HTMLElement} */ (document.querySelector('.session-item.empty'));
-    expect(empty).not.toBeNull();
-    expect(empty.textContent).toBe('No previous sessions');
-    // No real session records rendered alongside the placeholder.
-    expect(document.querySelectorAll('.session-item[data-session-id]').length).toBe(0);
+describe('startNewSession', () => {
+  test('restarts, clears the label, then starts a fresh terminal', async () => {
+    await startNewSession();
+    expect(mocks.restartTerminal).toHaveBeenCalledTimes(1);
+    expect(mocks.setSessionLabel).toHaveBeenCalledWith(null);
+    expect(mocks.startTerminal).toHaveBeenCalledWith();
+    const restartOrder = mocks.restartTerminal.mock.invocationCallOrder[0];
+    expect(mocks.startTerminal.mock.invocationCallOrder[0]).toBeGreaterThan(restartOrder);
   });
 });
