@@ -14098,29 +14098,19 @@ QMD_WARM_INPUT = "warm"
 #: Every step that starts the qmd sidecar, by job and step name. Each deploys
 #: the control-assistant preset with qmd left in, or (qmd-sidecar-e2e) starts
 #: the sidecar directly. Kept by hand: which module's ``osprey up`` renders a
-#: qmd service is a fact about its fixture, not about the workflow.
+#: qmd service is a fact about its fixture, not about the workflow. A lane whose
+#: fixture merges ``tests/e2e/_orm_stack.knowledge_services_off`` deploys no qmd
+#: and is not listed.
 QMD_DEPLOYING_STEPS: dict[str, tuple[str, ...]] = {
     "qmd-sidecar-e2e": (
         "Run qmd sidecar E2E",
         "Run the wall-clock budgets serially",
         "Run the multi-user shared-bundle sidecar E2E",
     ),
-    "jupyter-panel-e2e": ("Run notebook panel E2E",),
     "scan-agentic-e2e": ("Run scan stack agentic E2E",),
-    "va-substrate-equivalence-e2e": ("Run VA substrate equivalence E2E",),
-    "bluesky-web-deploy-e2e": ("Run bluesky web deploy E2E",),
-    "bluesky-queue-e2e": ("Run Bluesky queue E2E",),
-    "bluesky-sandbox-escape-e2e": ("Run bluesky sandbox escape E2E",),
-    "tiled-roundtrip-e2e": ("Run Tiled roundtrip E2E",),
     "single-user-narrowing-e2e": ("Run single-user narrowing E2E",),
     "dispatch-overlay-e2e": ("Run dispatch overlay visibility E2E",),
     "dispatch-deploy-e2e": ("Run dispatch deploy E2E",),
-    "orm-roundtrip-e2e": (
-        "Run ORM roundtrip E2E",
-        "Run grid scan roundtrip E2E",
-        "Run orbit bump sweep roundtrip E2E",
-        "Run preflight probe E2E",
-    ),
 }
 
 
@@ -14171,7 +14161,7 @@ def test_only_the_warmup_saves_the_qmd_cache(workflow: dict[str, Any]) -> None:
 
 def test_only_the_warmup_saves_the_qmd_cache__mutation_a_pr_lane_warms() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, "jupyter-panel-e2e", "Build the qmd sidecar image")
+    step = _find_named_step(mutated, "scan-agentic-e2e", "Build the qmd sidecar image")
     step["with"] = {QMD_WARM_INPUT: "true"}
     assert len(_saving_steps_outside_the_warmup(mutated)) == 1
 
@@ -14328,33 +14318,37 @@ def test_every_qmd_deploying_step_starts_the_shared_image(workflow: dict[str, An
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_variable() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    del _find_named_step(mutated, "jupyter-panel-e2e", "Run notebook panel E2E")["env"][
+    del _find_named_step(mutated, "scan-agentic-e2e", "Run scan stack agentic E2E")["env"][
         QMD_IMAGE_ENV
     ]
     assert _qmd_deploy_problems(mutated) == [
-        f"jupyter-panel-e2e: 'Run notebook panel E2E' sets {QMD_IMAGE_ENV}=None"
+        f"scan-agentic-e2e: 'Run scan stack agentic E2E' sets {QMD_IMAGE_ENV}=None"
     ]
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_build() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)["tiled-roundtrip-e2e"]["steps"]
-    steps.remove(_find_named_step(mutated, "tiled-roundtrip-e2e", "Build the qmd sidecar image"))
+    steps = _jobs(mutated)["dispatch-deploy-e2e"]["steps"]
+    steps.remove(_find_named_step(mutated, "dispatch-deploy-e2e", "Build the qmd sidecar image"))
     assert _qmd_deploy_problems(mutated) == [
-        f"tiled-roundtrip-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
+        f"dispatch-deploy-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
     ]
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_builds_too_late() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)["orm-roundtrip-e2e"]["steps"]
-    build = _find_named_step(mutated, "orm-roundtrip-e2e", "Build the qmd sidecar image")
+    steps = _jobs(mutated)["qmd-sidecar-e2e"]["steps"]
+    build = next(s for s in steps if s.get("uses") == QMD_IMAGE_ACTION)
     steps.remove(build)
     steps.insert(
-        steps.index(_find_named_step(mutated, "orm-roundtrip-e2e", "Run preflight probe E2E")),
+        steps.index(
+            _find_named_step(
+                mutated, "qmd-sidecar-e2e", "Run the multi-user shared-bundle sidecar E2E"
+            )
+        ),
         build,
     )
-    assert len(_qmd_deploy_problems(mutated)) == 3
+    assert len(_qmd_deploy_problems(mutated)) == 2
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_unlisted_caller() -> None:

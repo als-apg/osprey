@@ -511,7 +511,9 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         # landing on a real deployment's default 10000 block.
         port_base=21900,
         timeout=BUILD_TIMEOUT_SEC,
-        extra_config=EXTRA_CONFIG,
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(EXTRA_CONFIG),
     )
 
     # The bump's geometry is chosen from the device file the build staged, so
