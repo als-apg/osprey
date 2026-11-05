@@ -414,6 +414,8 @@ hosting deployment's render into each tier and app. The graph view is the one
 thing a render is *not* told: each render keeps ``services.graphdb.ttl_path``
 as its own and derives its search index from it.
 
+Two consequences worth knowing before you move anything:
+
 * **Move the port on the hosting deployment and every render follows.** A
   tier or app built beside its deployment is told the store's bolt port from the
   deployment's own render — the same way it is told the qmd sidecar's port,

@@ -1,7 +1,7 @@
 The facility-graph how-to now states the view sizes a reader sees after
-`osprey build` on the `control-assistant` preset: 4731 channels on 1016
-devices in the graph view and the hierarchical and graph channel finders, 4725
-in the middle-layer channel finder, 571 in the in-context index, and every
+`osprey build` on the `control-assistant` preset: 4731 channels (1016
+devices) in the graph view; 4731 in the hierarchical and graph channel finders;
+4725 in the middle-layer channel finder; 571 in the in-context index; and every
 channel plus one status channel per physics model in the virtual accelerator.
 The page used to give the pre-expansion 2908 / 569 / 1036 figures and called
 the simulator a subset. The figures are pinned in the demo census, and new

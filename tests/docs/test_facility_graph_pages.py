@@ -22,10 +22,11 @@ here checks that those page entries agree with the census' own counts.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import importlib
+import inspect
 import json
-import pkgutil
 import re
 import textwrap
 from pathlib import Path
@@ -143,13 +144,25 @@ def test_a_mutated_cypher_block_is_caught() -> None:
 def _registered_graph_tools() -> set[str]:
     """Every tool the ``graph`` server registers, read as ``create_server()`` leaves it.
 
-    The tool modules are imported directly, as ``create_server()`` imports them,
-    so no config or store is touched.
+    The tool modules ``create_server()`` imports are read from its own source and
+    imported directly, so no config or store is touched.
     """
     from osprey.mcp_server.graph import server, tools
 
-    for found in pkgutil.iter_modules(tools.__path__):
-        importlib.import_module(f"{tools.__name__}.{found.name}")
+    (function,) = (
+        node
+        for node in ast.parse(inspect.getsource(server)).body
+        if isinstance(node, ast.FunctionDef) and node.name == "create_server"
+    )
+    modules = [
+        alias.name
+        for node in ast.walk(function)
+        if isinstance(node, ast.ImportFrom) and node.module == tools.__name__
+        for alias in node.names
+    ]
+    assert modules, "create_server() imports no tool module"
+    for module in modules:
+        importlib.import_module(f"{tools.__name__}.{module}")
     listed = asyncio.run(server.mcp.list_tools(run_middleware=False))
     return {tool.name for tool in listed}
 
