@@ -8,6 +8,7 @@ runs the atomic :func:`launch_job` claim+spawn.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 
@@ -42,6 +43,8 @@ from osprey_optimizer.services.draft_resolution import resolve_draft_config
 from osprey_optimizer.services.plugin_registry import EnvironmentRegistry
 
 logger = logging.getLogger(__name__)
+
+CONFIG_REVISION_HEADER = "X-Config-Revision"
 
 
 def _materialize_objective_direction(
@@ -256,6 +259,30 @@ def read_optimization_config(job_id: str) -> OptimizationConfig:
         missing_detail=f"No stored config for job {job_id} (unknown or expired).",
     )
     return OptimizationConfig.model_validate_json(raw)
+
+
+def config_revision(config: OptimizationConfig) -> str:
+    """The revision of a stored draft: the SHA-256 of its config's JSON.
+
+    Every write that changes a draft's config changes it. ``GET
+    /jobs/{id}/config`` sends it with the config it shows, and ``POST
+    /jobs/{id}/start`` runs only the revision its caller names, so a draft
+    edited after it was reviewed is refused instead of run.
+    """
+    return hashlib.sha256(config.model_dump_json().encode()).hexdigest()
+
+
+def require_config_revision(job_id: str, config: OptimizationConfig, revision: str) -> None:
+    """409 unless *revision* is the revision of *config*, the draft about to start."""
+    current = config_revision(config)
+    if revision != current:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Job {job_id}'s draft changed after revision {revision!r} was shown "
+                f"(it is now {current!r}); review the draft again before starting it."
+            ),
+        )
 
 
 def start_optimization_job(

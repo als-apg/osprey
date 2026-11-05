@@ -1,13 +1,22 @@
 """The deployment's two gates on what a caller may make the optimizer do.
 
-**The launch token.** The routes that move hardware, the ones that write what a
-start will run (a draft's config, the current-job pointer the cockpit starts
-from), and the one that accepts code (a pickled surrogate model is executed
-when it is loaded) require the ``X-Launch-Token`` header to match
-``OPTIMIZER_LAUNCH_TOKEN``. The gate fails
+**The launch token.** The routes that move hardware (start, resume, the
+results restore, ``PUT /environments/{name}/variables``, ``POST
+/environments/{name}/evaluate``) and the one that accepts code (a pickled
+surrogate model is executed when it is loaded, so ``POST /models``) require the
+``X-Launch-Token`` header to match ``OPTIMIZER_LAUNCH_TOKEN``. The gate fails
 closed: with no token configured those routes answer 503 rather than run for
 anyone. Routes that only read, and the ones that stop motion (pause, cancel),
 are not gated: stopping a run must never wait on a credential.
+
+**Drafts are open.** Creating a draft (``POST /optimizations``), editing it
+(``PUT /jobs/{id}/config``) and pointing the cockpit at one (``PUT
+/jobs/current``) need no token. A draft write reads the target's setpoints, to
+centre the draft's bounds on them, as the open read routes do, and never writes
+to the machine or loads a model. What a draft may not do is change under a
+review: ``GET /jobs/{id}/config`` sends the draft's revision in
+``X-Config-Revision``, and a start must name it (``config_revision``), so a
+draft written after it was shown is refused with 409 instead of run.
 
 **The allowed targets.** ``OPTIMIZER_TARGETS`` lists the control targets this
 deployment's optimizer may drive (``va,standin``). A request or a run naming

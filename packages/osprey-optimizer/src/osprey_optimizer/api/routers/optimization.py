@@ -12,7 +12,6 @@ from osprey_optimizer.api.dependencies import get_environment_registry, get_job_
 from osprey_optimizer.api.job_status import read_job_status
 from osprey_optimizer.api.job_tracker import JobTracker
 from osprey_optimizer.api.optimization_lifecycle import create_optimization_job
-from osprey_optimizer.api.security import require_launch_token
 from osprey_optimizer.models.api import JobResponse
 from osprey_optimizer.models.config import OptimizationConfig
 from osprey_optimizer.services.plugin_registry import EnvironmentRegistry
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/optimizations", tags=["optimizations"])
 
 
-@router.post("", response_model=JobResponse, dependencies=[Depends(require_launch_token)])
+@router.post("", response_model=JobResponse)
 def create_optimization(
     request: OptimizationConfig,
     tracker: JobTracker = Depends(get_job_tracker),
@@ -31,8 +30,8 @@ def create_optimization(
     """Create an optimization job from a JSON config. Does not start it.
 
     Returns the new ``job_id`` with status ``created``; start it with
-    ``POST /jobs/{job_id}/start``. Gated, because it moves the current-job
-    pointer the cockpit's Start launches.
+    ``POST /jobs/{job_id}/start``. Not gated: a draft moves nothing, and the
+    start that runs it must name the draft's current ``config_revision``.
     """
     job_id = create_optimization_job(request, tracker, registry)
     # Point the server-side current-job at the new draft, atomically with

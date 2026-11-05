@@ -26,6 +26,7 @@ from pydantic import ValidationError
 from osprey_optimizer.api.dependencies import get_environment_registry, get_job_tracker
 from osprey_optimizer.api.job_tracker import ACTIVE_JOB_KEY, JobMeta, JobTracker
 from osprey_optimizer.api.main import app
+from osprey_optimizer.api.optimization_lifecycle import config_revision
 from osprey_optimizer.models.api import JobResponse
 from osprey_optimizer.models.config import OptimizationConfig, VariableOverride
 from osprey_optimizer.models.enums import JobStatus, JobType
@@ -529,6 +530,7 @@ class TestStartJob:
             # endpoint test below, so the config/gate seams are stubbed out here.
             patch(f"{_JOBS}.read_optimization_config") as read_cfg,
             patch(f"{_JOBS}.run_start_gates") as gates,
+            patch(f"{_JOBS}.require_config_revision"),
             patch(
                 f"{_JOBS}.start_optimization_job",
                 return_value=JobResponse(
@@ -544,7 +546,7 @@ class TestStartJob:
             read_cfg.return_value.environment_name = "als_injector_sim"
             read_cfg.return_value.control_target = "va"
             read_cfg.return_value.execution_mode = None
-            resp = client.post("/jobs/test-job-id/start")
+            resp = client.post("/jobs/test-job-id/start", params={"config_revision": "r"})
         assert resp.status_code == 200
         assert resp.json()["status"] == "running"
         assert resp.json()["job_id"] == "test-job-id"
@@ -561,7 +563,7 @@ class TestStartJob:
             "osprey_optimizer.api.job_control._redis_client.get_redis_client",
             return_value=no_config,
         ):
-            resp = client.post("/jobs/missing/start")
+            resp = client.post("/jobs/missing/start", params={"config_revision": "r"})
         assert resp.status_code == 404
         assert "No stored config" in resp.json()["detail"]
 
@@ -576,10 +578,57 @@ class TestStartJob:
             patch(f"{_JOBS}.read_optimization_config", return_value=config),
             patch(f"{_JOBS}.start_optimization_job") as start,
         ):
-            resp = client.post("/jobs/test-job-id/start")
+            resp = client.post(
+                "/jobs/test-job-id/start", params={"config_revision": config_revision(config)}
+            )
         assert resp.status_code == 409
         assert "control_target" in resp.json()["detail"]
         start.assert_not_called()
+
+    def test_start_without_a_revision_is_unprocessable(
+        self, client: TestClient, mock_job_tracker: MagicMock
+    ) -> None:
+        """``config_revision`` is a required query parameter: FastAPI answers 422."""
+        mock_job_tracker.get_job.return_value = job_meta()
+        with patch(f"{_JOBS}.start_optimization_job") as start:
+            resp = client.post("/jobs/test-job-id/start")
+        assert resp.status_code == 422
+        assert resp.json()["detail"][0]["loc"] == ["query", "config_revision"]
+        start.assert_not_called()
+
+    def test_start_runs_only_the_revision_the_config_read_showed(
+        self, client: TestClient, mock_job_tracker: MagicMock, seam_redis_mock: MagicMock
+    ) -> None:
+        """The revision GET /config sends is the one start takes; a draft written
+        since is refused with 409, and its new revision starts."""
+        mock_job_tracker.get_job.return_value = job_meta()
+        shown = make_gate_config()
+        seam_redis_mock.get.return_value = shown.model_dump_json()
+        stale = client.get("/jobs/test-job-id/config").headers["X-Config-Revision"]
+        assert stale == config_revision(shown)
+
+        edited = make_gate_config().model_copy(update={"n_iterations": shown.n_iterations + 1})
+        seam_redis_mock.get.return_value = edited.model_dump_json()
+        with (
+            patch(f"{_JOBS}.load_environment"),
+            patch(f"{_JOBS}.run_start_gates"),
+            patch(
+                f"{_JOBS}.start_optimization_job",
+                return_value=JobResponse(
+                    job_id="test-job-id", job_type=JobType.OPTIMIZATION, status=JobStatus.RUNNING
+                ),
+            ) as start,
+        ):
+            resp = client.post("/jobs/test-job-id/start", params={"config_revision": stale})
+            assert resp.status_code == 409, resp.text
+            assert "review the draft again" in resp.json()["detail"]
+            start.assert_not_called()
+
+            current = client.get("/jobs/test-job-id/config").headers["X-Config-Revision"]
+            assert current != stale
+            resp = client.post("/jobs/test-job-id/start", params={"config_revision": current})
+        assert resp.status_code == 200, resp.text
+        start.assert_called_once()
 
     @pytest.mark.usefixtures("redis_server")
     def test_contended_start_preserves_created_job_then_succeeds(self) -> None:
@@ -611,7 +660,8 @@ class TestStartJob:
             # draft (no variables/overrides) -- stub the gate out so it doesn't
             # 409 for a reason unrelated to this test's contention scenario.
             with patch(f"{_JOBS}.run_start_gates"), TestClient(app) as test_client:
-                resp = test_client.post(f"/jobs/{created}/start")
+                revision = {"config_revision": config_revision(config)}
+                resp = test_client.post(f"/jobs/{created}/start", params=revision)
                 assert resp.status_code == 409, resp.json()
 
                 get_resp = test_client.get(f"/jobs/{created}")
@@ -624,7 +674,7 @@ class TestStartJob:
 
                 redis.delete(ACTIVE_JOB_KEY)
                 redis.delete(meta_key("holder"))
-                resp2 = test_client.post(f"/jobs/{created}/start")
+                resp2 = test_client.post(f"/jobs/{created}/start", params=revision)
                 assert resp2.status_code == 200, resp2.json()
                 assert resp2.json()["status"] == "running"
         finally:
@@ -645,8 +695,11 @@ class TestStartJob:
         registry = MagicMock()
         registry.load_environment.return_value = env
 
-        with created_job_client(job_id, make_gate_config(), registry) as (test_client, launch):
-            resp = test_client.post(f"/jobs/{job_id}/start")
+        config = make_gate_config()
+        with created_job_client(job_id, config, registry) as (test_client, launch):
+            resp = test_client.post(
+                f"/jobs/{job_id}/start", params={"config_revision": config_revision(config)}
+            )
 
             assert resp.status_code == 412, resp.json()
             assert "GATE:A" in resp.json()["detail"]
@@ -664,13 +717,11 @@ class TestStartJob:
         registry = MagicMock()
         registry.load_environment.return_value = MockEnvironment()
 
-        with created_job_client(
-            job_id, make_gate_config(environment_config=env_config), registry
-        ) as (
-            test_client,
-            _,
-        ):
-            test_client.post(f"/jobs/{job_id}/start")
+        config = make_gate_config(environment_config=env_config)
+        with created_job_client(job_id, config, registry) as (test_client, _):
+            test_client.post(
+                f"/jobs/{job_id}/start", params={"config_revision": config_revision(config)}
+            )
 
         # The job's target rides into the gate environment beside its own config.
         registry.load_environment.assert_called_once_with(
@@ -1283,8 +1334,11 @@ class TestCurrentJob:
 
 def _stub_optimization_start(
     monkeypatch: pytest.MonkeyPatch, mock_job_tracker: MagicMock, *, target: str = "va"
-) -> None:
-    """Make an optimization start on ``target`` succeed past the guards under test."""
+) -> dict[str, str]:
+    """Make an optimization start on ``target`` succeed past the guards under test.
+
+    Returns the start's query params: the stubbed draft's revision.
+    """
     mock_job_tracker.get_job.return_value = job_meta("job-1")
     jobs = "osprey_optimizer.api.routers.jobs"
     config = make_gate_config().model_copy(update={"control_target": target})
@@ -1297,6 +1351,7 @@ def _stub_optimization_start(
             job_id=jid, job_type=JobType.OPTIMIZATION, status=JobStatus.RUNNING
         ),
     )
+    return {"config_revision": config_revision(config)}
 
 
 def test_start_on_the_simulator_skips_the_health_probe(
@@ -1306,8 +1361,8 @@ def test_start_on_the_simulator_skips_the_health_probe(
         raise AssertionError("the simulator is never health-probed")
 
     monkeypatch.setattr("osprey_optimizer.api.environment_ops._environment_connected", probe)
-    _stub_optimization_start(monkeypatch, mock_job_tracker, target="va")
-    resp = client.post("/jobs/job-1/start")
+    params = _stub_optimization_start(monkeypatch, mock_job_tracker, target="va")
+    resp = client.post("/jobs/job-1/start", params=params)
     assert resp.status_code == 200
 
 
@@ -1320,14 +1375,14 @@ def test_start_override_unhealthy_query_param_bypasses_503(
         "osprey_optimizer.api.environment_ops._environment_connected",
         lambda n, r, t: False,
     )
-    _stub_optimization_start(monkeypatch, mock_job_tracker, target="live")
+    params = _stub_optimization_start(monkeypatch, mock_job_tracker, target="live")
 
     # Without the override the unhealthy non-sim env refuses the start.
-    resp = client.post("/jobs/job-1/start")
+    resp = client.post("/jobs/job-1/start", params=params)
     assert resp.status_code == 503
 
     # With the override the guard is bypassed and the start dispatches.
-    resp = client.post("/jobs/job-1/start?override_unhealthy=true")
+    resp = client.post("/jobs/job-1/start", params={**params, "override_unhealthy": "true"})
     assert resp.status_code == 200
 
 
@@ -1431,7 +1486,7 @@ def test_a_model_file_outside_the_results_root_is_refused_at_draft_and_start(
         "osprey_optimizer.api.routers.jobs.start_optimization_job",
         lambda *args, **kwargs: started.append(args),
     )
-    resp = client.post("/jobs/job-1/start")
+    resp = client.post("/jobs/job-1/start", params={"config_revision": config_revision(config)})
     assert resp.status_code == 422, resp.text
     assert started == []
 

@@ -135,8 +135,9 @@ def test_the_start_route_reads_the_owner_from_the_header(
     owner: str | None,
 ) -> None:
     mock_job_tracker.get_job.return_value = job_meta()
+    config = make_gate_config()
     with (
-        patch(f"{_JOBS}.read_optimization_config", return_value=make_gate_config()),
+        patch(f"{_JOBS}.read_optimization_config", return_value=config),
         patch(f"{_JOBS}.load_environment"),
         patch(f"{_JOBS}.run_start_gates"),
         patch(
@@ -146,6 +147,10 @@ def test_the_start_route_reads_the_owner_from_the_header(
             ),
         ) as start,
     ):
-        resp = client.post("/jobs/test-job-id/start", headers=headers)
+        resp = client.post(
+            "/jobs/test-job-id/start",
+            params={"config_revision": ol.config_revision(config)},
+            headers=headers,
+        )
     assert resp.status_code == 200, resp.text
     assert start.call_args.kwargs["owner"] == owner

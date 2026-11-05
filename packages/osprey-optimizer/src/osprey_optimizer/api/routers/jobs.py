@@ -7,7 +7,7 @@ of type.
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 
 from osprey_optimizer.api.dependencies import (
     get_environment_registry,
@@ -19,7 +19,10 @@ from osprey_optimizer.api.job_control import cancel_with_reread, raise_control_c
 from osprey_optimizer.api.job_status import read_job_status
 from osprey_optimizer.api.job_tracker import JobMeta, JobTracker, create_job_state
 from osprey_optimizer.api.optimization_lifecycle import (
+    CONFIG_REVISION_HEADER,
+    config_revision,
     read_optimization_config,
+    require_config_revision,
     require_model_file_under_results,
     start_optimization_job,
     update_optimization_config,
@@ -140,18 +143,15 @@ def read_current_job(
     return CurrentJobResponse(job_id=tracker.get_current_job())
 
 
-@router.put(
-    "/current",
-    response_model=CurrentJobResponse,
-    dependencies=[Depends(require_launch_token)],
-)
+@router.put("/current", response_model=CurrentJobResponse)
 def put_current_job(
     body: CurrentJobRequest,
     tracker: JobTracker = Depends(get_job_tracker),
 ) -> CurrentJobResponse:
     """Set the UI 'current job' pointer to an existing job (404 if unknown).
 
-    Gated: the cockpit's Start launches the job this pointer names.
+    Not gated: the pointer only selects; a start names its job and that job's
+    ``config_revision`` itself.
     """
     if not tracker.job_exists(body.job_id):
         raise HTTPException(
@@ -225,6 +225,10 @@ def cancel_job(
 )
 def start_job(
     job_id: str,
+    revision: str = Query(
+        alias="config_revision",
+        description="The draft revision the caller showed, from GET /jobs/{id}/config.",
+    ),
     override_unhealthy: bool = Query(default=False),
     x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
     tracker: JobTracker = Depends(get_job_tracker),
@@ -237,8 +241,12 @@ def start_job(
     (:mod:`osprey_optimizer.api.owner`): its tier and switch govern them. With
     no usable owner the run starts owner-less, and on a deployment that holds
     the control-context tree the connector refuses its writes ``owner_unknown``.
+
+    ``config_revision`` is required: the start runs only the draft its caller
+    showed, and answers 409 when the draft was written since.
     """
     config = read_optimization_config(job_id)  # 404 when no config is stored
+    require_config_revision(job_id, config, revision)
     env_name = config.environment_name
     target = config.control_target
     if env_name is None or target is None:
@@ -261,11 +269,7 @@ def start_job(
     return start_optimization_job(job_id, tracker, config, owner=owner)
 
 
-@router.put(
-    "/{job_id}/config",
-    response_model=JobResponse,
-    dependencies=[Depends(require_launch_token)],
-)
+@router.put("/{job_id}/config", response_model=JobResponse)
 def update_job_config(
     job_id: str,
     request: OptimizationConfig,
@@ -281,11 +285,18 @@ def update_job_config(
 @router.get("/{job_id}/config", response_model=OptimizationConfig)
 def get_job_config(
     job_id: str,
+    response: Response,
     meta: JobMeta = Depends(require_job_meta),
 ) -> OptimizationConfig:
-    """Return an optimization job's stored config (read-side of live-sync)."""
+    """Return an optimization job's stored config (read-side of live-sync).
+
+    The ``X-Config-Revision`` header carries the revision of the config
+    returned, the value a start of this draft must name.
+    """
     _require_optimization(meta, "config read")
-    return read_optimization_config(job_id)
+    config = read_optimization_config(job_id)
+    response.headers[CONFIG_REVISION_HEADER] = config_revision(config)
+    return config
 
 
 @router.post("/{job_id}/pause", response_model=JobResponse)
