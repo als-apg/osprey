@@ -11,6 +11,8 @@ Environment Setup
 -----------------
 
 **Prerequisites:** Python 3.11+, Git, a GitHub account, and `uv <https://docs.astral.sh/uv/>`_.
+The check command in step 4 also needs `Node.js <https://nodejs.org/>`_ with ``npm``, for the
+front-end checks, and Claude Code at the version this tree pins, for the test sweep.
 Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the ``dot`` command).
 
 **1. Fork and Clone**
@@ -40,7 +42,7 @@ Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the `
 
 .. code-block:: bash
 
-   pre-commit install
+   uv run pre-commit install
 
 Hooks auto-fix formatting and prevent commits with common problems.
 
@@ -48,9 +50,16 @@ Hooks auto-fix formatting and prevent commits with common problems.
 
 .. code-block:: bash
 
-   uv run pytest tests/ --ignore=tests/e2e -v
+   uv run python scripts/check.py quick
 
-If all tests pass, you are ready to contribute.
+This runs the quick tier of the merge gate: lint, format, type and import
+checks, and the parallel test sweep, which selects tests from the same
+declaration as CI's unit lane and leaves out the tests marked ``slow``.
+Before any check runs, the command puts the tree's pins in place: it runs
+``npm ci`` when ``node_modules`` differs from ``package-lock.json``, and puts the
+pinned Claude Code first on ``PATH``. When a tool it needs is missing, it runs
+nothing and names what to install. The last line is the verdict. When it says
+the run is clean, you are ready to contribute.
 
 Code Standards
 --------------
@@ -152,8 +161,8 @@ All new functionality must include tests.
 
 .. code-block:: bash
 
-   # Unit tests (fast, no API keys required)
-   uv run pytest tests/ --ignore=tests/e2e -v
+   # The unit sweep, as CI's unit lane selects it (no API keys required)
+   uv run python scripts/check.py run pytest -- -n auto
 
    # Single test file
    uv run pytest tests/path/to/test_file.py -v
@@ -176,7 +185,7 @@ All new functionality must include tests.
    uv run pytest tests/interfaces/ -m browser -v
 
    # With coverage
-   uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
+   uv run python scripts/check.py run pytest -- -n auto --cov=src/osprey
 
 .. warning::
 
