@@ -378,6 +378,29 @@ button.osprey-search {
   background: var(--color-accent);
 }
 
+/* Multi-line list row: for a row of stacked lines (a mail list's subject,
+   sender and preview) that 26 px cannot hold. It grows with its lines, and the
+   `time` is an ordinary, always-visible child instead of a hover overlay, so
+   the title needs no mask. The lines are the row's direct children. */
+.osprey-list-row.multiline {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  height: auto;
+  padding: var(--space-2);
+}
+
+.osprey-list-row.multiline time {
+  position: static;
+  flex: none;
+  transform: none;
+  opacity: 1;
+}
+
+.osprey-list-row.multiline .osprey-list-title {
+  mask-image: none;
+}
+
 .osprey-list-head {
   height: 20px;
   display: flex;
@@ -549,6 +572,55 @@ button.osprey-search {
   color: var(--text-secondary);
 }
 
+/* Toast: the one bottom-centre host that toast.js appends to body. It holds
+   a status region and an alert region; one toast shows at a time, with a
+   left rule in the colour of its kind. */
+.osprey-toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-4);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(480px, calc(100vw - 2 * var(--space-4)));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.osprey-toast {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  pointer-events: auto;
+  animation: osprey-toast-in var(--duration-base) ease-out;
+}
+
+.osprey-toast--success {
+  border-left-color: var(--color-success);
+}
+
+.osprey-toast--warning {
+  border-left-color: var(--color-warning);
+}
+
+.osprey-toast--error {
+  border-left-color: var(--color-error);
+}
+
+@keyframes osprey-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 /* Keyboard hint, for example ⌘K. */
 .osprey-kbd {
   padding: 1px var(--space-1);
@@ -718,6 +790,8 @@ button.osprey-search {
 .osprey-popover[hidden],
 .osprey-popover-item[hidden],
 .osprey-tooltip[hidden],
+.osprey-toast-host[hidden],
+.osprey-toast[hidden],
 .osprey-pane-head[hidden],
 .osprey-crumb[hidden],
 .osprey-crumb-sep[hidden],
@@ -738,5 +812,9 @@ button.osprey-search {
   .osprey-switch::after,
   .osprey-search {
     transition: none;
+  }
+
+  .osprey-toast {
+    animation: none;
   }
 }

@@ -107,11 +107,57 @@ def _client(url: str, login: str, *, viewer: str | None = None, **kw) -> RecordC
     return RecordClient(url, login, _token(login), viewer=viewer, **kw)
 
 
+def _fields_diff(got: dict, want: dict) -> list[str]:
+    """Each top-level field of *got* and *want* whose value differs or is on one side only."""
+    lines = []
+    for name in sorted(set(got) | set(want), key=str):
+        if name not in want:
+            lines.append(f"{name}: client only = {got[name]!r}")
+        elif name not in got:
+            lines.append(f"{name}: reader only = {want[name]!r}")
+        elif got[name] != want[name]:
+            lines.append(f"{name}: client={got[name]!r} reader={want[name]!r}")
+    return lines
+
+
+def _data_diff(got, want) -> str | None:
+    """``None`` when *got* equals *want*, else what differs: row order first, then fields."""
+    if got == want:
+        return None
+    if isinstance(got, list) and isinstance(want, list):
+        rows = got + want
+        if rows and all(isinstance(r, dict) and "key" in r for r in rows):
+            got_keys, want_keys = [r["key"] for r in got], [r["key"] for r in want]
+            if got_keys != want_keys:
+                if sorted(got_keys) == sorted(want_keys):
+                    how = "same keys, different order"
+                else:
+                    only = sorted(set(got_keys) ^ set(want_keys))
+                    how = f"keys on one side only: {only}"
+                keys = f"client keys {got_keys} / reader keys {want_keys}"
+                return f"row order differs ({how}): {keys}"
+        lines = []
+        if len(got) != len(want):
+            lines.append(f"lengths differ: client {len(got)} / reader {len(want)}")
+        i = next((i for i, (g, w) in enumerate(zip(got, want, strict=False)) if g != w), None)
+        if i is not None:
+            lines.append(f"rows differ at index {i}:")
+            if isinstance(got[i], dict) and isinstance(want[i], dict):
+                lines += [f"  {line}" for line in _fields_diff(got[i], want[i])]
+            else:
+                lines += [f"  client={got[i]!r}", f"  reader={want[i]!r}"]
+        return "\n".join(lines)
+    if isinstance(got, dict) and isinstance(want, dict):
+        return "\n".join(["fields differ:"] + [f"  {line}" for line in _fields_diff(got, want)])
+    return f"client={got!r} reader={want!r}"
+
+
 def _same(answer: ClientAnswer, expected: rd.ReadAnswer) -> None:
     """*answer* carries exactly what the reader answers in-process."""
     wire = expected.to_json()
     assert answer.unavailable is None, answer.unavailable
-    assert answer.data == wire["data"]
+    diff = _data_diff(answer.data, wire["data"])
+    assert diff is None, diff
     assert (answer.complete, answer.more, answer.next, answer.newer) == (
         wire["complete"],
         wire["more"],
@@ -185,6 +231,21 @@ def test_each_method_round_trips(url, reader, name):
     answer = client_call(_client(url, "operator"))
     _same(answer, reader_call(reader, c.All()))
     assert answer.data and answer.complete, "the seed gives every method something to answer"
+
+
+def test_same_names_whether_a_row_moved_or_a_field_changed():
+    r1 = {"key": "k1", "kind": "turn", "text": "first"}
+    r2 = {"key": "k2", "kind": "turn", "text": "second"}
+    expected = rd.ReadAnswer(available=True, complete=True, data=[r1, r2])
+    with pytest.raises(AssertionError, match=r"order.*\['k2', 'k1'\].*\['k1', 'k2'\]"):
+        _same(ClientAnswer(data=[r2, r1], complete=True), expected)
+    changed = {**r2, "text": "edited"}
+    with pytest.raises(AssertionError) as moved:
+        _same(ClientAnswer(data=[r1, changed], complete=True), expected)
+    message = str(moved.value)
+    assert "index 1" in message and "text: client='edited' reader='second'" in message
+    assert "order" not in message
+    _same(ClientAnswer(data=[r1, r2], complete=True), expected)
 
 
 def test_a_drained_read_round_trips(url, reader):

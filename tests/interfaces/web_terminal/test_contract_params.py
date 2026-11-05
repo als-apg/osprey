@@ -298,7 +298,9 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
         page.on("websocket", _on_websocket)
 
         page.goto(base_url, wait_until="load")
-        expect(page.locator('button[data-panel-id="artifacts"]')).to_be_visible(timeout=10_000)
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="terminal"]:not(.disabled)')
+        ).to_be_visible(timeout=10_000)
         # Confirm the socket is actually OPEN (not just created) by polling
         # the already-attached framesent listener for the resize handshake
         # frame terminal.js's onOpen sends first. A one-shot

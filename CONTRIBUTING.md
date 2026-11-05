@@ -111,6 +111,9 @@ For details (CI gates, branch protection, release cuts) see the [full Contributi
 # The merge gate's quick tier: lint, format, types, and the fast tests
 uv run python scripts/check.py quick
 
+# Every check CI runs, the parallel sweep among them
+uv run python scripts/check.py full
+
 # The unit suite with CI's selection, in parallel
 uv run python scripts/check.py run pytest -- -n auto
 

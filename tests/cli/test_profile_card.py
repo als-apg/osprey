@@ -369,7 +369,7 @@ def test_the_panels_row_is_the_union_across_renders(exemplar_lines: list[str]) -
     # and CANOPY follows JUPYTER because the profile lists `canopy` next.
     panels = line_with(exemplar_lines, "panels")
     assert (
-        "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · CANOPY · EVENTS · BLUESKY"
+        "LOGBOOK · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · CANOPY · EVENTS · BLUESKY"
         in panels
     )
 

@@ -1,23 +1,27 @@
 /**
- * Contract tests for the person-side open paths (panel-placement.js, with the
- * dock-sync verbs and the dock-iframe adapter they reach):
+ * Contract tests for the agent op runner (panel-placement.js runPanelOp) on
+ * the real layout holder:
  *   npx vitest run tests/interfaces/web_terminal/panel-placement.test.mjs
  *
- * Every open and placement goes through dock-open.js and the layout holder:
+ * A tile holds ONE panel (dock-policy.js), and every op is checked against
+ * that rule and run through dock-open.js or the engine:
  *
- *   - "open beside" (the rail's corner button, the + menu) halves the active
- *     service tile; with no service tile it opens left of the terminal at the
- *     classic 0.6/0.4 split; the terminal is never covered; a panel that cannot
- *     fill a tile gets none;
- *   - an activation (rail click, quick-open, link, agent open) opens a new tab
- *     of the last service tile used, shows an open tab where it is, and never
- *     covers a showing terminal;
- *   - hiding closes the tab through the engine; pruning drops tabs nothing can
- *     fill, leaving no undo record;
- *   - the polite agent switch is gone;
- *   - the agent op runner (runPanelOp) refuses a stale base and every terminal
- *     move, runs opens through dock-open.js and drops/closes through the
- *     engine, and leaves rail membership to the server.
+ *   - an `open` takes the service tile the operator used last, REPLACING the
+ *     panel it showed (the replaced panel leaves the dock); a panel already
+ *     docked is focused where it is; a panel in its own window is brought
+ *     forward;
+ *   - a set opens side by side, or as a layout of one panel per tile; a set
+ *     or an arrangement opened as tabs, an arrangement giving a tile two
+ *     members, and a drop into a tile's centre or header are refused
+ *     `one_panel_per_tile` and change nothing;
+ *   - drops on a tile edge, on the border between tiles and on a dock edge
+ *     split through the engine;
+ *   - `close` takes a panel and its tile out (the space goes to a neighbour);
+ *     the retired `close_tab` and `close_tile` ops are unknown;
+ *   - a stale base, every move or close of the terminal and every op naming a
+ *     panel in its own window are refused, and rail membership is left to the
+ *     server;
+ *   - the polite agent switch and the legacy panel_arrange consumer are gone.
  *
  * The holder is the real one (dock-apply.js) without a dockview api: it keeps
  * state and applies nothing, so every assertion reads the layout it holds.
@@ -91,10 +95,17 @@ function tileWith(layout, key) {
   return tiles(layout).find((t) => t.tabs.includes(key)) ?? null;
 }
 
+/** Each tile's panels, in tree order. @param {any} layout */
+function panelsByTile(layout) {
+  return tiles(layout).map((t) => t.tabs);
+}
+
 /** @type {any} */
 let placement;
 /** @type {any} */
 let dockApply;
+/** @type {any} */
+let dockOpen;
 /** @type {any} */
 let iframeAdapter;
 /** @type {any} */
@@ -121,6 +132,7 @@ beforeEach(async () => {
   dockApply = await import(`${JS}/dock-apply.js`);
   dockApply.initLayoutHolder({ dockPx: DOCK_PX });
   placement = await import(`${JS}/panel-placement.js`);
+  dockOpen = await import(`${JS}/dock-open.js`);
   iframeAdapter = await import(`${JS}/dock-iframe.js`);
   iframeAdapter.initDockIframeAdapter({ fallbackHost: null });
   const members = new Set(['a', 'b', 'c']);
@@ -167,11 +179,14 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
     return { type: 'panel_op', request_id: 'r1', target_client: 'me', op, args, ...over };
   }
 
-  /** The classic two-service dock: s1 [a, b] showing a, s2 [c], the terminal t1. */
+  /**
+   * The classic two-service dock, focused on s1: s1 shows a, s2 shows c, the
+   * terminal is t1. b is a rail member with no tile.
+   */
   function seedClassic() {
     return seed(
       row(
-        tile('s1', ['a', 'b'], 'a', 0.3),
+        tile('s1', ['a'], 'a', 0.3),
         tile('s2', ['c'], 'c', 0.3),
         tile('t1', ['terminal'], 'terminal', 0.4)
       ),
@@ -184,7 +199,7 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
       const holder = seedClassic();
       holder.ack(5);
       const before = holder.layout;
-      const out = placement.runPanelOp(frame('close_tile', { tile: 's2' }, { base_rev: 4 }));
+      const out = placement.runPanelOp(frame('close', { key: 'c' }, { base_rev: 4 }));
       expect(out).toEqual({ refusal: 'stale_base' });
       expect(holder.layout).toBe(before);
     });
@@ -192,9 +207,16 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
     test('a dirty holder refuses a base_rev even when it matches', () => {
       const holder = seedClassic();
       holder.ack(5);
-      holder.show('s1', 'b'); // a person's tab click since the ack
+      // A person's sash drag since the ack.
+      holder.resized(
+        row(
+          tile('s1', ['a'], 'a', 0.4),
+          tile('s2', ['c'], 'c', 0.2),
+          tile('t1', ['terminal'], 'terminal', 0.4)
+        )
+      );
       expect(holder.dirty).toBe(true);
-      const out = placement.runPanelOp(frame('close_tile', { tile: 's2' }, { base_rev: 5 }));
+      const out = placement.runPanelOp(frame('close', { key: 'c' }, { base_rev: 5 }));
       expect(out.refusal).toBe('stale_base');
       expect(tileWith(holder.layout, 'c')).not.toBeNull();
     });
@@ -202,7 +224,7 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
     test('the acked rev on a clean holder runs', () => {
       const holder = seedClassic();
       holder.ack(5);
-      const out = placement.runPanelOp(frame('close_tile', { tile: 's2' }, { base_rev: 5 }));
+      const out = placement.runPanelOp(frame('close', { key: 'c' }, { base_rev: 5 }));
       expect(out.refusal).toBeUndefined();
       expect(tileWith(holder.layout, 'c')).toBeNull();
     });
@@ -210,66 +232,32 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
     test('an op without base_rev runs on a dirty holder', () => {
       const holder = seedClassic();
       expect(holder.dirty).toBe(true);
-      const out = placement.runPanelOp(frame('close_tab', { key: 'b' }));
+      const out = placement.runPanelOp(frame('close', { key: 'c' }));
       expect(out.refusal).toBeUndefined();
-      expect(tileWith(holder.layout, 'b')).toBeNull();
+      expect(tileWith(holder.layout, 'c')).toBeNull();
     });
   });
 
   describe('the terminal invariant, enforced again', () => {
-    test('close_tab of the terminal is refused', () => {
+    test('a close or an open of the terminal is refused', () => {
       const holder = seedClassic();
       const before = holder.layout;
-      expect(placement.runPanelOp(frame('close_tab', { key: 'terminal' })).refusal).toBe(
-        'terminal_not_agent_movable'
-      );
-      expect(holder.layout).toBe(before);
-    });
-
-    test('close_tile of the tile holding the terminal is refused', () => {
-      seedClassic();
-      expect(placement.runPanelOp(frame('close_tile', { tile: 't1' })).refusal).toBe(
-        'terminal_not_agent_movable'
-      );
-    });
-
-    test('a tile holding the terminal behind a service tab is still the terminal tile', () => {
-      const holder = seed(
-        row(tile('s1', ['a'], 'a', 0.6), tile('t1', ['terminal', 'b'], 'b', 0.4)),
-        's1'
-      );
-      const before = holder.layout;
-      expect(placement.runPanelOp(frame('close_tile', { tile: 't1' })).refusal).toBe(
-        'terminal_not_agent_movable'
-      );
-      expect(
-        placement.runPanelOp(frame('drop', { source: { tile: 't1' }, target: { outer: 'left' } }))
-          .refusal
-      ).toBe('terminal_not_agent_movable');
-      expect(holder.layout).toBe(before);
-    });
-
-    test('a drop of the terminal tab is refused', () => {
-      seedClassic();
-      expect(
-        placement.runPanelOp(
-          frame('drop', { source: { tab: 'terminal' }, target: { tile: 's1', zone: 'centre' } })
-        ).refusal
-      ).toBe('terminal_not_agent_movable');
-    });
-
-    test('the terminal tile takes no tab: a centre or tab-bar target on it is refused', () => {
-      const holder = seedClassic();
-      const before = holder.layout;
-      for (const target of [
-        { tile: 't1', zone: 'centre' },
-        { tile: 't1', zone: 'tab', index: 0 },
+      for (const out of [
+        placement.runPanelOp(frame('close', { key: 'terminal' })),
+        placement.runPanelOp(frame('open', { member: 'terminal' })),
       ]) {
-        expect(placement.runPanelOp(frame('drop', { source: { tab: 'c' }, target })).refusal).toBe(
-          'terminal_not_agent_movable'
-        );
+        expect(out.refusal).toBe('terminal_not_agent_movable');
+      }
+      expect(holder.layout).toBe(before);
+    });
+
+    test('a drop of the terminal, by key or by its tile, is refused', () => {
+      const holder = seedClassic();
+      const before = holder.layout;
+      for (const source of [{ tab: 'terminal' }, { new: { panel: 'terminal' } }, { tile: 't1' }]) {
         expect(
-          placement.runPanelOp(frame('drop', { source: { new: { panel: 'd' } }, target })).refusal
+          placement.runPanelOp(frame('drop', { source, target: { tile: 's1', edge: 'left' } }))
+            .refusal
         ).toBe('terminal_not_agent_movable');
       }
       expect(holder.layout).toBe(before);
@@ -288,7 +276,7 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
     test('a set naming the terminal is terminal_in_layout', () => {
       seedClassic();
       expect(
-        placement.runPanelOp(frame('open_set', { members: ['a', 'terminal'], as: 'tabs' })).refusal
+        placement.runPanelOp(frame('open_set', { members: ['a', 'terminal'], as: 'side' })).refusal
       ).toBe('terminal_in_layout');
       expect(
         placement.runPanelOp(
@@ -302,15 +290,45 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
     });
   });
 
-  describe('opens go through dock-open.js', () => {
-    test('open places a new tab in the last service tile used (the open rule)', () => {
+  describe('open: the service tile used last, replacing the panel it showed', () => {
+    test('open replaces the panel of the focused service tile; nothing else moves', () => {
       const holder = seedClassic();
-      holder.show('t1', 'terminal');
-      const out = placement.runPanelOp(frame('open', { member: 'd' }));
+      const out = placement.runPanelOp(frame('open', { member: 'b' }));
       expect(out.refusal).toBeUndefined();
-      expect(tileWith(holder.layout, 'd').tile).toBe('s1');
-      expect(tileWith(holder.layout, 'd').showing).toBe('d');
+      // b took s1 in a's place, at s1's size; a left the dock.
+      expect(holder.layout).toEqual(
+        row(
+          tile('s1', ['b'], 'b', 0.3),
+          tile('s2', ['c'], 'c', 0.3),
+          tile('t1', ['terminal'], 'terminal', 0.4)
+        )
+      );
+      expect(tileWith(holder.layout, 'a')).toBeNull();
       expect(out.result.focus).toBe('s1');
+      // The replaced panel keeps its rail row: the runner never edits the rail.
+      expect(deps.dropMember).not.toHaveBeenCalled();
+    });
+
+    test('with the agent pane focused, the service tile the operator used before it is replaced', () => {
+      const holder = seedClassic();
+      holder.show('s2', 'c');
+      holder.show('t1', 'terminal'); // the operator typed in the agent pane since
+      const out = placement.runPanelOp(frame('open', { member: 'b' }));
+      expect(out.refusal).toBeUndefined();
+      expect(panelsByTile(holder.layout)).toEqual([['a'], ['b'], ['terminal']]);
+      expect(tileWith(holder.layout, 'b').tile).toBe('s2');
+      expect(tileWith(holder.layout, 'c')).toBeNull();
+      expect(holder.focusedTile).toBe('s2');
+    });
+
+    test('open of a panel already docked focuses its tile and changes nothing', () => {
+      const holder = seedClassic();
+      const before = holder.layout;
+      const out = placement.runPanelOp(frame('open', { member: 'c' }));
+      expect(out.refusal).toBeUndefined();
+      expect(out.result).toMatchObject({ changed: false, focus: 's2' });
+      expect(holder.layout).toBe(before);
+      expect(holder.focusedTile).toBe('s2');
     });
 
     test('open of an unhealthy panel is panel_unhealthy and changes nothing', () => {
@@ -320,14 +338,63 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
       expect(placement.runPanelOp(frame('open', { member: 'd' })).refusal).toBe('panel_unhealthy');
       expect(holder.layout).toBe(before);
     });
+  });
 
-    test('open_set as tabs opens every member', () => {
+  describe('sets and arrangements: side by side, or one panel per tile', () => {
+    test('open_set as side opens each member in a tile of its own; the panels on screen stay', () => {
       const holder = seedClassic();
-      const out = placement.runPanelOp(frame('open_set', { members: ['d', 'e'], as: 'tabs' }));
+      const out = placement.runPanelOp(frame('open_set', { members: ['d', 'e'], as: 'side' }));
       expect(out.refusal).toBeUndefined();
-      expect(tileWith(holder.layout, 'd')).not.toBeNull();
-      expect(tileWith(holder.layout, 'e')).not.toBeNull();
-      expect(tileWith(holder.layout, 'd').tile).toBe(tileWith(holder.layout, 'e').tile);
+      const d = tileWith(holder.layout, 'd');
+      const e = tileWith(holder.layout, 'e');
+      expect(d.tabs).toEqual(['d']);
+      expect(e.tabs).toEqual(['e']);
+      expect(d.tile).not.toBe(e.tile);
+      // Nothing was replaced: every tile still holds one panel.
+      expect(tileWith(holder.layout, 'a').tabs).toEqual(['a']);
+      expect(tileWith(holder.layout, 'c').tabs).toEqual(['c']);
+      expect(tileWith(holder.layout, 'terminal').tabs).toEqual(['terminal']);
+    });
+
+    test('a set or an arrangement opened as tabs is one_panel_per_tile and changes nothing', () => {
+      const holder = seedClassic();
+      const before = holder.layout;
+      expect(placement.runPanelOp(frame('open_set', { members: ['d', 'e'], as: 'tabs' }))).toEqual({
+        refusal: 'one_panel_per_tile',
+      });
+      expect(
+        placement.runPanelOp(
+          frame('open_arrangement', {
+            name: 'Machine setup',
+            members: ['d', 'e'],
+            as: 'tabs',
+            layout: { split: 'row', items: [{ tabs: [0] }, { tabs: [1] }] },
+          })
+        )
+      ).toEqual({ refusal: 'one_panel_per_tile' });
+      expect(holder.layout).toBe(before);
+    });
+
+    test('a layout giving a tile two members is one_panel_per_tile and changes nothing', () => {
+      const holder = seedClassic();
+      const before = holder.layout;
+      const records = holder.closed.length;
+      for (const layout of [
+        { tabs: [0, 1] },
+        { split: 'row', items: [{ tabs: [0, 1] }, { tabs: [2] }] },
+      ]) {
+        const members = ['d', 'e', 'f'];
+        expect(
+          placement.runPanelOp(
+            frame('open_arrangement', { name: 'Machine setup', members, layout })
+          ).refusal
+        ).toBe('one_panel_per_tile');
+        expect(
+          placement.runPanelOp(frame('open_set', { members, as: 'layout', layout })).refusal
+        ).toBe('one_panel_per_tile');
+      }
+      expect(holder.layout).toBe(before);
+      expect(holder.closed).toHaveLength(records);
     });
 
     test('open_set as layout maps member indexes to panel ids', () => {
@@ -365,31 +432,15 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
       );
       expect(out.refusal).toBeUndefined();
       expect(tileWith(holder.layout, 'a')).toBeNull();
-      expect(tileWith(holder.layout, 'b')).toBeNull();
       expect(tileWith(holder.layout, 'c')).not.toBeNull();
       expect(tileWith(holder.layout, 'd')).not.toBeNull();
       expect(tileWith(holder.layout, 'terminal').tabs).toEqual(['terminal']);
       // An arrangement is undoable: the holder keeps its layout record.
       expect(holder.closed.at(-1)?.kind).toBe('layout');
     });
-
-    test('open_arrangement with as tabs opens the members as tabs instead', () => {
-      const holder = seedClassic();
-      const out = placement.runPanelOp(
-        frame('open_arrangement', {
-          name: 'Machine setup',
-          members: ['d', 'e'],
-          as: 'tabs',
-          layout: { split: 'row', items: [{ tabs: [0] }, { tabs: [1] }] },
-        })
-      );
-      expect(out.refusal).toBeUndefined();
-      expect(tileWith(holder.layout, 'd').tile).toBe(tileWith(holder.layout, 'e').tile);
-      expect(tileWith(holder.layout, 'a')).not.toBeNull();
-    });
   });
 
-  describe('drops and closes go through the engine', () => {
+  describe('drops: edges and borders split, a tile takes no second panel', () => {
     test('a new panel dropped on a tile edge opens as its own tile there', () => {
       const holder = seedClassic();
       const out = placement.runPanelOp(
@@ -403,41 +454,75 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
 
     test('a {new} source naming an open panel moves it, never duplicates it', () => {
       const holder = seedClassic();
-      placement.runPanelOp(
-        frame('drop', { source: { new: { panel: 'c' } }, target: { tile: 's1', zone: 'centre' } })
+      const out = placement.runPanelOp(
+        frame('drop', { source: { new: { panel: 'c' } }, target: { tile: 's1', edge: 'bottom' } })
       );
-      expect(tileWith(holder.layout, 'c').tile).toBe('s1');
-      expect(
-        tiles(holder.layout)
-          .flatMap((t) => t.tabs)
-          .filter((k) => k === 'c')
-      ).toHaveLength(1);
+      expect(out.refusal).toBeUndefined();
+      const keys = tiles(holder.layout).flatMap((t) => t.tabs);
+      expect(keys.filter((k) => k === 'c')).toHaveLength(1);
+      // c left s2, which closed with it, for a tile of its own below s1.
+      expect(tiles(holder.layout).map((t) => t.tile)).not.toContain('s2');
+      expect(out.result.focus).toBe(tileWith(holder.layout, 'c').tile);
     });
 
-    test('a tab dropped at a tab index lands there', () => {
+    test('a drop on the border between two tiles opens the panel in a tile between them', () => {
       const holder = seedClassic();
-      placement.runPanelOp(
-        frame('drop', { source: { tab: 'c' }, target: { tile: 's1', zone: 'tab', index: 0 } })
+      const out = placement.runPanelOp(
+        frame('drop', {
+          source: { new: { panel: 'b' } },
+          target: { border: { tile: 's2', side: 'left' } },
+        })
       );
-      expect(tileWith(holder.layout, 'c').tabs).toEqual(['c', 'a', 'b']);
+      expect(out.refusal).toBeUndefined();
+      expect(panelsByTile(holder.layout)).toEqual([['a'], ['b'], ['c'], ['terminal']]);
+    });
+
+    test('a drop on a dock edge moves the panel to a tile along that edge', () => {
+      const holder = seedClassic();
+      const out = placement.runPanelOp(
+        frame('drop', { source: { tab: 'c' }, target: { outer: 'left' } })
+      );
+      expect(out.refusal).toBeUndefined();
+      expect(panelsByTile(holder.layout)).toEqual([['c'], ['a'], ['terminal']]);
+    });
+
+    test("a drop into a tile's centre or header is one_panel_per_tile and changes nothing", () => {
+      const holder = seedClassic();
+      const before = holder.layout;
+      for (const into of ['s1', 't1']) {
+        for (const target of [
+          { tile: into, zone: 'centre' },
+          { tile: into, zone: 'tab', index: 0 },
+        ]) {
+          for (const source of [{ tab: 'c' }, { new: { panel: 'b' } }, { tile: 's2' }]) {
+            expect(placement.runPanelOp(frame('drop', { source, target })).refusal).toBe(
+              'one_panel_per_tile'
+            );
+          }
+        }
+      }
+      expect(holder.layout).toBe(before);
     });
 
     test('a drop naming a tile this dock does not hold is unknown_tile', () => {
       const holder = seedClassic();
       const before = holder.layout;
-      expect(
-        placement.runPanelOp(
-          frame('drop', { source: { tab: 'c' }, target: { tile: 'nope', zone: 'centre' } })
-        ).refusal
-      ).toBe('unknown_tile');
+      for (const target of [
+        { tile: 'nope', edge: 'left' },
+        { border: { tile: 'nope', side: 'left' } },
+      ]) {
+        expect(placement.runPanelOp(frame('drop', { source: { tab: 'c' }, target })).refusal).toBe(
+          'unknown_tile'
+        );
+      }
       expect(holder.layout).toBe(before);
     });
 
-    test('a drop of a tab this dock does not hold is unknown_key', () => {
+    test('a drop of a panel this dock does not hold is unknown_key', () => {
       seedClassic();
       expect(
         placement.runPanelOp(
-          frame('drop', { source: { tab: 'zz' }, target: { tile: 's1', zone: 'centre' } })
+          frame('drop', { source: { tab: 'zz' }, target: { tile: 's1', edge: 'left' } })
         ).refusal
       ).toBe('unknown_key');
     });
@@ -447,39 +532,42 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
       deps.isHealthy.mockImplementation((/** @type {string} */ id) => id !== 'd');
       expect(
         placement.runPanelOp(
-          frame('drop', { source: { new: { panel: 'd' } }, target: { tile: 's1', zone: 'centre' } })
+          frame('drop', { source: { new: { panel: 'd' } }, target: { tile: 's1', edge: 'left' } })
         ).refusal
       ).toBe('panel_unhealthy');
     });
+  });
 
-    test('close_tab closes one tab; the last tab closes its tile', () => {
+  describe('close: the panel leaves the dock, and its tile with it', () => {
+    test("close takes the panel's tile out and gives its space to a neighbour", () => {
       const holder = seedClassic();
-      placement.runPanelOp(frame('close_tab', { key: 'a' }));
-      expect(tileWith(holder.layout, 'b').tabs).toEqual(['b']);
-      placement.runPanelOp(frame('close_tab', { key: 'c' }));
-      expect(tiles(holder.layout).map((t) => t.tile)).not.toContain('s2');
-      // Closes are undoable: the holder keeps their records.
-      expect(holder.closed.length).toBeGreaterThanOrEqual(2);
-    });
-
-    test('close_tab of a tab this dock does not hold is unknown_key', () => {
-      seedClassic();
-      expect(placement.runPanelOp(frame('close_tab', { key: 'zz' })).refusal).toBe('unknown_key');
-    });
-
-    test('close_tile closes a service tile and its tabs', () => {
-      const holder = seedClassic();
-      placement.runPanelOp(frame('close_tile', { tile: 's1' }));
-      expect(tileWith(holder.layout, 'a')).toBeNull();
-      expect(tileWith(holder.layout, 'b')).toBeNull();
-      expect(tileWith(holder.layout, 'c')).not.toBeNull();
-    });
-
-    test('close_tile of an unknown tile is unknown_tile', () => {
-      seedClassic();
-      expect(placement.runPanelOp(frame('close_tile', { tile: 'nope' })).refusal).toBe(
-        'unknown_tile'
+      const out = placement.runPanelOp(frame('close', { key: 'c' }));
+      expect(out.refusal).toBeUndefined();
+      expect(holder.layout).toEqual(
+        row(tile('s1', ['a'], 'a', 0.6), tile('t1', ['terminal'], 'terminal', 0.4))
       );
+      // A close is undoable: the holder keeps the closed tile's record.
+      expect(holder.closed.at(-1)).toMatchObject({ kind: 'tile', tile: 's2', tabs: ['c'] });
+      // ...and it is no hide: the rail is the server's.
+      expect(deps.dropMember).not.toHaveBeenCalled();
+    });
+
+    test('a close of a panel this dock does not hold is unknown_key', () => {
+      const holder = seedClassic();
+      const before = holder.layout;
+      // b is a rail member with no tile; zz is no panel at all.
+      for (const key of ['b', 'zz']) {
+        expect(placement.runPanelOp(frame('close', { key })).refusal).toBe('unknown_key');
+      }
+      expect(holder.layout).toBe(before);
+    });
+
+    test('close_tab and close_tile are ops no longer: unknown_op, and nothing changes', () => {
+      const holder = seedClassic();
+      const before = holder.layout;
+      expect(placement.runPanelOp(frame('close_tab', { key: 'c' })).refusal).toBe('unknown_op');
+      expect(placement.runPanelOp(frame('close_tile', { tile: 's2' })).refusal).toBe('unknown_op');
+      expect(holder.layout).toBe(before);
     });
   });
 
@@ -491,7 +579,7 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
   test('a drag in progress holds the apply, not the op: the holder layout moves at once', () => {
     const holder = seedClassic();
     holder.setDragLive(true);
-    placement.runPanelOp(frame('close_tab', { key: 'c' }));
+    placement.runPanelOp(frame('close', { key: 'c' }));
     expect(tileWith(holder.layout, 'c')).toBeNull();
     holder.setDragLive(false);
   });
@@ -501,54 +589,40 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
   });
 
   describe('a panel in its own window', () => {
-    test('an open brings the window forward and leaves the layout alone', () => {
+    /** The classic dock with c popped out: its tile left the dock with it. */
+    function seedPoppedOut() {
       const holder = seedClassic();
-      holder.run((/** @type {any} */ l) => ({ layout: removeKey(l, 'b'), changed: true }));
-      popped.add('b');
+      holder.run((/** @type {any} */ l) => dockOpen.closeKey(l, 'c'));
+      popped.add('c');
+      return holder;
+    }
+
+    test('an open brings the window forward and leaves the layout alone', () => {
+      const holder = seedPoppedOut();
       const before = holder.layout;
-      const out = placement.runPanelOp(frame('open', { member: 'b' }));
+      const out = placement.runPanelOp(frame('open', { member: 'c' }));
       expect(out.refusal).toBeUndefined();
-      expect(out.popout).toBe('b');
+      expect(out.popout).toBe('c');
       expect(holder.layout).toBe(before);
     });
 
-    test('close_tab, a drop of it and a set naming it are refused popped_out', () => {
-      const holder = seedClassic();
-      holder.run((/** @type {any} */ l) => ({ layout: removeKey(l, 'b'), changed: true }));
-      popped.add('b');
+    test('a close, a drop of it and a set naming it are refused popped_out', () => {
+      const holder = seedPoppedOut();
       const before = holder.layout;
-      expect(placement.runPanelOp(frame('close_tab', { key: 'b' })).refusal).toBe('popped_out');
+      expect(placement.runPanelOp(frame('close', { key: 'c' })).refusal).toBe('popped_out');
       expect(
-        placement.runPanelOp(frame('drop', { source: { tab: 'b' }, target: { outer: 'left' } }))
+        placement.runPanelOp(frame('drop', { source: { tab: 'c' }, target: { outer: 'left' } }))
           .refusal
       ).toBe('popped_out');
       expect(
         placement.runPanelOp(
-          frame('drop', { source: { new: { panel: 'b' } }, target: { outer: 'left' } })
+          frame('drop', { source: { new: { panel: 'c' } }, target: { outer: 'left' } })
         ).refusal
       ).toBe('popped_out');
       expect(
-        placement.runPanelOp(frame('open_set', { members: ['b', 'c'], as: 'tabs' })).refusal
+        placement.runPanelOp(frame('open_set', { members: ['c', 'b'], as: 'side' })).refusal
       ).toBe('popped_out');
       expect(holder.layout).toBe(before);
     });
   });
 });
-
-/**
- * `layout` without the tab `key` (the engine's leave rule).
- * @param {any} layout @param {string} key
- */
-function removeKey(layout, key) {
-  const walk = (/** @type {any} */ node) => {
-    if ('tabs' in node) {
-      const tabs = node.tabs.filter((/** @type {string} */ k) => k !== key);
-      return tabs.length
-        ? { ...node, tabs, showing: tabs.includes(node.showing) ? node.showing : tabs[0] }
-        : null;
-    }
-    const items = node.items.map(walk).filter(Boolean);
-    return items.length === 1 ? { ...items[0], size: node.size } : { ...node, items };
-  };
-  return walk(layout);
-}

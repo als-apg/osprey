@@ -249,11 +249,13 @@ Once registered and enabled in ``config.yml`` (``search_modules.my_search.enable
 
 Modules may also export ``get_parameter_descriptors()`` to declare tunable parameters for the frontend capabilities API. Each :class:`~osprey.services.ariel_search.search.base.ParameterDescriptor` describes a single knob --- its name, type, default, range, and UI grouping --- so the web interface can render controls dynamically.
 
-**What a module returns.** ``execute`` may return a plain list of entries, as it always could, or a ``ModuleOutput(entries, diagnostics, expansion)`` when it has something to report alongside them: ``diagnostics`` for the notices the caller should see (a truncated query, a skipped step), and ``expansion`` for the :ref:`vocabulary groups <vocabulary-expansion>` that actually reached the query it ran. A bare list stays valid and needs no change.
+**What a module returns.** ``execute`` may return a plain list of entries, as it always could, or a ``ModuleOutput`` when it has something to report alongside them: ``diagnostics`` for the notices the caller should see (a truncated query, a skipped step), ``expansion`` for the :ref:`vocabulary groups <vocabulary-expansion>` that actually reached the query it ran, and optionally ``total``, ``total_exact``, ``has_more``, ``tier`` and ``filter_applied`` for paging and counts. A bare list stays valid and needs no change.
 
-**Opting into the shared query work.** Three descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called with exactly the arguments it is called with today.
+**Opting into the shared query work.** Five descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called as before, except that ``max_results`` is widened to ``min(offset + page_size * 2, 200)``.
 
 * ``accepts_expansion`` --- set it to ``True`` and the service passes ``query_expansion=`` when, and only when, expansion was resolved for that request. The module never sees the ``expand_query`` request argument itself: whether to expand is settled once, in the service.
+* ``accepts_entry_filter`` --- set it to ``True`` and the service passes ``entry_filter=`` (an ``EntryFilter``, possibly empty) for the module to apply. The service post-filters every result with ``EntryFilter.matches`` either way.
+* ``accepts_offset`` --- set it to ``True`` and the service passes ``offset=``, with ``max_results`` as the page size; otherwise the service slices the page out of the module's results.
 * ``needs_search_calls`` --- set it to ``True`` and the service passes its search-call pool as ``search_calls=``. A module that calls a provider at search time runs that call on the pool it receives, with ``await search_calls.run(fn, *args, timeout_s=...)``, and never builds a pool of its own. The service closes the pool when it stops.
 * ``query_parser`` --- an optional callable that takes the raw query string and returns a ``ParsedKeywordQuery`` (search text, field filters, phrases, pattern spans, diagnostics). The service calls it once and hands the result to the module as ``parsed=``. Keyword search declares its own ``parse_keyword_query`` here; a module that wants a different query language supplies its own parser, and one that wants none is never given ARIEL's.
 
@@ -775,21 +777,26 @@ tables and sets default privileges for the owner, so the ``enhanced_entries``
 table the migrations create and the per-model ``text_embeddings_*`` tables an
 enhancement module adds are readable without a second grant.
 
+A deployment that points ARIEL at a database it does not run, with the ``uri``
+key, gets no derived role. Name a SELECT-only login on that database in
+``ariel.database.readonly_uri``; without it the SQL tool is not offered (see
+:ref:`config-ariel-database-readonly-uri`).
+
 Adopting the role on an existing database
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A data volume created before the role existed never runs the init script, so it
-has no ``<username>_ro``. Nothing breaks: the agent notices at start-up, logs
-one warning, and runs the SQL tool on the ingestion connection as it did
-before. To adopt the role without recreating the volume, run the same script by
-hand once:
+has no ``<username>_ro``. The agent logs one warning at start-up, and the SQL
+tool refuses every query, naming the refused login, until the role exists. The
+other ARIEL tools keep working. To adopt the role without recreating the
+volume, run the same script by hand once:
 
 .. code-block:: bash
 
    docker exec -e ARIEL_DB_READONLY_PASSWORD="$(grep '^ARIEL_DB_READONLY_PASSWORD=' .env | cut -d= -f2-)" \
        <project>-ariel-postgres bash /docker-entrypoint-initdb.d/10-readonly-role.sh
 
-Restart the agent afterwards so it picks up the role, and the warning stops.
+Restart the agent afterwards so it picks up the role and the SQL tool answers.
 The script is idempotent — running it again is how you roll the role's password
 after changing it in ``.env``.
 

@@ -64,6 +64,102 @@ export function typeBadge(type) {
   return escapeHtml(info.label || type.replace(/_/g, ' '));
 }
 
+// ---- Forms (the gallery's one level of grouping) ---- //
+
+/**
+ * Labels for a run's parts — the entries the server lists under their run's
+ * head (`form: null`) — keyed by `run_part`. The same words the hub sidebar
+ * shows for them.
+ * @type {Record<string, string>}
+ */
+export const RUN_PART_LABELS = {
+  preview: 'Approval preview',
+  code: 'Code (notebook)',
+  result: 'Result',
+};
+
+/**
+ * The gallery's groups in order: the registry's `base_forms`, then its
+ * registered `extension_types`, each as `{key, label}`. Empty until the
+ * registry has loaded.
+ * @returns {{key: string, label: string}[]}
+ */
+export function formOrder() {
+  /** @type {{key: string, label: string}[]} */
+  const order = [];
+  for (const list of [typeRegistry.base_forms, typeRegistry.extension_types]) {
+    if (!Array.isArray(list)) continue;
+    for (const f of list) {
+      if (f && typeof f.key === 'string')
+        order.push({ key: f.key, label: String(f.label ?? f.key) });
+    }
+  }
+  return order;
+}
+
+/**
+ * Whether an artifact is a part of a run, listed under its head rather than
+ * in a group of its own (the server lists it with `form: null`).
+ * @param {any} a
+ * @returns {boolean}
+ */
+export function isRunPart(a) {
+  return !a.form && !!a.run_part && a.run_part !== 'output';
+}
+
+/**
+ * The group key an artifact is listed under: its `form`, `run_part` for a
+ * run's part, `data` for an entry that carries no form.
+ * @param {any} a
+ * @returns {string}
+ */
+export function formKey(a) {
+  if (a.form) return String(a.form);
+  return isRunPart(a) ? 'run_part' : 'data';
+}
+
+/**
+ * Plain-text label of a form key, from the registry's forms, else the key.
+ * @param {string} key
+ * @returns {string}
+ */
+function formKeyLabel(key) {
+  const f = formOrder().find((x) => x.key === key);
+  if (f) return f.label;
+  const word = key.replace(/_/g, ' ');
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+/**
+ * Human-readable label of the form an artifact is listed under — the
+ * server's `form_label`, a run part's label, never a file format. Escaped at
+ * the source like {@link typeBadge}: every call site interpolates it into
+ * innerHTML.
+ * @param {any} a
+ * @returns {string}
+ */
+export function formBadge(a) {
+  let label;
+  if (a.form) label = a.form_label || formKeyLabel(String(a.form));
+  else if (isRunPart(a)) label = RUN_PART_LABELS[a.run_part] || 'Run part';
+  else label = formKeyLabel('data');
+  return escapeHtml(String(label));
+}
+
+/**
+ * Escaped label for a group key (a section header): the registry's label,
+ * else `fallback` (an artifact's own `form_label`), else the key itself.
+ * @param {string} key
+ * @param {string|null|undefined} [fallback]
+ * @returns {string}
+ */
+export function formSectionLabel(key, fallback) {
+  const f = formOrder().find((x) => x.key === key);
+  if (f) return escapeHtml(f.label);
+  if (key === 'run_part') return 'Run parts';
+  return escapeHtml(fallback || formKeyLabel(key));
+}
+
 // SVG icon markup keyed by artifact/category type. Module-level constant
 // (not rebuilt per `typeIcon` call — it's read once per artifact card on
 // every sidebar render). The `type` key never reaches output; the markup is
@@ -88,6 +184,21 @@ const TYPE_ICONS = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
   dashboard_html:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+  // Forms (the gallery's groups)
+  runs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  plots:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
+  trends:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+  tables:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+  documents:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
+  dashboards:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+  images:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+  data: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 5v14c0 1.66-4.03 3-9 3s-9-1.34-9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
   // Category types
   archiver_data:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 5v14c0 1.66-4.03 3-9 3s-9-1.34-9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
@@ -179,7 +290,7 @@ export function thumbnailHtml(a) {
           .join('\n');
         return `<div class="thumb-summary">${escapeHtml(text)}</div>`;
       }
-      return `<div class="thumb-placeholder">${typeIcon(a.artifact_type)}<span>${typeBadge(a.artifact_type)}</span></div>`;
+      return `<div class="thumb-placeholder">${typeIcon(a.artifact_type)}<span>${formBadge(a)}</span></div>`;
   }
 }
 
@@ -280,8 +391,11 @@ export function formatDate(iso) {
 }
 
 /**
- * Whether an artifact is a timeseries (its metadata declares the
- * `timeseries` data_type, or it carries the `archiver_data` category). This
+ * Whether an artifact is a timeseries: its metadata declares the
+ * `timeseries` data_type (an archiver read, an array channel read), or the
+ * archiver wrote it before `data_type` existed (`tool_source` is
+ * `archiver_read`). Never the category: a scalar channel snapshot is not a
+ * timeseries. This
  * is the artifact *type* question only — see `hasTimeseriesData` for the
  * "and it actually has a data file to render" variant. Single source of
  * truth so print.js's strategy dispatch and preview.js's viewport choice
@@ -290,7 +404,9 @@ export function formatDate(iso) {
  * @returns {boolean}
  */
 export function isTimeseries(a) {
-  return (!!a.metadata && a.metadata.data_type === 'timeseries') || a.category === 'archiver_data';
+  return (
+    (!!a.metadata && a.metadata.data_type === 'timeseries') || a.tool_source === 'archiver_read'
+  );
 }
 
 /**

@@ -142,9 +142,10 @@ def _open_hub_page(browser: Browser, url: str) -> Page:
     """Open a hub URL and wait for the Feedback control to be live."""
     page = browser.new_page()
     page.goto(url, wait_until="domcontentloaded")
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=10_000
-    )
+    # The page ships the Agent row disabled; the rail render enables it.
+    expect(
+        page.locator('button.panel-rail-button[data-panel-id="terminal"]:not(.disabled)')
+    ).to_be_attached(timeout=10_000)
     expect(page.locator("#panel-feedback-btn")).to_be_visible(timeout=10_000)
     return page
 

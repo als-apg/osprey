@@ -79,7 +79,7 @@ import {
   bootLayoutSettled,
   setLayoutRestoredHook,
 } from './dock-workspace.js';
-import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
+import { getLayoutHolder } from './dock-apply.js';
 import { serviceTileTarget } from './dock-open.js';
 import {
   initMenuPolicy,
@@ -318,10 +318,11 @@ export async function initPanelManager(panelId) {
   // up, panel iframes live in the adapter's overlay layer instead (dockview
   // re-parents panel content on regroup, which reloads iframes — see the
   // dock-spike verdict and dock-iframe.js); without a shell they mount here.
-  // After every layout apply the adapter hands back here, so a restored
-  // placeholder gets its panel's iframe.
+  // After every whole-layout apply the adapter hands back here, so a restored
+  // placeholder gets its panel's iframe and a reset keeps the panel the
+  // operator was on.
   initDockIframeAdapter({ fallbackHost: contentEl });
-  setPlaceholdersAppliedHandler(hydrateRestoredTiles);
+  setPlaceholdersAppliedHandler(settleAppliedLayout);
 
   // Bridge dockview gestures back to the server-owned panel state: a human dock
   // tab focus / close POSTs the same setPanelFocus / setPanelVisibility the rail
@@ -377,11 +378,13 @@ export async function initPanelManager(panelId) {
   });
 
   // Pop-out windows (popout.js): the tile leaves the dock while the window is
-  // open and comes back when it closes. The verbs it needs are this module's
-  // own retire and re-dock; the state it pushes into a window is the same
-  // two messages every iframe gets. The sidebar row follows every change,
-  // and the hub's theme and session broadcasts reach the windows alongside
-  // the iframes.
+  // open and comes back when it closes — by the open rule (it takes the
+  // service tile used last, replacing its panel), and without a focus report,
+  // since nobody asked the server for that surfacing. The verbs it needs are
+  // this module's own retire and activate; the state it pushes into a window
+  // is the same two messages every iframe gets. The sidebar row follows every
+  // change, and the hub's theme and session broadcasts reach the windows
+  // alongside the iframes.
   initPopouts({
     // No page to open until the config resolves a URL; and none for a panel
     // whose frame resolved to an opaque origin (panel-iframe-factory.js), whose
@@ -392,7 +395,7 @@ export async function initPanelManager(panelId) {
       return buildPopoutSrc(url);
     },
     conceal: vacateForPopout,
-    redock: redockPanel,
+    redock: (id) => activateTab(id, { userInitiated: false }),
     sync: (win) => {
       sendThemeToWindow(win);
       sendSessionToWindow(win);
@@ -699,46 +702,51 @@ function vacateForPopout(panelId) {
 }
 
 /**
- * Put a panel back in the dock after its pop-out window closed, by the open
- * rule: a tab in front of the service tile used last. Nobody asked the server
- * for this surfacing, so the activation carries no focus report.
- * @param {string} panelId
+ * Settle the view after a whole-layout apply (a reset, a stored-layout
+ * restore): fill the restored tiles, and give a dock left with no service
+ * tile the panel the operator was on — a reset keeps what they were looking
+ * at, in the default arrangement — else the landing's choice. A dock that
+ * still shows a service tile is left as it is: opening anything into it
+ * would replace that tile's panel (the open rule). Nothing opens while the
+ * boot layout may still arrive (the landing waits for it).
  */
-function redockPanel(panelId) {
-  activateTab(panelId, { userInitiated: false });
+function settleAppliedLayout() {
+  hydrateRestoredTiles();
+  const holder = getLayoutHolder();
+  if (!holder || serviceTileTarget(holder.layout, holder.context())) return;
+  const keep = activeTabId;
+  clearActivePanel();
+  const kept = keep && visiblePanels.has(keep) && panelState[keep]?.healthy && !isPoppedOut(keep);
+  if (kept) activateTab(/** @type {string} */ (keep));
+  else ensureActivePanel();
 }
 
 /**
  * Fill every restored placeholder with its panel's iframe. A stored layout
  * brings back a placeholder for every tile that was open, but only the
- * landing panel's activation creates an iframe, so under one panel per tile
- * every other restored tile is an empty card until its row is clicked. This
- * runs after every layout apply (the adapter's placeholders-applied seam) and
- * on every health settle, so a tile is filled as soon as both its placeholder
- * and its panel's health are there. It never moves the active tile or the
- * rail accent and reports nothing: the adapter adopts the iframe into the
- * placeholder that already exists, and the echo guard covers the one case
- * where it would have to add one. A panel living in its own pop-out window
- * has no tile to fill; its placeholder is pruned instead.
+ * landing panel's activation creates an iframe, so every other restored tile
+ * is an empty card until its row is clicked. This runs after every layout
+ * apply (the adapter's placeholders-applied seam) and on every health settle,
+ * so a tile is filled as soon as both its placeholder and its panel's health
+ * are there. It never moves the active tile or the rail accent and reports
+ * nothing: the adapter adopts the iframe into the placeholder that already
+ * exists (a cached iframe from a closed tile is concealed, and a concealed
+ * entry is never re-materialized on its own), and the echo guard covers the
+ * one case where it would have to add one. A panel living in its own pop-out
+ * window has no tile to fill; its placeholder is pruned instead.
  */
 function hydrateRestoredTiles() {
   const api = getDockApi();
   if (!api) return;
-  for (const panel of PANELS) {
-    const id = panel.id;
+  for (const { id, label } of PANELS) {
     const state = panelState[id];
     if (!state?.healthy || !visiblePanels.has(id) || isPoppedOut(id)) continue;
     if (!api.getPanel(PLACEHOLDER_PREFIX + id)) continue;
     const iframe = state.iframe;
-    if (iframe?.isConnected) {
-      // A cached iframe from a closed tile is concealed, and a concealed
-      // entry is never re-materialized: re-adopt it so the restored tile
-      // shows it. A shown iframe already fills its tile.
-      if (iframe.style.display !== 'none') continue;
-      withEchoSuppressed(() => adoptIframe(id, iframe, { title: panel.label }));
-    } else {
-      withEchoSuppressed(() => createIframe(id));
-    }
+    if (iframe?.isConnected && iframe.style.display !== 'none') continue;
+    withEchoSuppressed(() =>
+      iframe?.isConnected ? adoptIframe(id, iframe, { title: label }) : createIframe(id)
+    );
   }
 }
 
@@ -751,12 +759,8 @@ function hydrateRestoredTiles() {
  */
 function landingTarget() {
   const holder = getLayoutHolder();
-  const layout = holder?.layout ?? null;
-  if (holder && layout) {
-    const key = serviceTileTarget(layout, holder.context())?.showing;
-    if (key && key !== TERMINAL_KEY && panelState[key]) return key;
-  }
-  return DEFAULT_PANEL;
+  const key = holder ? serviceTileTarget(holder.layout, holder.context())?.showing : undefined;
+  return key && panelState[key] ? key : DEFAULT_PANEL;
 }
 
 /**

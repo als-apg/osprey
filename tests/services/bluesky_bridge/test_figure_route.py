@@ -46,6 +46,7 @@ from osprey.services.bluesky_bridge.figure import (
     REASON_RENDER_FAILED,
     REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS,
     REASON_SOURCE_UNAVAILABLE,
+    Columns,
     Figure,
     LinesMark,
     Panel,
@@ -139,6 +140,8 @@ def _echo_render(window: RowWindow, _params: Any) -> Figure:
     panels = [
         Panel(
             title=column,
+            x_columns=None,
+            y_columns=Columns([column]),
             mark=LinesMark(
                 series=[
                     Series(
@@ -219,9 +222,12 @@ class _FakeCompositeClient:
     `.base` exactly as the real one does — same fidelity rationale as
     `test_data_route.py`, which models this boundary's variability in full."""
 
-    def __init__(self, columns: list[str], base: _FakeBaseContainer) -> None:
+    def __init__(
+        self, columns: list[str], base: _FakeBaseContainer, descriptors: list[dict] | None = None
+    ) -> None:
         self._columns = list(columns)
         self.base = base
+        self.descriptors = list(descriptors or [])
 
     def __getitem__(self, key: str):
         if key in self._columns:
@@ -304,6 +310,7 @@ def _tiled_run_node(
     stopped: bool = True,
     start_time: float = 1000.0,
     row_order: list[int] | None = None,
+    descriptors: list[dict] | None = None,
 ) -> _FakeRunNode:
     """A run container shaped like TiledWriter's output.
 
@@ -331,6 +338,7 @@ def _tiled_run_node(
     primary = _FakeCompositeClient(
         columns=list(df.columns),
         base=_FakeBaseContainer({"internal": _FakeInternalTable(df)}),
+        descriptors=descriptors,
     )
     return _FakeRunNode(metadata=metadata, streams={"primary": primary})
 
@@ -503,6 +511,7 @@ def test_malformed_source_snapshot_is_params_mismatch(
             "partial": True,
             "total_seen": 1,  # fewer than the rows physically present: impossible
             "plan": None,
+            "units": {},
         },
     )
 
@@ -566,6 +575,7 @@ def test_render_is_handed_the_window_with_the_sources_completeness(
             "partial": True,
             "total_seen": total_seen,
             "plan": {"name": "watcher", "kwargs": {}},
+            "units": {},
         },
     )
 
@@ -577,6 +587,128 @@ def test_render_is_handed_the_window_with_the_sources_completeness(
     assert window.columns == ["m"]
     assert window.total_seen == total_seen
     assert window.rows_complete is expected_complete
+
+
+def _capturing(seen: list[RowWindow]):
+    def render(window: RowWindow, _params: Any) -> Figure:
+        seen.append(window)
+        return Figure(panels=[], partial=True, source="live")
+
+    return render
+
+
+_DECLARED = {"m": {"dtype": "number", "units": "u-m"}, "d": {"dtype": "number"}}
+
+
+def test_a_live_render_is_handed_the_units_the_run_declared(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[RowWindow] = []
+    _install_catalog(monkeypatch, _spec("watcher", render=_capturing(seen)))
+    recorder = LiveRowRecorder(key="run-1", plan={"name": "watcher", "kwargs": {}})
+    recorder("start", {"uid": "engine-run-1"})
+    recorder("descriptor", {"data_keys": _DECLARED})
+    recorder("event", {"data": {"m": 1.0, "d": 2.0}})
+
+    assert _get_figure(client, "run-1")["reason"] is None
+
+    (window,) = seen
+    assert dict(window.units) == {k: v["units"] for k, v in _DECLARED.items() if "units" in v}
+
+
+def test_a_stored_render_is_handed_the_units_the_run_declared(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[RowWindow] = []
+    _install_catalog(monkeypatch, _spec("watcher", render=_capturing(seen)))
+    node = _tiled_run_node(
+        "uid-1",
+        "run-1",
+        [{"m": 1.0, "d": 2.0}],
+        plan={"name": "watcher", "kwargs": {}},
+        descriptors=[{"data_keys": _DECLARED}],
+    )
+    _install_fake_tiled(monkeypatch, _FakeTiledClient({"run-1": [node]}))
+
+    assert _get_figure(client, "run-1")["reason"] is None
+
+    (window,) = seen
+    assert dict(window.units) == {k: v["units"] for k, v in _DECLARED.items() if "units" in v}
+
+
+def _declaring_run(monkeypatch: pytest.MonkeyPatch, render: Any, plan: str = "binder") -> None:
+    _install_catalog(monkeypatch, _spec("binder", render=render))
+    recorder = LiveRowRecorder(key="run-1", plan={"name": plan, "kwargs": {}})
+    recorder("start", {"uid": "engine-run-1"})
+    recorder("descriptor", {"data_keys": _DECLARED})
+    recorder("event", {"data": {"m": 1.0, "d": 2.0}})
+
+
+def _bound_render(**fields: Any):
+    def render(_window: RowWindow, _params: Any) -> Figure:
+        panel = Panel(
+            title="bound",
+            x_columns=Columns(["m"]),
+            y_columns=Columns(["d"]),
+            mark=LinesMark(source_points=0),
+        )
+        for name, value in fields.items():
+            setattr(panel, name, value)
+        return Figure(panels=[panel], partial=True, source="live")
+
+    return render
+
+
+def test_a_rendered_axis_serves_the_unit_its_column_declares(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _declaring_run(monkeypatch, _bound_render())
+
+    body = _get_figure(client, "run-1")
+
+    assert body["reason"] is None
+    (panel,) = body["panels"]
+    assert (panel["x_units"], panel["y_units"]) == (_DECLARED["m"]["units"], None)
+
+
+def test_a_render_that_types_a_unit_is_served_as_render_failed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _declaring_run(monkeypatch, _bound_render(y_units="typed"))
+
+    assert _get_figure(client, "run-1")["reason"] == REASON_RENDER_FAILED
+
+
+def test_a_render_binding_a_column_the_rows_lack_is_served_as_render_failed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _declaring_run(monkeypatch, _bound_render(y_columns=Columns(["absent"])))
+
+    assert _get_figure(client, "run-1")["reason"] == REASON_RENDER_FAILED
+
+
+@pytest.mark.parametrize("plan", ["binder", "no-such-plan"])
+def test_every_table_column_unit_is_the_unit_of_the_axis_bound_to_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, plan: str
+) -> None:
+    """The Results table and the plot agree, for a plan's view and the default view."""
+    _declaring_run(monkeypatch, _bound_render(), plan=plan)
+
+    table = {
+        column["name"]: column["unit"]
+        for column in client.get("/runs/run-1/data").json()["columns"]
+    }
+    figure = _get_figure(client, "run-1")
+
+    bound = 0
+    for panel in figure["panels"]:
+        for axis in ("x", "y"):
+            columns = panel[f"{axis}_columns"]
+            if columns is not None and len(columns["names"]) == 1 and not columns["per"]:
+                (name,) = columns["names"]
+                assert panel[f"{axis}_units"] == table[name], (panel["title"], axis)
+                bound += 1
+    assert bound, "no axis is bound to a single column, so the relation proves nothing"
 
 
 # =========================================================================
@@ -635,6 +767,7 @@ def test_settled_hit_revalidates_total_seen_against_the_buffer(
             "partial": False,
             "total_seen": total_seen,
             "plan": {"name": "echo", "kwargs": {}},
+            "units": {},
         }
 
     monkeypatch.setattr(live_rows, "get", lambda run_id: snapshot(2, 1.0))
@@ -851,6 +984,8 @@ def _long_lines_figure(n: int) -> Figure:
         panels=[
             Panel(
                 title="long",
+                x_columns=None,
+                y_columns=None,
                 mark=LinesMark(
                     series=[
                         Series(
@@ -897,6 +1032,8 @@ def test_plan_bars_are_decimated_with_categories_kept_aligned(
             panels=[
                 Panel(
                     title="bars",
+                    x_columns=None,
+                    y_columns=None,
                     mark=FigBarsMark(
                         categories=[f"c{i}" for i in range(n)],
                         values=[float(i) for i in range(n)],
@@ -984,7 +1121,7 @@ def _orm_stamp(correctors: list[str], readbacks: list[str], num: int) -> dict[st
         "kwargs": {
             "correctors": correctors,
             "readbacks": readbacks,
-            "span_a": 2.0,
+            "span": 2.0,
             "num": num,
         },
     }

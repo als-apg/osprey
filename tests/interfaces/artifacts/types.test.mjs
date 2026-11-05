@@ -439,8 +439,12 @@ describe('isTimeseries', () => {
     );
   });
 
-  test('true when category is "archiver_data"', () => {
-    expect(isTimeseries({ category: 'archiver_data', artifact_type: 'json' })).toBe(true);
+  test('true when tool_source is "archiver_read"', () => {
+    expect(isTimeseries({ tool_source: 'archiver_read', artifact_type: 'json' })).toBe(true);
+  });
+
+  test('false when only the retired category "archiver_data" is set', () => {
+    expect(isTimeseries({ category: 'archiver_data', artifact_type: 'json' })).toBe(false);
   });
 
   test('false for an ordinary artifact with no timeseries markers', () => {
@@ -448,7 +452,7 @@ describe('isTimeseries', () => {
   });
 
   test('does not require a data file (print strategy captures the on-screen chart)', () => {
-    expect(isTimeseries({ category: 'archiver_data' })).toBe(true);
+    expect(isTimeseries({ tool_source: 'archiver_read' })).toBe(true);
   });
 
   test('tolerates a missing metadata object without throwing', () => {
@@ -458,7 +462,7 @@ describe('isTimeseries', () => {
 
 describe('hasTimeseriesData', () => {
   test('true when a timeseries artifact carries a top-level data_file', () => {
-    expect(hasTimeseriesData({ category: 'archiver_data', data_file: 'y.parquet' })).toBe(true);
+    expect(hasTimeseriesData({ tool_source: 'archiver_read', data_file: 'y.parquet' })).toBe(true);
   });
 
   test('true when the data_file lives under metadata', () => {
@@ -468,7 +472,7 @@ describe('hasTimeseriesData', () => {
   });
 
   test('false for a timeseries artifact with no data file (nothing to fetch/render)', () => {
-    expect(hasTimeseriesData({ category: 'archiver_data' })).toBe(false);
+    expect(hasTimeseriesData({ tool_source: 'archiver_read' })).toBe(false);
   });
 
   test('false for a non-timeseries artifact even when it happens to have a data_file', () => {

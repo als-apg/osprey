@@ -26,16 +26,18 @@
  * member. Which member holds the workspace tile is per-client layout state,
  * reflected only by `.active` + `aria-current="page"` — never by dimming.
  *
- * PAGE-OWNED ROWS. Two rows ship ready-made in index.html because other
- * modules hang state on them: the Agent row (`#sidebar-agent-row`, the
- * `terminal` entry, whose dot and badge sidebar.js keeps) and the Artifacts
- * row (`#sidebar-artifacts-row`, whose lists sidebar-artifacts.js renders).
- * Beside them sit two page-owned nodes that are not entries at all: the
- * Script runs row (`#sidebar-runs-row`, which follows the Artifacts row in
- * and out of view, and into whichever group the Artifacts row moves to,
- * because its records come from the same server) and `#panel-add-btn`. A
- * render MOVES these nodes into place and never rebuilds them, so their
- * listeners, their lists and their live state survive every render. A
+ * PAGE-OWNED ROWS. The Agent row ships ready-made in index.html because
+ * other modules hang state on it: `#sidebar-agent-row`, the `terminal` entry,
+ * whose dot and badge sidebar.js keeps, inside `#sidebar-agent-wrap` with the
+ * session tree sidebar-artifacts.js renders. Beside it sits a page-owned node
+ * that is not an entry at all: `#panel-add-btn`. A render MOVES these nodes
+ * into place and never rebuilds them, so their listeners, their tree and
+ * their live state survive every render.
+ *
+ * NO ARTIFACTS ROW. The artifacts panel has no rail entry: its artifacts live
+ * in the Agent row's session tree, and the panel stays reachable through the
+ * palette and its tile menu. An `artifacts` entry handed to the rail is
+ * dropped (else it would get a generic row). A
  * page-owned entry whose panel is not a member stays in the document,
  * `hidden`, and counts as absent for every query below. A rail element
  * without the page's skeleton (a test fixture) gets its groups built here and
@@ -188,16 +190,11 @@ const DEFAULT_ICON = 'workspace';
 
 /** Page-owned rows, by the entry id they hold. */
 const PAGE_ROWS = /** @type {Readonly<Record<string, string>>} */ ({
-  terminal: 'sidebar-agent-row',
-  artifacts: 'sidebar-artifacts-row',
+  terminal: 'sidebar-agent-wrap',
 });
 
-/** The entry the Script runs row follows. */
-const ARTIFACTS_ID = 'artifacts';
-
-/** The Script runs row: page-owned, shown exactly while Artifacts is, and
- *  always directly after it. */
-const RUNS_ROW_ID = 'sidebar-runs-row';
+/** The panel that never gets a rail entry (its artifacts are in the session tree). */
+export const OFF_RAIL_IDS = Object.freeze(['artifacts']);
 
 /** The `+ Add panel` row: page-owned, always the last row of the last group. */
 const ADD_BUTTON_ID = 'panel-add-btn';
@@ -303,16 +300,6 @@ function pageRow(railEl, id) {
 }
 
 /**
- * Show or hide the Script runs row with the Artifacts row: its records come
- * from the same server, so it has nothing to list where Artifacts is absent.
- * @param {HTMLElement} railEl
- */
-function syncRunsRow(railEl) {
-  const runs = /** @type {HTMLElement | null} */ (railEl.querySelector(`#${RUNS_ROW_ID}`));
-  if (runs) runs.hidden = getEntry(railEl, ARTIFACTS_ID) === null;
-}
-
-/**
  * Whether `el` is a row node (an entry, or a page-owned row wrapper) in view.
  * @param {Element} el
  * @returns {boolean}
@@ -365,8 +352,7 @@ function reconcile(parent, kids) {
 /**
  * Put every group and row where the model and the rail order say. Each group
  * holds its heading and its empty line, then its rows in rail order: the
- * Agent row first in the first group, and the Script runs row directly after
- * the Artifacts row in whichever group that is. `+ Add panel` closes the last
+ * Agent row first in the first group. `+ Add panel` closes the last
  * group. Nodes are moved, never rebuilt, and only where they are out of
  * place, so every row keeps its live state and a node that stays put keeps
  * its focus.
@@ -392,7 +378,6 @@ function arrange(railEl) {
     if (id === TERMINAL_RAIL_ID) agent = node;
     else rows.get(groupOf(id))?.push({ id, node });
   }
-  const runs = /** @type {HTMLElement | null} */ (railEl.querySelector(`#${RUNS_ROW_ID}`));
   const add = /** @type {HTMLElement | null} */ (railEl.querySelector(`#${ADD_BUTTON_ID}`));
 
   ids.forEach((groupId, i) => {
@@ -400,10 +385,7 @@ function arrange(railEl) {
     const kids = [headingOf(group), emptyLineOf(group)];
     if (i === 0 && agent) kids.push(agent);
     const members = rows.get(groupId) ?? [];
-    for (const { id, node } of members.sort((a, b) => rank(a.id) - rank(b.id))) {
-      kids.push(node);
-      if (id === ARTIFACTS_ID && runs) kids.push(runs);
-    }
+    for (const { node } of members.sort((a, b) => rank(a.id) - rank(b.id))) kids.push(node);
     if (i === ids.length - 1 && add) kids.push(add);
     reconcile(group, kids);
   });
@@ -412,7 +394,6 @@ function arrange(railEl) {
   for (const el of railEl.querySelectorAll(':scope > .sidebar-group')) {
     if (!groups.has(el.getAttribute('data-group') ?? '')) el.remove();
   }
-  syncRunsRow(railEl);
   syncEmptyLines(railEl);
 }
 
@@ -557,8 +538,7 @@ function entryNode(railEl, panel, options) {
 /**
  * Render every row into `railEl`: the groups of the model in its order, the
  * Agent row first, every other entry in its group in `panels` order (the
- * server's rail order), the Script runs row after Artifacts, and `+ Add
- * panel` last. Page-owned rows are moved into place, never rebuilt; one whose
+ * server's rail order), and `+ Add panel` last; never an artifacts entry. Page-owned rows are moved into place, never rebuilt; one whose
  * panel is not in `panels` stays in its group, hidden.
  *
  * This is the destructive full render: built rows are made anew. Use
@@ -582,11 +562,12 @@ export function createRail(railEl, panels, options = {}) {
     if (pageRow(railEl, id)) rowOf(/** @type {HTMLElement} */ (entry)).hidden = true;
     else entry.remove();
   }
-  for (const panel of panels) {
+  const onRail = panels.filter((panel) => !OFF_RAIL_IDS.includes(panel.id));
+  for (const panel of onRail) {
     const node = entryNode(railEl, panel, options);
     if (!railEl.contains(node)) groups.get(groupOf(panel.id))?.append(node);
   }
-  const ids = panels.map((panel) => panel.id);
+  const ids = onRail.map((panel) => panel.id);
   railOrderOf.set(
     railEl,
     ids.filter((id) => id !== TERMINAL_RAIL_ID)
@@ -602,13 +583,15 @@ export function createRail(railEl, panels, options = {}) {
  * joins the end of the server's rail order; the Agent row takes its place at
  * the head of the first group.
  *
- * Idempotent by id: an entry that already exists is returned unchanged.
+ * Idempotent by id: an entry that already exists is returned unchanged. An
+ * off-rail panel (artifacts) gets no entry: null.
  * @param {HTMLElement} railEl
  * @param {RailPanel} panel
  * @param {RailOptions} [options]
- * @returns {HTMLElement}
+ * @returns {HTMLElement | null}
  */
 export function addEntry(railEl, panel, options = {}) {
+  if (OFF_RAIL_IDS.includes(panel.id)) return null;
   const existing = getEntry(railEl, panel.id);
   if (existing) return existing;
   wireRail(railEl);
@@ -648,7 +631,6 @@ export function removeEntry(railEl, panelId) {
   );
   if (pageRow(railEl, panelId)) {
     rowOf(entry).hidden = true;
-    syncRunsRow(railEl);
     syncEmptyLines(railEl);
     announceRender();
     return;

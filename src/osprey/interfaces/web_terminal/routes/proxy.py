@@ -74,6 +74,7 @@ from osprey.interfaces.common_middleware import (
     EXTERNAL_ORIGIN_ENV,
     FACILITY_TIMEZONE_ATTRIBUTE,
     FIRST_PARTY_PANEL_STATIC,
+    FIRST_PARTY_PANEL_VIEWERS,
     MOUNT_SEGMENT_RE,
     PANEL_ADMISSION_STATE_KEY,
     PANEL_ASSET_SUBPATHS,
@@ -189,6 +190,10 @@ _REWRITE_PREFIXES = (
     "/webhook/",
     "/retry/",
     "/trigger/",
+    # The gallery's extension-type viewer modules (artifact-viewport.js builds
+    # the import URL as a `/viewers/...` literal), answered by
+    # ``proxy_panel_artifacts_viewer`` for the embedded gallery.
+    "/viewers/",
 )
 
 # Content types eligible for path rewriting.
@@ -1873,6 +1878,36 @@ for _panel_id, _subpaths in FIRST_PARTY_PANEL_STATIC.items():
             methods=["GET", "HEAD"],
         )
 del _panel_id, _subpaths, _subpath, _root
+
+
+@router.api_route(f"{FIRST_PARTY_PANEL_VIEWERS}{{key}}.js", methods=["GET", "HEAD"])
+async def proxy_panel_artifacts_viewer(key: str) -> Response:
+    """Serve extension type ``key``'s viewer module to the embedded gallery.
+
+    A C-ASSETS path (:data:`~osprey.interfaces.common_middleware.FIRST_PARTY_PANEL_VIEWERS`):
+    the embedded gallery is an opaque-origin document, so its viewer import is
+    a credential-less CORS request that could not reach the gated catch-all.
+    MUST stay declared above :func:`proxy_panel`.
+
+    The bytes are the one file :func:`~osprey.stores.type_registry.viewer_path`
+    resolved for ``key`` at load, served verbatim; the key never touches the
+    filesystem. An unknown key, or a type without a viewer, is a 404 here and
+    never reaches the backend.
+    """
+    from osprey.stores.type_registry import viewer_path
+
+    path = viewer_path(key)
+    if path is None or not path.is_file():
+        return Response(content="Not found", status_code=404)
+    return Response(
+        content=path.read_bytes(),
+        headers={
+            "cache-control": _DEFAULT_NO_CACHE,
+            "x-content-type-options": "nosniff",
+            **ASSET_CORS_HEADERS,
+        },
+        media_type="text/javascript",
+    )
 
 
 _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]

@@ -49,7 +49,7 @@ import {
   renderEmptyStateContent,
 } from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
-import { attachConversationMenu } from './sessions.js';
+import { attachSessionSwitcher } from './session-switcher.js';
 import { attachSlashComplete } from './slash-complete.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { notifySessionChange } from './terminal.js';
@@ -91,6 +91,22 @@ export function enterFromTerminal(options = {}) {
 }
 
 /**
+ * The mounted console's turn controls, bound by {@link initChat}; null while
+ * no console is mounted (the session model reaches them from outside).
+ * @type {{ streaming: () => boolean, stop: () => Promise<void>, newConversation: () => void } | null}
+ */
+let controls = null;
+
+/** Whether a turn streams in the console (a live handle or a followed turn; a hand-off is not). */
+export const isStreaming = () => controls?.streaming() ?? false;
+
+/** Stop the streaming turn (interrupt, then abort); resolves once asked, not once it ended. */
+export const stopTurn = () => controls?.stop() ?? Promise.resolve();
+
+/** Start a conversation on a new session key, as the pen button does. */
+export const newConversation = () => controls?.newConversation();
+
+/**
  * Mount the operator chat into #operator-container. Called once in
  * the boot sequence; binds one console to the tab's session pointer. A missing
  * container is a no-op so the rest of the page still boots.
@@ -105,7 +121,7 @@ export function initChat(containerId = 'operator-container') {
   const container = /** @type {HTMLElement} */ (found);
 
   const handles = buildConsole();
-  const { bar, newBtn, moreBtn, messages, overlay, overlayMessage, overlayAction } = handles;
+  const { bar, label, newBtn, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
   const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
@@ -677,7 +693,7 @@ export function initChat(containerId = 'operator-container') {
    * so writing it here is what moves both surfaces; the old key's transcript is
    * left alone — it is a session the operator can still resume.
    */
-  function newConversation() {
+  function startConversation() {
     const key = uuid4();
     // Claim it before the pointer notifies, so the subscription below sees the
     // key the console is already on and does not replay an empty transcript.
@@ -704,7 +720,9 @@ export function initChat(containerId = 'operator-container') {
   });
   sendBtn.addEventListener('click', submit);
   stopBtn.addEventListener('click', stop);
-  newBtn.addEventListener('click', newConversation);
+  newBtn.addEventListener('click', startConversation);
+
+  controls = { streaming: () => streaming, stop, newConversation: startConversation };
 
   // The pointer is the tab's session, not this console's: a key chosen
   // anywhere else (the session picker, the terminal) moves the log here too. A
@@ -727,9 +745,8 @@ export function initChat(containerId = 'operator-container') {
     getKey: () => boundKey,
     onBeforeSend: (transform) => void sendTransforms.push(transform),
   });
-  // Last in the bar, after the bell and Export the features appended.
-  bar.append(moreBtn);
-  attachConversationMenu(moreBtn);
+  // The bar's label names the session and opens the switcher.
+  attachSessionSwitcher(label);
 
   // A page that opens on the chat never went through a surface change: the
   // terminal does not connect here, so this console is the surface running the

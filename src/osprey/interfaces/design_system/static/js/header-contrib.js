@@ -7,7 +7,7 @@
  * a second bar when embedded — it describes those controls to the hub with
  * {@link contributeHeader} and the hub renders them in the tile bar, between
  * the tile's name and its close button. User interaction round-trips back as
- * an `canopy-host-header-action` message (see {@link onHeaderAction}); the panel
+ * a `canopy-host-header-action` message (see {@link onHeaderAction}); the panel
  * reacts internally and re-sends the WHOLE contribution with its new state.
  * The hub renders only what the last contribution says — it never mutates
  * item state locally, so a contribution is an idempotent replace, not a diff.

@@ -76,11 +76,9 @@ class TestFieldMapping:
         reopened = ArtifactStore(workspace_root=store._workspace)
         assert reopened.get_entry(entry.id).metadata["channel"] == CHANNEL
 
-    def test_uses_the_reserved_channel_values_category(self, store):
-        from osprey.stores.type_registry import valid_category_keys
-
-        assert "channel_values" in valid_category_keys()
-        assert _save(store).category == "channel_values"
+    def test_writes_no_category(self, store):
+        """Categories are retired: a reading is recognised by its tool source."""
+        assert _save(store).category == ""
 
     def test_summary_access_details_and_size_are_carried(self, store):
         entry = _save(store)
