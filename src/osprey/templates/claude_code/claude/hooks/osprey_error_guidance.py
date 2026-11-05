@@ -84,6 +84,7 @@ ERROR_CLASS_MAP = {
     # not answer, and the previous target is still active.
     "target_switch_failed": "Connection",
     "bluesky_bridge_unreachable": "Connection",
+    "optimizer_unreachable": "Connection",
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
@@ -242,6 +243,8 @@ ERROR_CLASS_MAP = {
     # the operator, not a policy gate the agent should explain.
     "permission_denied": "Internal",
     "bluesky_bridge_error": "Internal",
+    # A non-2xx from the optimizer; details.status and details.detail say which.
+    "optimizer_error": "Internal",
     "phoebus_error": "Internal",
     "phoebus_open_failed": "Internal",
     "gallery_error": "Internal",

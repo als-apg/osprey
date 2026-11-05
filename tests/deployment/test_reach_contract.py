@@ -868,6 +868,7 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
     not only the bluesky one the hole was found in."""
     cases = {
         "postgresql": {"ariel": {"search_modules": {}}},
+        "optimizer": {"claude_code": {"servers": {"optimizer": {"enabled": True}}}},
         # Switched on by the connector block a VA is configured from, and
         # naming no gateway address of its own — the shape that has to be
         # refused, since the fill would send the client to loopback.
