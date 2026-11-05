@@ -24,7 +24,8 @@ every service, and the subsystems with architecture of their own:
       :link-type: doc
       :shadow: md
 
-      How every write is checked, path by path.
+      The six ways a write reaches the machine through the connector, the
+      Phoebus drive that bypasses it, and the checks and gates on each path.
 
    .. grid-item-card:: Retrieval Paths
       :link: retrieval-paths

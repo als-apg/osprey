@@ -92,8 +92,10 @@ Install in Codex
 Codex invokes a skill with a leading ``$``, for example ``$contribute``. The
 skills themselves are the same files the Claude Code plugin serves.
 
-.. Command syntax per https://learn.chatgpt.com/docs/developer-commands,
-   retrieved 2026-09-01, and verified against codex-cli 0.149 on 2026-09-02.
+Command syntax: `learn.chatgpt.com/docs/developer-commands
+<https://learn.chatgpt.com/docs/developer-commands>`_.
+
+.. Retrieved 2026-09-01, and verified against codex-cli 0.149 on 2026-09-02.
 
 The ten skills
 ----------------

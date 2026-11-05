@@ -128,9 +128,10 @@ The plots-and-files row is the one to read twice:
   image to display it. The Google Chat page shows how to turn files off and
   keep text answers.
 - **Microsoft Teams** returns plots inside the conversation and keeps other
-  files in your own tenant. It needs a small relay in
-  Azure, because a Teams bot is reached only over the public internet. The
-  Microsoft Teams page walks through it.
+  files in your own tenant, readable by the conversation's members. It needs a
+  small relay in Azure, because a Teams bot is reached only over the public
+  internet. Nothing in your stack is exposed. The Microsoft Teams page walks
+  through it.
 
 Learn More
 ==========
