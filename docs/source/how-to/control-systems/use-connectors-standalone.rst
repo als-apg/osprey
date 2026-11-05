@@ -80,9 +80,9 @@ The simulator
    from the dict a connector is built from: the facility's timezone, the write
    tier and the channel limits. A script that has none reads them at their
    defaults and logs a warning that it fell back to UTC. To set the timezone,
-   name a ``config.yml`` in ``CONFIG_FILE``:
+   name a ``config.yml`` in ``CONFIG_FILE`` that states ``system.timezone``:
 
-   .. literalinclude:: examples/facility-timezone.yml
+   .. literalinclude:: examples/system-timezone.yml
       :language: yaml
       :caption: config.yml
 

@@ -70,21 +70,9 @@ Pick a control system
 
       EPICS Channel Access, pointed at a gateway:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-epics.yml
+         :language: yaml
 
-         control_system:
-           type: epics
-           connector:
-             epics:
-               gateways:
-                 # EPICS uses one process-wide CA context, so the connector points at a
-                 # single gateway. When writes are armed for this connector type and a
-                 # write_access gateway is set, writes route through it; otherwise the
-                 # connector uses read_only (so a read-only deployment rejects writes at
-                 # the network layer as well).
-                 read_only:   { address: cagw.facility.edu, port: 5064 }
-                 write_access: { address: cagw.facility.edu, port: 5084 }
-               timeout_s: 5.0
 
       ``timeout_s`` bounds every Channel Access call given no timeout of its
       own. A ``timeout_s`` that is not a positive number of seconds is refused
@@ -106,21 +94,9 @@ Pick a control system
       and the connector reads them through pvAccess, while every other address
       keeps using Channel Access. One deployment covers both:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-epics-pva.yml
+         :language: yaml
 
-         control_system:
-           type: epics
-           connector:
-             epics:
-               timeout_s: 5.0
-               pva_channels:
-                 - "*:IMAGE*"
-                 - "BL:CAM?:ARRAY"
-               pva_gateway:
-                 address: pvagw.facility.edu   # or "cam1 cam2 cam3" for many servers
-                 use_name_server: false
-               gateways:
-                 read_only: { address: cagw.facility.edu, port: 5064 }
 
       Patterns are matched with ``fnmatch.fnmatchcase`` -- case-sensitive, and
       the same on every operating system. Addresses stay exactly as you write
@@ -198,13 +174,9 @@ Pick a control system
       (``FACILITY/DEVICE/LOCATION/PROPERTY``). The ENS comes from the DOOCS
       installation's environment, and the block takes one option:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-doocs.yml
+         :language: yaml
 
-         control_system:
-           type: doocs
-           connector:
-             doocs:
-               timeout_s: 5.0   # optional; seconds per ENS lookup, read or set
 
       A read that does not answer within ``timeout_s`` (or the call's own
       timeout) raises ``TimeoutError``. A set that does not return within it
@@ -237,14 +209,9 @@ Pick a control system
       in the connector block overrides that environment for this connector
       alone:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-tango.yml
+         :language: yaml
 
-         control_system:
-           type: tango
-           connector:
-             tango:
-               tango_host: db.facility.edu:10000   # optional; default TANGO_HOST
-               timeout_s: 5.0                      # seconds per device call
 
       A read or write given no timeout of its own is bounded by ``timeout_s``
       too, with the same answers as DOOCS: a read that runs out raises
@@ -284,10 +251,9 @@ Pick a control system
       physics, so correctors move, BPMs respond, and plans actually run (the
       simulator in process can't run plans):
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-virtual-accelerator.yml
+         :language: yaml
 
-         control_system:
-           type: virtual_accelerator
 
       See :doc:`use-virtual-accelerator` for running it and
       :doc:`/architecture/virtual-accelerator` for how it works.
@@ -322,28 +288,18 @@ independently of the control system:
       History for the addresses of the built facility file — the development
       default:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mock.yml
+         :language: yaml
 
-         archiver:
-           type: mock_archiver
 
    .. tab-item:: EPICS
       :sync: epics
 
       The EPICS Archiver Appliance:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-epics.yml
+         :language: yaml
 
-         archiver:
-           type: epics_archiver
-           settings:
-             url: https://archiver.facility.edu:8443   # required
-             timeout_s: 60                              # seconds, default 60
-             retrieval_path: /retrieval                 # default; a reverse proxy may rename it
-             # auth:                                    # only when a proxy asks for a login
-             #   token_env: OSPREY_ARCHIVER_TOKEN       # the variable that holds the token
-             # tls:                                     # only for a CA the image does not trust
-             #   ca_bundle: /etc/ssl/certs/site-ca.pem  # absolute path of the CA file
 
       ``url`` is the appliance's root (or the reverse proxy's). The connector
       reads through the appliance's retrieval servlet, mounted at ``/retrieval``
@@ -371,12 +327,9 @@ independently of the control system:
       DOOCS *local histories* — only meaningful alongside ``type: doocs``, and
       needing the same environment-supplied ``doocs4py``:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-doocs.yml
+         :language: yaml
 
-         archiver:
-           type: doocs_archiver
-           settings:
-             avg_window: 20    # optional centered moving average, in seconds
 
    .. tab-item:: MongoDB
       :sync: mongodb
@@ -384,20 +337,9 @@ independently of the control system:
       For facilities that store time-series PV data in MongoDB rather than an
       EPICS Archiver Appliance:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mongodb.yml
+         :language: yaml
 
-         archiver:
-           type: mongodb_archiver
-           settings:
-             host: mongodb.facility.edu
-             port: 27017
-             name: archiver_db
-             collection: pv_data
-             auth:
-               source: admin
-               username: readonly
-               password_env: MONGODB_READONLY_PASSWORD
-             timeout_s: 60     # seconds, default 60
 
       The collection holds one document per instant: a ``date`` field plus one
       field per channel sampled at that instant. A channel's field name is its
@@ -417,20 +359,9 @@ independently of the control system:
       A store behind TLS, in a replica set or behind x509 is named by ``url``, a
       MongoDB connection string, in place of ``host`` and ``port``:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mongodb-url.yml
+         :language: yaml
 
-         archiver:
-           type: mongodb_archiver
-           settings:
-             url: mongodb+srv://your-cluster.example.com/?tls=true
-             name: archiver_db
-             collection: pv_data
-             auth:                # optional with a url
-               source: admin
-               username: readonly
-               password_env: MONGODB_READONLY_PASSWORD
-             tls:                 # only for a CA the image does not trust
-               ca_bundle: /etc/ssl/certs/site-ca.pem
 
       The url wins over ``host``, ``port`` and the ``OSPREY_ARCHIVER_MONGODB_*``
       address overrides. It may not carry a user, a password or a key-file
@@ -469,23 +400,16 @@ independently of the control system:
       own server and protocol -- so a deployment inside the facility's network
       needs only the type:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mya-minimal.yml
+         :language: yaml
 
-         archiver:
-           type: mya_archiver
 
       To name a different myquery host, a non-production MYA deployment, or the
       zone it reads query bounds in:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mya.yml
+         :language: yaml
 
-         archiver:
-           type: mya_archiver
-           settings:
-             myquery_server: myquery.facility.edu
-             deployment: ops        # MYA deployment to query
-             timeout_s: 60          # seconds per request
-             timezone: America/New_York   # default: system.timezone
 
       MYA takes no ``auth:`` or ``tls:``: its client sends every request
       itself, so the connector refuses both rather than ignore them. A site CA
@@ -528,12 +452,9 @@ Every archiver takes its settings from one block, ``settings:``, beside the
 ``type`` that selects it. A connector of your own is selected by its dotted
 module path and configured the same way:
 
-.. code-block:: yaml
+.. literalinclude:: examples/archiver-custom.yml
+   :language: yaml
 
-   archiver:
-     type: my_facility.connectors.FacilityArchiver
-     settings:
-       server: history.facility.edu
 
 In a profile's ``config:`` block that is ``archiver.settings.server:
 history.facility.edu``. The block is handed to the connector's ``connect()``

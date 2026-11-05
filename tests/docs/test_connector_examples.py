@@ -215,7 +215,7 @@ def test_without_a_config_the_script_says_it_fell_back_to_utc(quickstart_ioc, tm
 
 def test_the_timezone_config_the_page_shows_ends_the_warning(quickstart_ioc, tmp_path):
     config = tmp_path / "config.yml"
-    config.write_text((EXAMPLES / "facility-timezone.yml").read_text())
+    config.write_text((EXAMPLES / "system-timezone.yml").read_text())
     module = _load("read_channels")
     result = _run(
         "read_channels",
@@ -225,6 +225,32 @@ def test_the_timezone_config_the_page_shows_ends_the_warning(quickstart_ioc, tmp
     )
     assert _ok(result) == _expected("read_channels")
     assert "Falling back to UTC" not in result.stdout + result.stderr
+
+
+def test_the_timezone_config_the_page_shows_sets_the_zone(tmp_path):
+    """Not only the warning: the zone the config states is the zone the package uses.
+
+    Any config file ends the warning, so the warning alone cannot tell a key that
+    is read from one that is silently ignored.
+    """
+    config = tmp_path / "config.yml"
+    config.write_text((EXAMPLES / "system-timezone.yml").read_text())
+    stated = yaml.safe_load(config.read_text())["system"]["timezone"]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from osprey_connectors.config import get_facility_timezone; "
+            "print(get_facility_timezone())",
+        ],
+        cwd=tmp_path,
+        env=_clean_env(tmp_path, CONFIG_FILE=str(config)),
+        capture_output=True,
+        text=True,
+        timeout=RUN_TIMEOUT_S,
+        check=False,
+    )
+    assert _ok(result).strip() == stated
 
 
 def test_read_history_prints_the_page_output(appliance, tmp_path):

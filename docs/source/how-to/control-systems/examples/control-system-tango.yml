@@ -1,0 +1,6 @@
+control_system:
+  type: tango
+  connector:
+    tango:
+      tango_host: db.facility.edu:10000   # optional; default TANGO_HOST
+      timeout_s: 5.0                      # seconds per device call
