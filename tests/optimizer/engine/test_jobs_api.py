@@ -95,19 +95,16 @@ def make_opt_reader(**overrides: object) -> MagicMock:
 
 def job_meta(
     job_id: str = "test-job-id",
-    job_type: JobType = JobType.OPTIMIZATION,
     status: JobStatus = JobStatus.RUNNING,
 ) -> JobMeta:
     """A tracker job-meta record, as ``JobTracker.get_job`` returns it."""
-    return JobMeta(
-        job_id=job_id, pid=1234, status=status, created_at=1712000000.0, job_type=job_type
-    )
+    return JobMeta(job_id=job_id, pid=1234, status=status, created_at=1712000000.0)
 
 
 def corrupt_meta_error() -> ValidationError:
     """The real ValidationError a corrupt ``job:{id}:meta`` record parses into."""
     with pytest.raises(ValidationError) as exc:
-        JobMeta.model_validate_json(json.dumps({"job_id": "corrupt-id", "job_type": "bogus"}))
+        JobMeta.model_validate_json(json.dumps({"job_id": "corrupt-id", "status": "bogus"}))
     return exc.value
 
 
@@ -132,14 +129,14 @@ def patched_control_seams(
 
 @contextmanager
 def patched_job_state(status: JobStatus, logs: str = "") -> Generator[MagicMock]:
-    """Patch the job-status seam's ``create_job_state`` with a reader serving
+    """Patch the job-status seam's ``get_optimization_reader`` with a reader serving
     *status* and *logs* (and no error message), yielding that reader."""
     reader = MagicMock()
     reader.get_status.return_value = status
     reader.get_logs.return_value = logs
     reader.get_error_message.return_value = None
     reader.get_write_authorization.return_value = None
-    with patch(f"{_JS}.create_job_state", return_value=reader):
+    with patch(f"{_JS}.get_optimization_reader", return_value=reader):
         yield reader
 
 
@@ -166,7 +163,7 @@ def created_job_client(
     tracker = JobTracker()
     redis = tracker._get_redis()
     redis.flushdb()
-    tracker.register_created_job(job_id, job_type=JobType.OPTIMIZATION)
+    tracker.register_created_job(job_id)
     get_optimization_writer(job_id).set_status(JobStatus.CREATED)
     redis.set(config_key(job_id), config.model_dump_json())
 
@@ -198,16 +195,9 @@ class TestListJobs:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    @pytest.mark.parametrize(
-        ("job_type", "logs"),
-        [
-            pytest.param(JobType.OPTIMIZATION, "iteration 5\n", id="optimization"),
-        ],
-    )
-    def test_active_job(
-        self, client: TestClient, mock_job_tracker: MagicMock, job_type: JobType, logs: str
-    ) -> None:
-        meta = job_meta(job_type=job_type)
+    def test_active_job(self, client: TestClient, mock_job_tracker: MagicMock) -> None:
+        logs = "iteration 5\n"
+        meta = job_meta()
         mock_job_tracker.list_job_metas.return_value = [meta]
         mock_job_tracker.get_job.return_value = meta
 
@@ -218,7 +208,7 @@ class TestListJobs:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["job_id"] == "test-job-id"
-        assert data[0]["job_type"] == job_type
+        assert data[0]["job_type"] == "optimization"
         assert data[0]["status"] == "running"
         assert data[0]["logs"] == logs
         # meta created_at 1712000000.0 rendered as UTC ISO-8601
@@ -295,21 +285,9 @@ def test_job_lookup_guards(
 
 
 class TestGetJobStatus:
-    @pytest.mark.parametrize(
-        ("job_id", "job_type", "logs"),
-        [
-            pytest.param("test-job-id", JobType.OPTIMIZATION, "running...\n", id="optimization"),
-        ],
-    )
-    def test_get_job(
-        self,
-        client: TestClient,
-        mock_job_tracker: MagicMock,
-        job_id: str,
-        job_type: JobType,
-        logs: str,
-    ) -> None:
-        mock_job_tracker.get_job.return_value = job_meta(job_id, job_type)
+    def test_get_job(self, client: TestClient, mock_job_tracker: MagicMock) -> None:
+        job_id, logs = "test-job-id", "running...\n"
+        mock_job_tracker.get_job.return_value = job_meta(job_id)
 
         with patched_job_state(JobStatus.RUNNING, logs):
             resp = client.get(f"/jobs/{job_id}")
@@ -317,7 +295,7 @@ class TestGetJobStatus:
         assert resp.status_code == 200
         data = resp.json()
         assert data["job_id"] == job_id
-        assert data["job_type"] == job_type
+        assert data["job_type"] == "optimization"
         assert data["status"] == "running"
         assert data["logs"] == logs
 
@@ -595,7 +573,7 @@ class TestStartJob:
 
         # Register a real CREATED optimization job: meta + status + stored config.
         created = "created-opt"
-        real_tracker.register_created_job(created, job_type=JobType.OPTIMIZATION)
+        real_tracker.register_created_job(created)
         get_optimization_writer(created).set_status(JobStatus.CREATED)
         config = OptimizationConfig(
             environment_name="als_injector_sim",
@@ -1209,10 +1187,7 @@ class TestUpdateJobConfig:
     def test_update_job_config_returns_status(
         self, client: TestClient, mock_job_tracker: MagicMock
     ) -> None:
-        with (
-            patch("osprey_optimizer.api.routers.jobs._require_optimization"),
-            patch("osprey_optimizer.api.routers.jobs.update_optimization_config") as upd,
-        ):
+        with patch("osprey_optimizer.api.routers.jobs.update_optimization_config") as upd:
             upd.return_value = JobResponse(
                 job_id="j1", job_type=JobType.OPTIMIZATION, status=JobStatus.CREATED
             )
@@ -1243,8 +1218,7 @@ class TestUpdateJobConfig:
             environment_name="sim", control_target="va", objective_name="obj"
         )
         seam_redis_mock.get.return_value = stored.model_dump_json()
-        with patch("osprey_optimizer.api.routers.jobs._require_optimization"):
-            resp = client.get("/jobs/j1/config")
+        resp = client.get("/jobs/j1/config")
 
         assert resp.status_code == 200
         assert resp.json()["environment_name"] == "sim"

@@ -33,7 +33,7 @@ from osprey_optimizer.optimization.xopt_backend import (
     _compute_fixed_features,
     _resolve_n_initial,
 )
-from osprey_optimizer.results import ResultMetadata, save_optimization_results
+from osprey_optimizer.results import save_optimization_results
 from osprey_optimizer.services.orchestration import OptimizationEngine
 
 from ._fakes import EchoEnv
@@ -194,7 +194,8 @@ class TestModelBundleSaving:
                     environment_name="test_env", control_target="va", n_iterations=5
                 ),
                 output_dir=tmp_path / "results",
-                metadata=ResultMetadata(model=rf, model_variables=None),
+                model=rf,
+                model_variables=None,
             )
 
 
