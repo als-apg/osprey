@@ -655,7 +655,8 @@ Who sees what is decided per person, from the roster, every time a page loads.
 In ``profile.yml``, the roster goes under ``config:`` and ``agent_record:`` is a
 top-level key. Merge these keys into the ``modules.web_terminals:`` and
 ``agent_record:`` entries already there; a second copy of either key silently
-replaces the first.
+replaces the first. A list in the snippet, such as ``users:``, stands as the
+whole list, so write every entry you keep into it.
 
 .. code-block:: yaml
 
@@ -668,6 +669,9 @@ replaces the first.
          - name: alice
            index: 0
            tier: readwrite             # history: own, the default
+         - name: bob
+           index: 1
+           role: operator              # history: all, from the role
          - name: carol
            index: 2
            tier: admin

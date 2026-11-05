@@ -44,8 +44,9 @@ name files under ``tiers/``. The ``control-assistant`` preset sets
 
 Each snippet goes in ``profile.yml``, under ``config:``. Merge its keys into
 the ``modules.web_terminals:`` entry already there; a second copy of that key
-silently replaces the first. Keep ``modules.web_terminals`` as one dotted key:
-a nested ``modules:`` block would replace the whole ``modules`` subtree and
+silently replaces the first. A list in a snippet, such as ``users:``, stands
+as the whole list, so write every entry you keep into it. Keep
+``modules.web_terminals`` as one dotted key: a nested ``modules:`` block would replace the whole ``modules`` subtree and
 drop the keys the preset sets.
 
 Choose a method
@@ -701,9 +702,11 @@ owner's account name instead:
            claim: email
        users:
          - name: alice
+           index: 0
            oidc_subject: alice@example.org
            control_identity: alice
          - name: carol
+           index: 2
            oidc_subject: carol@example.org
            control_identity: cjones
 
@@ -796,6 +799,7 @@ port stays out of the origin and the callback is
    config:
      modules.web_terminals:
        external_origin: https://terminals.example.org   # what the browser reaches
+       history_origin: https://terminals.example.org:8443   # the history page, same host
        auth:
          method: password
          allow_insecure_http: true
@@ -804,6 +808,11 @@ port stays out of the origin and the callback is
 request unless the browser says it came from that address, and nothing else
 in the configuration can work out what the thing in front answers on. Write
 it as a bare origin — scheme, host, port if non-default, no path.
+``history_origin`` is required beside it for the same reason: it is the
+address browsers reach the history page on (:ref:`multi-user-history-page`),
+on the same host as ``external_origin``. Behind a sign-in, ``osprey build``
+refuses an ``external_origin`` without it
+(``web_terminals.history_origin_required``).
 
 The deployment answers on that one origin, and every other name is redirected
 there. A front proxy must forward the browser's own ``Host`` (for nginx in
