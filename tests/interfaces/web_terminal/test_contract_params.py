@@ -407,7 +407,6 @@ _CHROME_CONTRACT_PANELS = [
         "osprey-display-menu",
         _toggle_via_display_menu,
     ),
-
     ("okf_panel", launch_okf_panel, "", None, "osprey-display-menu", _toggle_via_display_menu),
     (
         "web_terminal_session",
