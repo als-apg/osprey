@@ -138,13 +138,18 @@ packaged values and the ones you added are kept. Never touches ``.env``,
 images a previous deployment under the same ``project_name`` left behind, and
 re-materialize the source zone as ``--force`` does when the repository directory
 still exists. **The data in those volumes is lost, and nothing asks you to
-confirm.** The removal is the one ``osprey reset --yes`` makes, including the
-agent's memory, ``build/`` and the tokens ``osprey up`` minted into ``.env``
-when the repository still holds them, and it keeps what that reset keeps; the
-plan is not printed. Deleting a deployment's directory never removes its
-runtime state — containers and volumes are keyed on the ``project_name`` — so
-a repository re-created under a used name inherits the old stores unless this
-flag is given. Refuses up front when no container runtime answers.
+confirm.** The removal is the one ``osprey reset --yes`` makes. When the
+repository still exists, that includes the agent's memory, ``build/`` and the
+tokens ``osprey up`` minted into ``.env``. It keeps what that reset keeps, and
+the plan is not printed.
+
+Deleting a deployment's directory never removes its runtime state: containers
+and volumes are keyed on the ``project_name``. A repository re-created under a
+used name without this flag meets the old stores, and its first ``osprey up``
+refuses to start while a surviving store volume would reject the freshly
+minted credential. Pass ``--reuse-stores`` to ``osprey up`` to keep the old
+data, or re-run ``osprey init`` with ``--reset`` to drop it. ``--reset``
+refuses up front when no container runtime answers.
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
 
@@ -505,9 +510,9 @@ osprey restart
 Stop and start this deployment again. Takes the same options as ``up``:
 ``-d/--detached``, ``--dev``, ``--build``, ``--as-built``,
 ``--keep-archiver-base``, ``--reuse-stores``. ``--reuse-stores`` is checked
-before the stop, since stopping removes the containers it reads from. The stop half acts on the runtime and compose project
-the last ``osprey up`` recorded; the start half picks the runtime the setting
-selects now.
+before the stop, since stopping removes the containers it reads from. The stop
+half acts on the runtime and compose project the last ``osprey up`` recorded;
+the start half picks the runtime the setting selects now.
 
 osprey status
 -------------
@@ -1472,7 +1477,7 @@ code run by the ``python_executor`` MCP server's ``execute`` tool, or by the
    ``config.yml``, else the port layout's Artifact Gallery port).
 
    ``-h, --host TEXT`` — Host to bind to (default: from ``config.yml`` or
-   ``127.0.0.1``).
+   ``127.0.0.1``). Here ``-h`` is ``--host``, not help.
 
    ``--reload`` — Enable auto-reload for development.
 
@@ -1499,7 +1504,8 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    URL is printed once, but its token is the server's own secret and stays
    valid for the life of the process — treat it like a password.
 
-   ``-p, --port INTEGER`` — Port (default: from config, else the port layout's ``10100``).
+   ``-p, --port INTEGER`` — Port (default: ``OSPREY_WEB_PORT``, then config, else
+   the port layout's web port, ``port_base`` + 100).
    0 lets the system choose; the startup line names the port; not with ``--reload``.
 
    ``--host TEXT`` — Host to bind to (default: from config, else ``127.0.0.1``).
@@ -1517,13 +1523,13 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    ``--skip-preflight`` — Skip the pre-flight checks (companion port collisions
    and the like) and start anyway. Without it, a failed check refuses the start.
 
-``osprey web stop``
+``osprey web stop [--repo DIRECTORY]``
    Stop a background web terminal server.
 
 ``osprey web sessions``
    Group for the commands that manage the sessions kept on disk.
 
-``osprey web sessions clear``
+``osprey web sessions clear [--repo DIRECTORY] [--force]``
    Forget the sessions this project has kept on disk, so everyone has to open
    the login URL again. It refuses to run while a server is using them — stop
    it first with ``osprey web stop``.
@@ -1710,7 +1716,8 @@ All subcommands accept a common flag:
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
    allocation, reserved service names, duplicate users, tier and app references).
    Exits non-zero on error-severity findings; warnings do not fail the check,
-   so it is safe to wire into a CI gate.
+   so it is safe to wire into a CI gate. The retired ``--config`` is refused,
+   as under ``render`` below.
 
 ``osprey scaffold web-terminals render [--repo DIRECTORY] -o DIRECTORY``
    Render the multi-user deployment artifacts (docker-compose overlay, nginx
