@@ -513,6 +513,13 @@ def _engine_skip_reason(engine: str) -> str | None:
     return _ENGINE_SKIP_REASONS[engine]
 
 
+def _requested_fixtures(item: pytest.Item) -> set[str]:
+    """The fixtures ``item`` requests: its closure, plus any named by a parametrized fixture."""
+    callspec = getattr(item, "callspec", None)
+    params = callspec.params.values() if callspec else ()
+    return set(getattr(item, "fixturenames", ())) | {p for p in params if isinstance(p, str)}
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Skip, before any setup, every test that needs a browser engine this host lacks.
@@ -529,11 +536,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if not item.path.is_relative_to(here):
             continue  # the hook sees the whole session; the fixtures live only here
-        callspec = getattr(item, "callspec", None)
-        params = callspec.params.values() if callspec else ()
-        requested = set(getattr(item, "fixturenames", ())) | {
-            p for p in params if isinstance(p, str)
-        }
+        requested = _requested_fixtures(item)
         for engine in BROWSER_ENGINES:
             if f"{engine}_browser" in requested and (reason := _engine_skip_reason(engine)):
                 item.add_marker(pytest.mark.skip(reason=reason))
