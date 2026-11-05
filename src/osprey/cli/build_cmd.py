@@ -27,7 +27,7 @@ The build pipeline's helper concerns live in sibling modules that this command
 orchestrates: venv + ``.env`` templating in :mod:`osprey.cli.build_environment`,
 lifecycle-phase execution in :mod:`osprey.cli.build_lifecycle`, service
 injectors in :mod:`osprey.cli.build_injectors`, and project-directory
-persistence (config overrides, convention artifacts, MCP servers, git init) in
+persistence (config overrides, convention artifacts, MCP servers) in
 :mod:`osprey.cli.build_persistence`. They are re-exported below so
 ``from osprey.cli.build_cmd import <helper>`` keeps working.
 """
