@@ -230,6 +230,53 @@ describe('filtering + highlight', () => {
   });
 });
 
+describe('a query that names a panel', () => {
+  /** Settings keys that all contain the panel id, as a deployment's ariel.* keys do. */
+  const ARIEL_SECTIONS = {
+    ariel: { database: { uri: 'x' }, web: { port: 1 }, search: { k: 2 } },
+    logbook: { name: 'ops' },
+    elog: { url: 'y' },
+  };
+
+  test('its old id lists the panel first, ahead of every setting that contains it', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(
+      makeDeps({
+        getHiddenPanels: () => [],
+        getVisiblePanels: () => [],
+        getPopoutPanels: () => [{ id: 'ariel', label: 'Logbook' }],
+        popoutPanel: vi.fn(),
+      })
+    );
+    await flushMicro();
+    typeQuery('ariel');
+
+    expect(headings()[0]).toBe('Panels');
+    expect(rowLabels()[0]).toBe('Pop out Logbook');
+    const active = document.querySelector('.command-palette-item--active');
+    expect(active?.textContent).toContain('Pop out Logbook');
+  });
+
+  test('its label and its domain words also lead with the panel', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(makeDeps({ getHiddenPanels: () => [{ id: 'ariel', label: 'Logbook' }] }));
+    await flushMicro();
+    for (const q of ['logbook', 'Logbook', 'elog']) {
+      typeQuery(q);
+      expect(headings()[0], q).toBe('Panels');
+    }
+  });
+
+  test('a partial word keeps the fixed group order', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(makeDeps({ getHiddenPanels: () => [{ id: 'ariel', label: 'Logbook' }] }));
+    await flushMicro();
+    typeQuery('ari');
+
+    expect(headings()[0]).toBe('Settings');
+  });
+});
+
 describe('keyboard navigation', () => {
   test('Arrow keys move the active row and skip status rows', async () => {
     // Loading state: a status decoration coexists with panel/layout/action rows.

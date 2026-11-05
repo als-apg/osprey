@@ -98,6 +98,10 @@ _VOCABULARY_PREFIX = "ariel.vocabulary"
 #: process keeps a CLI that parses the config repeatedly from repeating itself.
 _connection_string_warned = False
 
+#: Tripped the first time a config is parsed that still carries the retired
+#: ``ariel.embedded_search`` switch, so the operator is told once per process.
+_embedded_search_warned = False
+
 
 def resolve_ariel_dsn(
     ariel_section: dict[str, Any],
@@ -242,6 +246,19 @@ def _warn_once_connection_string_retired() -> None:
         "value is still being honored as the ARIEL DSN, but rename the key to "
         "ariel.database.uri — or delete it entirely and let the DSN derive from "
         "services.postgresql (username, database_name, port_host)."
+    )
+
+
+def _warn_once_embedded_search_retired() -> None:
+    """Warn once per process that ``ariel.embedded_search`` is retired."""
+    global _embedded_search_warned
+    if _embedded_search_warned:
+        return
+
+    _embedded_search_warned = True
+    logger.warning(
+        "config.yml sets ariel.embedded_search, a retired key that does nothing: "
+        "the ARIEL panel always offers Search. Delete the key."
     )
 
 
@@ -1038,10 +1055,6 @@ class ARIELConfig:
             the agent-facing tools return.
         attachments: The ``ariel.attachments`` block — attachment copying, the
             size cap, the fetch allowlist and the ``attachment_view`` switch.
-        embedded_search: The ``ariel.embedded_search`` switch — whether the
-            ARIEL panel embedded in the web terminal offers its Search view.
-            Off by default: there, the agent searches the logbook. The
-            standalone page always offers Search.
 
     Documented top-level config keys read at runtime (not dataclass fields):
         entry_url_template: Optional ``str`` template for the canonical logbook
@@ -1067,7 +1080,6 @@ class ARIELConfig:
     vocabulary_warnings: list[str] = field(default_factory=list)
     entry_text: EntryTextConfig = field(default_factory=EntryTextConfig)
     attachments: AttachmentsConfig = field(default_factory=AttachmentsConfig)
-    embedded_search: bool = False
     # Cache for entry_expander(): an EntryExpander, the legitimate None, or the
     # unset sentinel. Not an init field, so dataclasses.replace() yields a copy
     # that recomputes from its own settings; never part of equality or repr.
@@ -1110,7 +1122,6 @@ class ARIELConfig:
             ValueError: If the ``vocabulary`` block is malformed.
             ValueError: If the ``entry_text`` block is malformed.
             ValueError: If the ``attachments`` block is malformed.
-            ValueError: If ``embedded_search`` is not a boolean.
         """
         if "pipelines" in config_dict:
             raise ConfigurationError(
@@ -1159,13 +1170,8 @@ class ARIELConfig:
         else:
             raise ValueError(f"{_ATTACHMENTS_PREFIX} must be a mapping, got {attachments_data!r}")
 
-        embedded_search = config_dict.get("embedded_search")
-        if embedded_search is None:
-            embedded_search = False
-        elif not isinstance(embedded_search, bool):
-            raise ValueError(
-                f"ariel.embedded_search must be true or false, got {embedded_search!r}"
-            )
+        if "embedded_search" in config_dict:
+            _warn_once_embedded_search_retired()
 
         vocabulary_data = config_dict.get("vocabulary")
         if vocabulary_data is None:
@@ -1210,7 +1216,6 @@ class ARIELConfig:
             vocabulary_warnings=vocabulary_warnings,
             entry_text=entry_text,
             attachments=attachments,
-            embedded_search=embedded_search,
         )
 
     @property

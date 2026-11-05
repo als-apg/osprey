@@ -14,7 +14,7 @@
  *     Nested surfaces step DOWN one rung, never up. Round things
  *     (dots, spinner, slider track/thumb, toggle) use --radius-full.
  *   - Control heights come off the space scale via min-height: 22px small,
- *     28px default, 34px large — the terminal's chip heights.
+ *     28px default — the terminal's chip heights.
  *   - One state model for every bordered control: rest is transparent-or-panel
  *     fill with --border-default; hover lifts text to --color-accent-light and
  *     the border to --color-accent; the selected/active state adds the
@@ -41,6 +41,7 @@
   gap: var(--space-2);
   min-height: 28px;
   padding: var(--space-1) var(--space-3);
+  font-family: inherit;
   font-size: var(--text-md);
   font-weight: var(--weight-medium);
   line-height: var(--leading-none);
@@ -91,33 +92,10 @@
   color: var(--text-primary);
 }
 
-.btn-accent-secondary {
-  background: var(--color-accent-secondary);
-  color: var(--bg-primary);
-  border-color: var(--color-accent-secondary);
-}
-
-.btn-accent-secondary:hover:not(:disabled) {
-  background: var(--color-accent-secondary-light);
-  border-color: var(--color-accent-secondary-light);
-}
-
 .btn-sm {
   min-height: 22px;
   padding: var(--space-1) var(--space-2);
   font-size: var(--text-sm);
-}
-
-.btn-lg {
-  min-height: 34px;
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-xl);
-}
-
-.btn-icon {
-  padding: 0;
-  width: 28px;
-  height: 28px;
 }
 
 /* === Inputs === */
@@ -133,9 +111,13 @@
   color: var(--text-secondary);
 }
 
+/* Form controls do not inherit the page font on their own (the UA gives
+   inputs a system face and textareas a monospace one), so every field names
+   it. */
 .input {
   width: 100%;
   padding: var(--space-2) var(--space-3);
+  font-family: inherit;
   font-size: var(--text-md);
   color: var(--text-primary);
   background: var(--bg-panel);
@@ -156,50 +138,17 @@
   border-color: var(--color-accent);
 }
 
-.input-lg {
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-xl);
-}
-
 textarea.input {
   min-height: 120px;
   resize: vertical;
   line-height: var(--leading-relaxed);
 }
 
-/* === Search Input === */
-.search-input-container {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.search-input {
-  padding-left: var(--space-7);
-  /* 128px keeps typed text clear of the absolutely-overlaid .search-actions
-     buttons; it is the retired --ariel-space-32 value carried over as a
-     literal because the fleet spacing scale tops out at --space-8 (64px). */
-  padding-right: 128px;
-}
-
-.search-icon {
-  position: absolute;
-  left: var(--space-4);
-  color: var(--text-muted);
-  pointer-events: none;
-}
-
-.search-actions {
-  position: absolute;
-  right: var(--space-2);
-  display: flex;
-  gap: var(--space-2);
-}
-
 /* === Select === */
 .select {
   appearance: none;
   padding: var(--space-2) var(--space-6) var(--space-2) var(--space-3);
+  font-family: inherit;
   font-size: var(--text-md);
   color: var(--text-primary);
   background: var(--bg-panel);
@@ -251,85 +200,6 @@ textarea.input {
   padding: var(--space-4);
 }
 
-.card-footer {
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--neutral-tint-10);
-  background: var(--bg-secondary);
-}
-
-/* === Entry Card (logbook entries) === */
-.entry-card {
-  background: var(--ariel-surface-card);
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
-  transition: background-color var(--duration-instant) ease,
-    border-color var(--duration-instant) ease;
-  cursor: pointer;
-}
-
-.entry-card:hover {
-  border-color: var(--border-accent);
-  background: var(--ariel-surface-hover);
-}
-
-.entry-card-cited {
-  border-left: 2px solid var(--color-accent);
-}
-
-.entry-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin-bottom: var(--space-2);
-}
-
-.entry-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-3);
-  font-size: var(--text-md);
-  color: var(--text-muted);
-}
-
-.entry-card-meta .entry-id {
-  color: var(--color-accent-secondary-light);
-  font-weight: var(--weight-medium);
-}
-
-.entry-card-meta .timestamp {
-  color: var(--text-secondary);
-}
-
-.entry-card-content {
-  color: var(--text-secondary);
-  line-height: var(--leading-relaxed);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.entry-card-content b {
-  color: var(--color-accent-secondary-light);
-  background: var(--accent-secondary-tint-15);
-  font-weight: var(--weight-semibold);
-  padding: 1px 3px;
-  border-radius: var(--radius-xs);
-}
-
-.entry-card-footer {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--neutral-tint-10);
-  font-size: var(--text-md);
-}
-
 /* === Keyword Pills === */
 .keyword-list {
   display: inline-flex;
@@ -346,6 +216,53 @@ textarea.input {
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-sm);
   background: transparent;
+}
+
+/* === Enhancement Badge Strip ===
+   One cell per enhancement module. The state is a shape as well as a hue:
+   filled (complete), hollow (pending), dotted grey (not run), dashed (stale),
+   filled error (failed), faint hairline (n/a). */
+.ariel-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ariel-strip-cell {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--text-muted);
+  background: transparent;
+}
+
+.ariel-strip-cell-complete {
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+
+.ariel-strip-cell-pending {
+  border-color: var(--color-info);
+}
+
+/* Never ran: the plain hollow cell, dotted so it is not read as pending. */
+.ariel-strip-cell.ariel-strip-cell-not-run {
+  border-style: dotted;
+}
+
+.ariel-strip-cell-stale {
+  border-style: dashed;
+  border-color: var(--color-warning);
+}
+
+.ariel-strip-cell-failed {
+  border-color: var(--color-error);
+  background: var(--color-error);
+  border-radius: var(--radius-full);
+}
+
+.ariel-strip-cell-na {
+  border-color: var(--neutral-tint-10);
 }
 
 /* === Score Badge === */
@@ -392,11 +309,6 @@ textarea.input {
   background: var(--accent-tint-10);
 }
 
-.tag-accent-secondary {
-  color: var(--color-accent-secondary-light);
-  background: var(--accent-secondary-tint-08);
-}
-
 /* === Status Indicator === */
 .status-indicator {
   display: inline-flex;
@@ -413,47 +325,8 @@ textarea.input {
 }
 
 .status-dot.healthy { background: var(--color-success); }
-.status-dot.warning { background: var(--color-warning); }
 .status-dot.error { background: var(--color-error); }
 .status-dot.inactive { background: var(--text-muted); }
-
-/* === Answer Box (RAG results) === */
-.answer-box {
-  background: linear-gradient(135deg, var(--accent-tint-10), var(--accent-secondary-tint-04));
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  margin-bottom: var(--space-5);
-}
-
-.answer-box-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--color-accent-light);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-}
-
-.answer-box-content {
-  color: var(--text-primary);
-  line-height: var(--leading-relaxed);
-}
-
-.answer-box-sources {
-  margin-top: var(--space-3);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--neutral-tint-10);
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-}
-
-.answer-box-sources a {
-  color: var(--color-accent-secondary-light);
-}
 
 /* === Diagnostics Bar === */
 .diagnostics-bar {
@@ -615,256 +488,6 @@ textarea.input {
   color: var(--text-secondary);
 }
 
-/* === Pipeline Details === */
-.pipeline-details {
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-3);
-  border: 1px solid var(--neutral-tint-10);
-  background: var(--bg-secondary);
-  overflow: hidden;
-}
-
-.pipeline-details-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  color: var(--color-accent-light);
-  cursor: pointer;
-  list-style: none;
-  transition: background-color var(--duration-instant) ease;
-}
-
-.pipeline-details-toggle:hover {
-  background: var(--ariel-surface-hover);
-}
-
-.pipeline-details-toggle::-webkit-details-marker {
-  display: none;
-}
-
-.pipeline-details-body {
-  padding: var(--space-3);
-  border-top: 1px solid var(--neutral-tint-10);
-}
-
-/* RAG stage flow */
-.pipeline-stage-flow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.pipeline-stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-elevated);
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-sm);
-  min-width: 80px;
-}
-
-.pipeline-stage-label {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--color-accent);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-}
-
-.pipeline-stage-count {
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
-}
-
-.pipeline-arrow {
-  color: var(--text-muted);
-  font-size: var(--text-md);
-  font-weight: var(--weight-regular);
-}
-
-/* Agent tool invocations table */
-.pipeline-tool-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-md);
-  margin-bottom: var(--space-3);
-}
-
-.pipeline-tool-table th {
-  text-align: left;
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  border-bottom: 1px solid var(--border-default);
-}
-
-.pipeline-tool-table td {
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--neutral-tint-10);
-  color: var(--text-secondary);
-}
-
-.pipeline-tool-order {
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  width: 30px;
-}
-
-.pipeline-tool-name {
-  font-family: var(--font-mono);
-  font-weight: var(--weight-medium);
-  color: var(--color-accent-secondary-light);
-}
-
-.pipeline-tool-args,
-.pipeline-tool-result {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Agent ReAct trace */
-.pipeline-step-trace {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.pipeline-step-trace-title {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  margin-bottom: var(--space-1);
-}
-
-.pipeline-step {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border-left: 2px solid var(--neutral-tint-10);
-  padding-left: var(--space-3);
-}
-
-.pipeline-step-badge {
-  display: inline-block;
-  padding: 1px var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  border-radius: var(--radius-sm);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  white-space: nowrap;
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-}
-
-.pipeline-step-badge-user_query { color: var(--color-info); border: 1px solid var(--color-info); background: var(--color-info-bg); }
-.pipeline-step-badge-reasoning { color: var(--color-accent-light); border: 1px solid var(--color-accent); background: var(--accent-tint-10); }
-.pipeline-step-badge-tool_call { color: var(--color-accent-secondary-light); border: 1px solid var(--color-accent-secondary); background: var(--accent-secondary-tint-15); }
-.pipeline-step-badge-tool_result { color: var(--color-warning); border: 1px solid var(--color-warning); background: var(--color-warning-bg); }
-.pipeline-step-badge-final_answer { color: var(--color-success); border: 1px solid var(--color-success); background: var(--color-success-bg); }
-
-.pipeline-step-tool {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--color-accent-secondary-light);
-  background: var(--accent-secondary-tint-15);
-  padding: 1px var(--space-2);
-  border-radius: var(--radius-sm);
-}
-
-.pipeline-step-content {
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-  word-break: break-word;
-}
-
-/* === Modal === */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--overlay-black-70);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: var(--space-6);
-  overflow-y: auto;
-  z-index: var(--z-modal);
-  animation: fadeIn var(--duration-fast) ease;
-}
-
-/* Dialogs settle in place rather than travelling: a short opacity + 2%
-   scale-up, the terminal's treatment for its command palette and its
-   settings-warning dialog. */
-.modal {
-  width: 100%;
-  max-width: 900px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-dialog);
-  animation: modalIn var(--duration-fast) ease-out;
-}
-
-@keyframes modalIn {
-  from {
-    opacity: 0;
-    transform: scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--neutral-tint-10);
-}
-
-.modal-title {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
-}
-
-.modal-body {
-  padding: var(--space-4);
-  max-height: 85vh;
-  overflow-y: auto;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--neutral-tint-10);
-  background: var(--bg-elevated);
-  border-radius: var(--radius-none) var(--radius-none) var(--radius-2xl) var(--radius-2xl);
-}
-
 /* === Loading Spinner === */
 .spinner {
   width: 20px;
@@ -910,104 +533,7 @@ textarea.input {
   max-width: 400px;
 }
 
-/* === Filters Panel === */
-.filters-panel {
-  background: var(--bg-secondary);
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-}
-
-.filters-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-3);
-}
-
-.filters-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-}
-
-/* === Tooltip === */
-[data-tooltip] {
-  position: relative;
-}
-
-[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-dropdown);
-  white-space: nowrap;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity var(--duration-instant) ease,
-    visibility var(--duration-instant) ease;
-  pointer-events: none;
-  z-index: var(--z-tooltip, 1000);
-}
-
-[data-tooltip]:hover::after {
-  opacity: 1;
-  visibility: visible;
-}
-
-/* === File Drop Zone === */
-.drop-zone {
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-md);
-  padding: var(--space-5);
-  text-align: center;
-  cursor: pointer;
-  transition: border-color var(--duration-instant) ease,
-    background-color var(--duration-instant) ease;
-}
-
-.drop-zone:hover {
-  border-color: var(--color-accent);
-  background: var(--accent-tint-06);
-}
-
-/* A file actually hovering the zone is the louder of the two states, so it
-   gets the heavier wash — pointer-hover only hints. */
-.drop-zone.dragover {
-  border-color: var(--color-accent);
-  background: var(--accent-tint-12);
-}
-
-.drop-zone-text {
-  color: var(--text-secondary);
-}
-
-.drop-zone-hint {
-  font-size: var(--text-md);
-  color: var(--text-muted);
-  margin-top: var(--space-2);
-}
-
-/* === Search Mode Tabs === */
-.search-mode-tabs {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  margin-top: var(--space-3);
-}
+/* === Search Mode Chips (filters popover) === */
 
 .mode-tab-group {
   display: flex;
@@ -1059,71 +585,7 @@ textarea.input {
   border-color: var(--color-accent);
 }
 
-/* === Search Options Bar === */
-.search-options-bar {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-.search-options-bar .btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.search-options-bar .btn.active {
-  background: var(--accent-tint-10);
-  border-color: var(--color-accent);
-  color: var(--color-accent-light);
-}
-
-/* === Advanced Options Panel === */
-/* The reveal is a fade-and-settle, not a height slide: the terminal opens its
-   popovers with a short opacity + few-pixel drop, and a max-height animation
-   both reads slower than the rest of the product and animates layout. */
-.advanced-panel {
-  background: var(--bg-secondary);
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-md);
-  margin-top: var(--space-3);
-  overflow: hidden;
-  animation: slideDown var(--duration-instant) ease-out;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.advanced-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--neutral-tint-10);
-}
-
-.advanced-title {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--color-accent-secondary-light);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-}
-
-.advanced-header-actions {
-  display: flex;
-  gap: var(--space-2);
-}
-
+/* === Advanced Options Sections (filters popover) === */
 .advanced-sections {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -1366,22 +828,7 @@ textarea.input {
 
 /* === Responsive === */
 @media (max-width: 768px) {
-  .search-options-bar {
-    flex-wrap: wrap;
-  }
-
   .advanced-sections {
     grid-template-columns: 1fr;
-  }
-
-  .advanced-header {
-    flex-direction: column;
-    gap: var(--space-2);
-    align-items: flex-start;
-  }
-
-  .advanced-header-actions {
-    width: 100%;
-    justify-content: flex-end;
   }
 }

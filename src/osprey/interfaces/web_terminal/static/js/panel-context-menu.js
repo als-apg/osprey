@@ -13,7 +13,7 @@
  * names, so terminal.css's `.rail-context-*` skin and the selectors the browser
  * suite uses stay as they were:
  *
- *   <div class="rail-context-menu" role="menu" aria-label="ARIEL actions">
+ *   <div class="rail-context-menu" role="menu" aria-label="Logbook actions">
  *     <button class="rail-context-item" role="menuitem" type="button">
  *       <span class="rail-context-label">Pop out</span>
  *       <span class="rail-context-glyph" aria-hidden="true">↗</span>

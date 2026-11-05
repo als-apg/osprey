@@ -485,7 +485,7 @@ class TileTab {
 
       // Contribution region: the panel-controls slot between the tile's name
       // and its close button (tile-header-contrib.js renders into it from the
-      // panel's last `osprey-header-contribution`). Keyed by the service
+      // panel's last `canopy-host-header-contribution`). Keyed by the service
       // panel id, i.e. the dockview placeholder id minus its prefix.
       const contrib = document.createElement('div');
       contrib.className = 'tile-tab-contrib';

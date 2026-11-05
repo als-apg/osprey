@@ -56,6 +56,7 @@ if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.filters import EntryFilter
     from osprey.services.ariel_search.ingestion.base import FacilityAdapter
     from osprey.services.ariel_search.search.base import (
         ExpansionGroup,
@@ -84,6 +85,64 @@ _PICTURE_SEARCH_KEY = "ariel.enhancement_modules.image_embedding.enabled"
 
 #: Advanced parameters that are the service's own controls, never a module's.
 _SERVICE_PARAMS = frozenset({EXPAND_QUERY_PARAM, INCLUDE_IMAGES_PARAM})
+
+#: Cap on ``max_results`` for a module that does not page itself (C-MODOUT):
+#: it is asked for ``offset + page_size * 2`` results, at most this many.
+_MAX_UNPAGED_FETCH = 200
+
+#: Most matched entries a query facet counts over (C-FACETS).
+FACET_COUNT_CAP = 1000
+
+#: The hybrid mode's matched set is its fused candidates, at most this many
+#: (``qmd.MAX_FETCH_LIMIT``); its facets are never exact.
+HYBRID_FACET_CAP = 200
+
+_HYBRID_MODE = "hybrid"
+
+
+@dataclasses.dataclass(frozen=True)
+class MatchedIds:
+    """The entry set a query matches, as query facets count it (C-FACETS).
+
+    Attributes:
+        ids: The matched entry ids, in the mode's order, at most the cap.
+        exact: Whether counting over ``ids`` reproduces the list's lengths:
+            false for hybrid, at the cap, for a keyword partial or fuzzy tier,
+            and when the tier differs from the list's.
+        tier: The keyword tier the matched set came from, else None.
+        list_tier: The keyword tier the list uses under the full filter, else
+            None.
+    """
+
+    ids: tuple[str, ...]
+    exact: bool
+    tier: str | None = None
+    list_tier: str | None = None
+
+
+def _page_totals(
+    total: int | None,
+    total_exact: bool,
+    has_more: bool | None,
+    *,
+    offset: int,
+    page_len: int,
+    page_size: int,
+) -> tuple[int, bool, bool]:
+    """Complete a page's ``(total, total_exact, has_more)`` (C-MODOUT).
+
+    A module that counted keeps its total; ``has_more`` then follows from it
+    when the module left it unset. A module without counting support gets
+    ``total = offset + len(page)``, plus one when another page may follow
+    (the surplus row, or a full page when nothing else says), never exact.
+    """
+    if total is not None:
+        if has_more is None:
+            has_more = offset + page_len < total
+        return total, total_exact, has_more
+    if has_more is None:
+        has_more = page_len >= page_size
+    return offset + page_len + (1 if has_more else 0), False, has_more
 
 
 def _expansion_dicts(groups: tuple[ExpansionGroup, ...]) -> tuple[dict[str, Any], ...]:
@@ -291,6 +350,8 @@ class ARIELSearchService:
         time_range: tuple[Any, Any] | None = None,
         mode: str | None = None,
         advanced_params: dict[str, Any] | None = None,
+        entry_filter: EntryFilter | None = None,
+        offset: int = 0,
     ) -> ARIELSearchResult:
         """Execute a search.
 
@@ -304,6 +365,9 @@ class ARIELSearchService:
             mode: Optional search module name. Omitted, the deployment's
                 ``ariel.default_search_mode`` decides.
             advanced_params: Mode-specific advanced parameters from the frontend
+            entry_filter: Dimension filter (C-FILTER) every result must match,
+                or None for none
+            offset: How many results to skip before this page (C-MODOUT)
 
         Returns:
             ARIELSearchResult with entries, answer, and sources
@@ -317,9 +381,185 @@ class ARIELSearchService:
             time_range=time_range,
             modes=[mode] if mode else [self.config.resolve_default_search_mode()],
             advanced_params=advanced_params or {},
+            entry_filter=entry_filter,
+            offset=offset,
         )
 
         return await self.ainvoke(request)
+
+    async def matched_ids(
+        self,
+        query: str,
+        mode: str | None,
+        time: tuple[Any, Any] | None,
+        advanced_params: Mapping[str, Any] | None,
+        cap: int = FACET_COUNT_CAP,
+        *,
+        list_filter: EntryFilter | None = None,
+    ) -> MatchedIds:
+        """The entries ``query`` matches in ``mode``, for query facets (C-FACETS).
+
+        Runs the same path as :meth:`search` -- query parsing, vocabulary
+        expansion and :meth:`_run_module` with the same ``advanced_params`` --
+        once with no dimension filter (``time`` only), rerank off and
+        ``include_highlights=False`` for a module whose ``execute`` takes those
+        keywords. ``cap`` bypasses ``ARIELSearchRequest``'s 100-result clamp;
+        hybrid is capped at :data:`HYBRID_FACET_CAP` and always inexact.
+
+        For a keyword mode, a second one-result run under ``list_filter``
+        reports the tier the list itself uses (the C-MODOUT count probe).
+
+        Args:
+            query: The search text; must not be blank.
+            mode: Search module name, or None for the deployment default.
+            time: ``(start, end)`` of the window, either bound None, or None.
+            advanced_params: The knobs the list search sends.
+            cap: Most ids to collect.
+            list_filter: The list's full filter, for the list-tier probe.
+
+        Returns:
+            The matched set and whether counting over it is exact.
+
+        Raises:
+            ConfigurationError: For an unknown or disabled mode.
+            SearchTimeoutError: When the module's statement timed out.
+            PatternError: When PostgreSQL refused a pattern of the query.
+        """
+        import inspect
+
+        from osprey.services.ariel_search.filters import TIME_KEY
+
+        mode = mode or self.config.resolve_default_search_mode()
+        hybrid = mode.strip().lower() == _HYBRID_MODE
+        if hybrid:
+            cap = min(cap, HYBRID_FACET_CAP)
+        params = dict(advanced_params or {})
+        descriptor = self._registered_descriptors().get(mode.strip().lower())
+        if descriptor is not None:
+            accepted = inspect.signature(descriptor.execute).parameters
+            if "include_highlights" in accepted:
+                params["include_highlights"] = False
+            if "rerank" in accepted:
+                params["rerank"] = False
+        window = time if time is not None and any(b is not None for b in time) else None
+
+        async def run(
+            entry_filter: EntryFilter | None, size: int
+        ) -> tuple[ARIELSearchResult, str | None]:
+            request = ARIELSearchRequest(
+                query=query,
+                time_range=None if entry_filter is not None else window,
+                modes=[mode],
+                advanced_params=params,
+                entry_filter=entry_filter,
+            )
+            # The request clamps max_results to 100; the counting cap is ours.
+            request.max_results = size
+            prepared_mode, parsed, expansion, diagnostics = await self._prepare_search(request)
+            observed: dict[str, Any] = {}
+            result = await self._run_module(
+                prepared_mode,
+                request,
+                parsed=parsed,
+                expansion=expansion,
+                extra_diagnostics=diagnostics,
+                observe=observed,
+            )
+            return result, observed.get("tier")
+
+        result, tier = await run(None, cap)
+        ids = tuple(str(entry["entry_id"]) for entry in result.entries)
+        failed = any(d.level == DiagnosticLevel.ERROR for d in result.diagnostics)
+        exact = (
+            not hybrid
+            and not failed
+            and result.total_exact
+            and result.total is not None
+            and result.total <= len(ids)
+            and tier in (None, "strict")
+        )
+        list_tier: str | None = None
+        if tier is not None:
+            # The time window alone is the matched run's own; only a dimension
+            # selection can move the list to another tier.
+            if list_filter is not None and not list_filter.without(TIME_KEY).is_empty():
+                _probe, list_tier = await run(list_filter, 1)
+            else:
+                list_tier = tier
+            if list_tier != tier:
+                exact = False
+        return MatchedIds(ids=ids, exact=exact, tier=tier, list_tier=list_tier)
+
+    async def facets(
+        self,
+        query: str | None,
+        mode: str | None,
+        entry_filter: EntryFilter | None,
+        advanced_params: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Facet counts and the day histogram for one list (C-FACETS).
+
+        With a blank query the counts are SQL over the filter. With a query
+        they are over the mode's matched set (:meth:`matched_ids`, capped at
+        :data:`FACET_COUNT_CAP`), still under the filter, so a value's count is
+        the length of the list that value selects whenever ``exact`` is true.
+        Each dimension is counted under the filter minus its own selection and
+        the histogram under the filter minus ``time``, bucketed by facility day.
+
+        Args:
+            query: The search text, or blank/None to browse.
+            mode: Search module name, or None for the deployment default.
+            entry_filter: The list's filter, or None.
+            advanced_params: The knobs the list search sends.
+
+        Returns:
+            ``{"dimensions": [{name, label, kind, values: [{value, count}]}],
+            "histogram": [{day, count}], "exact": bool, "tier": str|None}``.
+
+        Raises:
+            ConfigurationError: For an unknown or disabled mode.
+            DatabaseQueryError: If a count fails.
+        """
+        from osprey.services.ariel_search.enhancement.status import store_enhancement_context
+        from osprey.services.ariel_search.filters import EntryFilter, filter_dimensions
+        from osprey_connectors import config as connectors_config
+
+        dims = filter_dimensions(self.config)
+        flt = entry_filter if entry_filter is not None else EntryFilter.parse(None, dims)
+        ctx = await store_enhancement_context(self.config, self.repository)
+
+        id_scope: tuple[str, ...] | None = None
+        exact = True
+        tier: str | None = None
+        if query is not None and query.strip():
+            matched = await self.matched_ids(
+                query,
+                mode,
+                (flt.start, flt.end),
+                advanced_params,
+                FACET_COUNT_CAP,
+                list_filter=flt,
+            )
+            id_scope, exact, tier = matched.ids, matched.exact, matched.tier
+
+        counts = await self.repository.facet_counts(flt, dims, id_scope=id_scope, ctx=ctx)
+        histogram = await self.repository.day_histogram(
+            flt, connectors_config.get_facility_timezone(), id_scope=id_scope, ctx=ctx
+        )
+        return {
+            "dimensions": [
+                {
+                    "name": dim.name,
+                    "label": dim.label,
+                    "kind": dim.kind,
+                    "values": counts.get(dim.name, []),
+                }
+                for dim in dims
+            ],
+            "histogram": histogram,
+            "exact": exact,
+            "tier": tier,
+        }
 
     async def ainvoke(
         self,
@@ -346,25 +586,7 @@ class ARIELSearchService:
         """
         expansion: QueryExpansion | None = None
         try:
-            if self.config.vocabulary.enabled and self.config.vocabulary_errors:
-                raise VocabularyError(self.config.vocabulary_errors)
-
-            await self.verify_search_model_table()
-
-            mode = request.modes[0] if request.modes else self.config.resolve_default_search_mode()
-
-            # Parsing and expansion are resolved once, here, and handed down:
-            # exactly one parse per search, and the timeout handler below can
-            # still report what the failed statement contained. A request names
-            # a single mode, so no cross-mode merge of ``expanded_terms``
-            # arises; were several ever merged, the rule is concatenation in
-            # mode order deduplicated by ``original``.
-            descriptor = self._registered_descriptors().get(mode)
-            parsed: ParsedKeywordQuery | None = None
-            if descriptor is not None and descriptor.query_parser is not None:
-                parsed = descriptor.query_parser(request.query)
-
-            expansion, expansion_diagnostics = self._resolve_expansion(request, mode, parsed)
+            mode, parsed, expansion, expansion_diagnostics = await self._prepare_search(request)
 
             return await self._run_module(
                 mode,
@@ -414,6 +636,40 @@ class ARIELSearchService:
                 search_mode=mode,
                 query=request.query,
             ) from e
+
+    async def _prepare_search(
+        self, request: ARIELSearchRequest
+    ) -> tuple[str, ParsedKeywordQuery | None, QueryExpansion | None, tuple[SearchDiagnostic, ...]]:
+        """The steps every search takes before its module runs.
+
+        Refuses a broken vocabulary, verifies the search model table, then
+        parses the query with the mode's parser and resolves its vocabulary
+        expansion. Parsing and expansion are resolved once, here, and handed
+        down: exactly one parse per search, and the caller's timeout handler can
+        still report what the failed statement contained. A request names a
+        single mode, so no cross-mode merge of ``expanded_terms`` arises; were
+        several ever merged, the rule is concatenation in mode order
+        deduplicated by ``original``.
+
+        Returns:
+            ``(mode, parsed, expansion, expansion_diagnostics)``.
+
+        Raises:
+            VocabularyError: If the configured vocabulary failed to load.
+        """
+        if self.config.vocabulary.enabled and self.config.vocabulary_errors:
+            raise VocabularyError(self.config.vocabulary_errors)
+
+        await self.verify_search_model_table()
+
+        mode = request.modes[0] if request.modes else self.config.resolve_default_search_mode()
+        descriptor = self._registered_descriptors().get(mode)
+        parsed: ParsedKeywordQuery | None = None
+        if descriptor is not None and descriptor.query_parser is not None:
+            parsed = descriptor.query_parser(request.query)
+
+        expansion, expansion_diagnostics = self._resolve_expansion(request, mode, parsed)
+        return mode, parsed, expansion, expansion_diagnostics
 
     @staticmethod
     def _registered_descriptors() -> dict[str, SearchToolDescriptor]:
@@ -588,6 +844,7 @@ class ARIELSearchService:
         parsed: ParsedKeywordQuery | None = None,
         expansion: QueryExpansion | None = None,
         extra_diagnostics: tuple[SearchDiagnostic, ...] = (),
+        observe: dict[str, Any] | None = None,
     ) -> ARIELSearchResult:
         """Run the registered search module named by ``mode``.
 
@@ -602,6 +859,14 @@ class ARIELSearchService:
         ``include_images=`` bool, and any diagnostic the resolution produced
         joins ``extra_diagnostics`` on the result.
 
+        The request's ``entry_filter`` and ``offset`` follow C-MODOUT: a module
+        that set ``accepts_entry_filter`` receives ``entry_filter=``, and one
+        that set ``accepts_offset`` receives ``offset=`` with the page size as
+        ``max_results``. A module that did not set ``accepts_offset`` is called
+        with ``max_results = min(offset + page_size * 2, 200)`` and the page is
+        sliced out here. Every module's results are post-filtered with
+        ``EntryFilter.matches``, whatever its flags.
+
         Args:
             mode: Search module name, normalized to lowercase by the request.
             request: Search request
@@ -611,6 +876,8 @@ class ARIELSearchService:
                 applies.
             extra_diagnostics: Diagnostics the caller already collected (for
                 example, why expansion was skipped), surfaced on the result.
+            observe: When given, receives the module's ``tier`` (C-MODOUT),
+                which ``ARIELSearchResult`` does not carry; facets read it.
 
         Returns:
             ARIELSearchResult with matching entries, or a diagnostic-only
@@ -672,12 +939,21 @@ class ARIELSearchService:
         # collision. ``expand_query`` and ``include_images`` are the service's
         # own controls and are dropped from the copy -- the caller's dict
         # itself is untouched.
+        page_size = request.max_results
         kwargs: dict[str, Any] = {
             **{k: v for k, v in request.advanced_params.items() if k not in _SERVICE_PARAMS},
-            "max_results": request.max_results,
+            "max_results": (
+                page_size
+                if descriptor.accepts_offset
+                else min(request.offset + page_size * 2, _MAX_UNPAGED_FETCH)
+            ),
             "start_date": start_date,
             "end_date": end_date,
         }
+        if descriptor.accepts_entry_filter:
+            kwargs["entry_filter"] = request.entry_filter
+        if descriptor.accepts_offset:
+            kwargs["offset"] = request.offset
         if descriptor.query_parser is not None:
             kwargs["parsed"] = parsed
         if descriptor.accepts_expansion and expansion is not None:
@@ -721,14 +997,58 @@ class ARIELSearchService:
 
         # A module returns either the bare list it always has, or a
         # ModuleOutput carrying diagnostics and the expansion it actually used.
+        filter_applied = False
+        total: int | None = None
+        total_exact = False
+        has_more: bool | None = None
         if isinstance(results, ModuleOutput):
             rows: Any = results.entries
             module_diagnostics = results.diagnostics
             applied = results.expansion
+            filter_applied = results.filter_applied
+            total, total_exact, has_more = results.total, results.total_exact, results.has_more
+            if observe is not None:
+                observe["tier"] = results.tier
         else:
             rows = results
             module_diagnostics = ()
             applied = ()
+
+        # The post-filter always runs: a module that ignores the filter is
+        # still confined to it, and one that applied it should drop nothing.
+        entry_filter = request.entry_filter
+        if entry_filter is not None and not entry_filter.is_empty():
+            from osprey.services.ariel_search.enhancement.status import (
+                filter_needs_build_keys,
+                store_enhancement_context,
+            )
+
+            ctx = await store_enhancement_context(
+                self.config,
+                self.repository,
+                entry_ids=[row[0]["entry_id"] for row in rows],
+                text_embedding=filter_needs_build_keys(entry_filter),
+            )
+            kept = [row for row in rows if entry_filter.matches(row[0], ctx)]
+            if filter_applied and len(kept) != len(rows):
+                logger.warning(
+                    f"{mode.capitalize()} search applied the entry filter but "
+                    f"{len(rows) - len(kept)} result(s) failed it"
+                )
+            rows = kept
+        if not descriptor.accepts_offset:
+            # The widened fetch holds the surplus row that says a next page exists.
+            has_more = len(rows) > request.offset + page_size
+            rows = list(rows)[request.offset : request.offset + page_size]
+            total = None
+        total, total_exact, has_more = _page_totals(
+            total,
+            total_exact,
+            has_more,
+            offset=request.offset,
+            page_len=len(rows),
+            page_size=page_size,
+        )
 
         entries: list[dict[str, Any]] = []
         sources: list[Any] = []
@@ -750,6 +1070,9 @@ class ARIELSearchService:
                 parse_diagnostics, extra_diagnostics, module_diagnostics
             ),
             expanded_terms=_expansion_dicts(applied),
+            total=total,
+            total_exact=total_exact,
+            has_more=has_more,
         )
 
     async def create_entry(
@@ -975,6 +1298,8 @@ class ARIELSearchService:
         set is checked in full, live choices included. The adapter receives the
         declared values only; ARIEL's own keys are rebuilt, never copied. The
         local copy keeps the stored ``created_via`` and ``session_metadata``.
+        A stored ``follows_up`` is checked before any facility write and carried
+        into both the local and the adapter metadata.
         With no declared fields the request is the one built without them. An
         adapter that declares ``supports_attachments`` also receives the files
         ARIEL stores natively for the entry.
@@ -993,13 +1318,15 @@ class ARIELSearchService:
             KeyError: If entry_id not found in ARIEL database
             NotImplementedError: If the adapter doesn't support writes
             EntryFieldError: If a merged value is missing, invalid or
-                undeclared, naming the field
+                undeclared, naming the field; or naming ``follows_up`` when the
+                stored parent is not an entry ARIEL holds
             EntryFieldOptionsUnavailable: If a live choice check cannot list
                 the choices
             IngestionError: If a native file of the entry has no stored copy
                 to publish; nothing is written
         """
         from osprey.services.ariel_search.entry_fields import (
+            check_follows_up,
             entry_field_descriptors,
             resolve_entry_write,
             validate_entry_fields,
@@ -1017,6 +1344,7 @@ class ARIELSearchService:
             )
 
         stored: dict[str, Any] = entry.get("metadata") or {}
+        follows_up = await check_follows_up(stored, self.repository.get_entry, entry_id=entry_id)
         descriptors = entry_field_descriptors(self.config)
         names = {descriptor.name for descriptor in descriptors}
 
@@ -1041,9 +1369,12 @@ class ARIELSearchService:
             tags=stored.get("tags", []),
             created_via=stored.get("created_via") or None,
             session_metadata=stored.get("session_metadata"),
+            follows_up=follows_up,
         )
 
-        subject = entry["raw_text"].split("\n", 1)[0].strip()
+        from osprey.services.ariel_search.subject import entry_subject
+
+        subject = entry_subject(entry)
         details = entry["raw_text"]
 
         request = FacilityEntryCreateRequest(
@@ -1088,6 +1419,7 @@ class ARIELSearchService:
         entry_count = None
         embedding_tables: list[EmbeddingTableInfo] = []
         last_ingestion = None
+        enhancement_coverage: dict[str, dict[str, Any]] = {}
 
         masked_uri = self._mask_database_uri(self.config.database.uri)
 
@@ -1103,6 +1435,15 @@ class ARIELSearchService:
                 embedding_tables = await self.repository.get_embedding_tables()
 
                 last_ingestion = await self.repository.get_last_ingestion()
+
+                # The same count ``status --json`` reports, so the two surfaces
+                # agree with each other and with the reader's badge strip.
+                from osprey.services.ariel_search.enhancement.status import (
+                    store_enhancement_context,
+                )
+
+                context = await store_enhancement_context(self.config, self.repository)
+                enhancement_coverage = await self.repository.get_enhancement_coverage(context)
 
         except Exception as e:
             errors.append(f"Database error: {e}")
@@ -1120,6 +1461,7 @@ class ARIELSearchService:
             enabled_enhancement_modules=self.config.get_enabled_enhancement_modules(),
             last_ingestion=last_ingestion,
             errors=errors,
+            enhancement_coverage=enhancement_coverage,
         )
 
     def _mask_database_uri(self, uri: str) -> str:

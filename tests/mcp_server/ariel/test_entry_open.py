@@ -26,10 +26,14 @@ PNG_ID = attachment_id_for(KEYSET_ENTRY_ID, _PNG)
 PDF_ID = attachment_id_for(KEYSET_ENTRY_ID, _PDF)
 
 
+#: What ``panel_op`` returns when the dock client applied the open.
+APPLIED = {"ok": True, "status": 200, "layout": None, "popouts": [], "rev": 1}
+
+
 async def _open(**kwargs):
     from osprey.mcp_server.ariel.tools.entry import entry_open
 
-    with patch("osprey.mcp_server.http.panel_op") as focus:
+    with patch("osprey.mcp_server.http.panel_op", return_value=APPLIED) as focus:
         raw = await get_tool_fn(entry_open)(**kwargs)
     return json.loads(raw), focus
 
@@ -42,7 +46,7 @@ def _panel_base(monkeypatch):
 async def test_opens_the_entry_and_focuses_the_panel(keyset_harness):  # noqa: ARG001
     result, focus = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
 
-    url = f"/panel/ariel/#entry?id={KEYSET_SECOND_ENTRY_ID}"
+    url = f"/panel/ariel/#sel={KEYSET_SECOND_ENTRY_ID}"
     assert result["url"] == url
     assert result["opened"] == "entry"
     assert result["entry_id"] == KEYSET_SECOND_ENTRY_ID
@@ -54,7 +58,7 @@ async def test_opens_the_entry_and_focuses_the_panel(keyset_harness):  # noqa: A
 async def test_opens_a_viewable_picture_enlarged(keyset_harness):  # noqa: ARG001
     result, focus = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=PNG_ID)
 
-    url = f"/panel/ariel/#entry?id={KEYSET_ENTRY_ID}&attachment={PNG_ID}"
+    url = f"/panel/ariel/#sel={KEYSET_ENTRY_ID}&att={PNG_ID}"
     assert result["url"] == url
     assert result["opened"] == "entry_and_picture"
     assert result["attachment_id"] == PNG_ID
@@ -99,7 +103,7 @@ async def test_the_attachment_id_is_required_and_nullable():
 async def test_a_picture_that_is_not_viewable_opens_the_entry_only(keyset_harness):  # noqa: ARG001
     result, focus = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=PDF_ID)
 
-    url = f"/panel/ariel/#entry?id={KEYSET_ENTRY_ID}"
+    url = f"/panel/ariel/#sel={KEYSET_ENTRY_ID}"
     assert result["url"] == url
     assert result["opened"] == "entry"
     assert "not viewable" in result["message"]
@@ -116,14 +120,26 @@ async def test_the_entry_id_is_url_encoded(keyset_harness, monkeypatch):
     monkeypatch.setattr(keyset_harness.repository, "get_entry", get_entry)
     result, _ = await _open(entry_id=odd, attachment_id=None)
 
-    assert result["url"] == "/panel/ariel/#entry?id=elog%2F42%20%231%26x%3D2"
+    assert result["url"] == "/panel/ariel/#sel=elog%2F42%20%231%26x%3D2"
 
 
 async def test_ariel_web_url_sets_the_base(keyset_harness, monkeypatch):  # noqa: ARG001
     monkeypatch.setenv("ARIEL_WEB_URL", "https://ariel.example")
     result, _ = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
 
-    assert result["url"] == f"https://ariel.example/#entry?id={KEYSET_SECOND_ENTRY_ID}"
+    assert result["url"] == f"https://ariel.example/#sel={KEYSET_SECOND_ENTRY_ID}"
+
+
+@pytest.mark.parametrize("attachment", [None, PNG_ID])
+async def test_the_url_is_admitted_as_a_navigation_of_the_ariel_panel(keyset_harness, attachment):  # noqa: ARG001
+    """The host's panel-navigate guard admits the built URL for ARIEL's mount, unchanged."""
+    from osprey.interfaces.panel_urls import member_navigation_url
+
+    result, _ = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=attachment)
+
+    admitted, refusal = member_navigation_url(result["url"], mount="/panel/ariel", upstream=None)
+    assert refusal is None
+    assert admitted == result["url"]
 
 
 async def test_without_a_web_terminal_the_result_still_carries_the_url(keyset_harness):  # noqa: ARG001
@@ -135,7 +151,72 @@ async def test_without_a_web_terminal_the_result_still_carries_the_url(keyset_ha
             await get_tool_fn(entry_open)(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
         )
 
-    assert result["url"] == f"/panel/ariel/#entry?id={KEYSET_SECOND_ENTRY_ID}"
+    assert result["url"] == f"/panel/ariel/#sel={KEYSET_SECOND_ENTRY_ID}"
+
+
+async def test_an_applied_open_says_the_logbook_panel_shows_the_entry(keyset_harness):  # noqa: ARG001
+    result, _ = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
+
+    assert result["shown"] is True
+    assert "status" not in result
+    assert result["message"].startswith(f"The Logbook panel shows entry {KEYSET_SECOND_ENTRY_ID}.")
+    assert "ARIEL" not in result["message"]
+
+
+_UNCONFIRMED = [
+    pytest.param(
+        {
+            "return_value": {
+                "ok": False,
+                "status": 409,
+                "reason": "no_dock_client",
+                "detail": "no dock client is showing the workspace",
+            }
+        },
+        "no_dock_client",
+        id="refused",
+    ),
+    pytest.param(
+        {
+            "return_value": {
+                "ok": False,
+                "status": None,
+                "reason": "no_web_terminal",
+                "detail": "Web Terminal is not running.",
+            }
+        },
+        "no_web_terminal",
+        id="no-web-terminal",
+    ),
+    pytest.param({"side_effect": OSError("connection refused")}, "error", id="raised"),
+    pytest.param({"return_value": None}, "unconfirmed", id="no-answer"),
+]
+
+
+@pytest.mark.parametrize(("op", "reason"), _UNCONFIRMED)
+async def test_an_unconfirmed_open_never_claims_the_entry_is_on_screen(
+    keyset_harness,  # noqa: ARG001
+    caplog,
+    op,
+    reason,
+):
+    """The tool reports what happened: an op the dock did not confirm is ``not_shown``."""
+    from osprey.mcp_server.ariel.tools.entry import entry_open
+
+    url = f"/panel/ariel/#sel={KEYSET_SECOND_ENTRY_ID}"
+    with caplog.at_level("WARNING"), patch("osprey.mcp_server.http.panel_op", **op):
+        result = json.loads(
+            await get_tool_fn(entry_open)(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
+        )
+
+    assert result["shown"] is False
+    assert result["status"] == "not_shown"
+    assert result["reason"] == reason
+    assert result["url"] == url
+    assert "shows entry" not in result["message"]
+    assert "not on screen" in result["message"]
+    assert url in result["message"]
+    assert any("Logbook panel" in r.getMessage() for r in caplog.records), caplog.text
 
 
 async def test_unknown_entry_is_not_found(keyset_harness):  # noqa: ARG001
