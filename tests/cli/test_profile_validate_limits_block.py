@@ -19,7 +19,7 @@ from typing import Any
 
 from osprey.cli.build_profile_deploy import limits_block_errors
 
-CUSTOM_TYPE = "mypkg.MoatConnector"
+CUSTOM_TYPE = "mypkg.SiteConnector"
 
 
 def _complete(*, enabled: bool = True, mode: str = "exclusive") -> dict[str, Any]:
