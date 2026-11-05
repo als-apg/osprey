@@ -1954,35 +1954,6 @@ def drives_target_write_posture(services, control_system):
 OPTIMIZER_CONTROL_IDENTITY = "osprey-optimizer"
 
 
-def _refuse_optimizer_targets(optimizer):
-    """Refuse a ``services.optimizer.targets`` naming one the optimizer may not drive.
-
-    The build profile refuses them first, but the rendered config is the file
-    an operator edits, and what renders here is what the service is allowed to
-    drive: ``live`` added there would reach the real machine.
-
-    :param optimizer: The config's ``services.optimizer`` block.
-    :type optimizer: dict
-    :raises DeploymentPreconditionError: when a target is not in
-        :data:`~osprey.cli.build_profile_schema.OPTIMIZER_TARGETS`
-    """
-    from osprey.cli.build_profile_schema import OPTIMIZER_TARGETS
-
-    targets = optimizer.get("targets") or ["va"]
-    refused = [t for t in targets if t not in OPTIMIZER_TARGETS]
-    if refused:
-        raise DeploymentPreconditionError(
-            reason=(
-                f"services.optimizer.targets names {', '.join(map(repr, refused))}; the "
-                f"optimizer may drive only {', '.join(OPTIMIZER_TARGETS)}."
-            ),
-            remedy=(
-                "Remove it from services.optimizer.targets in config.yml, or from "
-                "optimizer.targets in the build profile, and rebuild."
-            ),
-        )
-
-
 def project_label_values(config):
     """The values of the project labels a render gives every container.
 
@@ -3006,10 +2977,6 @@ def _inject_project_metadata(config):
         # every per-service fact set above and not the block as it came in.
         if config_with_labels.get("service_key") in services and "service" in config_with_labels:
             config_with_labels["service"] = services[config_with_labels["service_key"]]
-
-    # A target the optimizer may not drive is refused at render as at build.
-    if isinstance(services, dict) and isinstance(services.get("optimizer"), dict):
-        _refuse_optimizer_targets(services["optimizer"])
 
     # The simulated machine's tick period, resolved through the one function the
     # in-process simulator and the build's profile check call, so every surface

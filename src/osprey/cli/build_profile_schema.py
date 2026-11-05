@@ -1183,13 +1183,6 @@ class BlueskyWebConfig:
     the key is left unspelled."""
 
 
-OPTIMIZER_TARGETS: tuple[str, ...] = ("va", "standin")
-"""Control targets an optimizer deployment may name in its ``targets:`` list.
-
-``live`` is left out on purpose: the optimizer does not drive the real machine
-yet, so a profile asking for it is refused rather than deployed."""
-
-
 @dataclass
 class OptimizerConfig:
     """Optimizer service configuration for a build profile (opt-in via the
@@ -1206,12 +1199,6 @@ class OptimizerConfig:
     publishes, at the layout's ``optimizer`` slot — filled from the profile's
     resolved base when the key is left unspelled."""
 
-    targets: list[str] = field(default_factory=lambda: ["va"])
-    """Control targets this deployment's optimizer may drive, from
-    :data:`OPTIMIZER_TARGETS`. A run naming any other target is refused by the
-    service. Each target also needs its connector block in the project's
-    ``control_system:`` section, exactly as for every other client of it."""
-
     environments_dir: str | None = None
     """Optional host directory of optimizer environment files (YAML),
     bind-mounted read-only into the service at ``/app/environments``. ``None``
@@ -1224,21 +1211,6 @@ def optimizer_errors(optimizer: OptimizerConfig) -> list[str]:
     errors: list[str] = []
     if not (1 <= optimizer.port <= 65535):
         errors.append(f"optimizer.port must be in 1..65535 (got {optimizer.port})")
-    if not optimizer.targets:
-        errors.append("optimizer.targets must name at least one control target")
-    if "live" in optimizer.targets:
-        errors.append(
-            "optimizer.targets may not include 'live': the optimizer does not drive the real "
-            f"machine yet. Allowed targets: {', '.join(OPTIMIZER_TARGETS)}"
-        )
-    unknown = [t for t in optimizer.targets if t not in OPTIMIZER_TARGETS and t != "live"]
-    if unknown:
-        errors.append(
-            f"optimizer.targets has unknown target(s) {unknown}; allowed: "
-            f"{', '.join(OPTIMIZER_TARGETS)}"
-        )
-    if len(set(optimizer.targets)) != len(optimizer.targets):
-        errors.append(f"optimizer.targets lists a target twice ({optimizer.targets})")
     return errors
 
 

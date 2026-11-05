@@ -881,7 +881,6 @@ keys:
   services.bluesky_web.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky-web injector writes ./services/bluesky_web"}
   services.bluesky_web.port: {evidence: '"bluesky-web": "services\.bluesky_web\.port"', default: derived, default_note: the layout's bluesky_web slot at this deployment's port base}
   services.optimizer.port: {rendered: false, evidence: '"optimizer": "services\.optimizer\.port"', default: derived, default_note: the layout's optimizer slot at this deployment's port base}
-  services.optimizer.targets: {rendered: false, evidence: 'svc\.targets \| default\(\[.va.\], true\)', default: [va]}
   services.optimizer.environments_dir: {rendered: false, evidence: 'svc\.environments_dir \}\}:/app/environments:ro', default: null}
   services.virtual_accelerator: {evidence: 'set svc = services\[instance_key\]', default: null}
   services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator"}

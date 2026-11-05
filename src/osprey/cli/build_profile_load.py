@@ -703,7 +703,7 @@ def config_image_platform(config: Any) -> str | None:
 def _parse_optimizer(raw: Any, base: int) -> OptimizerConfig | None:
     """Parse the ``optimizer:`` block, or ``None`` when the profile has none.
 
-    Shapes are checked here; which targets are allowed is a validation rule
+    Shapes are checked here; the port range is a validation rule
     (:func:`~.build_profile_schema.optimizer_errors`), reported with the rest.
     """
     if raw is None:
@@ -711,11 +711,6 @@ def _parse_optimizer(raw: Any, base: int) -> OptimizerConfig | None:
     if not isinstance(raw, dict):
         raise BuildProfileError("Profile 'optimizer' must be a mapping")
     _reject_unknown_block_keys(raw, _KNOWN_OPTIMIZER_KEYS, "optimizer")
-    targets = raw.get("targets", ["va"])
-    if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets):
-        raise BuildProfileError(
-            f"optimizer.targets must be a list of target names (got {targets!r})"
-        )
     environments_dir = raw.get("environments_dir")
     if environments_dir is not None and (
         not isinstance(environments_dir, str) or not environments_dir
@@ -725,7 +720,6 @@ def _parse_optimizer(raw: Any, base: int) -> OptimizerConfig | None:
         )
     return OptimizerConfig(
         port=raw.get("port", default_port("optimizer", base=base)),
-        targets=list(targets),
         environments_dir=environments_dir,
     )
 

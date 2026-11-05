@@ -2445,7 +2445,6 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
     block: dict[str, Any] = {
         "path": "./services/optimizer",
         "port": optimizer.port,
-        "targets": list(optimizer.targets),
     }
     if optimizer.environments_dir:
         # Stored compose-ready: the template mounts it verbatim.
@@ -2464,7 +2463,6 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
     save_config_document(config_path, config)
 
     logger.debug("  ✓ Injected the optimizer service (port %d)", optimizer.port)
-    logger.debug("    Targets:    %s", ", ".join(optimizer.targets))
     logger.debug(
         "    Images:     `osprey up` builds the optimizer image locally (first run is "
         "slow: the search stack is large). Use `--dev` to bake in your local checkout; "

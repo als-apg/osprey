@@ -1534,7 +1534,7 @@ optimizer
 The ``optimizer:`` section deploys the optimizer service, which tunes machine
 variables against an objective with Bayesian optimization (Xopt), and the Redis
 store that keeps its jobs. The block's presence is the switch. It accepts
-exactly three keys; a misspelled or unknown key **fails the build** and prints
+exactly two keys; a misspelled or unknown key **fails the build** and prints
 the valid set:
 
 .. list-table::
@@ -1546,12 +1546,6 @@ the valid set:
    * - ``port``
      - The service's port. Defaults to its slot in the port layout, ``10082``
        at the default base (:ref:`reference-ports`).
-   * - ``targets``
-     - The control targets the optimizer may drive (default ``[va]``): ``va``,
-       ``standin``, or both. A run naming any other target is refused. The
-       ``live`` machine is **refused at build time** until the optimizer
-       supports it. Each target also needs its connector block in the
-       project's ``control_system:`` section.
    * - ``environments_dir``
      - A directory of optimizer environment files (YAML), mounted read-only
        into the service. Unset, only installed environment plugins are
