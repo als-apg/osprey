@@ -428,6 +428,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Stage, launch, and watch a registered Bluesky plan through the shared draft",
         ),
         BuildArtifact(
+            canonical_name="skills/operating-optimizer",
+            template_path="claude/skills/operating-optimizer/SKILL.md.j2",
+            output_path=".claude/skills/operating-optimizer/SKILL.md",
+            description="Draft an optimizer run for a person to start, then monitor, pause or cancel it; renders only with the optimizer server",
+        ),
+        BuildArtifact(
             canonical_name="skills/bluesky-plans",
             template_path="claude/skills/bluesky-plans/SKILL.md.j2",
             output_path=".claude/skills/bluesky-plans/SKILL.md",

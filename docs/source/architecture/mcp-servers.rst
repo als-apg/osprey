@@ -406,10 +406,16 @@ does not run one, or an attached render whose host publishes no
 loopback, or ``OPTIMIZER_URL`` when that is set.
 
 The server holds no launch token and cannot start a run: a person starts
-every run. A tool that reads a machine (``environment_status``,
+every run. It can create and edit drafts, which read setpoints and write none,
+and pause or cancel a job, which no credential gates. It cannot resume a run
+or restore setpoints; ``preview_restore`` only shows what a restore would
+write. A tool that reads a machine (``environment_status``,
 ``read_observables``, ``initial_bounds``) asks about the session's current
-control target unless it is given a ``target``; the optimizer serves only the
+control target unless it is given a ``target``, and a draft without a
+``control_target`` names that target too; the optimizer serves only the
 targets its profile lists (``va`` and ``standin`` today), and refuses any other.
+The ``operating-optimizer`` skill walks the agent through drafting a run for the
+operator to start.
 
 **Tools:**
 
@@ -423,6 +429,12 @@ targets its profile lists (``va`` and ``standin`` today), and refuses any other.
 - ``get_job`` -- Read one job's status, optionally with its result summary or full data.
 - ``current_job`` -- Read the current-job pointer, the job a start launches.
 - ``get_job_config`` -- Read an optimization job's stored config and its revision.
+- ``create_draft`` -- Create a draft optimization job from a config; the current-job
+  pointer moves to it.
+- ``update_draft`` -- Replace a draft's whole config; refused once it has started.
+- ``pause_job`` -- Pause a running optimization job.
+- ``cancel_job`` -- Cancel a draft or a run; the machine stays where the run left it.
 - ``list_results`` -- List the stored runs.
 - ``get_result`` -- Read one stored run: config, best point and evaluated records.
+- ``preview_restore`` -- Show the values restoring a run would write, without writing them.
 - ``list_models`` -- List the saved surrogate model files.

@@ -1,4 +1,4 @@
-"""The optimizer ServerDefinition: opt-in, no launch token, error guidance on every tool."""
+"""The optimizer ServerDefinition: opt-in, no launch token, nothing gated, error guidance on every tool."""
 
 import asyncio
 import importlib
@@ -40,6 +40,7 @@ def test_off_by_default_and_on_by_override():
 
 
 def test_every_registered_tool_is_allowed_and_nothing_asks_or_gates():
+    """Drafts move nothing, and pause/cancel are stops, which must never wait on a prompt."""
     optimizer = _resolve()
     allowed = optimizer["permissions_allow"]
     assert len(allowed) == len(set(allowed))

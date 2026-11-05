@@ -1,14 +1,15 @@
 """The optimizer MCP tools: what each one asks the service, and how answers come back.
 
 Every tool runs against :class:`StubOptimizer` (an ``httpx.MockTransport``), so
-the assertions are on the real request the tool sent — method, path and query —
-and on the real response it parsed.
+the assertions are on the real request the tool sent — method, path, query and
+body — and on the real response it parsed.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 import httpx
 import pytest
@@ -65,8 +66,27 @@ REQUESTS = [
     (jobs, "get_job", {"job_id": "j1", "detail": "full"}, "GET", "/jobs/j1", {"detail": ["full"]}),
     (jobs, "current_job", {}, "GET", "/jobs/current", {}),
     (jobs, "get_job_config", {"job_id": "j1"}, "GET", "/jobs/j1/config", {}),
+    (jobs, "create_draft", {"config": {"environment_name": "lin"}}, "POST", "/optimizations", {}),
+    (
+        jobs,
+        "update_draft",
+        {"job_id": "j1", "config": {"environment_name": "lin"}},
+        "PUT",
+        "/jobs/j1/config",
+        {},
+    ),
+    (jobs, "pause_job", {"job_id": "j1"}, "POST", "/jobs/j1/pause", {}),
+    (jobs, "cancel_job", {"job_id": "j1"}, "POST", "/jobs/j1/cancel", {}),
     (results, "list_results", {}, "GET", "/results", {}),
     (results, "get_result", {"run_id": "lin/2026-11-04"}, "GET", "/results/lin/2026-11-04", {}),
+    (
+        results,
+        "preview_restore",
+        {"run_id": "lin/2026-11-04"},
+        "GET",
+        "/results/lin/2026-11-04/restore-preview",
+        {},
+    ),
     (results, "list_models", {}, "GET", "/models", {}),
 ]
 
@@ -107,13 +127,34 @@ async def test_a_run_id_segment_is_escaped(optimizer):
     assert optimizer.requests[0].url.raw_path == b"/results/lin/2026%2011%3Fx"
 
 
+@pytest.mark.parametrize("name", ["get_result", "preview_restore"])
 @pytest.mark.parametrize(
     "run_id", ["../jobs/j1", "lin/..", "./2026", "lin", "lin/", "/2026", "a/b/c", ""]
 )
-async def test_a_run_id_that_is_not_env_slash_timestamp_is_refused_unsent(optimizer, run_id):
+async def test_a_run_id_that_is_not_env_slash_timestamp_is_refused_unsent(optimizer, name, run_id):
     with assert_raises_error(error_type="validation_error"):
-        await _tool(results, "get_result")(run_id=run_id)
+        await _tool(results, name)(run_id=run_id)
     assert optimizer.requests == []
+
+
+@pytest.mark.parametrize(
+    ("name", "kwargs"), [("create_draft", {}), ("update_draft", {"job_id": "j1"})]
+)
+async def test_a_draft_with_no_control_target_names_the_sessions(optimizer, name, kwargs):
+    config = {"environment_name": "lin", "preset": "phase"}
+    await _tool(jobs, name)(config=config, **kwargs)
+    (sent,) = optimizer.requests
+    assert json.loads(sent.content) == {**config, "control_target": SESSION_TARGET}
+    assert "control_target" not in config
+
+
+@pytest.mark.parametrize(
+    ("name", "kwargs"), [("create_draft", {}), ("update_draft", {"job_id": "j1"})]
+)
+async def test_a_drafts_own_control_target_is_sent_as_given(optimizer, name, kwargs):
+    config = {"environment_name": "lin", "control_target": "va", "n_iterations": 5}
+    await _tool(jobs, name)(config=config, **kwargs)
+    assert json.loads(optimizer.requests[0].content) == config
 
 
 @pytest.mark.parametrize(("headers", "revision"), [({"X-Config-Revision": "7"}, "7"), ({}, None)])
@@ -146,6 +187,24 @@ _REFUSALS = [
     ),
     # A 403 on a request that named no target is not a target refusal.
     ("get_job", httpx.Response(403, json={"detail": "forbidden"}), "optimizer_error", "forbidden"),
+    (
+        "update_draft",
+        httpx.Response(409, json={"detail": "expected status 'created', got 'running'"}),
+        "optimizer_conflict",
+        "expected status 'created', got 'running'",
+    ),
+    (
+        "pause_job",
+        httpx.Response(409, json={"detail": "must be running, but job is paused"}),
+        "optimizer_conflict",
+        "must be running, but job is paused",
+    ),
+    (
+        "create_draft",
+        httpx.Response(403, json={"detail": "does not drive 'live' (allowed: va)"}),
+        "optimizer_target_refused",
+        "does not drive 'live' (allowed: va)",
+    ),
     ("get_job", httpx.Response(503, text="upstream down"), "optimizer_error", "upstream down"),
     ("list_models", httpx.Response(500, json={"detail": "boom"}), "optimizer_error", "boom"),
 ]
@@ -155,6 +214,9 @@ _KWARGS = {
     "read_observables": (environments, {"name": "lin", "names": ["q"]}),
     "environment_status": (environments, {"name": "lin"}),
     "list_models": (results, {}),
+    "update_draft": (jobs, {"job_id": "j1", "config": {"control_target": "va"}}),
+    "pause_job": (jobs, {"job_id": "j1"}),
+    "create_draft": (jobs, {"config": {"environment_name": "lin"}}),
 }
 
 
@@ -226,10 +288,27 @@ def test_the_client_outwaits_the_services_own_read_backstop():
     assert TIMEOUT_S > OP_TIMEOUT
 
 
-# Every launch-token-gated route of the service is a POST or a PUT, so a tool
-# that only ever sends GETs cannot reach one.
+# The only routes a tool may send anything but a GET to. None of them depends on
+# require_launch_token. Grepping the service's routers
+# (packages/osprey-optimizer/src/osprey_optimizer/api/routers/) finds that
+# dependency on six routes only: the model upload, the environment's variable
+# write and evaluate, a job's start and resume, and a run's restore. A tool
+# that reached one of those would need a token this server does not hold; this
+# pins that no tool tries.
+_UNGATED_WRITES = [
+    ("POST", re.compile(r"/optimizations")),
+    ("PUT", re.compile(r"/jobs/[^/]+/config")),
+    ("POST", re.compile(r"/jobs/[^/]+/pause")),
+    ("POST", re.compile(r"/jobs/[^/]+/cancel")),
+]
+
+
 @pytest.mark.parametrize(("module", "name", "kwargs"), [r[:3] for r in REQUESTS], ids=_IDS)
-async def test_every_tool_only_sends_gets(optimizer, module, name, kwargs):
+async def test_every_tool_sends_a_get_or_an_ungated_draft_or_stop(optimizer, module, name, kwargs):
     await _tool(module, name)(**kwargs)
     assert optimizer.requests
-    assert [r.method for r in optimizer.requests] == ["GET"] * len(optimizer.requests)
+    for sent in optimizer.requests:
+        assert sent.method == "GET" or any(
+            sent.method == method and pattern.fullmatch(sent.url.path)
+            for method, pattern in _UNGATED_WRITES
+        ), f"{name} sent {sent.method} {sent.url.path}"

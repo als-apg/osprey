@@ -48,14 +48,27 @@ def _refuse(method: str, path: str, resp: httpx.Response, named_target: bool) ->
         make_error("not_found", message, details=details)
     if status == 422:
         make_error("validation_error", message, details=details)
+    if status == 409:
+        make_error(
+            "optimizer_conflict",
+            message,
+            [
+                "The job or run is not in the state this needs (a draft edited after its "
+                "start, a pause of a job that is not running, a cancel of a finished job, a "
+                "restore preview of a run that recorded no starting values); the detail says "
+                "which.",
+                "Read the job again with get_job before deciding what to do next.",
+            ],
+            details=details,
+        )
     if status == 403 and named_target:
         make_error(
             "optimizer_target_refused",
             message,
             [
                 "This optimizer does not serve that target; the detail lists the ones it does.",
-                "Pass `target` explicitly to ask about one of those. The answer then describes "
-                "that machine, not the session's current one: say so.",
+                "Name one of those: `target` on a read, `control_target` in a draft's config. "
+                "The answer then concerns that machine, not the session's current one: say so.",
             ],
             details=details,
         )
@@ -67,23 +80,26 @@ async def request(
     path: str,
     *,
     params: dict[str, Any] | None = None,
+    json_body: dict[str, Any] | None = None,
     header: str | None = None,
 ) -> Any:
     """Send one request to the optimizer and return its parsed JSON body.
 
-    With *header*, return ``(body, value of that response header or None)``.
+    *json_body* is sent as the request's JSON body. With *header*, return
+    ``(body, value of that response header or None)``.
 
     Raises ``ToolError`` through ``make_error``: ``optimizer_unreachable`` when
     no answer came (a timeout says the service may still be working);
-    ``not_found`` (404), ``validation_error`` (422), ``optimizer_target_refused``
-    (403 on a request naming a ``target``) or ``optimizer_error`` (any other
+    ``not_found`` (404), ``validation_error`` (422), ``optimizer_conflict`` (409),
+    ``optimizer_target_refused`` (403 on a request naming a ``target`` or a
+    ``control_target``) or ``optimizer_error`` (any other
     non-2xx, or a 2xx whose body is not JSON), with ``details`` holding the
     HTTP ``status`` and the service's ``detail``.
     """
     url = f"{optimizer_url(load_osprey_config())}{path}"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-            resp = await client.request(method, url, params=params)
+            resp = await client.request(method, url, params=params, json=json_body)
     except httpx.TimeoutException as exc:
         if isinstance(exc, httpx.ConnectTimeout):
             make_error(
@@ -110,7 +126,10 @@ async def request(
             _UNREACHABLE_HINTS,
         )
     if not resp.is_success:
-        _refuse(method, path, resp, named_target=bool(params and "target" in params))
+        named_target = bool(params and "target" in params) or bool(
+            json_body and json_body.get("control_target")
+        )
+        _refuse(method, path, resp, named_target=named_target)
     try:
         body = resp.json()
     except ValueError:

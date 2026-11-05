@@ -446,6 +446,7 @@ EXPECTED_ERROR_CLASSES = {
     "limits_violation": "Validation",
     "target_switch_unavailable": "Validation",
     "optimizer_target_refused": "Validation",
+    "optimizer_conflict": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
     "invalid_url": "Validation",

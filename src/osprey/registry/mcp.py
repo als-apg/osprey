@@ -678,7 +678,12 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             # the rendered config's services.optimizer.port wins.
             "OPTIMIZER_URL": "${OPTIMIZER_URL:-}",
         },
-        # Every tool only reads, so there is nothing to gate.
+        # No tool here sets the machine in motion, so nothing is gated. The reads
+        # only read. A draft reads setpoints and writes none; a person starts it,
+        # with a launch token this server never holds. pause_job and
+        # cancel_job stop motion: bluesky's stop_run carries an approval
+        # prompt, but a stop that waits on a prompt is a stop that comes late,
+        # and the service takes both without a credential for the same reason.
         permissions_allow=[
             "list_environments",
             "get_environment",
@@ -690,8 +695,13 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             "get_job",
             "current_job",
             "get_job_config",
+            "create_draft",
+            "update_draft",
+            "pause_job",
+            "cancel_job",
             "list_results",
             "get_result",
+            "preview_restore",
             "list_models",
         ],
         hooks_post=[_post_error("mcp__optimizer__.*")],
