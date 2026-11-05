@@ -1417,7 +1417,7 @@ def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_overflow_menu(
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
-        rail_entry(page, "artifacts", enabled_only=True).click()
+        # Artifacts has no rail entry; the boot layout docks it.
         expect(_iframe(page, "artifacts")).to_be_visible(timeout=10_000)
         _open_services(page, "a")
         _restore(
