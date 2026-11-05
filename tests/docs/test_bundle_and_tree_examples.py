@@ -89,11 +89,14 @@ class Gap(NamedTuple):
         kind: ``wrong`` when the needle is page text the code contradicts,
             ``missing`` when the needle is a path the page's tree leaves out.
         fixed_by: The open PR whose page edit fixes it, or ``None``.
-        note: What the code says, and the fix.
+        fixed_text: The page text once fixed, compared whitespace-folded: a
+            tree line's column alignment is free.
+        note: What the code says.
     """
 
     kind: Literal["wrong", "missing"]
     fixed_by: str | None
+    fixed_text: str
     note: str
 
 
@@ -102,31 +105,31 @@ _STALE: dict[tuple[str, str], Gap] = {
     (BUILD_PROFILES_PAGE, "the channel-finder view the profile selects"): Gap(
         "wrong",
         "#2412",
+        "data/channel_finder/<mode>.json the channel-finder view, in every mode but graph",
         "The control-assistant preset runs the graph pipeline, and no channel-finder view "
         "is written in graph mode (facility/views/__init__.py VIEWS: only in_context, "
-        "hierarchical and middle_layer write channel_finder/). Fix: describe the line as "
-        "'the channel-finder view, in every mode but graph'.",
+        "hierarchical and middle_layer write channel_finder/).",
     ),
     (BUILD_PROFILES_PAGE, "data/facility_facts.md"): Gap(
         "missing",
         "#2412",
+        "data/facility_facts.md the facts view, as markdown",
         "The facts view writes data/facility_facts.md beside data/facility_facts.json "
-        "(render_facility_outputs of every render). Fix: add the line "
-        "'data/facility_facts.md  the facts view, as markdown' under data/facility_facts.json.",
+        "(render_facility_outputs of every render).",
     ),
     (FACILITY_PAGE, "ariel/"): Gap(
         "missing",
         "#2420",
+        "ariel/vocabulary.yml the logbook shorthand ARIEL expands",
         "The preset ships data/facility/ariel/vocabulary.yml, which the build reads as "
-        "ARIEL's vocabulary (facility/settings.py VOCABULARY_SOURCE). Fix: add "
-        "'ariel/vocabulary.yml  the logbook shorthand ARIEL expands' to the tree.",
+        "ARIEL's vocabulary (facility/settings.py VOCABULARY_SOURCE).",
     ),
     (FACILITY_PAGE, "benchmarks/"): Gap(
         "missing",
         "#2420",
+        "benchmarks/ the channel-finder benchmark queries",
         "The preset ships data/facility/benchmarks/cross_paradigm/queries/, which the "
-        "benchmarks view reads (facility/views/benchmarks.py QUERY_SOURCES). Fix: add "
-        "'benchmarks/  the channel-finder benchmark queries' to the tree.",
+        "benchmarks view reads (facility/views/benchmarks.py QUERY_SOURCES).",
     ),
 }
 
@@ -152,19 +155,42 @@ def _block(page: str, language: str, needle: str) -> str:
     return str(found[0].text)
 
 
+def _folded(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _is_stale(page: str, needle: str) -> bool:
+    """Whether a :data:`_STALE` entry still describes *page*, rather than its fixed text.
+
+    A ``wrong`` entry's page holds exactly one of the needle and the fixed
+    text; a ``missing`` entry's page is stale until it holds the fixed text.
+
+    Raises:
+        AssertionError: The page holds neither (or, for ``wrong``, both): the
+            entry describes neither state and must be rewritten.
+    """
+    gap = _STALE[(page, needle)]
+    text = _folded(_page_text(page))
+    fixed = _folded(gap.fixed_text) in text
+    if gap.kind == "missing":
+        return not fixed
+    old = _folded(needle) in text
+    assert old != fixed, f"{page}: {needle!r} matches neither the stale nor the fixed text"
+    return old
+
+
 def _stale(page: str, kind: str) -> set[str]:
-    return {needle for (where, needle), gap in _STALE.items() if where == page and gap.kind == kind}
+    """The needles of *page*'s entries of *kind* that still describe it."""
+    return {
+        needle
+        for (where, needle), gap in _STALE.items()
+        if where == page and gap.kind == kind and _is_stale(where, needle)
+    }
 
 
-def test_every_stale_entry_still_describes_its_page() -> None:
-    """An entry no open PR fixes still holds: the wrong text is there, the missing path absent."""
-    fixed = []
-    for (page, needle), gap in _STALE.items():
-        if gap.fixed_by is not None:
-            continue
-        text = _page_text(page)
-        if (gap.kind == "wrong") != (needle in text):
-            fixed.append((page, needle))
+def test_every_stale_entry_describes_its_page_stale_or_fixed() -> None:
+    """Each entry's page holds its stale text or its fixed text; one no open PR fixes, the stale."""
+    fixed = [key for key in _STALE if not _is_stale(*key) and _STALE[key].fixed_by is None]
     assert fixed == [], f"page fixed; drop the _STALE entry: {fixed}"
 
 
@@ -181,7 +207,8 @@ def tree_paths(text: str) -> tuple[str, list[str]]:
 
     Both drawings are read: ``├──``/``└──`` connectors and plain indentation.
     What follows a name is dropped: a ``←`` annotation, a ``#`` comment, or a
-    description two or more spaces away. A directory keeps its trailing ``/``,
+    description two or more spaces away. A line of glyphs alone (a ``│``
+    spacer) is skipped. A directory keeps its trailing ``/``,
     and an entry's parent is the nearest directory above it drawn further left.
 
     Args:
@@ -196,6 +223,8 @@ def tree_paths(text: str) -> tuple[str, list[str]]:
     stack: list[tuple[int, str]] = []
     paths: list[str] = []
     for line in lines[1:]:
+        if not line.strip(_TREE_GLYPHS):
+            continue  # a glyph-only spacer line (``│``) draws no entry
         column = len(line) - len(line.lstrip(_TREE_GLYPHS))
         name = _NAME_END.split(line[column:], maxsplit=1)[0]
         while stack and stack[-1][0] >= column:
@@ -215,6 +244,7 @@ def test_tree_helper_reads_both_drawings() -> None:
         "│   ├── b.md\n"
         "│   └── deep/\n"
         "│       └── c.md  a description\n"
+        "│\n"
         "└── d/\n"
     )
     indented = (
@@ -250,7 +280,11 @@ def _on_disk(root: Path, rel: str) -> bool:
 
 
 def _listed(rel: str, paths: list[str]) -> bool:
-    """Whether a file path is a tree entry, or lies under one of the tree's directories."""
+    """Whether a file path is a tree entry, or lies under one of the tree's directories.
+
+    ``fnmatch``'s ``*`` crosses ``/``: a ``<placeholder>`` matches any depth, and
+    a drawn directory covers every file below it.
+    """
     for entry in paths:
         pattern = re.sub(r"<[^>]+>", "*", entry)
         if fnmatchcase(rel, pattern) or (entry.endswith("/") and fnmatchcase(rel, pattern + "*")):
@@ -407,8 +441,9 @@ def test_build_tree_paths_are_on_disk(built_control_assistant: BuiltProject) -> 
     assert mode == "graph"
     assert "graph" not in {view.name for view in VIEWS if view.path == "channel_finder"}
     (line,) = [entry for entry in block.splitlines() if "data/channel_finder/" in entry]
-    if "in every mode but graph" not in line:
-        assert (BUILD_PROFILES_PAGE, "the channel-finder view the profile selects") in _STALE
+    needle = "the channel-finder view the profile selects"
+    expected = needle if _is_stale(BUILD_PROFILES_PAGE, needle) else "in every mode but graph"
+    assert expected in line
 
 
 def test_every_facility_output_is_on_the_build_tree(built_control_assistant: BuiltProject) -> None:
@@ -416,7 +451,7 @@ def test_every_facility_output_is_on_the_build_tree(built_control_assistant: Bui
     unlisted = {
         rel for rel in _main_render_files(built_control_assistant) if not _listed(rel, paths)
     }
-    assert unlisted <= _stale(BUILD_PROFILES_PAGE, "missing"), "unlisted and not in _STALE"
+    assert unlisted == _stale(BUILD_PROFILES_PAGE, "missing")
     for view in VIEWS:
         if view.path != ".":
             assert any(rel.startswith(f"data/{view.path}/") for rel in paths), view.name
@@ -465,7 +500,7 @@ def test_facility_tree_is_what_init_writes(built_control_assistant: BuiltProject
 
     drawn_top = {rel.split("/")[0] for rel in paths}
     on_disk_top = {path.name for path in facility.iterdir()}
-    assert {name + "/" for name in on_disk_top - drawn_top} <= _stale(FACILITY_PAGE, "missing")
+    assert {name + "/" for name in on_disk_top - drawn_top} == _stale(FACILITY_PAGE, "missing")
     drawn_records = {
         Path(rel).name for rel in paths if rel.startswith("records/") and rel != "records/"
     }
