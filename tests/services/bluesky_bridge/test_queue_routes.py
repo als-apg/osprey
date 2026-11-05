@@ -46,6 +46,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.session_upload import SessionPlanNotReadyError
+from osprey.services.bluesky_bridge.validation_record import validation_records
 from tests._control_system import IN_PROCESS
 from tests.services.bluesky_bridge._queue_fakes import (
     FakeManager,
@@ -122,6 +123,25 @@ def test_get_queue_maps_manager_silence_to_503(client: TestClient) -> None:
 
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == qb.REASON_MANAGER_UNREACHABLE
+    assert resp.json()["detail"]["retryable"] is True
+
+
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [("get", "/queue"), ("post", "/queue/stop"), ("get", "/runs")],
+)
+def test_a_bridge_with_no_queue_server_refuses_every_route_as_not_retryable(
+    client: TestClient, method: str, route: str
+) -> None:
+    app_module.set_queue_backend(QueueBackend(None))
+
+    resp = getattr(client, method)(route)
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["code"] == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert detail["retryable"] is False
+    assert detail["detail"] == qb.MANAGER_NOT_CONFIGURED_DETAIL
 
 
 # ---------------------------------------------------------------------------
@@ -468,17 +488,21 @@ def test_enqueue_is_refused_on_a_browse_only_deployment(client: TestClient, conn
     assert draft._launching == set()
 
 
-def test_enqueue_without_a_configured_manager_is_503(client: TestClient, connector) -> None:
+def test_enqueue_without_a_configured_manager_is_409_and_not_retryable(
+    client: TestClient, connector
+) -> None:
     connector("virtual_accelerator")
     app_module.set_queue_backend(QueueBackend(None))
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
 
-    assert resp.status_code == 503
+    assert resp.status_code == 409
     detail = resp.json()["detail"]
     assert detail["code"] == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert detail["retryable"] is False
     assert detail["capability"]["can_execute"] is False
+    assert detail["capability"]["retryable"] is False
 
 
 def test_validation_gate_refusal_releases_the_reservation(
@@ -609,7 +633,7 @@ _SHIPPED_PLAN_ARGS: dict[str, tuple[dict[str, Any], set[str], set[str]]] = {
         {
             "correctors": ["COR1"],
             "readbacks": ["BPM1"],
-            "span_a": 1.0,
+            "span": 1.0,
             "num": 3,
             "sweep": "bidirectional",
         },
@@ -1045,6 +1069,150 @@ def test_a_worker_reporting_no_devices_at_all_does_not_block_the_enqueue(
     assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
 
 
+# ---------------------------------------------------------------------------
+# POST /plans/validate holds a pass to the same device check
+# ---------------------------------------------------------------------------
+
+_SWEEP_PLAN = "device_check_sweep"
+
+_SWEEP_BODY = """\
+from bluesky import plan_stubs as bps
+from bluesky import preprocessors as bpp
+from pydantic import BaseModel, Field
+
+from osprey.services.bluesky_bridge.plan_fields import (
+    MovableChannels,
+    ReadableChannels,
+    scan_metadata,
+)
+
+
+class PARAMS(BaseModel):
+    correctors: MovableChannels = Field(..., min_length=1)
+    monitors: ReadableChannels = Field(..., min_length=1)
+
+
+def build_plan(devices, params):
+    corrector = devices[params.correctors[0]]
+    monitor = devices[params.monitors[0]]
+
+    @bpp.stage_decorator([corrector, monitor])
+    @bpp.run_decorator(
+        md=scan_metadata(movable=params.correctors, readable=params.monitors, points=1)
+    )
+    def _sweep():
+        yield from bps.mv(corrector, 1.0)
+        yield from bps.trigger_and_read([corrector, monitor])
+
+    return _sweep()
+"""
+
+_WORKER_DEVICES = ("BPM1", "COR1")
+
+
+def _write_sweep(client: TestClient) -> str:
+    resp = client.post(
+        "/plans/session",
+        json={"name": _SWEEP_PLAN, "writes": True, "body": _SWEEP_BODY},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["content_hash"]
+
+
+def test_validation_refuses_sample_args_naming_a_device_the_worker_lacks(
+    client: TestClient,
+) -> None:
+    """A pass the queue would later refuse is not a pass: the sample arguments
+    are held to the worker's devices, and a refusal records and uploads nothing."""
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
+    install_backend(manager)
+    content_hash = _write_sweep(client)
+    missing = "COR9"
+    assert missing not in _WORKER_DEVICES
+
+    resp = client.post(
+        "/plans/validate",
+        json={
+            "name": _SWEEP_PLAN,
+            "sample_args": {"correctors": [missing], "monitors": [_WORKER_DEVICES[0]]},
+        },
+    )
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    assert detail["devices"] == [missing]
+    assert detail["available_devices"] == sorted(_WORKER_DEVICES)
+    assert detail["detail"].startswith(f"session plan {_SWEEP_PLAN!r}")
+    assert validation_records.has_passing_record(content_hash) is False
+    assert "script_upload" not in manager.method_names()
+
+
+def test_validation_passes_sample_args_drawn_from_the_workers_devices(client: TestClient) -> None:
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
+    install_backend(manager)
+    content_hash = _write_sweep(client)
+
+    resp = client.post(
+        "/plans/validate",
+        json={
+            "name": _SWEEP_PLAN,
+            "sample_args": {"correctors": [_WORKER_DEVICES[1]], "monitors": [_WORKER_DEVICES[0]]},
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["passed"] is True, resp.json()["reasons"]
+    assert validation_records.has_passing_record(content_hash) is True
+
+
+def test_validation_stands_when_the_worker_cannot_list_its_devices(client: TestClient) -> None:
+    """Fail-open, as at enqueue: a worker that cannot answer leaves the pass as it was."""
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=RequestTimeoutError("no answer", {}))
+    install_backend(manager)
+    content_hash = _write_sweep(client)
+
+    resp = client.post(
+        "/plans/validate",
+        json={"name": _SWEEP_PLAN, "sample_args": {"correctors": ["COR9"], "monitors": ["BPM9"]}},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["passed"] is True, resp.json()["reasons"]
+    assert validation_records.has_passing_record(content_hash) is True
+
+
+def test_validation_refusal_is_the_body_the_enqueue_builds(client: TestClient) -> None:
+    """Whichever point catches the name, the caller reads one body."""
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
+    install_backend(manager)
+    _write_sweep(client)
+    movable, readable = {"COR9"}, {"BPM9"}
+
+    resp = client.post(
+        "/plans/validate",
+        json={
+            "name": _SWEEP_PLAN,
+            "sample_args": {"correctors": sorted(movable), "monitors": sorted(readable)},
+        },
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        queue._refuse_unknown_devices(
+            _SWEEP_PLAN, movable, readable, frozenset(_WORKER_DEVICES), session_tier=True
+        )
+    assert resp.status_code == raised.value.status_code
+    assert resp.json()["detail"] == raised.value.detail
+
+
 async def test_an_unchanged_devices_allowed_uid_fetches_the_device_tree_once() -> None:
     """The device tree is per-worker-namespace and runs to thousands of entries
     on a facility whose roster comes from its channel authority; refetching it
@@ -1427,9 +1595,10 @@ def test_start_refuses_while_a_plan_is_already_running(
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
-    assert resp.status_code == 409
     detail = resp.json()["detail"]
-    assert detail["code"] == "manager_not_idle"
+    assert detail["code"] == qb.REASON_MANAGER_NOT_IDLE
+    assert resp.status_code == qb.REFUSAL_REASONS[detail["code"]].status
+    assert detail["retryable"] is qb.REFUSAL_REASONS[detail["code"]].retryable
     assert detail["plan"] == "grid_scan"
     assert detail["item_uid"] == "running-uid"
     # The load-bearing half: the manager was never asked to start.
@@ -2098,6 +2267,20 @@ async def test_sse_reports_manager_outage_as_unavailable() -> None:
     assert frame["status"]["available"] is False
     assert frame["status"]["reason"] == qb.REASON_MANAGER_UNREACHABLE
     assert frame["items"] == []
+
+
+async def test_sse_reports_a_bridge_with_no_queue_server_as_not_retryable() -> None:
+    app_module.set_queue_backend(QueueBackend(None))
+    subscriber: asyncio.Queue[Any] = asyncio.Queue()
+    queue._subscribers.add(subscriber)
+
+    await queue._poll_once()
+
+    status = subscriber.get_nowait()["status"]
+    assert status["available"] is False
+    assert status["reason"] == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert status["retryable"] is False
+    assert status["detail"] == qb.MANAGER_NOT_CONFIGURED_DETAIL
 
 
 def test_bridge_mutations_nudge_the_sse_poller(client: TestClient) -> None:

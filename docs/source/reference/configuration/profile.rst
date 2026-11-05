@@ -45,9 +45,8 @@ Profile YAML reference
      - *required*
      - Facility data tree, relative to the profile directory (``data`` in a
        materialized profile). It is the only source of the project's ``data/``
-       tree, so a profile that names none is refused. May resolve outside the
-       profile directory; only existence and shape are checked
-       (see :ref:`profile-self-contained`).
+       tree, so a profile that names none is refused. Must resolve inside the
+       repository; a path outside it is refused (see :ref:`profile-self-contained`).
    * - ``provider``
      - string
      - *required*
@@ -144,7 +143,7 @@ Profile YAML reference
    * - ``env``
      - mapping
      - ``{}``
-     - Variables the deployment needs: ``required``, ``defaults``, ``file``,
+     - Variables the deployment needs: ``required``, ``defaults``,
        ``pinned``. ``env.pinned`` lists variables ``.env.shared`` decides and a
        host may not override; a deploy refuses rather than start on a
        contradicting value (see :ref:`deployment-pinned-env`). Same name pattern
@@ -759,9 +758,11 @@ alongside OSPREY's built-in ones.
          port: 8108
          api_key: "${TYPESENSE_API_KEY}"
 
-The ``template`` directory must contain at least ``docker-compose.yml.j2``. It is
-copied into the project's ``services/`` tree, and the service is registered in
-``config.yml``. Optional ``config`` values land under ``services.<name>``.
+The ``template`` directory must contain at least ``docker-compose.yml.j2``. A
+profile-relative template must resolve inside the repository (one outside is
+refused, see :ref:`profile-self-contained`), and its contents are folded into the
+profile hash. It is copied into the project's ``services/`` tree, and the
+service is registered in ``config.yml``. Optional ``config`` values land under ``services.<name>``.
 
 A service directory placed in the profile's ``services/`` convention directory is
 carried across the same way and marked as yours — that is what
@@ -1297,9 +1298,10 @@ Lifecycle commands
 
 Lifecycle commands run shell commands at three phases of the build:
 
-- **pre_build** — before rendering (cwd: profile directory)
-- **post_build** — after git init (cwd: project directory)
-- **validate** — advisory checks that warn but don't abort (cwd: project directory)
+- **pre_build** — before the project venv exists (cwd: the repository root)
+- **post_build** — after the render, on the project venv (cwd: the built project)
+- **validate** — advisory checks that warn but don't abort, on the project venv
+  (cwd: the built project)
 
 .. code-block:: yaml
 
@@ -1318,9 +1320,15 @@ Each step requires ``name`` and ``run``. Optional: ``cwd`` (relative to the phas
 default), ``timeout`` (seconds, default 120), and ``stream`` (print output live;
 also available for all steps via ``--stream``).
 
-``{project_root}`` is replaced with the built project's absolute path. The
-project venv's ``bin/`` is prepended to ``PATH``, so ``python`` and ``pytest``
-resolve to the project's own Python.
+``{project_root}`` is replaced with the built project's absolute path.
+
+In ``post_build`` and ``validate`` the project venv's ``bin/`` leads ``PATH``, so
+``python`` and ``pytest`` resolve to the project's own Python. ``pre_build`` runs
+before that venv exists, and under ``--skip-deps`` no step gets one: those steps
+see the shell's ``PATH``.
+
+``post_build`` and ``validate`` steps see the repository's env chain, ``.env``
+over ``.env.shared``, secrets in ``.env`` included; so do ``pre_build`` steps.
 
 A step that writes JUnit XML to ``{project_root}/check_results.xml`` has its
 tests printed as an **Integration Test Results** table when it finishes: each
@@ -1392,7 +1400,8 @@ installed into the project venv and recorded in its generated ``pyproject.toml``
    uv sync               # rebuilds it from pyproject.toml
 
 Builds run with ``--skip-deps`` create no environment and no ``pyproject.toml``;
-install dependencies yourself in that mode.
+install dependencies yourself in that mode. The generated Dockerfile still
+installs every declared requirement.
 
 .. _profile-environment:
 

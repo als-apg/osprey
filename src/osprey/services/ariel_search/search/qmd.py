@@ -303,6 +303,7 @@ async def hybrid_search(
     config: ARIELConfig,
     embedder: BaseProvider | None = None,
     *,
+    search_calls: SearchCallPool,
     max_results: int = 10,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
@@ -313,7 +314,6 @@ async def hybrid_search(
     client: QMDClient | None = None,
     query_expansion: QueryExpansion | None = None,
     include_images: bool | None = None,
-    search_calls: SearchCallPool,
     entry_filter: EntryFilter | None = None,
     offset: int | None = None,
     **kwargs: Any,
@@ -340,6 +340,8 @@ async def hybrid_search(
         embedder: Provider used by ARIEL's existing semantic search, for the
             ``rrf`` strategy only. When omitted, the ``rrf`` path resolves the
             configured provider class; the ``qmd`` strategy never touches it.
+        search_calls: The pool the query embeddings of the semantic and
+            picture lanes run on.
         max_results: Maximum text-lane entries to return (default: 10).
             Image-only entries are counted separately, at most
             ``ceil(max_results / 3)`` of them.
@@ -366,9 +368,6 @@ async def hybrid_search(
             original `query`.
         include_images: Whether the picture lane runs. ``None`` means on
             exactly when ``image_embedding`` is enabled.
-        search_calls: The search service's search-call pool. Every provider
-            call of every lane runs on it: the picture lane embeds the query
-            there, and so does the ``rrf`` strategy's semantic lane.
         entry_filter: Dimension filter (C-FILTER). Hydrated hits of both lanes
             must pass ``EntryFilter.matches`` alongside the legacy filters
             above, and the ``rrf`` semantic lane applies it in SQL.
@@ -581,9 +580,9 @@ async def _hybrid_search(
             candidate_limit=effective_candidates,
             client=client,
             embedder=embedder,
+            search_calls=search_calls,
             query_expansion=query_expansion,
             img_task=img_task,
-            search_calls=search_calls,
             paging=paging,
         )
     finally:
@@ -643,9 +642,9 @@ async def _ranked_search(
     candidate_limit: int | None,
     client: QMDClient | None,
     embedder: BaseProvider | None,
+    search_calls: SearchCallPool,
     query_expansion: QueryExpansion | None,
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None,
-    search_calls: SearchCallPool,
     paging: _Paging | None = None,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Run the text lane, join the picture lane when it ran, and shape the result.
@@ -705,10 +704,10 @@ async def _ranked_search(
                 repository,
                 config,
                 embedder,
+                search_calls=search_calls,
                 limit=lane_limit,
                 filters=filters,
                 query_expansion=query_expansion,
-                search_calls=search_calls,
             )
         )
     try:
@@ -1082,10 +1081,10 @@ async def _semantic_hits(
     config: ARIELConfig,
     embedder: BaseProvider | None,
     *,
+    search_calls: SearchCallPool,
     limit: int,
     filters: _Filters,
     query_expansion: QueryExpansion | None,
-    search_calls: SearchCallPool,
 ) -> list[_RankedTextHit]:
     """Run the existing Nomic/pgvector search and reduce it to an RRF lane."""
     if not config.get_search_model():
@@ -1105,6 +1104,7 @@ async def _semantic_hits(
         repository,
         config,
         embedder,
+        search_calls=search_calls,
         max_results=limit,
         # Hybrid needs a candidate ranking rather than semantic mode's
         # operator-facing cutoff; RRF itself decides the final order.
@@ -1114,7 +1114,6 @@ async def _semantic_hits(
         author=filters.author,
         source_system=filters.source_system,
         query_expansion=query_expansion,
-        search_calls=search_calls,
         **narrowed,
     )
     rows = output.entries if isinstance(output, ModuleOutput) else output

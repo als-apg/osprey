@@ -162,7 +162,7 @@ from tests.e2e.profile_edits import set_pairs
 # expensive framework build would run in the wrong lane. It is also why both
 # postures live in ONE module: a second file would need its own ignore entry and
 # its own job, and would pay for the framework build a second time.
-pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.dockerbuild]
 
 #: The tier both lanes' rosters run: a bundled one, so ``osprey init`` writes
 #: its file and ``osprey build`` renders it.

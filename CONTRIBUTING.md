@@ -112,8 +112,8 @@ For details (CI gates, branch protection, release cuts) see the [full Contributi
 ## Running Tests
 
 ```bash
-# Unit tests, in parallel — this is what CI runs
-pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n auto --dist loadgroup
+# Every check CI runs, the parallel sweep among them
+uv run python scripts/check.py full
 
 # Serial, for debugging a single failure
 pytest tests/ --ignore=tests/e2e -v

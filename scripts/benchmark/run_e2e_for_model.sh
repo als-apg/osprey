@@ -124,7 +124,6 @@ if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
 fi
 
 START=$(date +%s)
-# MUST be `pytest tests/e2e/` (path), NEVER `-m e2e` (causes registry leaks).
 # --timeout (pytest-timeout): bound slow tests so a weak model can't stall the
 # suite. SIGNAL method (SIGALRM, main thread) FAILS the individual test and lets
 # the session CONTINUE — the thread method instead hard-kills the whole pytest

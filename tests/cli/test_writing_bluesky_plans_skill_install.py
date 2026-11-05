@@ -258,6 +258,10 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "uploaded" in skill_text
         assert "content_hash" in skill_text
 
+    def test_a_channel_without_a_limits_record_is_normal(self, skill_text):
+        """A plan's default excursion never waits on a limits record."""
+        assert "many channels have no record, which is normal" in _prose(skill_text)
+
     def test_documents_revalidation_on_edit(self, skill_text):
         """The validation record is content-hash keyed, and the hash is
         re-checked at enqueue AND at queue start."""
@@ -291,6 +295,13 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "render() must never raise" in prose
         assert "render_failed" in skill_text
         assert "stay facility-neutral" in prose
+
+    def test_a_render_binds_axes_to_columns_never_units(self, skill_text):
+        assert "window.units" in skill_text
+        prose = _prose(skill_text)
+        assert "each axis names the columns it plots, never a unit" in prose
+        assert "the bridge states each axis's unit" in prose
+        assert "never set x_units, y_units or value_units" in prose
 
     def test_documents_the_figure_vocabulary(self, skill_text):
         """One panel carries exactly one mark; an author has to know which

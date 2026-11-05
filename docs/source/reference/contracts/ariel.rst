@@ -50,7 +50,10 @@ OSPREY agent selects the appropriate tool based on the user's query.
      - Keyword and semantic ranking combined, with optional query expansion
        and reranking (offered when the hybrid module is enabled)
    * - ``sql_query``
-     - Direct SQL queries against the logbook database
+     - Direct SQL queries against the logbook database, as its SELECT-only
+       login (not offered when the ``uri`` key names the database and
+       ``ariel.database.readonly_uri`` is unset; see
+       :ref:`config-ariel-database-readonly-uri`)
    * - ``browse``
      - Browse entries with pagination and filters
    * - ``filter_options``
@@ -323,10 +326,12 @@ The ``get_ariel_search_service()`` function provides a singleton
 
 **Lifecycle:** The singleton is created once per process. In the web
 interface, the ``create_app()`` factory manages its own service instance
-through the FastAPI lifespan. The web lifespan, the MCP server's shutdown and
-``close_ariel_service()`` all end the service with ``ARIELSearchService.aclose()``,
-which ends its search-call threads and closes its connection pools.
-``reset_ariel_service()`` drops the singleton without closing it.
+through the FastAPI lifespan. For cleanup in tests, use
+``close_ariel_service()`` (closes the service — its database pools and its
+search threads) or ``reset_ariel_service()`` (resets without closing).
+``await service.aclose()`` is the service's one close; ``async with`` calls it.
+It ends every search thread within twice the query-embedding timeout and logs
+the name of any still running past it.
 
 **Source:** :file:`src/osprey/services/ariel_search/capability.py`
 

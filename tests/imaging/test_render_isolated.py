@@ -6,11 +6,13 @@ launched exactly like the real worker (``-I``, ``env={}``, ``cwd='/'``), so they
 can import nothing from the test environment and carry their reply bytes inline.
 
 Timing constants are scaled (a 1 s task clock against a 3 s sleeper, a 0.5 s
-idle close), so each case keeps its production meaning. The ready wait stays
-long by default so a loaded host never trips it; a case about the ready wait
-sets its own. The cancellation cases hold their worker on a file the test
-controls and run on the shipped clocks, so only the cancel ends the render. A
-test that waits for a state polls for it with :func:`tests._live.async_wait_until`.
+idle close), so each case keeps its production meaning. A worker gets the shipped
+ready wait widened by a stated factor to write its ready line, since how long a
+fresh interpreter takes to start is the host's load, not the case; only the case
+that proves the ready wait scales it, against a worker that never writes the line
+in time. The cancellation cases hold their worker on a file the test controls and
+run on the shipped task clock, so only the cancel ends the render. A test that
+waits for a state polls for it with :func:`tests._live.async_wait_until`.
 """
 
 from __future__ import annotations
@@ -30,8 +32,6 @@ from tests._processes import running_state
 
 Image = pytest.importorskip("PIL.Image")
 
-pytestmark = pytest.mark.timeout(60)
-
 
 def _png(size: tuple[int, int] = (8, 8)) -> bytes:
     out = io.BytesIO()
@@ -44,6 +44,14 @@ SOURCE = _png((32, 24))
 
 # The task clock as shipped, for the cases where only the test may end a render.
 _TASK_TIMEOUT_S = render.RENDER_TASK_TIMEOUT_S
+# The shipped ready wait widened so that it never fires on a loaded host.
+_READY_BUDGET_S = 3 * render.RENDER_READY_TIMEOUT_S
+# A hang ceiling over a worker's exit: the close path terminates, then kills, each
+# bounded by the shipped close grace.
+_EXIT_CEILING_S = 3 * (2 * render.CLOSE_GRACE_S)
+
+# Above every wait in the module: two spawns and two renders on shipped clocks.
+pytestmark = pytest.mark.timeout(2 * (_READY_BUDGET_S + _TASK_TIMEOUT_S))
 
 # A stub worker: hand-shakes (unless told otherwise), then answers every frame
 # from ``behaviour(payload)``, which returns (header dict, body bytes) or acts.
@@ -112,14 +120,13 @@ def _stub(
 
 @pytest.fixture(autouse=True)
 async def _scaled(monkeypatch):
-    """Scaled clocks, and no worker left over between tests.
+    """Scaled task clocks, the widened ready wait, and no worker left over between tests.
 
     A worker the test left running is closed while its loop is still alive;
     one owned by a loop that is gone (``asyncio.run``) is killed by pid.
     """
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 1.0)
-    monkeypatch.setattr(render, "RENDER_WORKER_IDLE_S", 30.0)
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", _READY_BUDGET_S)
     render._forget_worker()
     yield
     await render.close_render_worker()
@@ -135,7 +142,7 @@ async def test_default_argv_env_and_cwd(monkeypatch):
         "-m",
         "osprey.imaging.render_worker",
     )
-    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
+    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", _TASK_TIMEOUT_S)
     calls = []
     real = asyncio.create_subprocess_exec
 
@@ -162,14 +169,14 @@ async def test_default_argv_env_and_cwd(monkeypatch):
 
 
 async def test_real_worker_content_refusal_is_a_reply_not_a_failure(monkeypatch):
-    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
+    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", _TASK_TIMEOUT_S)
     outcome = await render.render_isolated(b"<html>login</html>")
     assert outcome.rendition is None
     assert outcome.reason == "not_an_image"
 
 
 def test_two_consecutive_asyncio_runs_both_succeed(monkeypatch):
-    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
+    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", _TASK_TIMEOUT_S)
 
     async def render_once() -> tuple[render.RenderOutcome, int | None]:
         outcome = await render.render_isolated(SOURCE)
@@ -185,8 +192,7 @@ def test_two_consecutive_asyncio_runs_both_succeed(monkeypatch):
     assert first_pid != second_pid
 
 
-async def test_probe_reports_a_healthy_worker(monkeypatch):
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
+async def test_probe_reports_a_healthy_worker():
     assert await render.probe_render_worker() is None
     # The probe never leaves a cached worker behind.
     assert render.worker_pid() is None
@@ -265,17 +271,18 @@ async def test_worker_exiting_at_import_is_unavailable(monkeypatch, tmp_path):
 
 
 async def test_no_ready_within_the_ready_wait_is_unavailable(monkeypatch, tmp_path):
+    ready_sleep_s = 10
     monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 2.0)
     monkeypatch.setattr(
         render,
         "WORKER_ARGV",
-        _stub(tmp_path, "ok()", handshake="time.sleep(10)\n" + _HANDSHAKE),
+        _stub(tmp_path, "ok()", handshake=f"time.sleep({ready_sleep_s})\n" + _HANDSHAKE),
     )
     loop = asyncio.get_running_loop()
     started = loop.time()
     with pytest.raises(render.RenderUnavailable):
         await render.render_isolated(PNG, task_id="x")
-    assert loop.time() - started < 6
+    assert loop.time() - started < ready_sleep_s
     assert render.worker_pid() is None
 
 
@@ -567,16 +574,15 @@ def _held(tmp_path: Path, payload: bytes) -> tuple[str, Path, Path]:
     return lines, started, release
 
 
-async def _until_held(task: asyncio.Task, started: Path, ceiling: float = 30.0) -> None:
+async def _until_held(task: asyncio.Task, started: Path) -> None:
     """Return once the worker holds the picture; fail if the render ends first."""
 
     def held() -> bool:
         assert not task.done(), f"the render ended before its worker held the picture: {task}"
         return started.exists()
 
-    await async_wait_until(
-        held, timeout=ceiling, interval=0.01, what="a worker to hold the picture"
-    )
+    # The render fails at the ready budget, and held() surfaces that failure first.
+    await async_wait_until(held, timeout=2 * _READY_BUDGET_S, what="a worker holding the picture")
 
 
 # -- cancellation -----------------------------------------------------------------------
@@ -602,7 +608,9 @@ async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monke
     assert outcome.rendition.width == 2
     assert render.worker_pid() not in (None, first_pid)
     await async_wait_until(
-        lambda: running_state(first_pid) is None, what="the cancelled worker to exit"
+        lambda: running_state(first_pid) is None,
+        timeout=_EXIT_CEILING_S,
+        what="the cancelled worker's exit",
     )
 
 
@@ -640,14 +648,16 @@ async def test_a_cancel_during_the_ready_wait_leaves_no_child(monkeypatch, tmp_p
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_exec)
     pending = asyncio.create_task(render.render_isolated(PNG, task_id="x"))
-    await async_wait_until(lambda: spawned, what="the worker to spawn")
+    await async_wait_until(lambda: spawned, timeout=2 * _READY_BUDGET_S, what="a spawned worker")
     assert len(spawned) == 1
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
     assert render.worker_pid() is None
     await async_wait_until(
-        lambda: running_state(spawned[0]) is None, what="the cancelled worker to exit"
+        lambda: running_state(spawned[0]) is None,
+        timeout=_EXIT_CEILING_S,
+        what="the cancelled worker's exit",
     )
 
 
