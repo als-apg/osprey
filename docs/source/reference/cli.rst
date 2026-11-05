@@ -134,22 +134,17 @@ packaged values and the ones you added are kept. Never touches ``.env``,
 ``ci-extra.yml``, the CI file, ``scripts/verify.sh``, ``mcp_servers/``, or
 ``rules/``.
 
-``--reset`` — Start over on this name: destroy the containers, data volumes and
-images a previous deployment under the same ``project_name`` left behind, and
-re-materialize the source zone as ``--force`` does when the repository directory
-still exists. **The data in those volumes is lost, and nothing asks you to
-confirm.** The removal is the one ``osprey reset --yes`` makes. When the
-repository still exists, that includes the agent's memory, ``build/`` and the
-tokens ``osprey up`` minted into ``.env``. It keeps what that reset keeps, and
-the plan is not printed.
-
-Deleting a deployment's directory never removes its runtime state: containers
-and volumes are keyed on the ``project_name``. A repository re-created under a
-used name without this flag meets the old stores, and its first ``osprey up``
-refuses to start while a surviving store volume would reject the freshly
-minted credential. Pass ``--reuse-stores`` to ``osprey up`` to keep the old
-data, or re-run ``osprey init`` with ``--reset`` to drop it. ``--reset``
-refuses up front when no container runtime answers.
+``--reset`` — Start over on a name used before. Deleting a deployment's
+directory leaves its containers and data volumes behind, because they are keyed
+on the ``project_name``: a repository re-created under that name meets them,
+and its first ``osprey up`` refuses to start while an old store would reject
+the freshly minted credential. ``--reset`` makes the removal
+``osprey reset --yes`` makes (the containers, data volumes and images, and,
+when the repository still exists, the agent's memory, ``build/`` and the tokens
+minted into ``.env``), then re-materializes the source zone as ``--force`` does.
+**The data is lost, and nothing asks you to confirm.** It refuses up front when
+no container runtime answers. To keep the old data instead, pass
+``--reuse-stores`` to ``osprey up``.
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
 
