@@ -24,11 +24,6 @@ writes, reads or prints what it shows:
   ``osprey chat`` prints for the gallery and ARIEL at the default port base.
 * ``reference/configuration/config.rst``: the image-name pattern is the order
   ``resolve_image_defaults`` composes.
-
-A page text that differs from the code is a finding, recorded in :data:`_STALE`
-with the code location, the owning PR and the fix. The comparison accepts both
-the page's current text and the corrected one, so the PR that fixes the page
-does not break this test; the entry goes once no page carries the old text.
 """
 
 from __future__ import annotations
@@ -95,12 +90,6 @@ PROFILE_PAGE = "reference/configuration/profile.rst"
 CLI_AGENT_PAGE = "how-to/agent-interfaces/cli-agent.rst"
 CONFIG_PAGE = "reference/configuration/config.rst"
 
-#: Page text that differs from the code it quotes: (page, current text) ->
-#: (corrected text, what the code says and the fix). :func:`_quoted` accepts
-#: either text, so a page fix lands without touching this file; the entry is
-#: dropped once no page carries the current text.
-_STALE: dict[tuple[str, str], tuple[str, str]] = {}
-
 
 @lru_cache(maxsize=1)
 def _scanner() -> ModuleType:
@@ -112,17 +101,9 @@ def _page_text(page: str) -> str:
     return (_DOCS / page).read_text(encoding="utf-8")
 
 
-def _quoted(page: str, text: str) -> str:
-    """*text* with any recorded stale quote on *page* replaced by its correction."""
-    for (stale_page, stale), (fixed, _why) in _STALE.items():
-        if stale_page == page:
-            text = text.replace(stale, fixed)
-    return text
-
-
 def _blocks(page: str, language: str, needle: str) -> list[str]:
     return [
-        _quoted(page, block.text)
+        block.text
         for block in _scanner().scan_page(_page_text(page), page, _DOCS)
         if block.language == language and needle in block.text
     ]
@@ -133,11 +114,6 @@ def _block(page: str, language: str, needle: str) -> str:
     found = _blocks(page, language, needle)
     assert len(found) == 1, f"{page}: {len(found)} {language} blocks hold {needle!r}"
     return found[0]
-
-
-def test_every_stale_entry_still_describes_its_page() -> None:
-    fixed = [key for key in _STALE if key[1] not in _page_text(key[0])]
-    assert fixed == [], f"page fixed; drop the _STALE entry: {fixed}"
 
 
 # -- how-to/deploy-project/project-image.rst -----------------------------------
@@ -381,7 +357,7 @@ def _file_commands() -> list[tuple[str, str, str, str]]:
         for block in _scanner().scan_page(_page_text(page), page, _DOCS):
             if block.language != "bash":
                 continue
-            for line in _quoted(page, block.text).splitlines():
+            for line in block.text.splitlines():
                 match = _FILE_COMMAND.match(line.strip())
                 if match:
                     commands.append((page, *match.groups()))
@@ -522,28 +498,38 @@ def _section_title() -> str:
 
 
 class _Launcher:
+    """A launcher stub: started at the key's default port for the page's two, else not."""
+
     def __init__(self, key: str) -> None:
-        self._launched = True
+        self._launched = key in _COMPANIONS
         self._config_reader = lambda: ("127.0.0.1", framework_web_port_default(key))
 
 
 def _printed_companions(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> list[str]:
-    """What ``osprey chat`` prints when the gallery and ARIEL start, token elided."""
+    """What ``osprey chat`` prints when the gallery and ARIEL start, token elided.
+
+    Every registered companion has a launcher; all but the page's two report
+    not launched, so the loop takes its real skip path and warns about none.
+    """
     from osprey.infrastructure import server_launcher
 
     monkeypatch.setenv(WEB_PORT_ENV, "10100")
     monkeypatch.delenv(EXTERNAL_ORIGIN_ENV, raising=False)
     monkeypatch.setattr(server_launcher, "ensure_web_server", lambda key: None)
-    monkeypatch.setattr(server_launcher, "_launchers", {key: _Launcher(key) for key in _COMPANIONS})
+    monkeypatch.setattr(
+        server_launcher, "_launchers", {key: _Launcher(key) for key in FRAMEWORK_WEB_SERVERS}
+    )
     original = install_reporter(PhaseReporter(color=False))
     try:
         started = chat_cmd._launch_companion_servers(tmp_path)
         output.section(_section_title(), started)
     finally:
         install_reporter(original)
-    printed = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", capsys.readouterr().out)
+    captured = capsys.readouterr()
+    assert "did not start" not in captured.out + captured.err
+    printed = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", captured.out)
     return [re.sub(r"\?token=\S+", "?token=…", line.rstrip()) for line in printed.splitlines()]
 
 
