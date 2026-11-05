@@ -256,8 +256,13 @@ function syncGroups(railEl) {
       el.setAttribute('role', 'listitem');
     }
     paintGroupHeading(el, group, `${railEl.id || 'panel-rail'}-${group.id}-label`);
+    // Other children of the rail (the Workspace divider) keep their place
+    // between groups: the next group goes after them, not in front.
     /** @type {Element | null} */
-    const slot = previous ? previous.nextElementSibling : railEl.firstElementChild;
+    let slot = previous ? previous.nextElementSibling : railEl.firstElementChild;
+    while (slot && slot !== el && !slot.classList.contains('sidebar-group')) {
+      slot = slot.nextElementSibling;
+    }
     if (slot !== el) railEl.insertBefore(el, slot);
     found.set(group.id, el);
     previous = el;

@@ -273,6 +273,19 @@ describe('createRail', () => {
     expect(rail.querySelectorAll('.sidebar-group').length).toBe(2);
   });
 
+  test('a render leaves a non-group child between the groups where it is', () => {
+    createRail(rail, PANELS);
+    const divider = document.createElement('div');
+    divider.className = 'sidebar-divider';
+    group(rail, 'workspace').after(divider);
+    createRail(rail, PANELS);
+    expect([...rail.children].map((c) => c.getAttribute('data-group') ?? c.className)).toEqual([
+      'workspace',
+      'sidebar-divider',
+      'tools',
+    ]);
+  });
+
   test('every render announces itself on document', () => {
     const renders = countRenders();
     createRail(rail, PANELS);
