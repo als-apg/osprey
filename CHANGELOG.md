@@ -34,7 +34,8 @@ line where it needs one, only once it is merged on main (WPF #2123, RLF
   (#2222). Until #2222 lands,
   the Removed entry for `web.bar_items` below does not say what a build does
   with a config that still sets it.
-- Final fold: fragments from #2222 (bar-key-ignored) and #2026
+- Final fold (after APP #2109, H1, TAB #2345 and ARS): fragments from FU2A
+  #2369, the ARIEL mail client #2391, #2222 (bar-key-ignored) and #2026
   (artifacts-gallery-markdown, security), plus the follow-up PR that labels
   the 2026.11.3 write-authorization API provisional.
 -->
@@ -281,6 +282,20 @@ Facility description and build:
   `logbook.composition.default_tier` is `logbook.composition.model`. A
   deployment that names no model now runs Sonnet 5, and the als-apg entry no
   longer lists Opus 5.
+
+Logbook (ARIEL):
+
+- **Breaking change:** the ARIEL web interface is one Logbook screen with
+  facets and paging, and stored entries saved from it change their source
+  name: an always-on migration renames `source_system: "ARIEL Web"` to
+  `"OSPREY Logbook Web"`, and new local saves store the new name. The MCP
+  tools return a null `entry_url` for every entry that lives only in ARIEL.
+  (#2391, #2375)
+  Migration: run `osprey ariel migrate` after upgrading to backfill entry
+    subjects, and update any query, export or filter that matches
+    `"ARIEL Web"`. A custom search module that declares neither
+    `accepts_entry_filter` nor `accepts_offset` is now called with a wider
+    `max_results`.
 
 ### Known gaps
 
