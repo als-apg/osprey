@@ -70,6 +70,15 @@ def pinned_passwords(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def no_facility_file(monkeypatch):
+    """The project's facility file is not what these tests read: no records, no warning."""
+    monkeypatch.setattr(
+        "osprey.services.ariel_search.ingestion.facility_references.load_facility_records",
+        lambda: None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_a_derived_dsn_opens_both_pools(pool_factory):
     """Two logins on one store, and the read-only one is the smaller pool: it
