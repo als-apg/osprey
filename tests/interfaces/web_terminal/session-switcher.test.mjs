@@ -3,7 +3,7 @@
  * Unit tests for the Agent tile's header session switcher (session-switcher.js):
  *   npx vitest run tests/interfaces/web_terminal/session-switcher.test.mjs
  *
- * The label on both surfaces shows the active session's title with a ▾; the
+ * The label on both surfaces shows the active session's title; the
  * shared popover lists the sessions, "+ New session", and the way to the other
  * surface. Picks go through the real session model's guarded `switchTo`, so a
  * pick while the chat streams asks first and the active row is a no-op. The
@@ -187,12 +187,12 @@ const sessionRows = (pop) =>
   /** @type {HTMLElement[]} */ ([...pop.querySelectorAll('.session-switcher-row')]);
 
 describe('the header label', () => {
-  test('shows the active session title with a ▾ on both surfaces', () => {
+  test('shows the active session title with no caret on both surfaces', () => {
     const chat = mountLabel('op-session-label');
     const term = mountLabel('terminal-label', 'terminal-label');
     for (const label of [chat, term]) {
       expect(label.querySelector('.session-switcher-title')?.textContent).toBe('Tune the orbit');
-      expect(label.querySelector('.session-switcher-caret')?.textContent).toBe('▾');
+      expect(label.querySelector('.session-switcher-caret')).toBeNull();
       expect(label.getAttribute('aria-haspopup')).toBe('menu');
       expect(label.getAttribute('role')).toBe('button');
     }

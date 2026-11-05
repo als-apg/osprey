@@ -2,8 +2,7 @@
 /* OSPREY Web Terminal — folding a sidebar group
  *
  * A double-click on a group's heading folds the group to its heading; another
- * unfolds it. The heading's chevron (shown while folded, and on hover while
- * open) and Enter / Space on the group's name do the same. Any group folds,
+ * unfolds it. Enter / Space on the group's name do the same. Any group folds,
  * built-in or the operator's; membership and order are untouched, and the
  * Agent row's own session-list fold (sidebar.js) is a separate thing.
  *
@@ -11,8 +10,8 @@
  * `scopedStorageKey('osprey-sidebar-folded')`, a JSON array. A folded group is
  * `data-folded` and its name `aria-expanded="false"`; terminal.css hides the
  * rest of the group. The listeners sit on the rail, so a render that rebuilds
- * a heading loses nothing; the chevron and the name's button role are
- * re-applied after every render. With the sidebar collapsed to icons nothing
+ * a heading loses nothing; the name's button role is re-applied after every
+ * render. With the sidebar collapsed to icons nothing
  * folds.
  */
 
@@ -58,7 +57,7 @@ export function isGroupFolded(id) {
 }
 
 /**
- * Give every heading its chevron and button role, and every group its fold state.
+ * Give every heading its button role, and every group its fold state.
  * @param {HTMLElement} rail
  */
 function paint(rail) {
@@ -67,20 +66,34 @@ function paint(rail) {
     if (!head) continue;
     const isFolded = folded.has(group.getAttribute('data-group') ?? '');
     group.toggleAttribute('data-folded', isFolded);
-    let chevron = head.querySelector(':scope > .sidebar-group-chevron');
-    if (!chevron) {
-      chevron = document.createElement('span');
-      chevron.className = 'sidebar-group-chevron';
-      chevron.setAttribute('aria-hidden', 'true');
-      head.prepend(chevron);
-    }
-    chevron.textContent = isFolded ? '▸' : '▾';
+    head.querySelector(':scope > .sidebar-group-chevron')?.remove();
     const name = head.querySelector('.sidebar-group-name');
     if (name) {
       name.setAttribute('role', 'button');
       name.setAttribute('tabindex', '0');
       name.setAttribute('aria-expanded', String(!isFolded));
     }
+  }
+}
+
+/**
+ * Keep the heading where it was. The rail scrolls, so folding the last group
+ * shrinks its content and the browser clamps scrollTop, which drags the heading
+ * down the screen. A bottom spacer the size of the shortfall restores the
+ * scroll range; it is dropped again before the next fold or unfold.
+ * @param {HTMLElement} rail
+ * @param {Element | null} head
+ * @param {number} before the heading's viewport top before the change
+ */
+function holdHeading(rail, head, before) {
+  if (!head) return;
+  const moved = head.getBoundingClientRect().top - before;
+  if (moved > 0) {
+    rail.style.paddingBottom = `${parseFloat(rail.style.paddingBottom || '0') + moved}px`;
+    rail.scrollTop += moved;
+  } else if (moved < 0 && rail.style.paddingBottom) {
+    rail.scrollTop += moved;
+    rail.style.paddingBottom = '';
   }
 }
 
@@ -93,7 +106,12 @@ function toggle(rail, id) {
   if (folded.has(id)) folded.delete(id);
   else folded.add(id);
   writeFolded(folded);
+  const head = rail.querySelector(
+    `:scope > [data-group="${CSS.escape(id)}"] > .sidebar-group-head`
+  );
+  const before = head?.getBoundingClientRect().top ?? 0;
   paint(rail);
+  holdHeading(rail, head, before);
   document.dispatchEvent(new CustomEvent(FOLD_EVENT));
 }
 
@@ -128,12 +146,6 @@ export function initSidebarFold(rail) {
     if (id === null) return;
     event.preventDefault();
     toggle(rail, id);
-  });
-  rail.addEventListener('click', (event) => {
-    const target = event.target instanceof Element ? event.target : null;
-    if (!target?.closest('.sidebar-group-chevron')) return;
-    const id = groupIdOf(event);
-    if (id !== null) toggle(rail, id);
   });
   rail.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
