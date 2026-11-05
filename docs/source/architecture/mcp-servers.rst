@@ -411,8 +411,8 @@ loopback, or ``OPTIMIZER_URL`` when that is set.
 
 The server holds no launch token and cannot start a run: a person starts
 every run. A tool that reads a machine (``environment_status``,
-``read_observables``, ``initial_bounds``) asks about the session's current
-control target unless it is given a ``target``.
+``read_observables``, ``initial_bounds``) asks about the session's control
+target, as every app does.
 
 **Tools:**
 

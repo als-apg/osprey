@@ -24,8 +24,8 @@ _UNREACHABLE_HINTS = [
 ]
 
 
-def default_target() -> str:
-    """The deployment's current control target (va, standin or live)."""
+def control_target() -> str:
+    """The session's control target (va, standin or live): the machine every read describes."""
     return resolve_target_situation().control_target
 
 

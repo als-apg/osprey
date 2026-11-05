@@ -38,10 +38,10 @@ REQUESTS = [
     (
         environments,
         "read_observables",
-        {"name": "lin", "names": ["q", "r"], "target": "va"},
+        {"name": "lin", "names": ["q", "r"]},
         "GET",
         "/environments/lin/observables",
-        {"target": ["va"], "names": ["q", "r"]},
+        {"target": [SESSION_TARGET], "names": ["q", "r"]},
     ),
     (environments, "list_presets", {"name": "lin"}, "GET", "/environments/lin/presets", {}),
     (
@@ -55,10 +55,10 @@ REQUESTS = [
     (
         environments,
         "initial_bounds",
-        {"name": "lin", "preset": "phase", "target": "live"},
+        {"name": "lin", "preset": "phase"},
         "GET",
         "/environments/lin/initial-bounds",
-        {"target": ["live"], "preset": ["phase"]},
+        {"target": [SESSION_TARGET], "preset": ["phase"]},
     ),
     (jobs, "list_jobs", {}, "GET", "/jobs", {}),
     (jobs, "get_job", {"job_id": "j1"}, "GET", "/jobs/j1", {}),
