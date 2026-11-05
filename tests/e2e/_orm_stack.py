@@ -53,7 +53,12 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import yaml
 
 from osprey_connectors_tests._harness._ports import hold_ports
-from tests.e2e._deploy_support import find_osprey_console_script, format_failure, wait_for_health
+from tests.e2e._deploy_support import (
+    env_from_example,
+    find_osprey_console_script,
+    format_failure,
+    wait_for_health,
+)
 from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import forced_model
@@ -923,7 +928,7 @@ def seed_repo_env(repo: Path) -> None:
     """
     env_path = repo / ".env"
     if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
+        env_path.write_text(env_from_example(repo))
 
 
 def staged_devices_file(repo: Path) -> Path:

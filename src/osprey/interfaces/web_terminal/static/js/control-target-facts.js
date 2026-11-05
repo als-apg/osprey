@@ -570,6 +570,13 @@ export function identTitle(row) {
 }
 
 /**
+ * Said by a move to `allowed` only: at `allowed` a program (an optimizer run)
+ * issues its own write authorization, with no request for this login to approve.
+ */
+export const PROGRAMS_SELF_ISSUE_SENTENCE =
+  'Programs, such as an optimizer run, then authorize themselves here without a request.';
+
+/**
  * Everything a widening's confirm says, for a move to *to*. Only a widening
  * asks — a narrowing removes reach and is undone by a click; a widening is the
  * gesture after which a write the agent makes can land, or land unprompted.
@@ -579,7 +586,8 @@ export function identTitle(row) {
  * The scope line is the first thing it says, because a switch is one login's:
  * moving it here moves it for every session, notebook and agent run of the
  * signed-in login — and for nobody else's. Then whether writes to this machine
- * will still prompt, the one thing the two positions differ on, then the
+ * will still prompt, the one thing the two positions differ on (and, at
+ * `allowed`, that programs then authorize themselves), then the
  * turn-on sentence (C-WORDS): runs already going keep the state they started
  * with. The move's start adds nothing: off→allowed and asked→allowed arrive at
  * the same place.
@@ -600,6 +608,7 @@ export function turnOnConfirm(row, kind, to = 'asked') {
       allowed
         ? ['Writes to ', { em: name }, ' will run with ', { em: 'no prompt' }, '.']
         : ['Writes to ', { em: name }, ' will ', { em: 'still prompt' }, ' before each one runs.'],
+      ...(allowed ? [[PROGRAMS_SELF_ISSUE_SENTENCE]] : []),
       [TURN_ON_SENTENCE],
     ],
     live: hardwareNote(kind),

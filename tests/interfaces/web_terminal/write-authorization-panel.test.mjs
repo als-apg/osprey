@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   APPROVING_SENTENCE,
   READING_SENTENCE,
+  SELF_ISSUED_SENTENCE,
   limitsText,
   programsSection,
   refreshPrograms,
@@ -243,7 +244,8 @@ describe('the section', () => {
     const line = /** @type {HTMLElement} */ (node.querySelector('.wa-held'));
     expect(line.dataset.selfIssued).toBe('true');
     expect(line.querySelector('.wa-revoke')).toBeNull();
-    expect(line.querySelector('.wa-self-issued')?.textContent).toContain('off allowed');
+    expect(line.querySelector('.wa-self-issued')?.textContent).toBe(SELF_ISSUED_SENTENCE);
+    expect(SELF_ISSUED_SENTENCE).toContain('away from allowed');
   });
 
   test('an open card replaces its own line', () => {
@@ -341,5 +343,30 @@ describe('the wired section', () => {
     await vi.waitFor(() => expect(rerender).toHaveBeenCalled());
     const after = /** @type {HTMLElement} */ (programsSection('sess', rerender));
     expect(after.querySelector('.wa-status')?.textContent).toBe(said);
+  });
+
+  test('a read the popover closed under does not bring the listing back', async () => {
+    /** @type {(() => void)|null} */
+    let release = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve({
+                ok: true,
+                status: 200,
+                json: async () => ({ requests: [cardOf()], authorizations: [] }),
+              });
+          })
+      )
+    );
+    const read = refreshPrograms();
+    await vi.waitFor(() => expect(release).not.toBeNull());
+    resetPrograms();
+    /** @type {any} */ (release)();
+    await read;
+    expect(programsSection('sess', vi.fn())).toBeNull();
   });
 });
