@@ -12,18 +12,29 @@ stays local.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import re
+import uuid
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
-from osprey.interfaces.web_terminal import transcript_map
+from osprey.build.claude_code_telemetry import (
+    DISPATCH_SESSION_PREFIX,
+    HOST_SESSION_PREFIX,
+    WATCHDOG_SESSION_PREFIX,
+)
+from osprey.interfaces.web_terminal import session_meta, transcript_map
+from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.mcp_server import session as session_record
+from osprey.stores import session_ledger
 
 logger = logging.getLogger(__name__)
 
@@ -53,32 +64,439 @@ def _unavailable(reason: str) -> dict[str, str]:
     return session_record.record_fields(session_record.RECORD_UNAVAILABLE, reason)
 
 
-def _session_info(row: dict[str, Any]) -> dict[str, Any]:
-    """A ``list_sessions`` row as the session picker's entry."""
+#: What a session with no title and no readable first prompt is called.
+UNTITLED_SESSION = "Untitled session"
+#: The longest title a first prompt is shortened to.
+PROMPT_TITLE_CHARS = 60
+#: ``terminal_session`` prefixes of sessions that are not the operator's own
+#: conversations: a dispatch run, a host ``osprey chat``, a watchdog judge.
+_NOT_OPERATOR_PREFIXES = (DISPATCH_SESSION_PREFIX, HOST_SESSION_PREFIX, WATCHDOG_SESSION_PREFIX)
+
+
+def _encode_cursor(before: str) -> str:
+    raw = json.dumps({"before": before}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> datetime:
+    """The page boundary *cursor* names. Raises ValueError for one this route did not issue."""
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+        before = datetime.fromisoformat(json.loads(raw)["before"])
+    except (ValueError, TypeError, KeyError, binascii.Error) as exc:
+        raise ValueError("cursor is not one this listing issued") from exc
+    if before.tzinfo is None:
+        raise ValueError("cursor is not one this listing issued")
+    return before
+
+
+def _shortened(prompt: str) -> str:
+    """A first prompt as a title: one line, at most :data:`PROMPT_TITLE_CHARS`."""
+    text = " ".join(prompt.split())
+    if len(text) <= PROMPT_TITLE_CHARS:
+        return text
+    cut = text[: PROMPT_TITLE_CHARS - 1]
+    space = cut.rfind(" ")
+    if space > PROMPT_TITLE_CHARS // 2:
+        cut = cut[:space]
+    return cut.rstrip() + "\u2026"
+
+
+def _title_of(meta: Mapping[str, Any], prompt: str) -> tuple[str, str | None]:
+    """A session's title and its source: the meta's, else its first prompt shortened."""
+    if meta["title"]:
+        return meta["title"], meta["title_source"]
+    if prompt.strip():
+        return _shortened(prompt), "prompt"
+    return UNTITLED_SESSION, None
+
+
+def _operator_row(row: Mapping[str, Any]) -> bool:
+    """Decision 6: whether a record row is one of the operator's own conversations.
+
+    A dispatch run (any ``run_ids``), a host, dispatch or watchdog terminal
+    session and a promptless row the read was not cut short of are not.
+    """
+    if row.get("run_ids"):
+        return False
+    terminal = row.get("terminal_session")
+    if isinstance(terminal, str) and terminal.startswith(_NOT_OPERATOR_PREFIXES):
+        return False
     prompt = row.get("prompt")
-    if not isinstance(prompt, str):
-        prompt = ""
+    return (isinstance(prompt, str) and bool(prompt.strip())) or bool(row.get("truncated"))
+
+
+def _live_keys(app) -> set[str]:
+    """The session keys whose child runs now: a live PTY or a chat child."""
+    live: set[str] = set()
+    registry = getattr(app.state, "pty_registry", None)
+    if registry is not None:
+        for key in registry.session_keys():
+            pty = registry.get_session(key)
+            if pty is not None and pty.is_alive:
+                live.add(key)
+    operators = getattr(app.state, "operator_registry", None)
+    chats = getattr(operators, "chats", None) if operators is not None else None
+    if chats is not None:
+        live.update(chats.keys())
+    return live
+
+
+def _session_row(
+    app,
+    transcript_id: str,
+    record_row: Mapping[str, Any] | None,
+    ledger: session_ledger.Ledger,
+    live: set[str],
+) -> dict[str, Any]:
+    """One ``GET /api/sessions`` row: the record's facts, the ledger's key, the meta's title."""
+    record_row = record_row or {}
+    key = ledger.key_of(transcript_id)
+    current = key is not None and ledger.current(key) == transcript_id
+    meta = session_meta.get(app, transcript_id)
+    prompt = record_row.get("prompt")
+    prompt = prompt if isinstance(prompt, str) and prompt.strip() else ""
+    truncated = bool(record_row.get("truncated"))
+    title, title_source = _title_of(meta, prompt)
+    pending = getattr(app.state, "session_naming_pending", set())
+    naming = "pending" if transcript_id in pending else meta["naming"]
+    message_count = record_row.get("message_count")
     return {
-        "session_id": row["session_id"],
-        "first_message": prompt[:200],
-        "last_modified": row.get("last_ts"),
-        "message_count": row.get("entries", 0),
+        "transcript_id": transcript_id,
+        "session_key": key,
+        "current_for_key": current,
+        "title": title,
+        "title_source": title_source,
+        "naming": naming,
+        "last_artifact_id": meta["last_artifact_id"],
+        "state": "live" if current and key in live else "idle",
+        "message_count": message_count if isinstance(message_count, int) else 0,
+        "first_ts": record_row.get("first_ts"),
+        "last_ts": record_row.get("last_ts"),
+        "truncated": truncated,
+        "prompt": prompt,
+    }
+
+
+def _ledger_only(
+    ledger: session_ledger.Ledger,
+    listed: set[str],
+    newest: datetime | None,
+    oldest: datetime | None,
+) -> list[tuple[datetime, str]]:
+    """The ledger's transcripts not in *listed*, placed inside ``[oldest, newest)``.
+
+    A transcript's place is its first ledger row's ``from_ts``: when the hub
+    first saw it, which for a transcript the record has not ingested is as close
+    to its activity as anything known. ``None`` leaves that side open. These are
+    candidates only: one the record knows is listed by the record, on its own
+    page (:func:`_unknown_to_record`).
+    """
+    first: dict[str, datetime] = {}
+    for row in ledger.rows:
+        if row.transcript_id in listed or row.transcript_id in first:
+            continue
+        at = session_ledger.aware_time(row.from_ts)
+        if at is not None:
+            first[row.transcript_id] = at
+    return [
+        (at, tid)
+        for tid, at in first.items()
+        if (newest is None or at < newest) and (oldest is None or at >= oldest)
+    ]
+
+
+def _unknown_to_record(
+    candidates: list[tuple[datetime, str]], client: Any
+) -> tuple[list[tuple[datetime, str]] | None, str]:
+    """*candidates* without the transcripts the record has any row of.
+
+    ``None`` (and the reason) when the record could not say which it knows.
+    """
+    if not candidates:
+        return candidates, ""
+    known, answer = session_record.known_sessions([tid for _, tid in candidates], client=client)
+    if known is None:
+        why = (answer.reason or answer.unavailable or "") if answer is not None else ""
+        return None, why or "the record could not say which ledger transcripts it holds"
+    return [c for c in candidates if c[1] not in known], ""
+
+
+def _session_listing(
+    app,
+    identity: str,
+    client: Any,
+    *,
+    before: datetime | None,
+    drain: bool,
+) -> dict[str, Any]:
+    """The body of ``GET /api/sessions``: one page, newest activity first.
+
+    Record rows (Decision 6 drops applied before anything is named) and the
+    ledger's transcripts the record has not ingested (it holds no row of
+    them), merged by activity time. Each transcript is listed once across
+    the pages.
+    """
+    rows, answer = session_record.own_sessions(identity, client=client, drain=drain, before=before)
+    ledger = session_ledger.load(session_meta.ledger_state_dir())
+    live = _live_keys(app)
+    more = False
+    next_cursor = None
+    record_rows: list[Mapping[str, Any]] = []
+    extra: list[tuple[datetime, str]] = []
+    if answer.available:
+        record = (
+            session_record.RECORD_COMPLETE if answer.complete else session_record.RECORD_INCOMPLETE
+        )
+        reason = answer.reason
+        raw = answer.data if isinstance(answer.data, list) else []
+        listed = {r["session_id"] for r in raw if isinstance(r, Mapping) and r.get("session_id")}
+        more = bool(answer.more)
+        oldest = None
+        if raw and isinstance(raw[-1], Mapping):
+            oldest = session_ledger.aware_time(raw[-1].get("last_ts"))
+        if more and oldest is not None:
+            next_cursor = _encode_cursor(oldest.isoformat())
+        record_rows = [r for r in rows if _operator_row(r)]
+        candidates = _ledger_only(ledger, listed, before, oldest if more else None)
+        unknown, why = _unknown_to_record(candidates, client)
+        if unknown is None:
+            # Listing them could repeat a transcript the record lists on
+            # another page; the page says it is incomplete instead.
+            record = session_record.RECORD_INCOMPLETE
+            reason = reason or why
+        else:
+            extra = unknown
+    else:
+        # A refused read (an older service without ``before``) answered nothing
+        # for this page; the record is not down, the page is incomplete.
+        refused = bool(getattr(answer, "refused", False))
+        record = session_record.RECORD_INCOMPLETE if refused else session_record.RECORD_UNAVAILABLE
+        reason = answer.unavailable or ""
+        # With no record rows and no next page, the first page lists every
+        # ledger transcript; a later page lists none, as an earlier one did.
+        if before is None:
+            extra = _ledger_only(ledger, set(), None, None)
+
+    placed: list[tuple[datetime, str, dict[str, Any]]] = []
+    epoch = datetime.min.replace(tzinfo=UTC)
+    for row in record_rows:
+        at = session_ledger.aware_time(row.get("last_ts")) or epoch
+        tid = row["session_id"]
+        placed.append((at, tid, _session_row(app, tid, row, ledger, live)))
+    for at, tid in extra:
+        placed.append((at, tid, _session_row(app, tid, None, ledger, live)))
+    placed.sort(key=lambda p: (p[0], p[1]), reverse=True)
+    return {
+        "sessions": [row for _, _, row in placed],
+        "more": more,
+        "next_cursor": next_cursor,
+        **session_record.record_fields(record, reason),
     }
 
 
 @router.get("/api/sessions")
-async def list_sessions(request: Request):
-    """Return this terminal's sessions, newest first, from the agent record."""
+async def list_sessions(request: Request, cursor: str | None = None, drain: str | None = None):
+    """This operator's sessions (one page, newest activity first).
+
+    Only ``drain=1`` waits for ingest to pass what is pending; ``cursor`` is the
+    ``next_cursor`` of the previous page.
+    """
+    before = None
+    if cursor:
+        try:
+            before = _decode_cursor(cursor)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
     identity = _identity(request)
     client = record_client()
-    rows, answer = await asyncio.to_thread(session_record.own_sessions, identity, client=client)
-    if not answer.available:
-        return {"sessions": [], **_unavailable(answer.unavailable or "")}
-    record = session_record.RECORD_COMPLETE if answer.complete else session_record.RECORD_INCOMPLETE
-    return {
-        "sessions": [_session_info(row) for row in rows],
-        **session_record.record_fields(record, answer.reason),
-    }
+    body = await asyncio.to_thread(
+        _session_listing,
+        request.app,
+        identity,
+        client,
+        before=before,
+        drain=drain == "1",
+    )
+    _schedule_naming(request.app, body["sessions"])
+    return body
+
+
+def _schedule_naming(app, rows: list[dict[str, Any]]) -> None:
+    """Hand the listed rows to the hub's namer; the scheduled ones read ``pending``.
+
+    Scheduling only queues: the listing never waits on the model.
+    """
+    namer = getattr(app.state, "session_namer", None)
+    if namer is None:
+        return
+    try:
+        scheduled = set(namer.schedule(rows))
+    except Exception:  # naming is a nicety; the listing stands without it
+        logger.warning("Could not schedule session naming", exc_info=True)
+        return
+    for row in rows:
+        if row["transcript_id"] in scheduled:
+            row["naming"] = "pending"
+
+
+# ---- per-session meta ------------------------------------------------------------
+
+
+class _TitleBody(BaseModel):
+    title: str = ""
+
+
+class _LastArtifactBody(BaseModel):
+    artifact_id: str = ""
+
+
+class _LastActiveBody(BaseModel):
+    session_key: str
+
+
+def _uuid_id(value: str, name: str) -> str:
+    """*value* when it is a canonical UUID; a 422 naming *name* otherwise."""
+    if not is_posture_key(value):
+        raise HTTPException(status_code=422, detail=f"{name} must be a session UUID")
+    return value
+
+
+@router.get("/api/sessions/last-active")
+async def get_last_active(request: Request):
+    """The key the operator was last on: ``{session_key, at}``, or nulls."""
+    last = await asyncio.to_thread(session_meta.get_last_active, request.app)
+    return last or {"session_key": None, "at": None}
+
+
+@router.put("/api/sessions/last-active")
+async def put_last_active(request: Request, body: _LastActiveBody):
+    key = _uuid_id(body.session_key, "session_key")
+    return await asyncio.to_thread(session_meta.set_last_active, request.app, key)
+
+
+@router.put("/api/sessions/{transcript_id}/title")
+async def put_title(request: Request, transcript_id: str, body: _TitleBody):
+    """Set the operator's title; an empty one reverts to the auto title."""
+    tid = _uuid_id(transcript_id, "transcript_id")
+    entry = await asyncio.to_thread(session_meta.set_title, request.app, tid, body.title)
+    return {"transcript_id": tid, **entry}
+
+
+@router.put("/api/sessions/{transcript_id}/last-artifact")
+async def put_last_artifact(request: Request, transcript_id: str, body: _LastArtifactBody):
+    tid = _uuid_id(transcript_id, "transcript_id")
+    entry = await asyncio.to_thread(
+        session_meta.set_last_artifact, request.app, tid, body.artifact_id
+    )
+    return {"transcript_id": tid, **entry}
+
+
+def _enter(app, transcript_id: str) -> str:
+    key = str(uuid.uuid4())
+    transcript_map.set(app, key, transcript_id)
+    session_meta.record_transcript_move(app, key, transcript_id, datetime.now(UTC))
+    return key
+
+
+@router.post("/api/sessions/{transcript_id}/enter")
+async def enter_session(request: Request, transcript_id: str):
+    """Enter a transcript that is no key's current one: a new key K\u2032 pointing at it.
+
+    The spawn of K\u2032 then resumes the transcript, because it resolves
+    ``transcript_map.get(K\u2032)``.
+    """
+    tid = _uuid_id(transcript_id, "transcript_id")
+    key = await asyncio.to_thread(_enter, request.app, tid)
+    return {"session_key": key}
+
+
+def facility_timezone():
+    """The zone an export's timestamps are written in: the facility's, else UTC.
+
+    Reached through the module, so a test replaces it like :func:`record_client`.
+    """
+    from osprey_connectors.config import get_facility_timezone
+
+    return get_facility_timezone()
+
+
+#: The line a transcript export carries when the record answered only part of it.
+INCOMPLETE_TRANSCRIPT_NOTICE = (
+    "**Incomplete transcript:** the record answered only part of this session"
+)
+#: What a transcript export answers when the record cannot be read.
+TRANSCRIPT_UNAVAILABLE = "The session record is unavailable; try again shortly."
+#: The longest stem an export's file name is cut to.
+_EXPORT_NAME_CHARS = 80
+
+
+def _local_stamp(value: Any, zone) -> str:
+    """A record timestamp in *zone*, ``YYYY-MM-DD HH:MM:SS TZ``; ``""`` when unreadable."""
+    stamp = _ts(value) if value else None
+    if stamp is None:
+        return ""
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    return stamp.astimezone(zone).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def _transcript_markdown(title: str, turns: list[dict[str, Any]], read, zone) -> str:
+    """The export: ``# title``, an incomplete notice when due, then each turn in order."""
+    out = [f"# {title}", ""]
+    if read.record == session_record.RECORD_INCOMPLETE:
+        reason = f" ({read.reason})" if read.reason else ""
+        out += [f"> {INCOMPLETE_TRANSCRIPT_NOTICE}{reason}.", ""]
+    for turn in turns:
+        who = "Operator" if turn.get("role") == "user" else "Agent"
+        stamp = _local_stamp(turn.get("timestamp"), zone)
+        out += [f"## {who} · {stamp}" if stamp else f"## {who}", "", turn["content"], ""]
+    return "\n".join(out).rstrip() + "\n"
+
+
+def _export_name(title: str) -> str:
+    """An ASCII file name for an export of the session titled *title*."""
+    import unicodedata
+
+    ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+    stem = re.sub(r"[^A-Za-z0-9._]+", "-", ascii_title).strip("-._")[:_EXPORT_NAME_CHARS]
+    return f"{stem.rstrip('-._') or 'session'}.md"
+
+
+@router.get("/api/sessions/{transcript_id}/transcript.md")
+async def export_transcript(request: Request, transcript_id: str):
+    """The session as Markdown, served as an attachment named from its title.
+
+    Read through the record read the chat replay uses: every operator prompt and
+    agent reply in order, each under its facility-local timestamp. A session the
+    record holds nothing of is a 404; an unreadable record a 503.
+    """
+    from urllib.parse import quote
+
+    from fastapi.responses import Response
+
+    tid = _uuid_id(transcript_id, "transcript_id")
+    read = await asyncio.to_thread(session_record.read_timeline, tid, client=record_client())
+    if read.record == session_record.RECORD_UNAVAILABLE:
+        logger.info("transcript export: record unavailable: %s", read.reason)
+        raise HTTPException(status_code=503, detail=TRANSCRIPT_UNAVAILABLE)
+    if not read.nodes and read.record == session_record.RECORD_COMPLETE:
+        raise HTTPException(status_code=404, detail="No such session")
+    turns = session_record.chat_history(read.nodes, max_chars=None)
+    meta = await asyncio.to_thread(session_meta.get, request.app, tid)
+    first_prompt = next((t["content"] for t in turns if t.get("role") == "user"), "")
+    title, _source = _title_of(meta, first_prompt)
+    zone = await asyncio.to_thread(facility_timezone)
+    name = _export_name(title)
+    return Response(
+        content=_transcript_markdown(title, turns, read, zone),
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"{name}\"; filename*=UTF-8''{quote(name)}"
+            )
+        },
+    )
 
 
 def _current_session(request: Request) -> str | None:
@@ -240,7 +658,11 @@ async def session_log(request: Request):
 async def session_summary(request: Request):
     """Return artifact inventory with channel extraction for the current session."""
     try:
-        from osprey.mcp_server.workspace.tools.session_summary import _extract_channels
+        from osprey.mcp_server.workspace.tools.session_summary import (
+            _extract_channels,
+            entry_forms,
+            form_totals,
+        )
         from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(request.app.state.workspace_dir)
@@ -252,20 +674,20 @@ async def session_summary(request: Request):
         )
 
         total_bytes = 0
-        categories: dict[str, int] = {}
+        forms = entry_forms(store, entries)
         tools_used: set[str] = set()
         artifact_types: dict[str, int] = {}
         entry_dicts = []
 
-        for entry in entries:
+        for entry, (form, label) in zip(entries, forms, strict=True):
             total_bytes += entry.size_bytes
-            cat = entry.category or "uncategorized"
-            categories[cat] = categories.get(cat, 0) + 1
             if entry.tool_source:
                 tools_used.add(entry.tool_source)
             artifact_types[entry.artifact_type] = artifact_types.get(entry.artifact_type, 0) + 1
             d = entry.to_dict()
             d["channels"] = _extract_channels(entry)
+            d["form"] = form
+            d["form_label"] = label
             entry_dicts.append(d)
 
         return {
@@ -273,7 +695,7 @@ async def session_summary(request: Request):
             "totals": {
                 "entry_count": len(entries),
                 "total_bytes": total_bytes,
-                "categories": categories,
+                "forms": form_totals(forms),
                 "tools_used": sorted(tools_used),
                 "artifact_types": artifact_types,
             },
@@ -285,7 +707,7 @@ async def session_summary(request: Request):
             "totals": {
                 "entry_count": 0,
                 "total_bytes": 0,
-                "categories": {},
+                "forms": [],
                 "tools_used": [],
                 "artifact_types": {},
             },
