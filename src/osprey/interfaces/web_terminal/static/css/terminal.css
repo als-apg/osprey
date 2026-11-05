@@ -327,7 +327,8 @@ html[data-sidebar-dividing] * {
   user-select: none;
 }
 
-html:not([data-sidebar="collapsed"]) .sidebar-group[data-sized]:not([data-folded]) {
+/* #panel-rail outranks the shrinking rule for the session tree's group above. */
+html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-sized]:not([data-folded]) {
   flex: none;
   height: var(--sidebar-group-height);
   overflow-x: hidden;
