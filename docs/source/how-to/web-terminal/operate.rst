@@ -559,7 +559,8 @@ session; **More sessions** loads older ones.
   (panels, tiles, sizes, the Agent pane, and each panel's page where the hub
   can read it), with the artifact last open there (its newest if none). A new
   or older session keeps the layout on screen. The sidebar stays as it is.
-  Click the current session's name to fold or unfold it. ▸ only browses.
+  Click the current session's name to fold or unfold it. Only the current
+  session shows its artifacts; the others stay folded until you switch to them.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
