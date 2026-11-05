@@ -673,9 +673,9 @@ def test_accent_effective_variants_double_and_are_paired() -> None:
 
 
 def test_plot_row_and_frame_selectors_name_the_hub_list_and_the_viewer() -> None:
-    """The row is the hub sidebar's list row; the frame is the embedded viewer's."""
+    """The row is the hub sidebar's tree row; the frame is the embedded viewer's."""
     assert _PLOT_ROW_SELECTOR == (
-        f'#sidebar-artifacts-list .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
+        f'#sidebar-session-tree .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
     )
     assert _PLOT_FRAME_SELECTOR == "#preview-content iframe.preview-iframe-light"
 

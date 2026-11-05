@@ -100,13 +100,15 @@ def save_run_bookkeeping(store: ArtifactStore) -> None:
         title="Notebook: plot the orbit",
         mime_type="application/x-ipynb+json",
         tool_source="execute",
-        metadata={RUN_RECORD_KEY: True},
+        metadata={"run_part": "code"},
+        exec_id="run-1",
     )
     store.save_data(
         tool="execute",
         data={"stdout": "done"},
         title="plot the orbit",
-        category="code_output",
+        metadata={"run_part": "result", "run_status": "succeeded"},
+        exec_id="run-1",
     )
 
 
@@ -123,7 +125,7 @@ def test_repeated_startup_registers_exactly_once():
 
 
 def test_execute_run_with_figure_emits_one_frame(project, notified):
-    """The flood case: figure + auto-notebook + code_output record → ONE frame."""
+    """The flood case: figure + the run's code and result parts → ONE frame."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 
     initialize_workspace_singletons()
@@ -163,8 +165,8 @@ def test_deliberately_saved_notebook_still_emits(project, notified, tool_source)
     assert "Orbit analysis" in notified[0][0]["detail"]
 
 
-def test_code_output_record_never_emits(project, notified):
-    """A ``code_output`` record is bookkeeping whatever wrote it."""
+def test_run_result_record_never_emits(project, notified):
+    """A run's ``result`` part is bookkeeping whatever wrote it."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 
     initialize_workspace_singletons()
@@ -174,7 +176,26 @@ def test_code_output_record_never_emits(project, notified):
         tool="execute_file",
         data={"stdout": ""},
         title="script run",
-        category="code_output",
+        metadata={"run_part": "result", "run_status": "succeeded"},
+        exec_id="run-2",
+    )
+    wait_drained()
+
+    assert notified == []
+
+
+def test_legacy_result_record_never_emits(project, notified):
+    """A result record saved before ``run_part`` existed (JSON + run-record mark)."""
+    from osprey.mcp_server.startup import initialize_workspace_singletons
+
+    initialize_workspace_singletons()
+    store = ArtifactStore(workspace_root=project / "_agent_data")
+
+    store.save_data(
+        tool="execute_file",
+        data={"stdout": ""},
+        title="script run",
+        metadata={RUN_RECORD_KEY: True},
     )
     wait_drained()
 

@@ -10,6 +10,7 @@ import json
 import logging
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from osprey.mcp_server.workspace.server import mcp
 
@@ -40,6 +41,41 @@ def _extract_channels(entry) -> list[str]:
     return list(dict.fromkeys(channels))
 
 
+def entry_forms(store, entries) -> list[tuple[str, str]]:
+    """The ``(form, label)`` each of *entries* is counted under.
+
+    The gallery's one grouping level: a run head is ``runs``, an output its
+    intrinsic form, an entry of a registered extension type its ``kind``. A
+    run's other parts (its preview, notebook) are listed under their run in the
+    gallery; an inventory still names each entry, so a part counts under its
+    intrinsic form.
+    """
+    from osprey.mcp_server.workspace.tools.artifact_query import (
+        extension_registry,
+        group_of,
+    )
+    from osprey.stores.artifact_forms import form_label, form_of
+
+    try:
+        registry = extension_registry() or {}
+    except Exception:  # a broken registry never breaks the inventory
+        logger.debug("Extension registry unavailable", exc_info=True)
+        registry = {}
+    groups = store.run_groups()
+    forms: list[tuple[str, str]] = []
+    for entry in entries:
+        key = group_of(entry, groups, registry) or form_of(entry, registry)
+        ext = registry.get(key) if entry.kind and key == entry.kind else None
+        forms.append((key, ext.label if ext is not None else form_label(key)))
+    return forms
+
+
+def form_totals(forms: list[tuple[str, str]]) -> list[dict]:
+    """``[{key, label, count}]`` for *forms*, in first-seen order."""
+    counts = Counter(forms)
+    return [{"key": key, "label": label, "count": n} for (key, label), n in counts.items()]
+
+
 @mcp.tool()
 async def session_summary() -> str:
     """Return a compact inventory of all data and artifacts in this session.
@@ -57,9 +93,9 @@ async def session_summary() -> str:
     # The shipped example is not session output; a report must never cite it.
     all_entries = store.list_entries(exclude_examples=True)
 
-    entries = []
+    entries: list[dict[str, Any]] = []
     total_bytes = 0
-    for entry in all_entries:
+    for entry, (form, label) in zip(all_entries, entry_forms(store, all_entries), strict=True):
         size = entry.size_bytes or _safe_file_size(store.get_file_path(entry.id) or "")
         total_bytes += size
         channels = _extract_channels(entry)
@@ -67,7 +103,8 @@ async def session_summary() -> str:
             {
                 "id": entry.id,
                 "tool": entry.tool_source,
-                "category": entry.category,
+                "form": form,
+                "form_label": label,
                 "artifact_type": entry.artifact_type,
                 "title": entry.title,
                 "description": entry.description,
@@ -78,7 +115,6 @@ async def session_summary() -> str:
         )
 
     # --- Totals ---
-    category_counts = dict(Counter(e["category"] for e in entries if e["category"]))
     tool_counts = dict(Counter(e["tool"] for e in entries if e["tool"]))
     artifact_type_counts = dict(Counter(e["artifact_type"] for e in entries if e["artifact_type"]))
 
@@ -87,7 +123,7 @@ async def session_summary() -> str:
         "totals": {
             "entry_count": len(entries),
             "total_bytes": total_bytes,
-            "categories": category_counts,
+            "forms": form_totals([(e["form"], e["form_label"]) for e in entries]),
             "tools_used": tool_counts,
             "artifact_types": artifact_type_counts,
         },

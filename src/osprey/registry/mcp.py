@@ -478,7 +478,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             "lattice_clear_baseline",
             "list_panels",
             # The on-screen axis: the dock ops. Each is reversible by the
-            # operator in a click or a drag (a closed tab is one rail click
+            # operator in a click or a drag (a closed panel is one rail click
             # away) and none can move or close the terminal, so none is worth
             # a prompt. The rail axis is the exception and asks instead — see
             # permissions_ask below.
@@ -486,8 +486,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             "open_panel_set",
             "arrange_workspace",
             "drop_panel",
-            "close_panel_tab",
-            "close_panel_tile",
+            "close_panel",
         ],
         # The rail axis changes what the operator can launch at all, which the
         # on-screen verbs above do not: remove_panel_from_rail costs them the

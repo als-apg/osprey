@@ -53,7 +53,7 @@ from typing import Literal
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from osprey.interfaces.web_terminal import transcript_map
+from osprey.interfaces.web_terminal import session_meta, transcript_map
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.interfaces.web_terminal.turn_state import record_turn_state
 
@@ -129,4 +129,6 @@ async def post_agent_turn(body: AgentTurnRequest, request: Request):
         transcript_id=body.session_id,
     )
     transcript_map.set(app, key, body.session_id)
+    # The ledger keeps the history the map overwrites; a repeat appends nothing.
+    session_meta.record_transcript_move(app, key, body.session_id)
     return {"ok": True, "recorded": True}

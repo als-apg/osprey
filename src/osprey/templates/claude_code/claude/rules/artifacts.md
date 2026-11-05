@@ -9,7 +9,8 @@ description: How to create, save, and reuse artifacts in the OSPREY gallery
 
 When the user references previous work or wants to act on it (log it, share it,
 re-analyze it), call `artifact_list()` BEFORE creating anything new.
-Use `tool=` or `category=` to narrow results. Reuse existing artifact IDs
+Use `tool=` or `form=` (Runs, Plots, Trends, Tables, Documents, Dashboards,
+Images, Data — or a registered extension type's key) to narrow results. Reuse existing artifact IDs
 rather than recreating content.
 
 ## Creating Artifacts
@@ -39,11 +40,11 @@ save_artifact(df.describe(), title="BPM Statistics")
 
 # Computed results as JSON — a dict saves as json
 save_artifact({"tune_x": 0.21, "tune_y": 0.31}, title="Tunes",
-              artifact_type="json", category="lattice_analysis")
+              artifact_type="json")
 ```
 
-`artifact_type=` overrides the detected type; `category=` groups it in the
-gallery. Results computed in code are saved from that code — never copied
+`artifact_type=` overrides the detected type; the gallery groups the artifact
+by what it is. Results computed in code are saved from that code — never copied
 into a tool call afterwards.
 
 ### A file on disk, or text you already have — `artifact_register` MCP tool
@@ -54,7 +55,6 @@ your reply. Nothing is serialized; the content is stored as given:
 - `file_path` — register a file already on disk
 - `content` + `content_type` — store literal text; `content_type` is required
   and is one of `markdown`, `html`, `text`, `json`
-- `category` — optional gallery category for grouping. See the type registry for valid categories.
 
 `artifact_register` never runs Python and cannot take a live object.
 

@@ -21,6 +21,10 @@
  * and the still-in-gallery.js effects it defers to).
  */
 
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
@@ -60,7 +64,8 @@ function makeFixtureArtifacts() {
       title: 'Beam Profile',
       filename: 'beam_profile.png',
       artifact_type: 'plot_png',
-      category: 'visualization',
+      form: 'plots',
+      form_label: 'Plots',
       pinned: false,
       timestamp: '2026-07-01T10:00:00Z',
       size_bytes: 2048,
@@ -70,7 +75,8 @@ function makeFixtureArtifacts() {
       title: 'Channel Values',
       filename: 'channels.json',
       artifact_type: 'json',
-      category: 'channel_values',
+      form: 'data',
+      form_label: 'Data',
       pinned: true,
       timestamp: '2026-07-03T10:00:00Z',
       size_bytes: 512,
@@ -79,8 +85,9 @@ function makeFixtureArtifacts() {
       id: '3',
       title: 'Lattice Table',
       filename: 'lattice.html',
-      artifact_type: 'table_html',
-      category: 'visualization',
+      artifact_type: 'plot_html',
+      form: 'plots',
+      form_label: 'Plots',
       pinned: false,
       timestamp: '2026-07-02T10:00:00Z',
       size_bytes: 4096,
@@ -90,12 +97,28 @@ function makeFixtureArtifacts() {
       title: 'Old Report',
       filename: 'report.md',
       artifact_type: 'markdown',
-      category: 'document',
+      form: 'documents',
+      form_label: 'Documents',
       pinned: true,
       timestamp: '2026-06-30T10:00:00Z',
       size_bytes: 1024,
     },
   ];
+}
+
+/** The shared /api/type-registry fixture the hub sidebar suite reads too. */
+const REGISTRY = JSON.parse(
+  readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/type-registry.json'),
+    'utf8'
+  )
+);
+
+/** @param {any} registry */
+async function loadRegistry(registry) {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ json: () => Promise.resolve(registry) }));
+  await initTypeRegistry();
+  vi.unstubAllGlobals();
 }
 
 function makeCallbacks() {
@@ -106,7 +129,8 @@ function makeCallbacks() {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await loadRegistry(REGISTRY);
   mountFixture();
   setSelectedArtifact(null);
   clearPicked();
@@ -114,7 +138,7 @@ beforeEach(() => {
 });
 
 describe('tree-mode grouping by type (pinned promoted)', () => {
-  test('promotes pinned artifacts into a top "Pinned" section, then groups the rest by category, most-populous first', () => {
+  test('promotes pinned artifacts into a top "Pinned" section, then groups the rest by form', () => {
     setArtifacts(makeFixtureArtifacts());
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
 
@@ -122,11 +146,11 @@ describe('tree-mode grouping by type (pinned promoted)', () => {
 
     const sections = document.querySelectorAll('#sidebar-body .tree-section');
     // Pinned ids 2 + 4 are PROMOTED out of their type groups (leaving
-    // 'channel_values' and 'document' empty — those groups vanish), so
-    // 'visualization' (Beam Profile, Lattice Table) is the only type group.
+    // 'data' and 'documents' empty — those groups vanish), so 'plots'
+    // (Beam Profile, Lattice Table) is the only form group.
     expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
       'pinned',
-      'visualization',
+      'plots',
     ]);
 
     const pinnedSection = qs(document, '.tree-section[data-type="pinned"]');
@@ -138,7 +162,7 @@ describe('tree-mode grouping by type (pinned promoted)', () => {
     ).toEqual(['2', '4']);
     expect(qs(pinnedSection, '.tree-section-count').textContent).toBe('2');
 
-    const visSection = qs(document, '.tree-section[data-type="visualization"]');
+    const visSection = qs(document, '.tree-section[data-type="plots"]');
     expect(visSection.querySelectorAll('.tree-item').length).toBe(2);
     expect(qs(visSection, '.tree-section-count').textContent).toBe('2');
   });
@@ -151,9 +175,9 @@ describe('tree-mode grouping by type (pinned promoted)', () => {
     expect(document.querySelector('.tree-section[data-type="pinned"]')).toBeNull();
     const sections = document.querySelectorAll('#sidebar-body .tree-section');
     expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
-      'visualization',
-      'channel_values',
-      'document',
+      'plots',
+      'documents',
+      'data',
     ]);
   });
 
@@ -218,7 +242,8 @@ describe('activity-mode chronological ordering', () => {
         title: 'Morning',
         filename: 'a.png',
         artifact_type: 'image',
-        category: 'screenshot',
+        form: 'images',
+        form_label: 'Images',
         pinned: false,
         timestamp: '2026-07-01T08:00:00Z',
         size_bytes: 100,
@@ -228,7 +253,8 @@ describe('activity-mode chronological ordering', () => {
         title: 'Evening',
         filename: 'b.png',
         artifact_type: 'image',
-        category: 'screenshot',
+        form: 'images',
+        form_label: 'Images',
         pinned: false,
         timestamp: '2026-07-01T20:00:00Z',
         size_bytes: 100,
@@ -255,7 +281,8 @@ describe('shipped example (origin "demo")', () => {
     title: 'Example: an interactive plot',
     filename: 'example.html',
     artifact_type: 'plot_html',
-    category: '',
+    form: 'plots',
+    form_label: 'Plots',
     pinned: false,
     origin: 'demo',
     // Newer than everything else: seeded at gallery start. Must still sort last.
@@ -271,7 +298,7 @@ describe('shipped example (origin "demo")', () => {
     const sections = document.querySelectorAll('#sidebar-body .tree-section');
     expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
       'pinned',
-      'visualization',
+      'plots',
       'examples',
     ]);
     const pinned = qs(document, '.tree-section[data-type="pinned"]');
@@ -395,7 +422,7 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     const sidebarRenderer = createSidebarRenderer(callbacks);
     sidebarRenderer.renderSidebar();
 
-    const section = qs(document, '.tree-section[data-type="visualization"]');
+    const section = qs(document, '.tree-section[data-type="plots"]');
     const header = qs(section, '.tree-section-header');
     header.click();
 
@@ -409,7 +436,7 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     setArtifacts(makeFixtureArtifacts());
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.renderSidebar();
-    qs(document, '.tree-section[data-type="visualization"] .tree-section-header').click();
+    qs(document, '.tree-section[data-type="plots"] .tree-section-header').click();
 
     setArtifacts([
       ...makeFixtureArtifacts(),
@@ -418,7 +445,8 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
         title: 'New Plot',
         filename: 'new.png',
         artifact_type: 'plot_png',
-        category: 'visualization',
+        form: 'plots',
+        form_label: 'Plots',
         pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 100,
@@ -426,9 +454,9 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     ]);
     sidebarRenderer.renderSidebar();
 
-    expect(
-      qs(document, '.tree-section[data-type="visualization"]').classList.contains('collapsed')
-    ).toBe(true);
+    expect(qs(document, '.tree-section[data-type="plots"]').classList.contains('collapsed')).toBe(
+      true
+    );
     expect(qs(document, '.tree-section[data-type="pinned"]').classList.contains('collapsed')).toBe(
       false
     );
@@ -439,7 +467,7 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
   const HOSTILE = '"><img src=x onerror=alert(1)>';
 
   /**
-   * Seed state with one artifact whose category/artifact_type carry the
+   * Seed state with one artifact whose form/form_label/artifact_type carry the
    * hostile payload (title/filename are inert and unasserted).
    * @param {string} id
    */
@@ -451,6 +479,8 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
         filename: `${id}.png`,
         artifact_type: HOSTILE,
         category: HOSTILE,
+        form: HOSTILE,
+        form_label: HOSTILE,
         pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 10,
@@ -466,7 +496,7 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     vi.unstubAllGlobals();
   });
 
-  test('a hostile category/artifact_type is escaped in tree-mode data-type attributes — no live <img>, no unescaped attribute breakout', () => {
+  test('a hostile form/form_label is escaped in tree-mode data-type attributes — no live <img>, no unescaped attribute breakout', () => {
     setHostileArtifact('x1');
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.renderSidebar(); // default: tree mode, list layout
@@ -487,7 +517,7 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     expect(qs(section, '.tree-section-header').dataset.type).toBe(HOSTILE);
   });
 
-  test('a hostile category is escaped in the activity-mode timeline-item data-type attribute', () => {
+  test('a hostile form is escaped in the activity-mode timeline-item data-type attribute', () => {
     setHostileArtifact('x2');
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.setBrowseMode('activity');
@@ -502,7 +532,7 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     expect(item.dataset.type).toBe(HOSTILE);
   });
 
-  test('a hostile gallery-layout category is escaped in the gallery-card data-type attribute', () => {
+  test('a hostile gallery-layout form is escaped in the gallery-card data-type attribute', () => {
     setHostileArtifact('x3');
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.setSidebarLayout('gallery');
@@ -520,7 +550,9 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         json: () =>
-          Promise.resolve({ categories: { evilcat: { label: '<img src=x onerror=alert(1)>' } } }),
+          Promise.resolve({
+            base_forms: [{ key: 'evilform', label: '<img src=x onerror=alert(1)>' }],
+          }),
       })
     );
     await initTypeRegistry();
@@ -530,8 +562,9 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
         id: 'c1',
         title: 'Section Test',
         filename: 'c.png',
-        artifact_type: 'evilcat',
-        category: 'evilcat',
+        artifact_type: 'json',
+        form: 'evilform',
+        form_label: 'Evil',
         pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 10,
@@ -551,20 +584,20 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     expect(header.innerHTML).not.toContain('<img');
   });
 
-  test('benign categories render byte-identical output (regression guard)', () => {
+  test('benign forms render byte-identical output (regression guard)', () => {
     setArtifacts(makeFixtureArtifacts());
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.renderSidebar();
 
-    const visSection = document.querySelector('.tree-section[data-type="visualization"]');
+    const visSection = document.querySelector('.tree-section[data-type="plots"]');
     expect(visSection).not.toBeNull();
     if (!(visSection instanceof HTMLElement))
       throw new Error('unreachable: asserted non-null above');
-    expect(visSection.dataset.type).toBe('visualization');
-    expect(qs(visSection, '.tree-section-header').dataset.type).toBe('visualization');
+    expect(visSection.dataset.type).toBe('plots');
+    expect(qs(visSection, '.tree-section-header').dataset.type).toBe('plots');
     // The serialized markup is also byte-identical for benign values —
     // escaping must introduce no stray entities.
-    expect(visSection.outerHTML).toContain('data-type="visualization"');
+    expect(visSection.outerHTML).toContain('data-type="plots"');
   });
 });
 
@@ -634,7 +667,7 @@ describe('picking several rows', () => {
   });
 
   test('in tree mode a Shift-click picks the run in DOM order across section boundaries', () => {
-    // Tree order: Pinned [2, 4], then visualization [3, 1].
+    // Tree order: Pinned [2, 4], then plots [3, 1].
     setArtifacts(makeFixtureArtifacts());
     renderer(makeCallbacks());
 
@@ -646,11 +679,11 @@ describe('picking several rows', () => {
   });
 
   test('a Shift-click skips rows inside a collapsed section', () => {
-    // Nothing pinned: visualization [3, 1], channel_values [2], document [4].
+    // Nothing pinned: plots [3, 1], documents [4], data [2].
     setArtifacts(makeFixtureArtifacts().map((a) => ({ ...a, pinned: false })));
     renderer(makeCallbacks());
 
-    qs(document, '.tree-section[data-type="channel_values"] .tree-section-header').click();
+    qs(document, '.tree-section[data-type="data"] .tree-section-header').click();
     clickRow('3');
     clickRow('4', { shiftKey: true });
 
@@ -826,7 +859,7 @@ describe('reveal stagger with many rows (#924)', () => {
       title: `Paged Artifact ${String(i).padStart(4, '0')}`,
       filename: `paged-${i}.md`,
       artifact_type: 'markdown',
-      category: i % 3 ? 'document' : 'visualization',
+      form: i % 3 ? 'documents' : 'plots',
       pinned: false,
       timestamp: `2026-07-01T10:${String(i % 60).padStart(2, '0')}:00Z`,
       size_bytes: 10,
@@ -868,5 +901,277 @@ describe('reveal stagger with many rows (#924)', () => {
     qs(document, '.tree-item[data-id="7"]').click();
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect.mock.calls[0][0].id).toBe('7');
+  });
+});
+
+describe('tree mode groups by form, runs expand to their parts (shared registry fixture)', () => {
+  /** Every registry label that names a file format or a legacy category. */
+  const FORMAT_LABELS = [
+    ...Object.values(REGISTRY.artifact_types),
+    ...Object.values(REGISTRY.categories),
+  ].map((/** @type {any} */ t) => t.label);
+
+  /**
+   * @param {string} id
+   * @param {object} extra
+   * @returns {any}
+   */
+  function entry(id, extra) {
+    return {
+      id,
+      title: `T ${id}`,
+      filename: `${id}.bin`,
+      artifact_type: 'json',
+      pinned: false,
+      timestamp: `2026-07-0${(Number(id.replace(/\D/g, '')) % 9) + 1}T10:00:00Z`,
+      size_bytes: 10,
+      ...extra,
+    };
+  }
+
+  /** @returns {string[]} the section headers' label texts, in order */
+  function sectionLabels() {
+    return Array.from(document.querySelectorAll('.tree-section-header > span:not([class])')).map(
+      (el) => (el.textContent || '').trim()
+    );
+  }
+
+  /** @param {string} type @returns {string[]} */
+  function sectionIds(type) {
+    return Array.from(
+      document.querySelectorAll(`.tree-section[data-type="${type}"] .tree-item`)
+    ).map((el) => /** @type {HTMLElement} */ (el).dataset.id || '');
+  }
+
+  const RUN = {
+    head: entry('h1', {
+      title: 'Orbit correction',
+      form: 'runs',
+      form_label: 'Runs',
+      exec_id: 'e1',
+      run_part: 'result',
+      run_status: 'succeeded',
+      run_parts: [
+        { id: 'p1', role: 'preview', title: 'Review: orbit', form: 'documents' },
+        { id: 'n1', role: 'code', title: 'Notebook: orbit', form: 'documents' },
+        { id: 'o1', role: 'output', title: 'Figure: orbit', form: 'plots' },
+      ],
+    }),
+    preview: entry('p1', {
+      artifact_type: 'markdown',
+      form: null,
+      form_label: null,
+      exec_id: 'e1',
+      run_part: 'preview',
+    }),
+    code: entry('n1', {
+      artifact_type: 'notebook',
+      form: null,
+      form_label: null,
+      exec_id: 'e1',
+      run_part: 'code',
+    }),
+    output: entry('o1', {
+      artifact_type: 'plot_html',
+      form: 'plots',
+      form_label: 'Plots',
+      exec_id: 'e1',
+      run_part: 'output',
+    }),
+  };
+  const runEntries = () => [RUN.head, RUN.preview, RUN.code, RUN.output];
+
+  test('groups follow the base forms in order, then extension types, labelled by form, never by format', () => {
+    setArtifacts([
+      entry('d1', { form: 'data', form_label: 'Data' }),
+      entry('b1', { artifact_type: 'table_html', form: 'beam_log', form_label: 'Beam Log' }),
+      entry('b2', { artifact_type: 'table_html', form: 'beam_log', form_label: 'Beam Log' }),
+      entry('b3', { artifact_type: 'table_html', form: 'beam_log', form_label: 'Beam Log' }),
+      entry('i1', { artifact_type: 'image', form: 'images', form_label: 'Images' }),
+      entry('s1', {
+        artifact_type: 'dashboard_html',
+        form: 'dashboards',
+        form_label: 'Dashboards',
+      }),
+      entry('m1', { artifact_type: 'markdown', form: 'documents', form_label: 'Documents' }),
+      entry('t1', { artifact_type: 'table_html', form: 'tables', form_label: 'Tables' }),
+      entry('a1', { form: 'trends', form_label: 'Trends', category: 'archiver_data' }),
+      entry('f1', { artifact_type: 'plot_html', form: 'orbit_fit', form_label: 'Orbit Fit' }),
+      entry('p2', { artifact_type: 'plot_png', form: 'plots', form_label: 'Plots' }),
+      ...runEntries(),
+    ]);
+    createSidebarRenderer(makeCallbacks()).renderSidebar();
+
+    const order = Array.from(document.querySelectorAll('#sidebar-body .tree-section')).map(
+      (el) => /** @type {HTMLElement} */ (el).dataset.type
+    );
+    // Base forms in BASE_FORMS order, then the registry's extension types in
+    // its order -- the most populous group (beam_log, 3) does not jump ahead.
+    expect(order).toEqual([
+      'runs',
+      'plots',
+      'trends',
+      'tables',
+      'documents',
+      'dashboards',
+      'images',
+      'data',
+      'beam_log',
+      'orbit_fit',
+    ]);
+    const labels = sectionLabels();
+    expect(labels).toEqual([
+      'Runs',
+      'Plots',
+      'Trends',
+      'Tables',
+      'Documents',
+      'Dashboards',
+      'Images',
+      'Data',
+      'Beam Log',
+      'Orbit Fit',
+    ]);
+    for (const label of labels) expect(FORMAT_LABELS).not.toContain(label);
+  });
+
+  test('a run lists once, as its head under Runs; its preview and code list only under it, its output also under its form', () => {
+    setArtifacts(runEntries());
+    createSidebarRenderer(makeCallbacks()).renderSidebar();
+
+    expect(sectionIds('runs')).toEqual(['h1']);
+    expect(qs(document, '.tree-section[data-type="runs"] .tree-section-count').textContent).toBe(
+      '1'
+    );
+    expect(sectionIds('plots')).toEqual(['o1']);
+    expect(document.querySelector('.tree-item[data-id="p1"]')).toBeNull();
+    expect(document.querySelector('.tree-item[data-id="n1"]')).toBeNull();
+    expect(document.querySelector('.tree-section[data-type="run_part"]')).toBeNull();
+    const head = qs(document, '.tree-item[data-id="h1"]');
+    expect(head.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('the head expands to its parts with the sidebar labels, a part selects, and the head folds again', () => {
+    setArtifacts(runEntries());
+    const callbacks = makeCallbacks();
+    const sidebar = createSidebarRenderer(callbacks);
+    sidebar.renderSidebar();
+
+    qs(document, '.tree-item[data-id="h1"] .tree-run-toggle').click();
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
+    expect(qs(document, '.tree-item[data-id="h1"]').getAttribute('aria-expanded')).toBe('true');
+
+    const parts = Array.from(document.querySelectorAll('.tree-run-part'));
+    expect(parts.map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual([
+      'o1',
+      'p1',
+      'n1',
+    ]);
+    expect(parts.map((el) => qs(el, '.tree-item-name').textContent)).toEqual([
+      'Figure: orbit',
+      'Approval preview',
+      'Code (notebook)',
+    ]);
+    for (const el of parts) expect(/** @type {HTMLElement} */ (el).dataset.runHead).toBe('h1');
+
+    // Expansion survives a rebuild (a new artifact arriving).
+    sidebar.renderSidebar();
+    expect(document.querySelectorAll('.tree-run-part').length).toBe(3);
+
+    /** @type {HTMLElement} */ (qs(document, '.tree-run-part[data-id="p1"]')).click();
+    expect(callbacks.onSelect).toHaveBeenCalledTimes(1);
+    expect(callbacks.onSelect.mock.calls[0][0].id).toBe('p1');
+
+    qs(document, '.tree-item[data-id="h1"] .tree-run-toggle').click();
+    expect(document.querySelectorAll('.tree-run-part').length).toBe(0);
+  });
+
+  test.each([
+    ['succeeded', 'succeeded', null],
+    ['failed', 'failed', 'failed'],
+    ['not_run', 'not_run', 'not run'],
+    [null, 'running', 'running'],
+  ])('a head with run_status %s is marked %s', (runStatus, key, text) => {
+    setArtifacts([{ ...RUN.head, run_status: runStatus, run_parts: [] }]);
+    createSidebarRenderer(makeCallbacks()).renderSidebar();
+
+    const head = qs(document, '.tree-item[data-id="h1"]');
+    expect(head.dataset.runStatus).toBe(key);
+    expect(head.classList.contains(`run-status-${key}`)).toBe(true);
+    const badge = head.querySelector('.tree-item-badge.run-status');
+    expect(badge ? badge.textContent : null).toBe(text);
+    // No parts: nothing to expand.
+    expect(head.querySelector('.tree-run-toggle')).toBeNull();
+  });
+
+  test('an in-flight run headed by its preview (no result yet) lists under Runs and expands to its code', () => {
+    setArtifacts([
+      entry('p9', {
+        artifact_type: 'markdown',
+        title: 'Review: pending',
+        form: 'runs',
+        form_label: 'Runs',
+        exec_id: 'e9',
+        run_part: 'preview',
+        run_status: null,
+        run_parts: [{ id: 'n9', role: 'code', title: 'Notebook: pending', form: 'documents' }],
+      }),
+      entry('n9', { artifact_type: 'notebook', form: null, exec_id: 'e9', run_part: 'code' }),
+    ]);
+    createSidebarRenderer(makeCallbacks()).renderSidebar();
+
+    expect(sectionIds('runs')).toEqual(['p9']);
+    expect(qs(document, '.tree-item[data-id="p9"]').dataset.runStatus).toBe('running');
+    qs(document, '.tree-item[data-id="p9"] .tree-run-toggle').click();
+    expect(
+      Array.from(document.querySelectorAll('.tree-run-part')).map(
+        (el) => /** @type {HTMLElement} */ (el).dataset.id
+      )
+    ).toEqual(['n9']);
+  });
+
+  test('a part whose head is not shown lists under Runs rather than vanishing', () => {
+    setArtifacts([RUN.preview]);
+    createSidebarRenderer(makeCallbacks()).renderSidebar();
+
+    expect(sectionIds('runs')).toEqual(['p1']);
+  });
+
+  test('card and timeline badges read form_label (a run part reads its role), never a format', () => {
+    setArtifacts([
+      entry('x1', { artifact_type: 'plot_html', form: 'plots', form_label: 'Plots' }),
+      entry('x2', { artifact_type: 'table_html', form: 'beam_log', form_label: 'Beam Log' }),
+      RUN.preview,
+    ]);
+    const sidebar = createSidebarRenderer(makeCallbacks());
+    sidebar.setSidebarLayout('gallery');
+    sidebar.setBrowseMode('activity');
+    sidebar.renderSidebar();
+
+    /** @param {string} id */
+    const cardBadge = (id) =>
+      qs(document, `.gallery-card[data-id="${id}"] .gallery-card-type`).textContent;
+    expect(cardBadge('x1')).toBe('Plots');
+    expect(cardBadge('x2')).toBe('Beam Log');
+    expect(cardBadge('p1')).toBe('Approval preview');
+    expect(qs(document, '.gallery-card[data-id="x1"]').dataset.type).toBe('plots');
+
+    sidebar.setSidebarLayout('list');
+    sidebar.renderSidebar();
+    expect(qs(document, '.timeline-item[data-id="x1"] .timeline-item-type').textContent).toBe(
+      'Plots'
+    );
+  });
+
+  test('a run head card in the gallery layout expands to its parts too', () => {
+    setArtifacts(runEntries());
+    const sidebar = createSidebarRenderer(makeCallbacks());
+    sidebar.setSidebarLayout('gallery');
+    sidebar.renderSidebar();
+
+    const toggle = qs(document, '.gallery-card[data-id="h1"] .tree-run-toggle');
+    expect(toggle.textContent).toBe('3');
+    toggle.click();
+    expect(document.querySelectorAll('.tree-run-part').length).toBe(3);
   });
 });

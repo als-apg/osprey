@@ -34,7 +34,6 @@ async def artifact_register(
     file_path: str | None = None,
     content: str | None = None,
     content_type: str | None = None,
-    category: str = "",
 ) -> str:
     """Register a file on disk, or literal text, as a gallery artifact.
 
@@ -55,8 +54,6 @@ async def artifact_register(
         content: Literal text to store (markdown, HTML, plain text, or JSON).
         content_type: Required with ``content`` — "markdown", "html", "text",
                       or "json". Ignored when file_path is provided.
-        category: Optional category for gallery grouping. See the type
-                  registry for valid categories.
 
     Returns:
         JSON with artifact ID and gallery URL.
@@ -112,7 +109,6 @@ async def artifact_register(
                 title=title,
                 description=description,
                 tool_source="artifact_register",
-                category=category,
             )
         else:
             # Inline content
@@ -137,7 +133,6 @@ async def artifact_register(
                 description=description,
                 mime_type=mime,
                 tool_source="artifact_register",
-                category=category,
             )
 
         url = gallery_url()
@@ -215,13 +210,9 @@ async def artifact_delete(artifact_id: str) -> str:
         )
 
 
-#: ``scope`` value that means the whole store, every category. Spelled out
-#: so a bulk delete can never be reached by omitting an argument.
+#: ``scope`` value that means the whole store, every form. Spelled out so a
+#: bulk delete can never be reached by omitting an argument.
 _SCOPE_EVERYTHING = "everything"
-
-#: ``scope`` value for entries with no category (plots, screenshots and other
-#: artifacts saved without one). The store spells this ``category=""``.
-_SCOPE_UNCATEGORIZED = "uncategorized"
 
 
 @mcp.tool()
@@ -231,40 +222,37 @@ async def artifact_delete_all(scope: str) -> str:
     Deletion is NOT recoverable — files are unlinked, there is no trash.
     ``scope`` is required and names exactly what gets destroyed:
 
-    - a category key (e.g. "visualization", "archiver_data") — deletes only
-      that category and leaves every other one intact. Use
-      ``artifact_list`` first to see which categories exist.
-    - "uncategorized" — only artifacts saved without a category.
-    - "everything" — EVERY artifact in the store, across all categories.
-      This includes archiver datasets, run results and other stored data,
-      not just plots and documents. Only use it when the user asked to wipe
-      the whole workspace.
+    - a form — "runs", "plots", "trends", "tables", "documents",
+      "dashboards", "images" or "data" — or a registered extension type's
+      key: deletes only the artifacts listed under it and leaves every other
+      group intact. "runs" deletes each script run with its code and
+      outputs; any other form deletes a run's outputs in it, never the run.
+      Use ``artifact_list`` first to see what each form holds.
+    - "everything" — EVERY artifact in the store, across all forms. This
+      includes archiver datasets, run results and other stored data, not
+      just plots and documents. Only use it when the user asked to wipe the
+      whole workspace.
 
     Prefer this over many sequential ``artifact_delete`` calls: it acquires
     the index lock once and notifies listeners consistently.
 
     Args:
-        scope: "everything", "uncategorized", or a single category key.
+        scope: "everything", a form, or an extension type key.
 
     Returns:
-        JSON with the scope acted on, the number of artifacts destroyed,
-        their IDs, and a per-category breakdown of what was destroyed.
+        JSON with the scope acted on, the number of artifacts destroyed and
+        their IDs.
     """
     try:
+        from osprey.mcp_server.workspace.tools.artifact_query import (
+            extension_registry,
+            group_of,
+            require_form,
+        )
         from osprey.stores.artifact_store import get_artifact_store
-        from osprey.stores.type_registry import valid_category_keys
 
-        valid_scopes = valid_category_keys() | {_SCOPE_EVERYTHING, _SCOPE_UNCATEGORIZED}
-        if scope not in valid_scopes:
-            return make_error(
-                "validation_error",
-                f"Unknown scope '{scope}'.",
-                [
-                    f'Use "{_SCOPE_EVERYTHING}" to delete every artifact in the store.',
-                    f'Use "{_SCOPE_UNCATEGORIZED}" for artifacts saved without a category.',
-                    f"Valid category keys: {', '.join(sorted(valid_category_keys()))}",
-                ],
-            )
+        registry = extension_registry()
+        require_form(scope, registry, extra=(_SCOPE_EVERYTHING,))
 
         from osprey.mcp_server.artifact_activity import (
             notify_bulk_delete,
@@ -280,16 +268,15 @@ async def artifact_delete_all(scope: str) -> str:
         with suppress_delete_frames():
             if scope == _SCOPE_EVERYTHING:
                 deleted = store.delete_everything()
-            elif scope == _SCOPE_UNCATEGORIZED:
-                deleted = store.delete_category("")
+            elif scope == "runs":
+                # Each run head with its whole group, under the store's lock.
+                deleted = store.delete_form("runs", registry)
             else:
-                deleted = store.delete_category(scope)
+                groups = store.run_groups()
+                deleted = store.delete_entries(
+                    e.id for e in store.list_entries() if group_of(e, groups, registry) == scope
+                )
         notify_bulk_delete(scope, len(deleted))
-
-        by_category: dict[str, int] = {}
-        for entry in deleted:
-            key = entry.category or _SCOPE_UNCATEGORIZED
-            by_category[key] = by_category.get(key, 0) + 1
 
         return json.dumps(
             {
@@ -297,7 +284,6 @@ async def artifact_delete_all(scope: str) -> str:
                 "scope": scope,
                 "deleted_count": len(deleted),
                 "artifact_ids": [e.id for e in deleted],
-                "deleted_by_category": by_category,
                 "message": (f"Permanently deleted {len(deleted)} artifact(s) in scope '{scope}'."),
             }
         )

@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +53,7 @@ from osprey.agent_runner.tool_policy import (
     make_backstop,
     make_pretooluse_hook,
 )
+from osprey.build.claude_code_telemetry import TERMINAL_SESSION_ENV, WATCHDOG_SESSION_PREFIX
 from osprey.services.watchdog.config import WatchdogDefinition
 from osprey.services.watchdog.history import (
     SessionNodes,
@@ -103,6 +105,9 @@ _RUN_ENV_OVERLAY: Mapping[str, str] = {
     HOLD_DIR_ENV_VAR: "",
     "OSPREY_PANEL_TOKEN": "",
     WATCHDOG_SKIP_ENV_VAR: "1",
+    # Every artifact the judge saves is stamped ``origin="watchdog"`` and kept out
+    # of the operator's session tree, counts and Earlier.
+    "OSPREY_ARTIFACT_ORIGIN": "watchdog",
 }
 
 _REFUSED_DISALLOWED = "disallowed"
@@ -300,13 +305,25 @@ def _named_servers(tools: Iterable[str]) -> tuple[set[str], set[str]]:
     return exact, prefixes
 
 
-def _run_env(env: Mapping[str, str]) -> dict[str, str]:
-    """*env* under the overlay, with no control-target stamp."""
+def _watchdog_terminal_session() -> str:
+    """A fresh terminal session for one judge run, ``watchdog-<uuid>``."""
+    return f"{WATCHDOG_SESSION_PREFIX}{uuid.uuid4().hex}"
+
+
+def _run_env(env: Mapping[str, str], terminal_session: str | None = None) -> dict[str, str]:
+    """*env* under the overlay, with no control-target stamp.
+
+    ``terminal_session`` is the run's ``OSPREY_TERMINAL_SESSION``; one is minted
+    when omitted. Every process of one run gets the same one.
+    """
     kept = {key: value for key, value in env.items() if not key.startswith(_CONTROL_TARGET_PREFIX)}
-    return {**kept, **_RUN_ENV_OVERLAY}
+    session = terminal_session or _watchdog_terminal_session()
+    return {**kept, **_RUN_ENV_OVERLAY, TERMINAL_SESSION_ENV: session}
 
 
-def _mcp_servers(build_dir: Path, tools: Iterable[str]) -> tuple[dict[str, Any], tuple[str, ...]]:
+def _mcp_servers(
+    build_dir: Path, tools: Iterable[str], *, terminal_session: str | None = None
+) -> tuple[dict[str, Any], tuple[str, ...]]:
     """The run's MCP servers from the render, and the ones it cannot do without.
 
     Raises:
@@ -325,10 +342,11 @@ def _mcp_servers(build_dir: Path, tools: Iterable[str]) -> tuple[dict[str, Any],
     required = exact | {
         name for name in declared if any(name.startswith(prefix) for prefix in prefixes)
     }
+    session = terminal_session or _watchdog_terminal_session()
     servers: dict[str, Any] = {}
     for name in sorted(required | (set(_BASE_SERVERS) & set(declared))):
         config = dict(declared[name])
-        config["env"] = _run_env(config.get("env") or {})
+        config["env"] = _run_env(config.get("env") or {}, session)
         servers[name] = config
     return servers, tuple(sorted(required))
 
@@ -368,7 +386,8 @@ class AgentEngine:
             self._build_dir, disallowed_tools=[], model=defn.model, setting_sources=[]
         )
         disallowed = read_only_disallowed_tools(self._build_dir)
-        servers, required = _mcp_servers(self._build_dir, defn.tools)
+        session = _watchdog_terminal_session()
+        servers, required = _mcp_servers(self._build_dir, defn.tools, terminal_session=session)
         gate = _ToolGate(
             defn.tools,
             disallowed,
@@ -385,7 +404,7 @@ class AgentEngine:
             "mcp_servers": servers,
             "await_mcp_servers": required,
             "require_mcp_servers": required,
-            "env": _run_env(routed.env),
+            "env": _run_env(routed.env, session),
             "model": routed.model,
             "max_budget_usd": defn.max_cost_usd,
         }

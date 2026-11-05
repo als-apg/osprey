@@ -137,8 +137,6 @@ def _resolve_artifact(item: dict, project_cwd: str) -> dict | None:
                 continue
             if entry.get("source_agent") != "channel-finder":
                 continue
-            if entry.get("category") != "channel_finder":
-                continue
 
             meta = entry.get("metadata", {})
             entry_ids = set(meta.get("entry_ids", []))
