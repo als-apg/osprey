@@ -476,9 +476,9 @@ class BuildProfile:
     artifact_server: dict[str, Any] = field(default_factory=dict)
     """Overrides merged into config.yml's ``artifact_server`` block (the
     artifacts-gallery server). Supported subkeys: ``host``, ``port``,
-    ``auto_launch``, and ``categories`` — custom gallery categories as
-    ``{key: {label, color}}`` that facility MCP tools save artifacts under via
-    ``category="<key>"``.
+    ``auto_launch``, and ``extension_types`` — ``{key: {label, base_form,
+    viewer?}}``, each a ``kind`` conforming to one base form, its optional
+    viewer a ``.js``/``.mjs`` path under the profile's ``project/`` mirror.
     """
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
@@ -1514,6 +1514,45 @@ class BuildProfile:
         )
         return errors
 
+    def _artifact_server_errors(self, profile_dir: Path) -> list[str]:
+        """The ``artifact_server`` block's errors: unknown keys, then extension types.
+
+        Extension types are checked with the installed ``osprey.artifact_types``
+        entry points by the registry's own validate mode, against the profile's
+        ``project/`` mirror (which lands on the project root, where config
+        viewers resolve at runtime). The registry also refuses the retired
+        ``categories`` key, so it is not reported as unsupported here too.
+        """
+        from osprey.stores.type_registry import load_extension_types
+
+        from .profile_conventions import PROJECT_MIRROR_DIR
+
+        block = self.artifact_server
+        if not isinstance(block, dict):
+            return [f"artifact_server must be a mapping (got {type(block).__name__})"]
+        allowed = {"host", "port", "auto_launch", "extension_types"}
+        errors = [
+            f"artifact_server.{unknown} is not a supported key (must be one of {sorted(allowed)})"
+            for unknown in sorted(set(block) - allowed - {"categories"})
+        ]
+        if "categories" in block and not block["categories"]:
+            # The registry only refuses a non-empty block; an empty one is still the retired key.
+            errors.append(
+                "artifact_server.categories is retired; "
+                "declare artifact_server.extension_types instead"
+            )
+        if "extension_types" in block or block.get("categories"):
+            try:
+                load_extension_types(
+                    validate=True,
+                    config={"artifact_server": block},
+                    project_root=profile_dir / PROJECT_MIRROR_DIR,
+                )
+            except ValueError as exc:
+                _header, _, body = str(exc).partition("\n  - ")
+                errors.extend(body.split("\n  - ") if body else [str(exc)])
+        return errors
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
@@ -1864,36 +1903,7 @@ class BuildProfile:
         for preset_name, layout in self.panel_presets.items():
             errors.extend(panel_preset_errors(preset_name, layout, self._is_known_panel_id))
 
-        # Validate the artifact_server override block (gallery server settings
-        # + custom category definitions)
-        import re
-
-        _hex_re = re.compile(r"^#[0-9a-fA-F]{6}$")
-        if not isinstance(self.artifact_server, dict):
-            errors.append(
-                f"artifact_server must be a mapping (got {type(self.artifact_server).__name__})"
-            )
-        else:
-            _allowed = {"host", "port", "auto_launch", "categories"}
-            errors.extend(
-                f"artifact_server.{unknown} is not a supported key "
-                f"(must be one of {sorted(_allowed)})"
-                for unknown in sorted(set(self.artifact_server) - _allowed)
-            )
-            raw_categories = self.artifact_server.get("categories", {})
-            if not isinstance(raw_categories, dict):
-                errors.append("artifact_server.categories must be a mapping of category ids")
-                raw_categories = {}
-            for cat_key, cat_spec in raw_categories.items():
-                if not isinstance(cat_spec, dict):
-                    errors.append(f"Category '{cat_key}' must be a mapping with label and color")
-                    continue
-                if "label" not in cat_spec or not isinstance(cat_spec.get("label"), str):
-                    errors.append(f"Category '{cat_key}' missing or invalid 'label'")
-                if "color" not in cat_spec or not _hex_re.match(str(cat_spec.get("color", ""))):
-                    errors.append(
-                        f"Category '{cat_key}' missing or invalid 'color' (must be #RRGGBB)"
-                    )
+        errors.extend(self._artifact_server_errors(profile_dir))
 
         # Validate dispatch configuration
         if self.dispatch is not None:

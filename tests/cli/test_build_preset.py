@@ -660,32 +660,34 @@ def test_a_render_without_web_terminals_leaves_the_mcp_health_address_to_the_run
     assert "auto" not in (_config_yaml(_project(tmp_path, "smoke")).get("health") or {})
 
 
-def test_profile_categories_persisted_to_config(tmp_path: Path) -> None:
-    """A profile's custom artifact categories land in the built config.yml."""
+def test_profile_extension_types_persisted_to_config(tmp_path: Path) -> None:
+    """A profile's artifact extension types land in the built config.yml."""
     profile = tmp_path / "repo" / "profile.yml"
     profile.parent.mkdir()
     _facility_data(profile.parent)
     profile.write_text(
-        "name: CatTest\n"
+        "name: ExtTest\n"
         "project_name: repo\n"
         "extends: hello-world\n"
         "data: data\n"
         "provider: anthropic\n"
         "artifact_server:\n"
-        "  categories:\n"
+        "  extension_types:\n"
         "    diagnostics:\n"
         "      label: Diagnostics\n"
-        "      color: '#ff0066'\n"
+        "      base_form: tables\n"
     )
     result = _render_from(str(profile))
     assert result.exit_code == 0, result.output
     config = _config_yaml(_project(tmp_path, "repo"))
-    cats = config.get("artifact_server", {}).get("categories", {})
-    assert "diagnostics" in cats, f"artifact_server.categories in config: {list(cats.keys())}"
-    assert cats["diagnostics"]["label"] == "Diagnostics"
-    assert cats["diagnostics"]["color"].lower() == "#ff0066"
+    block = config.get("artifact_server", {})
+    ext = block.get("extension_types", {})
+    assert "diagnostics" in ext, f"artifact_server.extension_types in config: {list(ext)}"
+    assert ext["diagnostics"]["label"] == "Diagnostics"
+    assert ext["diagnostics"]["base_form"] == "tables"
+    assert "categories" not in block
     # Rendered defaults from the template survive the merge.
-    assert "port" in config.get("artifact_server", {})
+    assert "port" in block
 
 
 def test_profile_md_files_registered_as_user_owned(tmp_path: Path) -> None:

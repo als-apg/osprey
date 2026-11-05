@@ -97,7 +97,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "default_panel",
         "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
-        "artifact_server",  # gallery categories + host/port
+        "artifact_server",  # gallery extension types + host/port
         "dispatch",  # the seven optional feature blocks
         "bluesky",
         "virtual_accelerator",
@@ -269,18 +269,21 @@ _MCP_SERVERS_APPENDIX = """
 """.replace("__BUILD__", BUILD_OUTPUT_DIR)
 
 # Appended when the resolved profile has no ``artifact_server:`` block.
-_CATEGORIES_APPENDIX = """
-# --- Artifacts gallery: custom categories ------------------------------------
-# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
-# tool passes as category="<key>" when it saves an artifact; label and color
-# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
-# block also accepts host/port/auto_launch overrides for the gallery server.
+_EXTENSION_TYPES_APPENDIX = """
+# --- Artifacts gallery: extension types -------------------------------------
+# Facility artifact kinds, each conforming to one gallery base form (plots,
+# trends, tables, documents, dashboards, images, data) and listed under it.
+# A label may not repeat a base form's or another type's. The optional viewer
+# is a .js/.mjs ES module under this profile's project/ directory, given
+# relative to it. The block also accepts host/port/auto_launch overrides for
+# the gallery server.
 #
 # artifact_server:
-#   categories:
-#     optics:
-#       label: Optics
-#       color: "#4C9AFF"
+#   extension_types:
+#     beam_scan:
+#       label: Beam scan
+#       base_form: plots
+#       viewer: viewers/beam_scan.js
 """
 
 
@@ -578,7 +581,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     # The two long-form blocks above this module's helpers, registered here so
     # the partition has a single template table to guard.
     "mcp_servers": _MCP_SERVERS_APPENDIX,
-    "artifact_server": _CATEGORIES_APPENDIX,
+    "artifact_server": _EXTENSION_TYPES_APPENDIX,
 }
 
 # Append order for the commented templates, so two emissions of the same preset

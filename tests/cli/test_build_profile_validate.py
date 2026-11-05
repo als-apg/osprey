@@ -8,7 +8,7 @@ by ``"\\n  - "``. A profile with four unrelated faults therefore reports all
 four in one raise, so a build author fixes them in one pass instead of one
 rebuild per typo. The structural checks that ``continue`` (a service with a
 bundled ``osprey.``-prefixed template, a ``panel_presets`` entry that is not a
-list, a ``categories`` entry that is not a mapping) skip only their own
+list) skip only their own
 remaining sub-checks — they never short-circuit the rest of the validator.
 
 Complements the block-scoped suites (``test_profile_schema.py`` for
@@ -527,47 +527,34 @@ def test_a_preset_tile_naming_two_panels_is_one_error_that_says_where(tmp_path: 
 # --- artifact_server ------------------------------------------------------
 
 
-def test_non_mapping_category_is_rejected(tmp_path: Path) -> None:
-    """A category that is not a mapping is reported once, then skipped."""
+_RETIRED = "artifact_server.categories is retired; declare artifact_server.extension_types instead"
+
+
+@pytest.mark.parametrize(
+    "categories",
+    [
+        {"ops": ["label", "color"]},
+        {"ops": {"color": "#aabbcc"}},
+        {"ops": {"label": "Ops", "color": "red"}},
+        {"ops": {"label": "Ops", "color": "#A1B2C3"}},
+    ],
+    ids=["non_mapping", "missing_label", "non_hex_color", "well_formed"],
+)
+def test_any_categories_block_is_refused_as_retired(tmp_path: Path, categories) -> None:
+    """Categories are retired: every ``categories`` block, well-formed or not,
+    gets the one migration message and nothing about its contents."""
     profile = _parse_profile(
-        {
-            "name": "x",
-            "data": "data",
-            "artifact_server": {"categories": {"ops": ["label", "color"]}},
-        }
+        {"name": "x", "data": "data", "artifact_server": {"categories": categories}}
     )
-    assert _errors(profile, tmp_path) == ["Category 'ops' must be a mapping with label and color"]
-
-
-def test_category_missing_label_is_rejected(tmp_path: Path) -> None:
-    """A category needs a string 'label'."""
-    profile = _profile(name="x", artifact_server={"categories": {"ops": {"color": "#aabbcc"}}})
-    assert _errors(profile, tmp_path) == ["Category 'ops' missing or invalid 'label'"]
-
-
-def test_category_with_non_hex_color_is_rejected(tmp_path: Path) -> None:
-    """Category colors must be #RRGGBB hex."""
-    profile = _profile(
-        name="x", artifact_server={"categories": {"ops": {"label": "Ops", "color": "red"}}}
-    )
-    assert _errors(profile, tmp_path) == [
-        "Category 'ops' missing or invalid 'color' (must be #RRGGBB)"
-    ]
-
-
-def test_well_formed_category_validates(tmp_path: Path) -> None:
-    """A label + #RRGGBB color pair passes."""
-    _profile(
-        name="x", artifact_server={"categories": {"ops": {"label": "Ops", "color": "#A1B2C3"}}}
-    ).validate(tmp_path)
+    assert _errors(profile, tmp_path) == [_RETIRED]
 
 
 def test_artifact_server_unknown_subkey_rejected(tmp_path: Path) -> None:
-    """Only host/port/auto_launch/categories are supported under artifact_server."""
+    """Only host/port/auto_launch/extension_types are supported under artifact_server."""
     profile = _profile(name="x", artifact_server={"prot": "http"})
     assert _errors(profile, tmp_path) == [
         "artifact_server.prot is not a supported key "
-        "(must be one of ['auto_launch', 'categories', 'host', 'port'])"
+        "(must be one of ['auto_launch', 'extension_types', 'host', 'port'])"
     ]
 
 
