@@ -1,4 +1,4 @@
-"""The deployment's two gates on what a caller may make the optimizer do.
+"""The deployment's gate on what a caller may make the optimizer do.
 
 **The launch token.** The routes that move hardware, the ones that write what a
 start will run (a draft's config, the current-job pointer the cockpit starts
@@ -8,12 +8,6 @@ when it is loaded) require the ``X-Launch-Token`` header to match
 closed: with no token configured those routes answer 503 rather than run for
 anyone. Routes that only read, and the ones that stop motion (pause, cancel),
 are not gated: stopping a run must never wait on a credential.
-
-**The allowed targets.** ``OPTIMIZER_TARGETS`` lists the control targets this
-deployment's optimizer may drive (``va,standin``). A request or a run naming
-any other target is refused with 403, before an environment is loaded. Unset,
-every target is allowed: that is a process run by hand, not a deployment, whose
-compose file always sets it.
 """
 
 from __future__ import annotations
@@ -25,7 +19,6 @@ from fastapi import Header, HTTPException, status
 
 LAUNCH_TOKEN_ENV = "OPTIMIZER_LAUNCH_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 LAUNCH_TOKEN_HEADER = "X-Launch-Token"  # noqa: S105 -- names a header, holds no secret
-TARGETS_ENV = "OPTIMIZER_TARGETS"
 
 
 def launch_token_refusal(presented: str) -> HTTPException | None:
@@ -55,25 +48,3 @@ def require_launch_token(
     refusal = launch_token_refusal(x_launch_token)
     if refusal is not None:
         raise refusal
-
-
-def allowed_targets() -> frozenset[str] | None:
-    """The targets this deployment may drive, or ``None`` when unrestricted."""
-    raw = os.environ.get(TARGETS_ENV)
-    if raw is None:
-        return None
-    return frozenset(t.strip() for t in raw.split(",") if t.strip())
-
-
-def check_target_allowed(target: str) -> None:
-    """403 unless this deployment's optimizer may drive *target*."""
-    allowed = allowed_targets()
-    if allowed is not None and target not in allowed:
-        listed = ", ".join(sorted(allowed)) or "none"
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"This deployment's optimizer does not drive the {target!r} target "
-                f"(allowed: {listed})."
-            ),
-        )

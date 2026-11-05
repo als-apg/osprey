@@ -26,7 +26,7 @@ from osprey_optimizer.api.optimization_lifecycle import (
 )
 from osprey_optimizer.api.optimization_status import build_optimization_response
 from osprey_optimizer.api.owner import OWNER_HEADER, owner_from_header
-from osprey_optimizer.api.security import check_target_allowed, require_launch_token
+from osprey_optimizer.api.security import require_launch_token
 from osprey_optimizer.api.start_gates import run_start_gates
 from osprey_optimizer.models.api import CurrentJobRequest, CurrentJobResponse, JobResponse
 from osprey_optimizer.models.config import OptimizationConfig, machine_config
@@ -249,7 +249,6 @@ def start_job(
                 "control_target (va, standin or live)."
             ),
         )
-    check_target_allowed(target)
     guard_environment_start(env_name, target, registry, override_unhealthy=override_unhealthy)
     env_config = {
         **(config.environment_config or {}),
