@@ -376,3 +376,54 @@ async def test_publish_local_copy_without_stored_provenance(dict_repository):
     assert "created_via" not in local
     assert "session_metadata" not in local
     assert local["book"] == "ops"
+
+
+# --- follows_up (C-FOLLOWS-UP) ------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_publish_follows_up_carried_into_both_metadata(example_entry_fields, dict_repository):
+    """A published follow-up carries ``follows_up`` into the local and adapter copies."""
+    _seed(dict_repository, {"book": "ops"}, entry_id="parent")
+    _seed(dict_repository, {"book": "ops", "follows_up": "parent"})
+
+    result = await _example_service(dict_repository).publish_entry("e1")
+
+    assert dict_repository.entries[result.entry_id]["metadata"]["follows_up"] == "parent"
+    assert example_entry_fields.state.created[-1].metadata["follows_up"] == "parent"
+
+
+@pytest.mark.asyncio
+async def test_publish_without_follows_up_carries_none(example_entry_fields, dict_repository):
+    """An entry that follows up nothing gains no ``follows_up`` key."""
+    _seed(dict_repository, {"book": "ops"})
+
+    result = await _example_service(dict_repository).publish_entry("e1")
+
+    assert "follows_up" not in dict_repository.entries[result.entry_id]["metadata"]
+    assert "follows_up" not in example_entry_fields.state.created[-1].metadata
+
+
+@pytest.mark.asyncio
+async def test_publish_follows_up_vanished_parent_refused(example_entry_fields, dict_repository):
+    """A follow-up whose parent ARIEL no longer holds is refused before any write."""
+    _seed(dict_repository, {"book": "ops", "follows_up": "gone"})
+
+    with pytest.raises(EntryFieldError) as excinfo:
+        await _example_service(dict_repository).publish_entry("e1")
+
+    assert excinfo.value.field == "follows_up"
+    assert example_entry_fields.state.created == []
+    assert example_entry_fields.state.options_calls == []
+
+
+@pytest.mark.asyncio
+async def test_publish_follows_up_self_refused(example_entry_fields, dict_repository):
+    """An entry that names itself as its parent is refused before any write."""
+    _seed(dict_repository, {"book": "ops", "follows_up": "e1"})
+
+    with pytest.raises(EntryFieldError) as excinfo:
+        await _example_service(dict_repository).publish_entry("e1")
+
+    assert excinfo.value.field == "follows_up"
+    assert example_entry_fields.state.created == []

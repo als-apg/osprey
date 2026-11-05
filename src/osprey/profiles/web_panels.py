@@ -58,7 +58,7 @@ BUILTIN_PANELS: set[str] = {
 # sidecar panel is described.
 BUILTIN_PANEL_LABELS: dict[str, str] = {
     "artifacts": "Artifacts",
-    "ariel": "ARIEL",
+    "ariel": "LOGBOOK",
     "channel-finder": "CHANNELS",
     "lattice": "LATTICE",
     "okf": "KNOWLEDGE",

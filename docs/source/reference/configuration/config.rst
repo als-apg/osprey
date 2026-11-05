@@ -227,7 +227,7 @@ configured or deployed, so a minimal build shows no empty tiles.
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
-  graph MCP server (the graph store), the ARIEL panel and MCP server
+  graph MCP server (the graph store), the Logbook panel and ARIEL MCP server
   (Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
   virtual-accelerator connector. One row per service, and the address it
   knocks on is the one **the client itself resolves** from this config, in the
@@ -950,8 +950,12 @@ When the key is set, every entry the ARIEL tools return carries an
 ``entries_by_ids``, the rows of ``sql_query`` that select ``entry_id``, and the
 result of ``entry_publish``. The id is URL-encoded before it is filled in. The
 agent is told to link that URL as given and never to build one, so with the key
-unset it shows plain entry IDs. An entry written by ``entry_create`` and not yet
-published gets no URL, because the logbook has no page for it.
+unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
+because the logbook has no page for it: one ``entry_create`` wrote directly
+(``source_system`` ``ARIEL MCP``) or one saved local-only (``metadata.sync_status``
+``local_only``, such as a Logbook web save or a publish the logbook did not take).
+A ``sql_query`` row also gets none when looking up the ``source_system`` or
+``metadata`` it does not select fails.
 
 A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
@@ -981,7 +985,7 @@ the rest.
 
 Each value must be a positive whole number, and ``read_chars`` may not be below
 ``listing_chars``. Anything else is refused when the configuration is parsed:
-the ARIEL MCP server does not start, and the ARIEL panel reports the key. The
+the ARIEL MCP server does not start, and the Logbook panel reports the key. The
 keys are read at startup, so a change lands after ``osprey build`` and a
 restart. When choosing a value, the question is whether the part of an entry
 the agent needs routinely runs past 500 characters.

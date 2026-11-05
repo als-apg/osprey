@@ -754,6 +754,83 @@ class TestRankingAndHydration:
     @pytest.mark.asyncio
     async def test_snippet_is_carried_as_the_highlight(self, search_calls):
         client = StubClient([make_hit("1", snippet="7: water leak")])
+        repo = StubRepository([{**make_entry("1"), "raw_text": "Cooling\n\nwater leak"}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["water leak"]
+
+    @pytest.mark.asyncio
+    async def test_highlight_is_entry_text_without_the_mirror_scaffolding(self, search_calls):
+        """qmd quotes the mirror document: a diff-style hunk header, line numbers,
+        the ``# Entry`` heading and the provenance lines the writer adds. The
+        highlight keeps only what the entry itself says, minus its subject line
+        (the row already shows it)."""
+        snippet = (
+            "5: @@ -4,6 @@ (3 before, 3 after)\n"
+            "6: Source: Example eLog.\n"
+            "7: title: Linac gun cathode replacement.\n"
+            "8: \n"
+            "9: Linac gun cathode replacement\n"
+            "10: \n"
+            "11: Replaced the thermionic cathode after 12,000 hours."
+        )
+        raw = "Linac gun cathode replacement\n\nReplaced the thermionic cathode after 12,000 hours."
+        client = StubClient([make_hit("1", snippet=snippet)])
+        repo = StubRepository([{**make_entry("1"), "raw_text": raw}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["Replaced the thermionic cathode after 12,000 hours."]
+
+    @pytest.mark.asyncio
+    async def test_an_excerpt_of_only_the_subject_yields_no_highlight(self, search_calls):
+        """The row already shows the subject; it previews the body instead."""
+        snippet = "8: \n9: Linac gun cathode replacement\n10: "
+        raw = "Linac gun cathode replacement\n\nReplaced the thermionic cathode."
+        client = StubClient([make_hit("1", snippet=snippet)])
+        repo = StubRepository([{**make_entry("1"), "raw_text": raw}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == []
+
+    @pytest.mark.asyncio
+    async def test_a_one_line_entry_keeps_its_only_line(self, search_calls):
+        client = StubClient([make_hit("1", snippet="9: water leak in sector 3")])
+        repo = StubRepository([{**make_entry("1"), "raw_text": "water leak in sector 3"}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["water leak in sector 3"]
+
+    @pytest.mark.asyncio
+    async def test_a_snippet_of_scaffolding_only_yields_no_highlight(self, search_calls):
+        """A hit centred on the heading carries no entry text; the row then falls
+        back to the entry's own text rather than showing the heading."""
+        snippet = (
+            "1: @@ -1,3 @@ (0 before, 7 after)\n"
+            "2: # Entry 1\n"
+            "3: \n"
+            "4: Logged by operator on 2024-06-01T12:00:00+00:00."
+        )
+        client = StubClient([make_hit("1", snippet=snippet)])
         repo = StubRepository([make_entry("1")])
 
         _, _, highlights = (
@@ -762,7 +839,7 @@ class TestRankingAndHydration:
             )
         )[0]
 
-        assert highlights == ["7: water leak"]
+        assert highlights == []
 
     @pytest.mark.asyncio
     async def test_missing_snippet_yields_no_highlights(self, search_calls):
@@ -2639,3 +2716,165 @@ class TestPictureLaneAgainstAServer:
         assert all("_matched_via" not in e for e, _, _ in _entries(result))
         assert attachments_capability(config)["picture_search_unavailable"] == "model"
         assert stub.embeddings == []
+
+
+# --------------------------------------------------------------------------
+# Dimension filter (C-FILTER through hydration, C-MODOUT return shape)
+# --------------------------------------------------------------------------
+
+
+def _alice_filter():
+    from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+    return EntryFilter.parse({"author": ["alice"]}, BUILTIN_DIMENSIONS)
+
+
+def _with_facts(repo):
+    """Give a stub repository the ``schema_facts`` the filter's context reads."""
+    from osprey.services.ariel_search.database.repository import SchemaFacts
+
+    async def _facts():
+        return SchemaFacts(has_v2_fts=True, has_copy_state=True, has_subject=True)
+
+    repo.schema_facts = _facts
+    return repo
+
+
+@pytest.fixture
+def _no_enhancement_registry(_mock_ariel_registry):
+    # Nested inside the conftest's patch so the two unwind in order; a
+    # monkeypatch here would restore the conftest's mock after it exits.
+    from unittest.mock import MagicMock, patch
+
+    registry = MagicMock()
+    registry.list_ariel_enhancement_modules.return_value = []
+    with patch("osprey.registry.get_registry", return_value=registry):
+        yield
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_no_enhancement_registry")
+class TestEntryFilter:
+    async def test_text_hits_outside_the_filter_are_dropped(self, search_calls):
+        repo = _with_facts(
+            StubRepository([make_entry("A", author="Alice"), make_entry("B", author="Bob")])
+        )
+
+        result = await hybrid_search(
+            "beam",
+            repo,
+            make_config(),
+            client=StubClient([make_hit("B"), make_hit("A")]),
+            include_images=False,
+            entry_filter=_alice_filter(),
+            search_calls=search_calls,
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert result.filter_applied is True
+        assert _ids(result) == ["A"]
+
+    async def test_the_filter_applies_alongside_the_legacy_author(self, search_calls):
+        repo = _with_facts(
+            StubRepository(
+                [make_entry("A", author="Alice"), make_entry("AL", author="Alice Liddell")]
+            )
+        )
+
+        result = await hybrid_search(
+            "beam",
+            repo,
+            make_config(),
+            client=StubClient([make_hit("A"), make_hit("AL")]),
+            author="lid",
+            include_images=False,
+            entry_filter=_alice_filter(),
+            search_calls=search_calls,
+        )
+
+        # legacy substring "lid" keeps only AL; the exact filter keeps only A
+        assert _ids(result) == []
+
+    async def test_a_filter_widens_the_fetch(self, search_calls):
+        client = StubClient([make_hit("A")])
+        repo = _with_facts(StubRepository([make_entry("A", author="Alice")]))
+
+        await hybrid_search(
+            "beam",
+            repo,
+            make_config(),
+            client=client,
+            max_results=10,
+            include_images=False,
+            entry_filter=_alice_filter(),
+            search_calls=search_calls,
+        )
+
+        assert client.calls[0]["limit"] == 40
+
+    async def test_image_lane_hits_pass_the_filter(self, fake_lane, search_calls):
+        fake_lane({"MINE": ImageHit("a1", 0.8), "THEIRS": ImageHit("a2", 0.8)})
+        repo = _with_facts(
+            LaneRepository(
+                [
+                    make_entry("T1", author="Alice"),
+                    make_entry("MINE", author="alice"),
+                    make_entry("THEIRS", author="Bob"),
+                ]
+            )
+        )
+
+        ids = _ids(
+            await hybrid_search(
+                "q",
+                repo,
+                lane_config(),
+                client=StubClient([make_hit("T1")]),
+                include_images=True,
+                entry_filter=_alice_filter(),
+                search_calls=search_calls,
+            )
+        )
+
+        assert "MINE" in ids
+        assert "THEIRS" not in ids
+
+    async def test_rrf_semantic_lane_receives_the_filter(self, search_calls):
+        entries = [make_entry("A", author="Alice")]
+        repository = _with_facts(SemanticRepository(entries, [(entries[0], 0.9)]))
+        flt = _alice_filter()
+
+        await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf", "candidate_limit": 40}),
+            StubEmbedder(),
+            client=StubClient([make_hit("A")]),
+            entry_filter=flt,
+            search_calls=search_calls,
+        )
+
+        assert repository.semantic_calls[0]["entry_filter"] is flt
+
+    async def test_offset_alone_returns_module_output(self, search_calls):
+        repo = StubRepository([make_entry("A")])
+
+        result = await hybrid_search(
+            "beam",
+            repo,
+            make_config(),
+            client=StubClient([make_hit("A")]),
+            include_images=False,
+            offset=0,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert result.filter_applied is False
+        assert _ids(result) == ["A"]
+
+
+def test_descriptor_accepts_filter_and_offset():
+    descriptor = get_tool_descriptor()
+    assert descriptor.accepts_entry_filter is True
+    assert descriptor.accepts_offset is True
