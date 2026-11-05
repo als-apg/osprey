@@ -2626,7 +2626,6 @@ def test_the_gate_runs_exactly_the_lane_expression__mutation_parallelizes_a_seri
 #: the lane-leaving markers under workers that distort them.
 DOCUMENTED_SWEEPS = (
     "tests/README.md",
-    "CONTRIBUTING.md",
     "plugins/osprey/skills/release/SKILL.md",
     "plugins/osprey/skills/test-audit/SKILL.md",
 )
