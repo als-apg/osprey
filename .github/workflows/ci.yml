@@ -171,7 +171,7 @@ jobs:
     # spread is the runner pool, not the suite (the coverage cell is no
     # outlier either: it measures through PEP 669, see COVERAGE_CORE below,
     # which costs near enough nothing). The shard axis below splits what one
-    # ubuntu cell runs three ways and the macOS cells run a trimmed sweep,
+    # ubuntu cell runs three ways and the macOS cells run a chosen subset,
     # which is what keeps a slow runner clear of this cap. What forces the
     # headroom on top is a known intermittent tail worth ~12 minutes: a
     # worker wedges mid-test and its share has to be redistributed to a
@@ -206,13 +206,15 @@ jobs:
         #
         # Runner-minutes are unchanged by the split.
         shard: [cli, rest-a, rest-b]
-        # A macOS cell is ONE job, `shard: macos`: the whole sweep minus the
-        # files repo_checks.py lists in _MACOS_REPEATS_UBUNTU. One job, not one
-        # per shard, because the macOS concurrency ceiling is 5 jobs across the
-        # whole account (it moves only on Enterprise): a main push takes 2
-        # slots and a PR 1. The trimmed sweep is sized so the slowest runner
-        # plus the ~12 minute tail described on the job cap above fits the
-        # step cap below.
+        # A macOS cell is ONE job, `shard: macos`: exactly the test files and
+        # tests repo_checks.py lists in _MACOS_RUNS, those whose outcome can
+        # differ on macOS through a named mechanism (a darwin branch, real
+        # child processes and signals, native libraries, sockets, filesystem
+        # semantics). The rest only repeats ubuntu, so a new test file runs on
+        # ubuntu alone until it is added there. One job, not one per shard,
+        # because the macOS concurrency ceiling is 5 jobs across the whole
+        # account (it moves only on Enterprise): a main push takes 2 slots and
+        # a PR 1.
         #
         # Pull requests run 3.12 only, paired with the 3.12/ubuntu coverage
         # cell so a failure isolates to the OS; every other event adds 3.11.
@@ -281,12 +283,12 @@ jobs:
       # have passed anyway; the value is deliberately loose for that reason, and
       # tightening it is how this lane starts flaking. 55 was sized when a cell
       # ran the whole suite and the slowest healthy one took ~41 min; a shard
-      # runs about half of it or less and the trimmed macOS sweep about as
-      # long as that cell, so the same cap leaves room for the slowest runner
-      # in the pool AND the tail. The previous 40 was sized for
-      # a ~18 min cell and became the healthy runtime itself. 70 because the
-      # macOS sweep then grew past 55: it was cut off at 97% and 99% with zero
-      # test failures on 2026-11-02.
+      # runs about half of it or less and the macOS subset a part of it, so
+      # the same cap leaves room for the slowest runner in the pool AND the
+      # tail. The previous 40 was sized for a ~18 min cell and became the
+      # healthy runtime itself. 70 because the macOS cell, then the whole
+      # sweep minus a trim, grew past 55: it was cut off at 97% and 99% with
+      # zero test failures on 2026-11-02.
       timeout-minutes: 70
       env:
         # Switches on _harness/ci_diagnostics.py: a continuously flushed event log
@@ -452,7 +454,7 @@ jobs:
         # tests/deployment, and `rest-b` is everything else, the connectors
         # package's own suite included; tests/deployment/test_ci_workflow_wiring.py
         # holds that the three cover tests/ exactly once. `macos` is outside
-        # that partition: the whole sweep minus the check's macOS trim.
+        # that partition: only the files and tests the check lists for macOS.
         #
         # The check leaves three integration modules out of the sweep by name.
         # Each renders and builds a real project, and each is run by name in a

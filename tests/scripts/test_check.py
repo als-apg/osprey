@@ -823,9 +823,9 @@ def test_the_shards_cover_the_sweep_roots__mutation_drops_an_ignore() -> None:
     assert "--ignore=tests/cli" not in selection
 
 
-#: Files the macOS trim must keep, with what each exercises that ubuntu
-#: cannot answer for. Not the whole kept set: the slow ones a later trim is
-#: most likely to reach for.
+#: Files the macOS subset must run, whole or in part, with what each exercises
+#: that ubuntu cannot answer for. Not the whole list: the slow ones a later
+#: cut is most likely to reach for.
 MACOS_KEEPS = {
     "tests/test_offline_build_env.py": "the one real venv install (arm64 wheels)",
     "tests/connectors/ipc/test_pool.py": "child spawn, SIGKILL and replace",
@@ -847,120 +847,149 @@ MACOS_KEEPS = {
 }
 
 
-def test_the_macos_trim_is_the_whole_sweep_minus_its_files() -> None:
+def test_the_macos_subset_runs_its_list_alone() -> None:
     unit = fw.UNIT_SELECTION
-    trimmed = [f"--ignore={path}" for path in unit.trims["macos"]]
     assert fw.unit_argv("full", shard="macos") == [
-        *unit.roots,
-        *trimmed,
+        *unit.subsets["macos"],
         *SWEEP_IGNORES,
         *SWEEP_MARKER,
     ]
 
 
-def test_the_macos_trim_names_existing_test_files_the_sweep_runs() -> None:
-    # pytest silently accepts an --ignore of a missing path, so a rename would
-    # void the entry unnoticed; a directory would trim files nobody read.
-    unit = fw.UNIT_SELECTION
-    trimmed = unit.trims["macos"]
-    swept = {path for path, _lane in unit.ignores}
-    assert len(set(trimmed)) == len(trimmed)
-    assert [p for p in trimmed if not (REPO_ROOT / p).is_file()] == []
-    assert [p for p in trimmed if not Path(p).name.startswith("test_")] == []
-    assert [p for p in trimmed if p in swept or p.startswith("tests/e2e/")] == []
+def _test_names(source: str) -> set[str]:
+    """Every test function and class of a module, as its node ID spells it."""
+    names: set[str] = set()
+
+    def walk(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                names.add(prefix + node.name)
+            elif isinstance(node, ast.ClassDef):
+                names.add(prefix + node.name)
+                walk(node.body, f"{prefix}{node.name}::")
+
+    walk(ast.parse(source).body, "")
+    return names
 
 
-def _trimmed_keeps(unit: Any) -> dict[str, str]:
-    """The keeps the macOS selection of *unit* leaves out, with why each matters."""
-    selection = fw.unit_argv("full", shard="macos", unit=unit)
-    return {p: why for p, why in MACOS_KEEPS.items() if f"--ignore={p}" in selection}
-
-
-def test_the_macos_trim_keeps_what_macos_can_answer() -> None:
-    assert [p for p in MACOS_KEEPS if not (REPO_ROOT / p).is_file()] == []
-    assert _trimmed_keeps(fw.UNIT_SELECTION) == {}
-
-
-def test_the_macos_trim_keeps_what_macos_can_answer__mutation_trims_a_keep() -> None:
-    unit = fw.UNIT_SELECTION
-    pool = "tests/connectors/ipc/test_pool.py"
-    narrowed = dataclasses.replace(unit, trims={"macos": (*unit.trims["macos"], pool)})
-    assert _trimmed_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
-
-
-#: Uses whose outcome can depend on the OS. Matched in the syntax tree, so a
-#: comment or a string that names one is not a use.
-OS_SENSITIVE_USES = frozenset(
-    {
-        "os.kill",
-        "os.killpg",
-        "os.getppid",
-        "os.setsid",
-        "os.setpgrp",
-        "os.mkfifo",
-        "os.symlink",
-        "os.link",
-        "sys.platform",
-        "platform.system",
-        "subprocess.Popen",
-        "asyncio.create_subprocess_exec",
-        "asyncio.create_subprocess_shell",
-        "socket.socket",
-        "signal.*",
-        "start_new_session",
-        "symlink_to",
-        "hardlink_to",
-    }
-)
-
-#: Trimmed files read and judged OS-independent despite these uses.
-MACOS_TRIM_VETTED = {
-    # A symlinked checkout resolves to one repo identity on any POSIX host.
-    "tests/deployment/test_up_as_built.py": ("symlink_to",),
-    # A child is killed with SIGKILL, in teardown and to make a dead child the
-    # supervisor replaces; the assertions are on the envelope's frames. A dead
-    # connector-host child is detected by tests/connectors/ipc/test_pool.py,
-    # kept on macOS.
-    "tests/mcp_server/test_error_envelope_ipc.py": ("asyncio.create_subprocess_exec", "os.kill"),
-}
-
-
-def _os_sensitive_uses(source: str) -> set[str]:
-    found: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Attribute):
-            found.add(node.attr)
-            if isinstance(node.value, ast.Name):
-                found |= {f"{node.value.id}.{node.attr}", f"{node.value.id}.*"}
-        elif isinstance(node, ast.keyword) and node.arg:
-            found.add(node.arg)
-    return found & OS_SENSITIVE_USES
-
-
-def _unvetted_trims(trims: Sequence[str]) -> dict[str, list[str]]:
-    """The trimmed files that gained an OS-sensitive use nobody has judged."""
-    return {
-        path: sorted(uses)
-        for path in trims
+def _unresolved(entries: Sequence[str]) -> list[str]:
+    """The entries that name no collected test file, or a test it does not hold."""
+    swept = {path for path, _lane in fw.UNIT_SELECTION.ignores}
+    missing = []
+    for entry in entries:
+        path, _, name = entry.partition("::")
+        file = REPO_ROOT / path
         if (
-            uses := _os_sensitive_uses((REPO_ROOT / path).read_text(encoding="utf-8"))
-            - set(MACOS_TRIM_VETTED.get(path, ()))
-        )
-    }
+            not file.is_file()
+            or not fw._is_pytest_file(file.name)
+            or fw._hosted_outside_sweep(path)
+            or path in swept
+            or (name and name not in _test_names(file.read_text(encoding="utf-8")))
+        ):
+            missing.append(entry)
+    return missing
 
 
-def test_the_macos_trim_holds_no_unread_os_sensitive_use() -> None:
-    # A trimmed file that gains a signal, link or platform branch would stay
-    # off macOS silently: read it, then keep it on macOS or vet the use here.
-    trimmed = fw.UNIT_SELECTION.trims["macos"]
-    assert [p for p in MACOS_TRIM_VETTED if p not in trimmed] == []
-    assert _unvetted_trims(trimmed) == {}
+def test_the_macos_subset_names_tests_that_exist() -> None:
+    # pytest refuses a node ID it cannot find, but only once the cell runs on
+    # macOS; a whole file and its own tests both listed would run them twice.
+    listed = fw.UNIT_SELECTION.subsets["macos"]
+    whole = {entry for entry in listed if "::" not in entry}
+    assert len(set(listed)) == len(listed)
+    assert [e for e in listed if "[" in e] == []
+    assert [e for e in listed if "::" in e and e.partition("::")[0] in whole] == []
+    assert _unresolved(listed) == []
 
 
-def test_the_macos_trim_holds_no_unread_os_sensitive_use__mutation_trims_a_keep() -> None:
+def test_the_macos_subset_names_tests_that_exist__mutation_renames_a_test() -> None:
     pool = "tests/connectors/ipc/test_pool.py"
-    assert _unvetted_trims((pool,)) == {pool: ["os.kill", "signal.*", "subprocess.Popen"]}
-    assert _os_sensitive_uses("# os.kill is not the signal here\nx = 'socket.socket'\n") == set()
+    assert _unresolved((pool, f"{pool}::test_no_such_test", "tests/test_no_such_file.py")) == [
+        f"{pool}::test_no_such_test",
+        "tests/test_no_such_file.py",
+    ]
+
+
+def _dropped_keeps(unit: Any) -> dict[str, str]:
+    """The keeps the macOS selection of *unit* runs no test of, with why each matters."""
+    paths = {entry.partition("::")[0] for entry in fw.unit_argv("full", shard="macos", unit=unit)}
+    return {p: why for p, why in MACOS_KEEPS.items() if p not in paths}
+
+
+def test_the_macos_subset_keeps_what_macos_can_answer() -> None:
+    assert [p for p in MACOS_KEEPS if not (REPO_ROOT / p).is_file()] == []
+    assert _dropped_keeps(fw.UNIT_SELECTION) == {}
+
+
+def test_the_macos_subset_keeps_what_macos_can_answer__mutation_drops_a_keep() -> None:
+    unit = fw.UNIT_SELECTION
+    pool = "tests/connectors/ipc/test_pool.py"
+    kept = tuple(e for e in unit.subsets["macos"] if e.partition("::")[0] != pool)
+    narrowed = dataclasses.replace(unit, subsets={"macos": kept})
+    assert _dropped_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
+
+
+#: The platform's name for macOS, outside the guard's comparisons so it does not match itself.
+DARWIN = frozenset({"darwin"})
+
+
+def _darwin_branches(source: str) -> list[int]:
+    """The lines where *source* compares a value to darwin: a skip unless or
+    except on macOS, or a branch macOS alone takes. Matched in the syntax
+    tree, so faking the platform (an assignment, a parametrized value) or a
+    comment that names it is not a branch."""
+
+    def darwin(node: ast.AST) -> bool:
+        return any(
+            isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.lower() in DARWIN
+            for n in ast.walk(node)
+        )
+
+    return sorted(
+        node.lineno
+        for node in ast.walk(ast.parse(source))
+        if (isinstance(node, ast.Compare) and darwin(node))
+        or (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "startswith"
+            and any(darwin(arg) for arg in node.args)
+        )
+    )
+
+
+def test_a_test_file_that_branches_on_darwin_is_in_the_macos_subset() -> None:
+    # Ubuntu never takes a darwin branch, so the file's outcome there says
+    # nothing about it; off the list, nothing would run it.
+    unit = fw.UNIT_SELECTION
+    listed = {entry.partition("::")[0] for entry in unit.subsets["macos"]}
+    unlisted = {}
+    for root in unit.roots:
+        for file in sorted((REPO_ROOT / root).rglob("*.py")):
+            path = file.relative_to(REPO_ROOT).as_posix()
+            if not fw._is_pytest_file(file.name) or fw._hosted_outside_sweep(path):
+                continue
+            if path not in listed and (lines := _darwin_branches(file.read_text("utf-8"))):
+                unlisted[path] = lines
+    assert unlisted == {}
+
+
+def test_a_test_file_that_branches_on_darwin__mutation_skips_unless_darwin() -> None:
+    source = (
+        "import platform, sys\n"
+        "@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS only')\n"
+        "def test_a(): ...\n"
+        "def test_b():\n"
+        "    if platform.system() == 'Darwin': ...\n"
+        "    assert sys.platform.startswith('darwin')\n"
+    )
+    assert _darwin_branches(source) == [2, 5, 6]
+    faked = (
+        "# sys.platform == 'darwin' is not read here\n"
+        "def test_c(monkeypatch):\n"
+        "    monkeypatch.setattr(sys, 'platform', 'darwin')\n"
+        "    mock_sys.platform = 'darwin'\n"
+    )
+    assert _darwin_branches(faked) == []
 
 
 def test_the_tiers_bound_their_pytest_runs() -> None:
