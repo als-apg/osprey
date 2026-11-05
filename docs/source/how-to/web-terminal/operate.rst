@@ -520,8 +520,9 @@ The sidebar is on the left. From top to bottom, it shows:
 
   - **Workspace** starts with these rows:
 
-    - **Agent** opens the agent pane, or moves the focus to it, and opens
-      your session tree below it (`Sessions and artifacts`_). When the pane
+    - **Agent** opens the agent pane and your session tree below it
+      (`Sessions and artifacts`_); with the pane open, it folds or unfolds
+      the tree. When the pane
       is closed, the row shows a hollow dot. When the agent waits for your
       answer, the row shows the number of open questions. **Agent** is always
       the first row of the first group.
@@ -545,16 +546,18 @@ Sessions and artifacts
 
 The **Agent** row's ▾ opens your sessions, newest first. A session is named
 from your first prompt ("naming…" until the name arrives); ``/clear`` starts a
-new one. Under a session, its artifacts are grouped by kind: **Runs**,
-**Plots**, **Trends**, **Tables**, **Documents**, **Dashboards**, **Images**,
-**Data**, plus any kind the deployment registers. A script run is one row with
-a dot for **succeeded**, **failed** or **not run** (none while it runs); its
-approval preview, code and outputs are its parts. A run that was never run
+new one. Under a session, its artifacts are grouped by day; **Group by Kind**
+sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
+**Dashboards**, **Images**, **Data**, plus any kind the deployment registers.
+A script run is one row with a dot for **succeeded**, **failed** or **not
+run** (none while it runs); its approval preview, code and outputs are its
+parts. A run that was never run
 opens on its proposed code. **Earlier** holds your artifacts that have no
 session; **More sessions** loads older ones.
 
 - Click a session name to switch to it: the Agent pane opens on it and shows
-  the artifact last open there (its newest if none). ▸ only browses.
+  the artifact last open there (its newest if none). Click the current
+  session's name to fold or unfold it. ▸ only browses.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
@@ -562,9 +565,8 @@ session; **More sessions** loads older ones.
   first: **Cancel**, or **Stop & switch**.
 
 Right-click a session to rename it, export its transcript or group its
-artifacts by day (**Group by Activity**); a run to open its result, approval
-preview or code; an artifact to pin it. Runs and artifacts also have
-**Delete…**.
+artifacts by day or by kind; a run to open its result, approval preview or
+code; an artifact to pin it. Runs and artifacts also have **Delete…**.
 
 A reload, a new tab or another device resumes your last session. Its
 last-open artifact is shown in the Artifacts panel if that panel is docked,

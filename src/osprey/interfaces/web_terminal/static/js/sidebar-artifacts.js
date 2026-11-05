@@ -2,9 +2,10 @@
 /* OSPREY Web Terminal — the sidebar's session tree
  *
  * The Agent row wraps the tree: the operator's sessions (session-model.js),
- * each expanding to its artifacts grouped by form (Kind mode) or by day
- * (Activity mode), then the Earlier row (artifacts no session owns), "More
- * sessions", and a notice when the session history is cut short or unreadable.
+ * each expanding to its artifacts grouped by day (Activity mode, the default)
+ * or by form (Kind mode), then the Earlier row (artifacts no session owns),
+ * "More sessions", and a notice when the session history is cut short or
+ * unreadable.
  * The rows are drawn by sidebar-artifact-rows.js; this module owns the data,
  * the clicks and the viewer.
  *
@@ -16,10 +17,11 @@
  * by the cursor in the ~280 px box; in Kind mode each open group pages on its
  * own).
  *
- * CLICKS. A session-name click switches to it (`switchTo`, reopening the
- * Agent pane first), collapses the other sessions, and reveals the session's
- * pick: fetched by id, inserted into its group (its run opened), scrolled to
- * and shown through the open rule. A disclosure (▸) browses additively. An
+ * CLICKS. A click on another session's name switches to it (`switchTo`,
+ * reopening the Agent pane first), collapses the other sessions, and reveals
+ * the session's pick: fetched by id, inserted into its group (its run opened),
+ * scrolled to and shown through the open rule. A click on the name of the
+ * session in use folds or unfolds it. A disclosure (▸) browses additively. An
  * artifact click shows it without changing the session, focusing an already
  * docked Artifacts panel in place, and records it as its owner's last-open
  * artifact.
@@ -85,7 +87,7 @@ const NEAR_END_PX = 52;
 function freshState() {
   return {
     /** @type {TreeView} */
-    view: 'kind',
+    view: 'activity',
     /** Open sessions (tree ids; '' = Earlier). @type {Set<string>} */
     openSessions: new Set(),
     /** Open form groups per session. @type {Map<string, Set<string>>} */
@@ -609,8 +611,9 @@ function onClick(event) {
   const disc = target.closest('[data-tree-disc]');
   if (session instanceof HTMLElement) {
     const treeId = session.dataset.sessionId ?? '';
-    if (disc) toggleSession(treeId);
-    else void onSessionClick(treeId);
+    // The name of the session in use folds it; another's opens it in the Agent.
+    if (disc || treeId === activeTreeId()) toggleSession(treeId);
+    else void openInAgent(treeId);
     return;
   }
   if (earlier) return toggleSession(store.EARLIER);
@@ -652,11 +655,12 @@ function flip(set, key) {
 }
 
 /**
- * A session-name click: switch to it (the Agent pane reopened first), keep
- * only it open, and reveal its pick.
+ * Open a session in the Agent (another session's name, the session menu's
+ * "Open in Agent"): switch to it (the Agent pane reopened first), keep only it
+ * open, and reveal its pick.
  * @param {string} treeId
  */
-async function onSessionClick(treeId) {
+export async function openInAgent(treeId) {
   const row = model.rows().find((r) => treeIdOf(r) === treeId);
   if (!row) return;
   if (!isTerminalPanelOpen()) openTerminalPanel();

@@ -1258,6 +1258,24 @@ async function agentTileMenu() {
   return openTileContextMenu('terminal', { x: 40, y: 60, anchorEl });
 }
 
+const SIDEBAR_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sidebar.js';
+
+/**
+ * Set the Agent row's session list open or closed (sidebar.js, the instance
+ * the menu policy folds through).
+ * @param {boolean} open
+ */
+async function sidebarList(open) {
+  const { setListOpen } = await import(SIDEBAR_PATH);
+  setListOpen('agent', open);
+}
+
+/** @returns {Promise<boolean>} whether the Agent row's session list is open */
+async function listOpen() {
+  const { isListOpen } = await import(SIDEBAR_PATH);
+  return isListOpen('agent');
+}
+
 /**
  * Right-click a sidebar row the way the browser does — on the row button or
  * on a child of it, letting the event bubble. The returned
@@ -3115,19 +3133,6 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(dockedTiles(api)).not.toContain('okf');
   });
 
-  test('a parent row (one that discloses a list) only ever brings its tile forward, never retires it', async () => {
-    const { api } = await bootWorkspace();
-    expect(activeStamp()).toBe('okf');
-    // A row that discloses a list is shipped as a `.parent`: its click opens the
-    // row's list, which is what the operator reached for.
-    entry('okf').classList.add('parent');
-
-    entry('okf').click();
-
-    expect(dockedTiles(api)).toContain('okf');
-    expect(activeStamp()).toBe('okf');
-  });
-
   test('Focus surfaces a member that holds no tile', async () => {
     const { api } = await bootWorkspace();
 
@@ -3218,20 +3223,37 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(closeTerminalPanel).toHaveBeenCalled();
   });
 
-  test('a click on the Agent row opens the pane and focuses the terminal — twice, never a close', async () => {
+  test('with the Agent pane closed, a click on the Agent row opens it and unfolds the list', async () => {
     await bootWorkspace({ surface: 'terminal' });
+    await sidebarList(false);
+    openTerminalPanel.mockClear();
+    focusTerminal.mockClear();
+    isTerminalPanelOpen.mockReturnValueOnce(false);
+
+    entry('terminal').click();
+
+    expect(openTerminalPanel).toHaveBeenCalledOnce();
+    expect(focusTerminal).toHaveBeenCalledOnce();
+    expect(await listOpen()).toBe(true);
+  });
+
+  test('with the Agent pane open, a click on the Agent row folds and unfolds the list, never the pane', async () => {
+    await bootWorkspace({ surface: 'terminal' });
+    await sidebarList(true);
     openTerminalPanel.mockClear();
     focusTerminal.mockClear();
 
     entry('terminal').click();
+    expect(await listOpen()).toBe(false);
     entry('terminal').click();
+    expect(await listOpen()).toBe(true);
 
-    expect(openTerminalPanel).toHaveBeenCalledTimes(2);
-    expect(focusTerminal).toHaveBeenCalledTimes(2);
+    expect(openTerminalPanel).not.toHaveBeenCalled();
     expect(closeTerminalPanel).not.toHaveBeenCalled();
+    expect(focusTerminal).not.toHaveBeenCalled();
   });
 
-  test('in chat the Agent row puts the caret in the composer', async () => {
+  test('in chat the Agent row that opens the pane puts the caret in the composer', async () => {
     await bootWorkspace();
     focusTerminal.mockClear();
     const operator = document.createElement('div');
@@ -3239,6 +3261,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const composer = document.createElement('textarea');
     operator.append(composer);
     document.body.append(operator);
+    isTerminalPanelOpen.mockReturnValueOnce(false);
 
     entry('terminal').click();
 
@@ -3251,7 +3274,8 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
   test('an Agent pane that did not open takes no focus', async () => {
     await bootWorkspace();
     focusTerminal.mockClear();
-    isTerminalPanelOpen.mockReturnValueOnce(false);
+    isTerminalPanelOpen.mockReturnValue(false);
+    onTestFinished(() => void isTerminalPanelOpen.mockReturnValue(true));
 
     entry('terminal').click();
 

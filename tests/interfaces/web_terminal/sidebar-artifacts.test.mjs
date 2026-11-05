@@ -4,11 +4,12 @@
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifacts.test.mjs
  *
  * The Agent row's tree lists the operator's sessions (session-model.js, real
- * here, over a stubbed hub), each expanding to its artifacts grouped by form,
- * loaded lazily through the artifacts panel's `session-list` and counted by
- * one `session-summary` per page of sessions. These tests pin the data flow
- * (what loads when), the clicks (a session name switches and reveals, an
- * artifact opens without switching and records last-artifact), the viewer's
+ * here, over a stubbed hub), each expanding to its artifacts grouped by form
+ * (Kind mode, stored per test), loaded lazily through the artifacts panel's
+ * `session-list` and counted by one `session-summary` per page of sessions.
+ * These tests pin the data flow (what loads when), the clicks (another
+ * session's name switches and reveals, the current one's folds, an artifact
+ * opens without switching and records last-artifact), the viewer's
  * focus rules and pager, and the live counts.
  *
  * Collaborators that need a running page are mocked (the chat console, the
@@ -327,6 +328,9 @@ beforeEach(async () => {
   vi.setSystemTime(Date.UTC(2026, 9, 30, 12, 0));
   document.documentElement.setAttribute('data-facility-timezone', 'UTC');
   localStorage.clear();
+  // Written against Kind mode, which an operator must choose (Activity is the
+  // default; see the tree-mode test below).
+  localStorage.setItem('osprey-sidebar-artifacts-view', 'kind');
   mocks.streaming = false;
   mocks.terminal = false;
   for (const fn of Object.values(mocks))
@@ -453,17 +457,62 @@ describe('the data', () => {
 /* ---- expansion and clicks ---------------------------------------------- */
 
 describe('expansion and clicks', () => {
-  test('▸ browses additively; a session-name click collapses the others', async () => {
+  test('with no mode stored the tree opens in Activity mode', async () => {
+    localStorage.removeItem('osprey-sidebar-artifacts-view');
+    await boot();
+    expect(mod.treeView()).toBe('activity');
+    expect(tree().querySelector('[data-group-head]')).toBeNull();
+  });
+
+  test('▸ browses additively, without switching', async () => {
     await boot();
     click(/** @type {Element} */ (sessionRowEl(T2).querySelector('[data-tree-disc]')));
     await settle();
     expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
     expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('true');
 
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('[data-tree-disc]')));
+    await settle();
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(mocks.resumeSession).not.toHaveBeenCalled();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+  });
+
+  test("a click on the current session's name folds and unfolds it, and nothing else", async () => {
+    await boot();
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('[data-tree-disc]')));
+    await settle();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    const calls = fetchMock.mock.calls.length;
+
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    // The other open session stays open: this click folds, it does not switch.
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('true');
+
     click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
     await settle();
     expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
-    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+
+    expect(mocks.resumeSession).not.toHaveBeenCalled();
+    expect(mocks.openTerminalPanel).not.toHaveBeenCalled();
+    expect(mocks.activateTab).not.toHaveBeenCalled();
+    expect(pointer.getPointer()).toBe(K1);
+    // No reveal: the session's rows were loaded, so nothing is fetched.
+    expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
+  test('openInAgent on the current session opens the Agent pane and keeps it unfolded', async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+
+    await mod.openInAgent(T1);
+    await settle();
+
+    expect(mocks.openTerminalPanel).toHaveBeenCalled();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
     expect(mocks.resumeSession).not.toHaveBeenCalled();
   });
 
