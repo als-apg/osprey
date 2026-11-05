@@ -1,0 +1,129 @@
+{
+  "categories": {
+    "direct": {
+      "label": "Direct",
+      "modes": [
+        {
+          "name": "keyword",
+          "label": "Keyword",
+          "description": "Fast text-based lookup using full-text search. Use for specific terms, equipment names, PV names, or phrases. Plain words must all appear, with a ranked partial fallback only when no entry has them all; quoted phrases are always required; OR widens, AND/NOT narrow. Dates and authors go in the date and author filters, not the query.",
+          "parameters": [
+            {
+              "name": "include_highlights",
+              "label": "Include Highlights",
+              "description": "Include highlighted snippets in search results",
+              "type": "bool",
+              "default": true,
+              "section": "Options"
+            },
+            {
+              "name": "fuzzy_fallback",
+              "label": "Fuzzy Fallback",
+              "description": "Fall back to fuzzy matching when no exact matches are found",
+              "type": "bool",
+              "default": true,
+              "section": "Options"
+            }
+          ]
+        },
+        {
+          "name": "semantic",
+          "label": "Semantic",
+          "description": "Find conceptually related entries using text embeddings. Use for queries describing concepts, situations, or events where exact words may not match.",
+          "parameters": [
+            {
+              "name": "similarity_threshold",
+              "label": "Similarity Threshold",
+              "description": "Minimum cosine similarity score for results (0-1)",
+              "type": "float",
+              "default": 0.5,
+              "section": "Retrieval",
+              "min": 0.0,
+              "max": 1.0,
+              "step": 0.01
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "default_mode": "keyword",
+  "shared_parameters": [
+    {
+      "name": "max_results",
+      "label": "Max Results",
+      "description": "Maximum number of entries to return",
+      "type": "int",
+      "default": 10,
+      "section": "General",
+      "min": 1,
+      "max": 100,
+      "step": 1
+    },
+    {
+      "name": "start_date",
+      "label": "Start Date",
+      "description": "Filter entries after this date",
+      "type": "date",
+      "default": null,
+      "section": "Filters"
+    },
+    {
+      "name": "end_date",
+      "label": "End Date",
+      "description": "Filter entries before this date",
+      "type": "date",
+      "default": null,
+      "section": "Filters"
+    },
+    {
+      "name": "author",
+      "label": "Author",
+      "description": "Filter entries by author name",
+      "type": "text",
+      "default": null,
+      "section": "Filters",
+      "placeholder": "Filter by author..."
+    },
+    {
+      "name": "source_system",
+      "label": "Source System",
+      "description": "Filter entries by source system",
+      "type": "dynamic_select",
+      "default": null,
+      "section": "Filters",
+      "options_endpoint": "/api/filter-options/source_systems"
+    }
+  ],
+  "vocabulary": {
+    "enabled": false,
+    "concepts": 0,
+    "expand_by_default": false
+  },
+  "attachments": {
+    "copy_on_ingest": "images",
+    "formats": {
+      "viewable": [
+        "png",
+        "jpeg",
+        "gif",
+        "webp",
+        "bmp",
+        "tiff"
+      ],
+      "reserved": [
+        "svg",
+        "pdf",
+        "text",
+        "heif",
+        "video",
+        "audio",
+        "archive"
+      ]
+    },
+    "view": true,
+    "captions": false,
+    "picture_search": false,
+    "picture_search_unavailable": null
+  }
+}

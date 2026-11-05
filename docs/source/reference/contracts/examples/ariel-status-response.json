@@ -1,0 +1,14 @@
+{
+  "healthy": true,
+  "database_connected": true,
+  "database_uri": "postgresql://localhost:5432/ariel",
+  "entry_count": 15230,
+  "embedding_tables": [
+    {"table_name": "text_embeddings_nomic_embed_text", "entry_count": 15230, "dimension": 768, "is_active": true}
+  ],
+  "active_embedding_model": "nomic-embed-text",
+  "enabled_search_modules": ["keyword", "semantic"],
+  "enabled_enhancement_modules": ["text_embedding", "semantic_processor"],
+  "last_ingestion": "2025-01-15T06:00:00Z",
+  "errors": []
+}
