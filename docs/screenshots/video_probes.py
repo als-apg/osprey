@@ -181,17 +181,19 @@ def plot_frame(page: Any) -> Any:
 
 
 def artifact_row(artifact_id: str) -> str:
-    """The selector of ``artifact_id``'s row in the hub sidebar's artifact list.
+    """The selector of ``artifact_id``'s row in the hub sidebar's session tree.
 
-    The hub owns the list; a click on a row shows that artifact in the
+    The hub owns the tree; a click on a row shows that artifact in the
     artifacts tile, whose embedded iframe is a viewer of that one artifact.
+    The row is rendered only under an open session and form group
+    (``contact_sheet.open_tree_to_row`` opens them).
     """
-    return f'#sidebar-artifacts-list .osprey-list-row[data-id="{artifact_id}"]'
+    return f'#sidebar-session-tree .osprey-list-row[data-id="{artifact_id}"]'
 
 
 _CARD_SHOWN_JS = (
     "(id) => !!document.querySelector("
-    '`#sidebar-artifacts-list .osprey-list-row[data-id="${CSS.escape(id)}"]`)'
+    '`#sidebar-session-tree .osprey-list-row[data-id="${CSS.escape(id)}"]`)'
 )
 
 # The preview pane shows the artifact whose file path names ``id`` (every
