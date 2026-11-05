@@ -523,12 +523,14 @@ def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_r
     """Make ``data/facility/`` ready for a format; every format under the group calls it first.
 
     Refuses only on overlap: hand-written records of the kinds this verb writes
-    exit 1 with nothing changed. Otherwise bundled files are replaced, and the
+    exit 1 with nothing changed, and files seeded under the former header are
+    named apart with the line that fixes them. Otherwise bundled files are replaced, and the
     line that says so prints at once, so a later stop of the format never hides
     the deletion. Everything else stays; the knowledge indexes are settled, and a
     blank index is left when no page remains.
     """
-    from osprey.facility.bundled import classify
+    from osprey.facility.bundled import classify, under_former_header
+    from osprey.facility.layers import HEADER
     from osprey.services.facility_knowledge.okf.index import _settle_bundle
 
     from .templates.manager import TemplateManager
@@ -542,15 +544,26 @@ def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_r
         if path == entry or path.startswith(f"{entry}/")
     ]
     if overlap:
-        found = {kind for _path, kind in overlap}
-        named = _named_together([kind for _entry, kind in writes if kind in found])
-        lines = [
-            f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
-            "records, which this import writes:",
-            *(_shown(facility_dir / path, repo_root) for path, _kind in overlap),
-            "move corrections into fixes.yaml and remove the record sources, "
-            "or start a new repo: osprey init <name> --preset control-assistant",
-        ]
+        former = [path for path, _kind in overlap if under_former_header(facility_dir / path)]
+        written = [(path, kind) for path, kind in overlap if path not in former]
+        lines = []
+        if written:
+            found = {kind for _path, kind in written}
+            named = _named_together([kind for _entry, kind in writes if kind in found])
+            lines += [
+                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
+                "records, which this import writes:",
+                *(_shown(facility_dir / path, repo_root) for path, _kind in written),
+                "move corrections into fixes.yaml and remove the record sources, "
+                "or start a new repo: osprey init <name> --preset control-assistant",
+            ]
+        if former:
+            lines += [
+                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
+                "the old header, which this import writes:",
+                *(_shown(facility_dir / path, repo_root) for path in former),
+                f"set line 1 of each to: {HEADER}",
+            ]
         click.echo("\n".join(lines), err=True)
         ctx.exit(1)
     if kinds.bundled:
