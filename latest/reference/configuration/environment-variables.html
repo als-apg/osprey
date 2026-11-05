@@ -588,9 +588,13 @@ honoured as given.</p></td>
 <strong>build arguments</strong> at once: the Dockerfiles in
 <a class="reference internal" href="../../how-to/deploy-project/project-image.html"><span class="doc">The Project Image</span></a> declare an ARG of each name, and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> supplies each one from the host variable, or from the
-<code class="docutils literal notranslate"><span class="pre">images.*</span></code> key behind it. One spelling for one setting, whether the build is
-managed or a hand-run <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code>. What they configure is the build — a
-container that is already running reads nothing from them.</p>
+<code class="docutils literal notranslate"><span class="pre">images.*</span></code> key behind it. The <code class="docutils literal notranslate"><span class="pre">PIP_*</span></code> names come from your shell or that
+key, never from <code class="docutils literal notranslate"><span class="pre">.env</span></code> or <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>: a line there is ignored with a
+warning, like every launch variable (see
+<a class="reference internal" href="../../how-to/deploy-project/env-chain.html#deployment-env-launch-variables"><span class="std std-ref">launch variables</span></a>). One spelling for
+one setting, whether the build is managed or a hand-run <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code>.
+What they configure is the build — a container that is already running reads
+nothing from them.</p>
 </section>
 <section id="canopy-payload">
 <h2>CANOPY payload<a class="headerlink" href="#canopy-payload" title="Link to this heading">#</a></h2>

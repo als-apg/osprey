@@ -1269,18 +1269,22 @@ you.</p>
 tables and sets default privileges for the owner, so the <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code>
 table the migrations create and the per-model <code class="docutils literal notranslate"><span class="pre">text_embeddings_*</span></code> tables an
 enhancement module adds are readable without a second grant.</p>
+<p>A deployment that points ARIEL at a database it does not run, with the <code class="docutils literal notranslate"><span class="pre">uri</span></code>
+key, gets no derived role. Name a SELECT-only login on that database in
+<code class="docutils literal notranslate"><span class="pre">ariel.database.readonly_uri</span></code>; without it the SQL tool is not offered (see
+<a class="reference internal" href="../../reference/configuration/config.html#config-ariel-database-readonly-uri"><span class="std std-ref">ariel.database.readonly_uri — the SQL tool’s login on your own database</span></a>).</p>
 <section id="adopting-the-role-on-an-existing-database">
 <h4>Adopting the role on an existing database<a class="headerlink" href="#adopting-the-role-on-an-existing-database" title="Link to this heading">#</a></h4>
 <p>A data volume created before the role existed never runs the init script, so it
-has no <code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code>. Nothing breaks: the agent notices at start-up, logs
-one warning, and runs the SQL tool on the ingestion connection as it did
-before. To adopt the role without recreating the volume, run the same script by
-hand once:</p>
+has no <code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code>. The agent logs one warning at start-up, and the SQL
+tool refuses every query, naming the refused login, until the role exists. The
+other ARIEL tools keep working. To adopt the role without recreating the
+volume, run the same script by hand once:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">ARIEL_DB_READONLY_PASSWORD</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>grep<span class="w"> </span><span class="s1">&#39;^ARIEL_DB_READONLY_PASSWORD=&#39;</span><span class="w"> </span>.env<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="o">=</span><span class="w"> </span>-f2-<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>&lt;project&gt;-ariel-postgres<span class="w"> </span>bash<span class="w"> </span>/docker-entrypoint-initdb.d/10-readonly-role.sh
 </pre></div>
 </div>
-<p>Restart the agent afterwards so it picks up the role, and the warning stops.
+<p>Restart the agent afterwards so it picks up the role and the SQL tool answers.
 The script is idempotent — running it again is how you roll the role’s password
 after changing it in <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
 </section>

@@ -610,11 +610,6 @@ uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </sp
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>--cov<span class="o">=</span>src/osprey
 </pre></div>
 </div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>E2E tests <strong>must</strong> be run with <code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">tests/e2e/</span></code> not <code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">-m</span> <span class="pre">e2e</span></code>.
-The marker-based approach causes registry state leaks and service conflicts.</p>
-</div>
 </section>
 <section id="front-end-javascript-testing">
 <h3>Front-End (JavaScript) Testing<a class="headerlink" href="#front-end-javascript-testing" title="Link to this heading">#</a></h3>

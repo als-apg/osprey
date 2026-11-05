@@ -601,9 +601,8 @@ and safe to delete and rebuild at any time.</p>
 </div>
 <ul class="simple">
 <li><p><strong>Preset</strong> — a bundled starting point, shipped inside OSPREY
-(<code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/</span></code>). The two presets are <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> and
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>.
-Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code> to list them.</p></li>
+(<code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/</span></code>). Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code> to list
+the presets that ship.</p></li>
 <li><p><strong>Profile</strong> — the <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at the root of your deployment repository,
 with the material it names beside it. Created once from a preset, then edited
 and kept in version control. Everything the preset configured is written out
@@ -933,22 +932,17 @@ report success and then break every later build.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The check catches the mistake, not an adversary: copies dereference
-symlinks, and the scan does not descend into a symlinked directory. Read it
-as the rule the build holds you to, not as a boundary it enforces.</p>
+symlinks, and the check follows directory links the way the copy does; a
+target can still change between the check and the copy. Read it as the rule
+the build holds you to, not as a boundary it enforces.</p>
 </div>
-<section id="the-data-tree-is-the-exception">
-<h3>The <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree is the exception<a class="headerlink" href="#the-data-tree-is-the-exception" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">data:</span></code> is a path the profile <em>names</em>, not material the build finds by
-convention, and it is checked differently. The path resolves against the
-profile directory, and only its existence and shape are checked — that it is
-there, and that it is a directory. Containment is never checked, so a tree may
-sit above the profile directory (<code class="docutils literal notranslate"><span class="pre">data:</span> <span class="pre">../shared-data</span></code>): a tree more than
-one profile builds from can live beside them rather than inside either.</p>
-<p>Staleness is unaffected. The resolved tree is folded into the profile hash
-wherever it sits, so editing it still reports the built project as out of date.
-The exception is about where the tree may live, not about the build losing
-sight of it.</p>
-</section>
+convention. It resolves against the profile directory and must resolve inside
+the repository, as must every file the profile <code class="docutils literal notranslate"><span class="pre">extends</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>
+and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a profile that reads anything outside the
+repository, before anything is installed, naming the path. The resolved tree is
+folded into the profile hash, so editing it reports the built project as out of
+date.</p>
 </section>
 <section id="taking-ownership-of-a-framework-artifact">
 <span id="profile-claim"></span><h2>Taking ownership of a framework artifact<a class="headerlink" href="#taking-ownership-of-a-framework-artifact" title="Link to this heading">#</a></h2>
@@ -1543,7 +1537,7 @@ they are, and the containers are handed them at start time.</p></li>
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> compares the profile against before it starts anything.</p></li>
 <li><p>Re-render the agent artifacts against the complete config, and validate that
 every tool an agent declares is backed by a permission.</p></li>
-<li><p>Initialize git, then run <code class="docutils literal notranslate"><span class="pre">post_build</span></code> and <code class="docutils literal notranslate"><span class="pre">validate</span></code> commands.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">post_build</span></code> and <code class="docutils literal notranslate"><span class="pre">validate</span></code> commands on the project venv.</p></li>
 </ol>
 <p>The venv is created before rendering so templates can reference the resolved
 Python path. The generated project runs standalone — nothing reaches back to the
@@ -1579,10 +1573,11 @@ profile. Name one, or <code class="docutils literal notranslate"><span class="pr
 directory beside this project came from a different preset. Build <code class="docutils literal notranslate"><span class="pre">Y</span></code> under a
 different project name so it gets a profile of its own.</p>
 <p><strong>“Profile convention directories are invalid”</strong> — a convention directory has
-the wrong shape: a <code class="docutils literal notranslate"><span class="pre">.md</span></code> directory holding something else, a skill that is a
-file rather than a directory, or a symlink pointing outside the profile. Every
-problem is listed at once. The symlink case is the self-containment rule; copy
-the target in (see <a class="reference internal" href="#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p>
+the wrong shape: a <code class="docutils literal notranslate"><span class="pre">.md</span></code> directory holding something else, or a skill that is
+a file rather than a directory. Every problem is listed at once.</p>
+<p><strong>“… outside the repository. Move it into the repository.”</strong> — an input, or a
+link inside one through any number of hops, resolves outside the repository;
+copy the target in (see <a class="reference internal" href="#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p>
 <p><strong>“web-terminal-context/&lt;name&gt; is a file”</strong> — that directory holds one
 directory per operator, plus the shared <code class="docutils literal notranslate"><span class="pre">base.md</span></code>. Move the file into the
 directory of the operator it belongs to, or rename it to <code class="docutils literal notranslate"><span class="pre">base.md</span></code> if it is
@@ -1683,10 +1678,7 @@ relax the constraint in the profile.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-shared-web-terminal-baseline">The shared web-terminal baseline</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-profile-is-self-contained">A profile is self-contained</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-data-tree-is-the-exception">The <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree is the exception</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-profile-is-self-contained">A profile is self-contained</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#taking-ownership-of-a-framework-artifact">Taking ownership of a framework artifact</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-hooks">Custom hooks</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#unwiring-a-hook-in-a-tier">Unwiring a hook in a tier</a></li>

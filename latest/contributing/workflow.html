@@ -578,11 +578,13 @@ escape hatch.</p>
 </section>
 <section id="model-spending-lanes-full-ci-on-a-pr-on-demand-on-main">
 <h2>Model-Spending Lanes: <code class="docutils literal notranslate"><span class="pre">full-ci</span></code> on a PR, On Demand on <code class="docutils literal notranslate"><span class="pre">main</span></code><a class="headerlink" href="#model-spending-lanes-full-ci-on-a-pr-on-demand-on-main" title="Link to this heading">#</a></h2>
-<p>Eight CI lanes drive real agent sessions against a live model endpoint: the
-agentic per-preset flows, the E2E suite, the two dispatch stacks, the scan-stack
-and control-target-switch agentic lanes, and the two chat bridges. Together they
-cost about $15 per run — and they used to run on every push of every pull
-request, which at this repository’s pace was the group’s whole model bill.</p>
+<p>The CI lanes the LANES table in <code class="docutils literal notranslate"><span class="pre">scripts/repo_checks.py</span></code> marks <code class="docutils literal notranslate"><span class="pre">why=&quot;models&quot;</span></code>
+(the workflow wiring test holds the set against the workflow) drive real agent
+sessions against a live model endpoint. Together they cost about $15 per run (measured on the
+gateway ledger, week of 2026-09-01: ~150 runs a week, ~$2,300, on pace for $10k
+a month, 95% of the group’s model spend) — and they used to run on every push of
+every pull request, which at this repository’s pace was the group’s whole model
+bill.</p>
 <p>They now run on exactly two events:</p>
 <ul>
 <li><p><strong>A pull request carrying the ``full-ci`` label.</strong> Opt in per PR, for a change
@@ -618,6 +620,95 @@ merged in the two weeks before this landed, 86–91 % touched something under
 <code class="docutils literal notranslate"><span class="pre">src/</span></code> that the broad lanes cover, so a filter map would have saved about a
 fifth and needed maintaining. The label is the whole mechanism; the stop-loss
 behind it is a daily budget on the CI gateway key.</p>
+<p>Every PR and <code class="docutils literal notranslate"><span class="pre">main</span></code> push keeps one live run per ref: a new push cancels the
+run for the previous head. Before that grouping, superseded runs kept running
+and queued ahead of the live one on a saturated concurrent-job allowance:
+measured over 71 PR runs, 35 % were superseded runs still holding 31 % of all
+CI wall-clock.</p>
+</section>
+<section id="measured-ci-figures">
+<span id="contributing-ci-figures"></span><h2>Measured CI Figures<a class="headerlink" href="#measured-ci-figures" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table" id="id1">
+<caption><span class="caption-text">Figures the workflow caps cite; dated by the first commit stating them.</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 34.0%" />
+<col style="width: 18.0%" />
+<col style="width: 18.0%" />
+<col style="width: 12.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Lane</p></th>
+<th class="head"><p>What</p></th>
+<th class="head"><p>Figure</p></th>
+<th class="head"><p>Where measured</p></th>
+<th class="head"><p>Date</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">test</span></code> coverage</p></td>
+<td><p>tests/{registry,connectors,mcp_server,cli} on 3.12: bare / ctrace / sysmon</p></td>
+<td><p>150 s / 283 s / 130 s</p></td>
+<td><p>developer host</p></td>
+<td><p>2026-08-21</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">test</span></code> coverage</p></td>
+<td><p>CI cells: 3.12 (sysmon) / 3.11 (ctrace)</p></td>
+<td><p>14.6 min / 36.1 min</p></td>
+<td><p>GHA</p></td>
+<td><p>2026-08-21</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">test</span></code> unit shards</p></td>
+<td><p>rest-a share of non-cli test time</p></td>
+<td><p>43–51 %</p></td>
+<td><p>GHA per-test event logs</p></td>
+<td><p>2026-10-16</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">scan-agentic-e2e</span></code></p></td>
+<td><p>whole cycle, cold / warm</p></td>
+<td><p>~33 min / ~7.5 min</p></td>
+<td><p>Apple Silicon host</p></td>
+<td><p>2026-08-11</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">terminal-auth-multiuser-e2e</span></code></p></td>
+<td><p>whole module, warm layer cache</p></td>
+<td><p>6 min 55 s</p></td>
+<td><p>developer host</p></td>
+<td><p>2026-08-27</p></td>
+</tr>
+<tr class="row-odd"><td><p>single-build auth lanes</p></td>
+<td><p>one cold image build</p></td>
+<td><p>7–11 min</p></td>
+<td><p>runner</p></td>
+<td><p>2026-08-26</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">full-chain-auth-e2e</span></code></p></td>
+<td><p>whole module: project image built / warm / warm with history cases</p></td>
+<td><p>~5 min / ~1 min / 114 s</p></td>
+<td><p>developer host</p></td>
+<td><p>2026-10-11</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-e2e</span></code></p></td>
+<td><p>VA image cold / bench IOC image / three modules (54 tests) / total</p></td>
+<td><p>226 s / 1 s / 214 s / 7.4 min</p></td>
+<td><p>Apple Silicon host, amd64 emulated</p></td>
+<td><p>2026-08-27</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-e2e</span></code></p></td>
+<td><p>run step</p></td>
+<td><p>3.6 min</p></td>
+<td><p>Apple Silicon host, amd64 emulated</p></td>
+<td><p>2026-08-27</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-agentic-e2e</span></code></p></td>
+<td><p>VA image cold / bench IOC image / module (10 tests) / total</p></td>
+<td><p>226 s / 1 s / 281 s / ~8.5 min</p></td>
+<td><p>Apple Silicon host, amd64 emulated</p></td>
+<td><p>2026-08-24</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 </section>
 <section id="dependency-update-pull-requests">
 <h2>Dependency Update Pull Requests<a class="headerlink" href="#dependency-update-pull-requests" title="Link to this heading">#</a></h2>
@@ -713,6 +804,7 @@ on <a class="reference internal" href="agent-skills.html"><span class="doc">Agen
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pull-request-process">Pull Request Process</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-protection-on-main">Branch Protection on <code class="docutils literal notranslate"><span class="pre">main</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-spending-lanes-full-ci-on-a-pr-on-demand-on-main">Model-Spending Lanes: <code class="docutils literal notranslate"><span class="pre">full-ci</span></code> on a PR, On Demand on <code class="docutils literal notranslate"><span class="pre">main</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measured-ci-figures">Measured CI Figures</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependency-update-pull-requests">Dependency Update Pull Requests</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-workflow-skill">OSPREY Agent Workflow Skill</a></li>
 </ul>

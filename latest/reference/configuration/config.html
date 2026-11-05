@@ -494,9 +494,11 @@ settings (<code class="docutils literal notranslate"><span class="pre">web:</spa
 categories (<code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code>), the Python sandbox’s run ceiling
 (<code class="docutils literal notranslate"><span class="pre">python_executor:</span></code>), where screenshots are written (<code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code>), the
 links from an answer to a
-logbook entry (<code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code>), how much of each logbook entry
-the agent reads (<code class="docutils literal notranslate"><span class="pre">ariel.entry_text</span></code>), whether the agent shows its
-thinking (<code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code>), the Phoebus display bridge
+logbook entry (<code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code>), the login the agent’s SQL tool
+uses on a logbook database you run yourself (<code class="docutils literal notranslate"><span class="pre">ariel.database.readonly_uri</span></code>),
+how much of each logbook entry the agent reads (<code class="docutils literal notranslate"><span class="pre">ariel.entry_text</span></code>), whether
+the agent shows its thinking (<code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code>), the Phoebus
+display bridge
 (<code class="docutils literal notranslate"><span class="pre">phoebus:</span></code>), and the deployment keys that decide which container image each
 service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files are filled
 in. Settings that only
@@ -1416,6 +1418,26 @@ is logged once as a warning and emits no URL; it never fails the read. The
 ARIEL server reads the key from the loaded configuration, so a change lands
 after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart of the stack.</p>
 </section>
+<section id="ariel-database-readonly-uri-the-sql-tool-s-login-on-your-own-database">
+<span id="config-ariel-database-readonly-uri"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.database.readonly_uri</span></code> — the SQL tool’s login on your own database<a class="headerlink" href="#ariel-database-readonly-uri-the-sql-tool-s-login-on-your-own-database" title="Link to this heading">#</a></h2>
+<p>The agent’s <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> tool connects to the logbook database as a
+SELECT-only login, never as the owner ingestion writes with. When OSPREY runs
+the database, it creates that login itself. When you name your own database
+with the <code class="docutils literal notranslate"><span class="pre">uri</span></code> key, name the read-only login beside it:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ariel.database.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel</span>
+<span class="w">  </span><span class="nt">ariel.database.readonly_uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel</span>
+</pre></div>
+</div>
+<p>Set, the key is used verbatim on any store; a derived store needs it only to
+replace the <code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code> login OSPREY creates. Without it the SQL tool is
+not offered on a database named with the <code class="docutils literal notranslate"><span class="pre">uri</span></code> key: it is left out of the agent’s tools and guidance, and a call that
+arrives anyway is refused with a message naming this key. Every other ARIEL
+tool keeps working.</p>
+<p>The login must be SELECT-only. The role is the boundary: OSPREY cannot check
+its grants on a database it did not provision. A value equal to the ingestion
+login is refused when the configuration loads.</p>
+</section>
 <section id="ariel-entry-text-how-much-of-each-entry-the-agent-reads">
 <span id="config-ariel-entry-text"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads<a class="headerlink" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">ariel.entry_text.listing_chars</span></code> (default 500) sets how many characters of
@@ -1918,6 +1940,7 @@ the surface that refused it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry"><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-database-readonly-uri-the-sql-tool-s-login-on-your-own-database"><code class="docutils literal notranslate"><span class="pre">ariel.database.readonly_uri</span></code> — the SQL tool’s login on your own database</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads"><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-thinking-display-whether-the-agent-shows-its-thinking"><code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code> — whether the agent shows its thinking</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phoebus-the-phoebus-display-bridge"><code class="docutils literal notranslate"><span class="pre">phoebus:</span></code> — the Phoebus display bridge</a></li>

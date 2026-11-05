@@ -669,11 +669,15 @@ mounts that file unchanged.</p>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:SP</span>
 <span class="w">    </span><span class="nt">setpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:SP</span>
 <span class="w">    </span><span class="nt">readback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:RB</span>
+<span class="w">    </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span>
+<span class="w">    </span><span class="nt">setpoint_unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span>
 <span class="nt">readables</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:RB</span>
 <span class="w">    </span><span class="nt">pv</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:RB</span>
+<span class="w">    </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:BPM:01:POSITION:X</span>
 <span class="w">    </span><span class="nt">pv</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:BPM:01:POSITION:X</span>
+<span class="w">    </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">m</span>
 </pre></div>
 </div>
 <p><strong>Settables</strong> are devices a plan may drive: one per setpoint channel of the
@@ -681,15 +685,18 @@ facility file, written to that channel and read back from the channel it is
 paired with. A setpoint the facility pairs with no readback reads its own
 setpoint. <strong>Readables</strong> are recorded and never written: one per readback
 channel. A device’s name is its address, which is also the column heading in
-the run’s data.</p>
+the run’s data. A device carries the <code class="docutils literal notranslate"><span class="pre">unit</span></code> its channel states in the
+facility file, and a settable with a separate readback carries its setpoint’s
+as <code class="docutils literal notranslate"><span class="pre">setpoint_unit</span></code>; every run records them, so <code class="docutils literal notranslate"><span class="pre">get_run_data</span></code> and the
+run’s figure state each column’s unit.</p>
 <p>The build rewrites the file every time, so it is not a file to edit: to change
 the device set, change the channels under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and build again.</p>
 <p>A plan the agent writes during a session names channels from this same set.
-<code class="docutils literal notranslate"><span class="pre">list_devices</span></code> reads it, and the pre-enqueue check refuses a plan that names
-a device the file does not declare — validation builds a mock for whatever the
-sample arguments name, so it says nothing about what the worker has. The
-channel finder answers for the whole facility; this file answers for the queue
-worker, and a plan’s channels come from here.</p>
+<code class="docutils literal notranslate"><span class="pre">list_devices</span></code> reads it. When the queue worker is running, validation refuses
+sample arguments that name a device the file does not declare, and the
+pre-enqueue check refuses a plan’s own arguments on the same rule; both answer
+<code class="docutils literal notranslate"><span class="pre">unknown_device</span></code>. The channel finder answers for the whole facility; this
+file answers for the queue worker, and a plan’s channels come from here.</p>
 <p>When a plan drives a settable, the move waits for its readback to come within
 a bound of the demand. The bound is the setpoint’s <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> in the
 facility file, next to its <code class="docutils literal notranslate"><span class="pre">pair</span></code>: <code class="docutils literal notranslate"><span class="pre">tolerance:</span> <span class="pre">{absolute:</span> <span class="pre">&lt;x&gt;}</span></code> in the

@@ -599,6 +599,31 @@ worker, the ARIEL sync service or the record archive builds this same
 project image (tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>) for them to run.</p>
 </div>
 </section>
+<section id="keeping-repo-files-out-of-the-image">
+<h2>Keeping repo files out of the image<a class="headerlink" href="#keeping-repo-files-out-of-the-image" title="Link to this heading">#</a></h2>
+<p>The image carries your deployment repo. To keep repo files out of it —
+notebooks, scratch directories, large analysis output — list them in a
+<code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> at the repo root, beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The syntax is
+Docker’s, and patterns are anchored at the repo root:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># my-facility/.dockerignore
+notebooks/
+*.h5
+</pre></div>
+</div>
+<p>Here <code class="docutils literal notranslate"><span class="pre">*.h5</span></code> drops <code class="docutils literal notranslate"><span class="pre">x.h5</span></code> at the root but not <code class="docutils literal notranslate"><span class="pre">data/x.h5</span></code>; write
+<code class="docutils literal notranslate"><span class="pre">**/*.h5</span></code> for every depth. Two rules hold whatever the file says:</p>
+<ul class="simple">
+<li><p>it cannot bring back what OSPREY excludes: <code class="docutils literal notranslate"><span class="pre">.env</span></code> files, <code class="docutils literal notranslate"><span class="pre">.git</span></code>,
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> and the repo’s Claude Code files stay out;</p></li>
+<li><p>a pattern that would remove a build input — <code class="docutils literal notranslate"><span class="pre">data/</span></code>, the convention
+directories, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, the trigger file, <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
+a repo-local <code class="docutils literal notranslate"><span class="pre">extends:</span></code> base, the selected host-variant profile, an
+enabled watchdog’s directory —
+fails the build, naming the pattern.</p></li>
+</ul>
+<p>This file is yours; the rendered <code class="docutils literal notranslate"><span class="pre">build/.dockerignore</span></code> described above is
+OSPREY’s list of what it always keeps out.</p>
+</section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w">                            </span><span class="c1"># renders the container repo too</span>
@@ -1354,6 +1379,7 @@ the complement to the project image on this page.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-repo-files-out-of-the-image">Keeping repo files out of the image</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-arguments">Build Arguments</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#building-an-image-by-hand">Building an image by hand</a></li>

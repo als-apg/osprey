@@ -388,6 +388,7 @@
 
 
 
+
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
@@ -808,6 +809,21 @@ panel’s connector for a click (<a class="reference internal" href="#architectu
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 <a class="reference internal" href="#architecture-safety-watchdogs"><span class="std std-ref">Safety watchdogs</span></a>.</p>
 </section>
+</section>
+<section id="plan-mode">
+<h1>Plan mode<a class="headerlink" href="#plan-mode" title="Link to this heading">#</a></h1>
+<p>While the session is in plan mode, every OSPREY tool that acts is refused: the tools that ask
+for approval, the write-gated ones, and the ones that delete. The agent is told
+<code class="docutils literal notranslate"><span class="pre">Plan</span> <span class="pre">mode:</span> <span class="pre">&lt;tool&gt;</span> <span class="pre">is</span> <span class="pre">off</span> <span class="pre">while</span> <span class="pre">planning.</span> <span class="pre">Leave</span> <span class="pre">plan</span> <span class="pre">mode</span> <span class="pre">to</span> <span class="pre">run</span> <span class="pre">it.</span></code> Stopping a queue or a
+run, removing a queued item, validating a plan and the full health check stay available. So
+do the tools the registry names as audited reads, such as reading a channel or the archiver:
+they ask for approval because what they read is sensitive, and they change nothing. A
+custom server follows its <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: its <code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code> tools are refused, and so is
+every tool of a server that declares <code class="docutils literal notranslate"><span class="pre">writes_check</span></code>; a tool it lists in neither <code class="docutils literal notranslate"><span class="pre">allow</span></code> nor
+<code class="docutils literal notranslate"><span class="pre">ask</span></code> is not.
+Plan mode and a watchdog’s hold are independent refusals with different escapes: plan mode
+refuses <code class="docutils literal notranslate"><span class="pre">control_target_set</span></code> and ends when the agent leaves plan mode; a hold never holds the
+control target and ends only when an operator answers the flag.</p>
 </section>
 <section id="safety-watchdogs">
 <span id="architecture-safety-watchdogs"></span><h1>Safety watchdogs<a class="headerlink" href="#safety-watchdogs" title="Link to this heading">#</a></h1>

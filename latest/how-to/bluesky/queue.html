@@ -694,8 +694,9 @@ what moved; it is not a uid to start with. Read <code class="docutils literal no
 somebody look at what it now holds, and send the uid from that read. Omit
 the field and the start arms whatever is queued now.</p>
 <p>Every refusal comes back with a <code class="docutils literal notranslate"><span class="pre">detail</span></code> object of the form
-<code class="docutils literal notranslate"><span class="pre">{&quot;code&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;detail&quot;:</span> <span class="pre">...}</span></code> — a stable code for software to
-branch on, a sentence for a human to read. The panels and the agent
+<code class="docutils literal notranslate"><span class="pre">{&quot;code&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;detail&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;retryable&quot;:</span> <span class="pre">...}</span></code> — a stable code for
+software to branch on, a sentence for a human to read, and whether
+trying again can help. The panels and the agent
 show that same sentence, so every surface describes the same event
 the same way.</p>
 </div>
@@ -814,7 +815,9 @@ machines.</p>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-alert" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg></span><span class="sd-summary-text">When something is refused</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">A refusal always says why. The codes you will actually meet:</p>
+<p class="sd-card-text">A refusal always says why. Every queue refusal also carries
+<code class="docutils literal notranslate"><span class="pre">retryable</span></code>; only <code class="docutils literal notranslate"><span class="pre">retryable:</span> <span class="pre">true</span></code> means trying again can help. The
+codes you will actually meet:</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">stale_draft_revision</span></code> / <code class="docutils literal notranslate"><span class="pre">draft_revision_already_launched</span></code></dt><dd><p class="sd-card-text">The draft changed since you looked, or that exact revision has already
 been queued once. Re-read the draft; edit it to mint a fresh revision
@@ -841,6 +844,9 @@ an item was added, removed or re-ordered. Nothing was started. Read the
 queue again, check what it now holds, and start again.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">interrupted_item_in_queue</span></code></dt><dd><p class="sd-card-text">The queue still holds a plan someone stopped — see the next dropdown.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">manager_not_configured</span></code></dt><dd><p class="sd-card-text">No queue server is configured for this deployment. This needs an
+operator to redeploy, never a retry.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">manager_unreachable</span></code></dt><dd><p class="sd-card-text">The queue server is not answering — often it is simply still starting.
 Wait a moment and retry.</p>

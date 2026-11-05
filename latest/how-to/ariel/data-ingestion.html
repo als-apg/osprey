@@ -1141,6 +1141,8 @@ variables above are ignored. A URI naming <code class="docutils literal notransl
 host, but inside a bridge-networked container <code class="docutils literal notranslate"><span class="pre">localhost</span></code> is the container
 itself, so the sync cannot reach the database. Either write a URI the
 container can resolve, or remove the key and let the address be derived.</p>
+<p>An authored URI also needs <code class="docutils literal notranslate"><span class="pre">ariel.database.readonly_uri</span></code> for the agent’s
+SQL tool to be served (see <a class="reference internal" href="../../reference/configuration/config.html#config-ariel-database-readonly-uri"><span class="std std-ref">ariel.database.readonly_uri — the SQL tool’s login on your own database</span></a>).</p>
 </div>
 <p><strong>The mirror directory.</strong> When <code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.qmd_export</span></code> is
 enabled with a <code class="docutils literal notranslate"><span class="pre">mirror_path</span></code>, the host directory it names is bind-mounted into
