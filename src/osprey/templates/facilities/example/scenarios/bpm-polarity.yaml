@@ -1,5 +1,6 @@
 # Bundled with OSPREY: the example facility. Delete this line to make the file yours.
-description: BPM 17's horizontal readback has an inverted polarity (wiring/cabling fault). The closed
+description: BPM 17's horizontal and vertical readbacks have an inverted polarity (wiring/cabling fault).
+  The closed
   orbit itself is unaffected -- only that BPM's reported sign is flipped -- so there is no telemetry symptom
   on individual channels; the fault only shows up as an orbit-correction feedback that cannot converge.
   Physics fault applies at VA boot (real ORM measurement resolves the affected BPM).
