@@ -104,7 +104,7 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  * @property {Array<{id: string, holder: string, label: string, steps: number,
  *             expires_in_s: number, self_issued?: boolean}>} [programs]  each one
  *   in force; `self_issued` when the program issued it itself at `allowed`,
- *   which moving the switch off `allowed` ends
+ *   which moving the switch away from `allowed` ends
  * @property {boolean} prompt  whether this login's next write here prompts: the
  *   effective position, so a stored `allowed` capped at `asked` answers true
  * @property {boolean} write_allowed  the verdict a new write by this login
@@ -393,6 +393,9 @@ function buildChip() {
 /**
  * Write the state phrase with its leading "writes " in a span of its own: the
  * sidebar block hides that word, and the element's text keeps the whole phrase.
+ * A trailing program qualifier gets one too (`ctc-state-program`, its ` · ` in
+ * `ctc-state-program-sep`), so the narrow sidebar pill can stack `program`
+ * under the word instead of squeezing the machine's name.
  * @param {HTMLElement} node
  * @param {string} phrase
  */
@@ -404,8 +407,22 @@ function paintState(node, phrase) {
   }
   const word = span('ctc-state-lead');
   word.textContent = lead;
-  node.replaceChildren(word, phrase.slice(lead.length));
+  let rest = phrase.slice(lead.length);
+  /** @type {HTMLElement[]} */
+  const tail = [];
+  if (PROGRAM_QUALIFIER.startsWith(' · ') && rest.endsWith(PROGRAM_QUALIFIER)) {
+    rest = rest.slice(0, -PROGRAM_QUALIFIER.length);
+    const program = span('ctc-state-program');
+    const sep = span('ctc-state-program-sep');
+    sep.textContent = ' · ';
+    program.append(sep, PROGRAM_QUALIFIER.slice(' · '.length));
+    tail.push(program);
+  }
+  node.replaceChildren(word, rest, ...tail);
 }
+
+/** The qualifier {@link programQualifier} appends for a program in force. */
+const PROGRAM_QUALIFIER = programQualifier({ program_hold: true });
 
 /** @param {string} cls @returns {HTMLElement} */
 function span(cls) {

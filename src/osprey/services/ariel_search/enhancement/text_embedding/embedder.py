@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.migrations import BaseMigration
+    from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.services.ariel_search.vocabulary.entry import EntryExpander
     from osprey.services.ariel_search.vocabulary.expand import EntryExpansion, Insertion
@@ -610,6 +611,73 @@ class TextEmbeddingModule(BaseEnhancementModule):
                 f"All embedding models failed for entry {entry.get('entry_id')}: "
                 + "; ".join(errors)
             )
+
+    async def inspect(self, entry_id: str, repository: ARIELRepository) -> dict[str, Any] | None:
+        """Describe the entry's stored embeddings, one per configured model's table.
+
+        Each stored row gives its table, model, dimensions, ``created_at`` and
+        ``input_key``, and ``would_embed_now``: the build key and text the module
+        would embed for the entry now, which may differ from what the stored
+        vector was built from. The vector itself is never read.
+
+        Args:
+            entry_id: The entry to describe.
+            repository: Repository the entry and its embedding rows are read through.
+
+        Returns:
+            ``{"tables": [...]}``, or None when the entry is unknown or no table
+            holds a row for it.
+        """
+        entry = await repository.get_entry(entry_id)
+        if entry is None or not self._models:
+            return None
+        raw_text = entry.get("raw_text") or ""
+        attachment_text = entry.get("attachment_text")
+
+        tables: list[dict[str, Any]] = []
+        async with repository.pool.connection() as conn:
+            for model_config in self._models:
+                model_name = model_config["name"]
+                table_name = model_to_table_name(model_name)
+                result = await conn.execute(
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s)",
+                    [table_name],
+                )
+                found = await result.fetchone()
+                if not (found and found[0]):
+                    continue
+                has_key = await self._has_input_key_column(table_name, conn)
+                columns = "created_at, input_key" if has_key else "created_at"
+                result = await conn.execute(
+                    f"SELECT {columns} FROM {table_name} WHERE entry_id = %s",
+                    [entry_id],
+                )
+                row = await result.fetchone()
+                if row is None:
+                    continue
+                created_at = row[0]
+                expander = self._expander if has_key else None
+                built = build_embedding_input(
+                    raw_text, attachment_text, max_input_tokens(model_config), expander=expander
+                )
+                tables.append(
+                    {
+                        "table": table_name,
+                        "model": model_name,
+                        "dimensions": model_config.get("dimension"),
+                        "created_at": (
+                            created_at.isoformat()
+                            if hasattr(created_at, "isoformat")
+                            else created_at
+                        ),
+                        "input_key": row[1] if has_key else None,
+                        "would_embed_now": {
+                            "input_key": running_input_key(expander) if has_key else None,
+                            "text": built.text,
+                        },
+                    }
+                )
+        return {"tables": tables} if tables else None
 
     async def _store_embedding(
         self,

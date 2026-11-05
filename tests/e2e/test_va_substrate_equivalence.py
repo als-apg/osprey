@@ -494,15 +494,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # to a CI-sized one -- this proof deploys the store (the preset's
     # `va_archiver:` block is what makes the VA's history real) but reads none
     # of its history, and seeding a tutorial-sized month costs every run.
-    edits = {
-        "config": {
-            "control_system.type": "virtual_accelerator",
-            "modules.web_terminals.enabled": False,
-        },
-        "dispatch": None,
-        "services": {},
-        **_orm_stack.VA_ARCHIVER_CI_KNOBS,
-    }
+    # `_orm_stack.knowledge_services_off` drops the agent's knowledge services
+    # (qmd, the graph store, ARIEL's Postgres, the ClickHouse record store):
+    # nothing in this proof reads them, and they are most of the stack's disk.
+    edits = _orm_stack.knowledge_services_off(
+        {
+            "config": {
+                "control_system.type": "virtual_accelerator",
+                "modules.web_terminals.enabled": False,
+            },
+            "dispatch": None,
+            "services": {},
+            **_orm_stack.VA_ARCHIVER_CI_KNOBS,
+        }
+    )
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory

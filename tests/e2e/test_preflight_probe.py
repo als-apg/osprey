@@ -338,6 +338,9 @@ def preflight_stack(
         bridge_port=BRIDGE_PORT,
         port_base=PORT_BASE,
         timeout=BUILD_TIMEOUT_SEC,
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(),
     )
     # One of each is all a 1-axis grid_scan needs.
     _setpoint, _readback, model = _facility_select.bounded_corrector(repo)

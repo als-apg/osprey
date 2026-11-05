@@ -165,6 +165,19 @@ class TestLaptop:
         result = run("approve", str(path), "--yes")
         assert result.exit_code != 0 and "this account" in result.output
 
+    def test_an_id_with_no_pending_request_says_whether_it_was_approved(self):
+        unknown = uuid.uuid4().hex
+        result = run("approve", unknown, "--yes")
+        assert result.exit_code != 0
+        assert f"No pending request {unknown}" in result.output
+        assert "osprey write-authorization list" in result.output
+        request = ask()
+        assert run("approve", request.id, "--yes").exit_code == 0
+        assert wa.withdraw_request(request.id)  # the holder withdraws it once granted
+        result = run("approve", request.id, "--yes")
+        assert result.exit_code != 0
+        assert f"Request {request.id} was already approved" in result.output
+
     def test_without_yes_a_declined_prompt_approves_nothing(self):
         request = ask()
         result = CliRunner().invoke(write_authorization, ["approve", request.id], input="n\n")

@@ -1,0 +1,9 @@
+control_system:
+  limits_checking:
+    enabled: true                     # Enable limits validation
+    mode: exclusive                   # Only channels in the database can be written
+  connector:
+    virtual_accelerator:
+      limits_checking:                # This connector type's own posture,
+        enabled: true                 # replacing the pair above for it alone
+        mode: optional

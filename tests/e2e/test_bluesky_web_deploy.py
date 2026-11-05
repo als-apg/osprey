@@ -374,11 +374,15 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.
         port_base=21700,
-        extra_config={
-            "config": {
-                "services.postgresql.port_host": POSTGRES_PORT,
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(
+            {
+                "config": {
+                    "services.postgresql.port_host": POSTGRES_PORT,
+                }
             }
-        },
+        ),
     )
     args += ["--set", f"bluesky_web.port={BLUESKY_WEB_PORT}"]
 

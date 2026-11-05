@@ -647,8 +647,15 @@ html:not([data-control-target="off"]) .sidebar-target {
 /* The block's pill is short; the words stay for the chip's text and label. */
 .sidebar-target .ctc-sep,
 .sidebar-target .ctc-caret,
-.sidebar-target .ctc-state-lead {
+.sidebar-target .ctc-state-lead,
+.sidebar-target .ctc-state-program-sep {
   display: none;
+}
+
+/* A program in force stacks `program` under the switch word, so the pill is
+   no wider than its longer word and the machine's name keeps the room. */
+.sidebar-target .ctc-state-program {
+  display: block;
 }
 
 .sidebar-target .sidebar-health {

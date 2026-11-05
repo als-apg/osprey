@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.filters import EntryFilter
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.base import QueryExpansion
@@ -212,6 +213,8 @@ async def semantic_search(
     author: str | None = None,
     source_system: str | None = None,
     query_expansion: QueryExpansion | None = None,
+    entry_filter: EntryFilter | None = None,
+    offset: int | None = None,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float]] | ModuleOutput:
     """Execute semantic similarity search.
@@ -241,6 +244,12 @@ async def semantic_search(
             the service only when one was actually resolved. When present, its
             `flattened_text` is embedded in place of `query` -- the whole query
             is the matching text for semantic search, and it is never truncated.
+        entry_filter: Dimension filter (C-FILTER), applied in SQL by
+            ``repository.semantic_search`` beside the legacy filters.
+        offset: The page offset (C-MODOUT). When given, the repository returns
+            the page at `offset` with its capped unpaged count, and the output
+            carries an exact ``total`` (inexact only past the count cap) and
+            ``has_more``.
 
     Returns:
         Without `query_expansion`: the list of (entry, similarity_score) tuples
@@ -248,7 +257,9 @@ async def semantic_search(
         relies on today, returned unchanged.
 
         With `query_expansion`: a `ModuleOutput` carrying those same tuples as
-        `entries` and the applied expansion groups as `expansion`. The shape is
+        `entries` and the applied expansion groups as `expansion`. A call
+        passing `entry_filter` or `offset` also gets a `ModuleOutput`
+        (``filter_applied`` true when a filter was passed). The shape is
         conditional so that the many direct callers of this function keep the
         return value they have always received; the service unwraps either form.
 
@@ -258,8 +269,35 @@ async def semantic_search(
             ``"query embedding"``). Any other embedding failure is logged and
             gives no matches.
     """
+
+    def _output(
+        entries: list[tuple[EnhancedLogbookEntry, float]],
+    ) -> list[tuple[EnhancedLogbookEntry, float]] | ModuleOutput:
+        if entry_filter is None and offset is None:
+            return module_result(entries, query_expansion)
+        total = getattr(entries, "total", None)
+        has_more: bool | None = None
+        exact = False
+        if offset is not None and not entries and total is None:
+            total, exact, has_more = 0, True, False
+        elif isinstance(total, int):
+            exact = bool(getattr(entries, "total_exact", False))
+            has_more = (offset or 0) + len(entries) < total or (
+                not exact and len(entries) >= max_results
+            )
+        else:
+            total = None
+        return ModuleOutput(
+            entries=list(entries),
+            expansion=query_expansion.groups if query_expansion is not None else (),
+            total=total,
+            total_exact=exact,
+            has_more=has_more,
+            filter_applied=entry_filter is not None,
+        )
+
     if not query.strip():
-        return module_result([], query_expansion)
+        return _output([])
 
     logger.info(
         f"semantic_search: query={query!r}, max_results={max_results}, "
@@ -275,7 +313,7 @@ async def semantic_search(
     model_name = config.get_search_model()
     if not model_name:
         logger.warning("No semantic search model configured")
-        return module_result([], query_expansion)
+        return _output([])
 
     if provider_config is None:
         from osprey.services.ariel_search.enhancement.provider_resolver import (
@@ -315,7 +353,7 @@ async def semantic_search(
         )
         if not embeddings or not embeddings[0]:
             logger.error("Failed to generate query embedding")
-            return module_result([], query_expansion)
+            return _output([])
 
         query_embedding = embeddings[0]
 
@@ -337,8 +375,13 @@ async def semantic_search(
         ) from exc
     except Exception as e:
         logger.error(f"Embedding generation failed: {e}")
-        return module_result([], query_expansion)
+        return _output([])
 
+    paging: dict[str, Any] = {}
+    if entry_filter is not None:
+        paging["entry_filter"] = entry_filter
+    if offset is not None:
+        paging.update(offset=offset, count=True)
     results = await repository.semantic_search(
         query_embedding=query_embedding,
         model_name=model_name,
@@ -348,6 +391,7 @@ async def semantic_search(
         end_date=end_date,
         author=author,
         source_system=source_system,
+        **paging,
     )
 
     if len(results) == 0:
@@ -363,7 +407,7 @@ async def semantic_search(
             pass  # Don't let diagnostic check break the search path
 
     logger.info(f"semantic_search: returning {len(results)} results")
-    return module_result(results, query_expansion)
+    return _output(results)
 
 
 class SemanticSearchInput(BaseModel):
@@ -472,4 +516,6 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         needs_embedder=True,
         needs_search_calls=True,
         accepts_expansion=True,
+        accepts_entry_filter=True,
+        accepts_offset=True,
     )

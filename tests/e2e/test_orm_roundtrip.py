@@ -250,7 +250,11 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         # settles on the corrector readbacks and fits against their setpoints,
         # so the stack starts in the `still` scenario: every reading serves
         # without motion.
-        extra_config={"config": {"simulation.default_scenarios": [STILL_SCENARIO]}},
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(
+            {"config": {"simulation.default_scenarios": [STILL_SCENARIO]}}
+        ),
         # This module's own thousand-port block (see test_dispatch_deploy.py's
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.

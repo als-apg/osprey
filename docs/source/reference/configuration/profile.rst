@@ -253,9 +253,9 @@ rendering it. The tier key needs no change: it is target-blind
    **Connector types whose name contains a dot** are the one place the flat form
    does not work. A custom connector is named by its module path, and the build
    splits only the *first* key of each ``config:`` entry on dots — so
-   ``control_system.connector.mypkg.MoatConnector.limits_checking.enabled``
+   ``control_system.connector.mypkg.SiteConnector.limits_checking.enabled``
    renders the type's module path as two nested keys, ``mypkg`` and
-   ``MoatConnector``, instead of the one key the connector is actually called.
+   ``SiteConnector``, instead of the one key the connector is actually called.
    ``osprey build`` and ``osprey validate`` refuse that entry by name rather
    than letting it render somewhere nothing reads. Write such a type as its own
    map key under a dotted prefix, which is the one spelling that puts the block
@@ -265,7 +265,7 @@ rendering it. The tier key needs no change: it is target-blind
 
       config:
         control_system.connector:
-          mypkg.MoatConnector:
+          mypkg.SiteConnector:
             limits_checking:
               enabled: true
               mode: exclusive
@@ -1574,8 +1574,19 @@ that started it: ``POST /jobs/{id}/start`` reads that login from the
 staged ``login_tiers`` map). A run started with no owner has every write
 refused. The routes that move hardware are guarded by
 ``OPTIMIZER_LAUNCH_TOKEN``, which ``osprey up`` mints into the project ``.env``;
-the token says a caller may start a run, not whose run it is. The image is built locally on the first
+the token says a caller may start a run, not whose run it is. Drafts are not
+guarded: creating one (``POST /optimizations``), editing it (``PUT
+/jobs/{id}/config``) and selecting it (``PUT /jobs/current``) need no token. A
+draft write reads the target's setpoints and writes nothing to the machine.
+``GET /jobs/{id}/config`` returns the draft's revision in its
+``X-Config-Revision`` header, and ``POST /jobs/{id}/start`` must name it
+(``?config_revision=``): when the draft changed since it was shown, the start
+answers ``409`` rather than run. The image is built locally on the first
 ``osprey up``; set ``OSPREY_OPTIMIZER_IMAGE`` to run a published one.
+
+The agent reaches the service through the ``optimizer`` MCP server
+(:doc:`/architecture/mcp-servers`), switched on by
+``claude_code.servers.optimizer.enabled: true`` under ``config:``.
 
 A run writes only under one **write authorization** (:ref:`how-to-write-from-a-program`),
 never under the owner's switch alone, so the switch can stay off for the whole
@@ -1623,6 +1634,13 @@ What these rules do not cover:
 * **The owner header is trusted.** ``X-Osprey-Owner`` is taken as given from
   any caller holding the launch token: a token holder can start runs, and
   make manual writes while that login's switch is at *allowed*, as any login.
+  While the switch is at *allowed* a run issues its own write authorization,
+  so the person who clicks Start is the only reviewer of its plan.
+* **Drafts are open to any caller.** Any caller that can reach the service can
+  edit any draft or move the current-job pointer. The revision protects a start
+  only if the token-holding panel or relay forwards the revision it displayed.
+  For a plugin environment, preparing a draft constructs the plugin with the
+  caller's ``environment_config``.
 * **The single-job slot needs Redis.** During a Redis outage longer than the
   slot's lease (about a minute) while a worker is writing, the slot can lapse
   and a second job can start.

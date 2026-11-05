@@ -346,6 +346,7 @@ def test_below_allowed_the_run_writes_nothing_until_a_person_approves_its_reques
         assert request.owner == OWNER
         assert request.steps == EVALUATIONS + 1
         assert request.completion == "apply_best"
+        assert request.label == "knobs optimization (job-1)"
         assert set(request.channels) == {A, B}
         assert deployment.states[-1]["state"] == "awaiting"
         assert deployment.states[-1]["id"] == request.id
@@ -384,6 +385,12 @@ def test_a_cancel_while_awaiting_withdraws_the_request_and_writes_nothing(
     assert deployment.values() == before
     assert not list(deployment.ledger.glob("*.ledger.json"))
     assert deployment.authority is not None and deployment.authority.authorization is None
+    # The job's status no longer says it awaits an approval nobody can give.
+    assert any(state["state"] == "awaiting" for state in deployment.states)
+    assert (deployment.states[-1]["state"], deployment.states[-1]["reason"]) == (
+        "ended",
+        "released",
+    )
 
 
 def test_a_request_nobody_approves_ends_the_run_and_is_withdrawn(
@@ -628,11 +635,17 @@ def test_a_manual_write_at_allowed_is_one_self_issued_step_at_exactly_its_values
     assert grant.revoked is not None
 
 
-@pytest.mark.parametrize("position", ["off", "asked"])
+@pytest.mark.parametrize(
+    ("position", "reason"), [("off", "switch_off"), ("asked", "switch_not_allowed")]
+)
 def test_a_manual_write_below_allowed_is_refused_and_asks_for_allowed(
-    deployment: Deployment, api: Any, position: str
+    deployment: Deployment, api: Any, position: str, reason: str
 ) -> None:
-    """No request is written and no call is repeated: the operator sets the switch."""
+    """No request is written and no call is repeated: the operator sets the switch.
+
+    At ``asked`` the reason says the switch is not at allowed, never
+    ``auth_revoked``: the call held no authorization that could have ended.
+    """
     from osprey_optimizer.api.manual_authorization import SET_ALLOWED
 
     deployment.switch(position)
@@ -640,7 +653,7 @@ def test_a_manual_write_below_allowed_is_refused_and_asks_for_allowed(
     response = api.put(SET, json=BODY, headers=ALICE)
     assert response.status_code == 403, response.text
     detail = response.json()["detail"]
-    assert detail["reason"] in {"switch_off", "auth_revoked"}
+    assert detail["reason"] == reason
     assert SET_ALLOWED in detail["message"]
     assert deployment.values() == before
     assert deployment.requests() == []

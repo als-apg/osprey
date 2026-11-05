@@ -1068,7 +1068,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(entry('terminal')).not.toBeNull();
     expect(entry('artifacts')).not.toBeNull();
     expect(entry('ariel')).toBeNull();
-    expect(mod.getHiddenPanels()).toEqual([{ id: 'ariel', label: 'Ariel' }]);
+    expect(mod.getHiddenPanels()).toEqual([{ id: 'ariel', label: 'Logbook' }]);
   });
 
   test('a panel_visibility show APPENDS the entry with its live health state', async () => {
@@ -2675,14 +2675,14 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
-      'Focus Ariel',
+      'Focus Logbook',
       'Open in a new tile',
       'Pop out',
       'Move to Workspace',
       'Move to new group…',
       'Remove from rail',
     ]);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('Ariel actions');
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Logbook actions');
   });
 
   test('the entry is the menu’s anchor, so a panel scrolling its own content leaves it open', async () => {
@@ -2964,7 +2964,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const { api } = await bootWorkspace();
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Focus Ariel')).click();
+    /** @type {HTMLElement} */ (menuRow('Focus Logbook')).click();
 
     expect(dockedTiles(api)).toContain('ariel');
     expect(activeStamp()).toBe('ariel');
@@ -3123,7 +3123,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
 
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
-    await settled(() => expect(notice()?.textContent).toContain('Ariel removed from the rail'));
+    await settled(() => expect(notice()?.textContent).toContain('Logbook removed from the rail'));
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
 
@@ -3177,7 +3177,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
 
     await settled(() =>
-      expect(notice()?.textContent).toContain('Could not remove Ariel from the rail')
+      expect(notice()?.textContent).toContain('Could not remove Logbook from the rail')
     );
     expect(undoButton()).toBeNull();
   });

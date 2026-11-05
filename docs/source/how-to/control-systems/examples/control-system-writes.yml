@@ -1,0 +1,2 @@
+control_system:
+  writes: asked            # never | asked | allowed; silence is never

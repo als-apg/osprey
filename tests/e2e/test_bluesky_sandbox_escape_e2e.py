@@ -429,6 +429,9 @@ def deployed_sandbox_stack(
         # landing on a real deployment's default 10000 block.
         port_base=21400,
         timeout=BUILD_TIMEOUT_SEC,
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(),
     )
     # The escape target is one of the staged devices -- it has to be IN the
     # worker's namespace for the refusal under test to be the limits facade

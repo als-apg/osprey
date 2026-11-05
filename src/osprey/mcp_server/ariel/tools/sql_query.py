@@ -6,6 +6,8 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 
 import json
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from fastmcp.exceptions import ToolError
 
@@ -25,6 +27,61 @@ from osprey.services.ariel_search.search.sql_query import (
 )
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.sql_query")
+
+# Marks an id whose sync status could not be resolved: such a row gets no URL.
+_UNRESOLVED = object()
+
+
+def _needs_lookup(row: dict[str, Any]) -> bool:
+    """Whether the row lacks what build_entry_url needs to tell a local-only entry."""
+    return "source_system" not in row or not isinstance(row.get("metadata"), Mapping)
+
+
+async def _add_entry_urls(service: Any, rows: list[Any]) -> None:
+    """Add ``entry_url`` to every row that selects an ``entry_id``.
+
+    A query may select ``entry_id`` without ``metadata`` or ``source_system``,
+    the two columns that tell a local-only entry from a facility one. The ids of
+    such rows are resolved in one batched lookup; when that lookup fails, those
+    rows get no URL rather than one that may point at a page that does not exist.
+    """
+    keyed = [row for row in rows if isinstance(row, dict) and row.get("entry_id")]
+    missing = list(dict.fromkeys(str(row["entry_id"]) for row in keyed if _needs_lookup(row)))
+
+    resolved: dict[str, Any] = {}
+    if missing:
+        try:
+            found = await service.repository.get_entries_by_ids(missing)
+        except Exception:
+            logger.warning(
+                "sql_query: could not resolve sync status for %d entries; their entry_url "
+                "is omitted",
+                len(missing),
+                exc_info=True,
+            )
+            resolved = dict.fromkeys(missing, _UNRESOLVED)
+        else:
+            resolved = {
+                str(entry["entry_id"]): entry
+                for entry in found
+                if isinstance(entry, Mapping) and entry.get("entry_id")
+            }
+
+    for row in keyed:
+        source_system = row.get("source_system")
+        metadata = row.get("metadata")
+        if _needs_lookup(row):
+            entry = resolved.get(str(row["entry_id"]))
+            if entry is _UNRESOLVED:
+                continue
+            if entry is not None:
+                if "source_system" not in row:
+                    source_system = entry.get("source_system")
+                if not isinstance(metadata, Mapping):
+                    metadata = entry.get("metadata")
+        entry_url = build_entry_url(row["entry_id"], source_system, metadata=metadata)
+        if entry_url is not None:
+            row["entry_url"] = entry_url
 
 
 @mcp.tool()
@@ -110,14 +167,10 @@ async def sql_query(
         rows = await execute_sql_query(pool, sql, max_rows=max_rows)
 
         # Egress: rows that select an entry_id column gain a canonical entry_url
-        # (config-driven). Rows without entry_id (aggregates, projections) and
-        # ARIEL-native entries are left untouched by build_entry_url. Injected
-        # before formatting so the text view carries the URL too.
-        for row in rows:
-            if isinstance(row, dict) and row.get("entry_id"):
-                entry_url = build_entry_url(row.get("entry_id"), row.get("source_system"))
-                if entry_url is not None:
-                    row["entry_url"] = entry_url
+        # (config-driven). Rows without entry_id (aggregates, projections) get
+        # none, and neither do ARIEL-only entries (native or saved local-only).
+        # Injected before formatting so the text view carries the URL too.
+        await _add_entry_urls(service, rows)
 
         formatted = format_sql_result(rows)
 

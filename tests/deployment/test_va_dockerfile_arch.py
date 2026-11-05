@@ -1,10 +1,13 @@
 """The VA service image builds natively on linux/amd64 and linux/arm64.
 
 PyPI has every framework wheel the image needs on amd64. On arm64 it has none
-for pcaspy (the Channel Access server) or for accelerator-toolbox at the
-image's interpreter, so the recipe's ``native-wheels-arm64`` stage builds both
-from pinned sdists, pcaspy against EPICS Base and PCAS compiled in the same
-stage, and hands the wheels to the final stage through a find-links directory.
+for pcaspy (the Channel Access server) at the image's interpreter, so the
+recipe's ``native-wheels-arm64`` stage builds it from its pinned sdist against
+EPICS Base and PCAS compiled in the same stage, and hands the wheel to the
+final stage through a find-links directory. Everything else without an arm64
+wheel (p4p, the EPICS libraries under it, accelerator-toolbox) is a core
+dependency and builds from source in the deps layer every Python service image
+shares.
 
 These are static pins on the template: what a native arm64 build depends on
 is strings no amd64 build can falsify. The real arm64 build is proved by
@@ -28,9 +31,11 @@ DOCKERFILE = REPO_ROOT / "src/osprey/templates/services/virtual_accelerator/Dock
 PCASPY_FLOOR = SpecifierSet(">=0.8.1")
 #: Every pinned download the arm64 stage makes, as `<NAME>_VERSION` and
 #: `<NAME>_SHA256` ARG pairs.
-PINNED_DOWNLOADS = ("EPICS_BASE", "PCAS", "PCASPY", "PYAT")
+PINNED_DOWNLOADS = ("EPICS_BASE", "PCAS", "PCASPY")
 FIND_LINKS_DIR = "/opt/osprey-native-wheels"
 SERVING_IMPORT = 'python -c "import pcaspy, p4p, lume_pva_apg.runner"'
+#: The install that adds the extra, whose pcaspy is the one native wheel.
+EXTRA_INSTALL = '"osprey-framework[virtual-accelerator]==$OSPREY_VERSION" --only-binary pcaspy'
 
 
 def _stages(text: str) -> dict[str, str]:
@@ -84,8 +89,8 @@ def test_each_architecture_has_a_native_wheels_stage(text: str) -> None:
     )
     for var in ("PIP_FIND_LINKS", "UV_FIND_LINKS"):
         assert f"{var}={FIND_LINKS_DIR}" in final, f"{var} does not name the native wheels"
-    assert final.index(FIND_LINKS_DIR) < final.index("uv pip install"), (
-        "the native wheels must be in place before the deps layer resolves"
+    assert final.index(FIND_LINKS_DIR) < final.index(EXTRA_INSTALL), (
+        "the native wheels must be in place before the extra resolves"
     )
 
 
@@ -109,8 +114,8 @@ def test_the_arm64_stage_pulls_only_pinned_checked_downloads(text: str) -> None:
     assert arm.count("| sha256sum -c -") == 2, "EPICS Base and PCAS must each be checked"
     for name in ("EPICS_BASE", "PCAS"):
         assert f"${{{name}_VERSION}}" in arm, f"the {name} download ignores its pin"
-    assert "--require-hashes" in arm and "--no-binary pcaspy,accelerator-toolbox" in arm, (
-        "the sdists must be built from source under pip's hash mode"
+    assert "--require-hashes" in arm and "--no-binary pcaspy " in arm, (
+        "the pcaspy sdist must be built from source under pip's hash mode"
     )
     pcaspy = re.search(r"^ARG PCASPY_VERSION=(\S+)$", arm, flags=re.M)
     assert pcaspy and Version(pcaspy.group(1)) in PCASPY_FLOOR, (

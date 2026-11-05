@@ -1242,6 +1242,26 @@ keys:
   control_system.connector.epics.gateways.write_access.address: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: ''}
   control_system.connector.epics.gateways.write_access.port: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: 5064}
   control_system.connector.epics.gateways.write_access.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
+  control_system.connector.epics.pva_channels:
+    rendered: false
+    evidence: 'config\.get\("pva_channels"\)'
+    note: >-
+      Glob patterns of the addresses the EPICS connector reads over PVAccess
+      (p4p) instead of Channel Access. Absent or empty is pure Channel Access:
+      p4p is not imported and no PVA variable is set. No preset spells it; the
+      use-connectors guide shows it.
+    default: []
+  control_system.connector.epics.pva_gateway:
+    rendered: false
+    evidence: 'config\.get\("pva_gateway"\)'
+    note: >-
+      Where PVA searches go, read only when `pva_channels` is non-empty. The one
+      route: the connector host scrubs every inherited EPICS_PVA_* variable
+      before connect() runs.
+    default: {}
+  control_system.connector.epics.pva_gateway.address: {rendered: false, evidence: 'pva_gateway\.get\("address", ""\)', default: ''}
+  control_system.connector.epics.pva_gateway.port: {rendered: false, evidence: 'pva_gateway\.get\("port"\)', default: derived, default_note: "5075 under use_name_server; otherwise no port is appended, and PVA's UDP search port 5076 applies"}
+  control_system.connector.epics.pva_gateway.use_name_server: {rendered: false, evidence: 'pva_gateway\.get\("use_name_server"\)', default: false}
   # The DOOCS and TANGO connector blocks. No preset renders either one —
   # `control-assistant` documents both as commented examples — so the parents
   # and every leaf below them are `rendered: false` together.
@@ -2218,18 +2238,6 @@ keys:
     default_note: >-
       unset, a derived store uses the `<services.postgresql.username>_ro`
       login; with the `uri` key authored there is no SQL tool
-  ariel.embedded_search:
-    rendered: false
-    evidence: 'config_dict\.get\("embedded_search"\)'
-    note: >-
-      Whether the ARIEL panel embedded in the web terminal offers its Search
-      view and opens on it. Off by default: embedded, the agent searches the
-      logbook, so the panel opens on Browse and redirects a `#search` hash
-      there. The standalone page always offers Search. Commented in the
-      preset that ships an `ariel:` block; parsed by ARIELConfig.from_dict and
-      reported to the page as `embedded_search` in GET /api/capabilities. A
-      value that is not a boolean is refused at config parse.
-    default: false
   ariel.entry_text:
     rendered: false
     evidence: 'config_dict\.get\("entry_text"\)'
@@ -2639,7 +2647,12 @@ keys:
       authoring step rather than a knob with a safe arbitrary value.
     default: derived
     default_note: the module's own DEFAULT_PROMPT_TEMPLATE
-  ariel.enhancement_modules.text_embedding: {evidence: 'text_embedding', default: {}}
+  ariel.enhancement_modules.text_embedding:
+    evidence: 'enhancement_modules\.get\("text_embedding"\)'
+    note: >-
+      Pinned to the config reader rather than to the bare word, which the
+      module, its migrations and the per-module coverage code all mention.
+    default: {}
   ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding, default: false}
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
   ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
@@ -3636,6 +3649,9 @@ deleted:
 - ariel.reasoning
 - ariel.default_max_results
 - ariel.cache_embeddings
+  # Search is always offered in the ARIEL panel; a config that still sets the
+  # switch loads and logs one retirement warning.
+- ariel.embedded_search
   # Ledger 79 / 80 — loader identity blocks
 - applications
 - current_application

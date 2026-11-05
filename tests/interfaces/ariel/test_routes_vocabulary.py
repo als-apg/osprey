@@ -201,7 +201,8 @@ def test_capabilities_without_config_state_returns_the_normal_payload():
         "attachments",
         "config_panel_enabled",
         "facility_timezone",
-        "embedded_search",
+        "filter_dimensions",
+        "enhancement_modules",
     }
     assert payload["attachments"] == attachments_capability(service.config)
     assert "status" not in payload
@@ -296,6 +297,7 @@ def test_entries_and_status_stay_200_while_search_is_degraded():
     status.enabled_enhancement_modules = []
     status.last_ingestion = None
     status.errors = []
+    status.enhancement_coverage = {}
     service.get_status = AsyncMock(return_value=status)
     app = _make_app(
         ariel_service=service,

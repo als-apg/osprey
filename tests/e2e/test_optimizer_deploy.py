@@ -43,6 +43,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import OPTIMIZER_CONTROL_IDENTITY, resolve_project_name
+from tests.e2e._deploy_support import env_from_example
 from tests.e2e._volumes import remove_project_volumes
 
 # Pinned clear of the layout, as the bluesky deploy proof pins its bridge: a
@@ -148,7 +149,7 @@ def deployed(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
     env_path = repo / ".env"
     if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
+        env_path.write_text(env_from_example(repo))
 
     # A fresh image, so the deployed service runs CURRENT source rather than a
     # cached <project>-optimizer:local. Exact-named image only.

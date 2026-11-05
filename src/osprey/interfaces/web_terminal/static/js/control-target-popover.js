@@ -194,6 +194,9 @@ const DEADLINE_SENTENCE = 'No answer from the server. The re-read shows what the
  */
 let confirmingMove = null;
 
+/** Whether a re-read of the programs' listing is in flight ({@link rereadPrograms}). */
+let programsReading = false;
+
 /**
  * The handles a confirm hands to the gesture it raised — see
  * posture-confirm.js, which owns the dialog itself.
@@ -247,7 +250,12 @@ export function initControlTargetPopover() {
     wiredChip = chip;
   }
 
-  if (!unsubscribe) unsubscribe = subscribe(() => render());
+  if (!unsubscribe) {
+    unsubscribe = subscribe(() => {
+      render();
+      rereadPrograms();
+    });
+  }
   render();
   return { open: openPopover, close: closePopover, isOpen };
 }
@@ -274,6 +282,7 @@ export function teardownControlTargetPopover() {
   pendingRequestId = null;
   confirmingMove = null;
   statusNote = null;
+  programsReading = false;
   gestureNotes.clear();
 }
 
@@ -314,6 +323,24 @@ function openPopover() {
       : { place: 'below-end', ignore: CONFIRM_OVERLAY }
   );
   firstControl()?.focus({ preventScroll: true });
+}
+
+/**
+ * Re-read the programs' listing while the popover is open, on the chip's own
+ * cadence: every chip read (the push, the 5 s idle tick) lands in the
+ * subscriber, so an approval, a run that ended or a step that moved shows
+ * without reopening. One read at a time, and none while a switch request is
+ * outstanding (the 500 ms fast tick is about the switch, not the programs).
+ * An open approve card is kept by the panel across a re-read, and
+ * {@link render} puts focus back where it was.
+ */
+function rereadPrograms() {
+  if (!isOpen() || programsReading || isPending()) return;
+  programsReading = true;
+  void refreshPrograms().then(() => {
+    programsReading = false;
+    if (isOpen()) render();
+  });
 }
 
 /** Hide the popover; {@link onClosed} takes any confirm it raised with it. */
