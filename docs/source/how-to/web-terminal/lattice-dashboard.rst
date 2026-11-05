@@ -69,8 +69,8 @@ baseline and the settings. Each figure carries one of five statuses:
   shows why.
 - ``stale`` — computed for other inputs of the same deck. The first override
   on a deck turns its figures ``stale`` until they are recomputed.
-- ``not computed`` — nothing computed for this deck yet. Switching to another
-  deck answers ``not computed`` until its figures are recomputed, and the
+- ``not_computed`` — nothing computed for this deck yet. Switching to another
+  deck answers ``not_computed`` until its figures are recomputed, and the
   earlier deck's figure comes back when you switch back.
 
 **Refresh** recomputes the fast figures and **Verify** the two long ones.

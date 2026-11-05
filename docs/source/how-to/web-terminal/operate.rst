@@ -714,7 +714,7 @@ provider unconditionally.
 Documentation and feedback settings
 -----------------------------------
 
-Five ``web`` keys aim the sidebar's **Documentation** link and **Feedback** button
+Five ``web`` keys aim the sidebar's **Docs** link and **Feedback** button
 — including the issue trackers the dialog offers — and bound the feedback
 store. The table, the shipped defaults, and what a blank value means are in
 :ref:`config-web`.

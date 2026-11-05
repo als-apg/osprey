@@ -242,7 +242,8 @@ element:
      window.location.origin,
    );
 
-The terminal also reads the older ``osprey-focus-exit`` for one release. It then
+The terminal also reads the older ``osprey-focus-exit`` until
+canopy-screen-runtime 0.2.0, whose viewers stop sending it. It then
 focuses the next (or previous) element of its own page, in
 document order relative to the panel's tile — after ``backward``, that is the
 tile's header. It acts only on a message from its own origin and from the
@@ -362,6 +363,8 @@ ones are skipped and logged, so one bad panel never breaks the others.
    authenticated like any other — unless the redirect points at a third site,
    which is refused with a ``502`` so that a terminal URL never forwards an
    operator somewhere the panel picked.
+
+.. _web-terminal-panels-opaque-origin:
 
 Panels you add run at an opaque origin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -491,9 +494,11 @@ server's tools.
 
       .. tab-item:: Serving & discovery
 
-         Discovered panels are served straight from disk, from the same origin as
-         the terminal — no proxy. Discovery is **fail-closed**: only a fully valid
-         panel is ever served. The ``allow_runtime_panels`` switch is deliberately
+         Discovered panels are served straight from disk, with no proxy, at an
+         opaque origin rather than the terminal's own (see
+         :ref:`web-terminal-panels-opaque-origin`). Discovery is
+         **fail-closed**: only a fully valid panel is ever served. The
+         ``allow_runtime_panels`` switch is deliberately
          off by default because it is also what lets the agent register panels at
          runtime — turning it on is your explicit decision to trust the panels the
          terminal makes available.
