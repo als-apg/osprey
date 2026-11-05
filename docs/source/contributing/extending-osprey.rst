@@ -136,14 +136,16 @@ drop would each be a new one. To write a trigger source:
    ``osprey.dispatch.pool.QueueFullError`` when the queue is full. What happens
    then is the source's decision; every shipped source logs the event and
    drops it.
+#. Declare the class as an entry point (below) and install the package where
+   the dispatcher runs.
 
 A fire from a source is attributed to nobody.
 
 This seam is the exception to the registry-module paragraph that opens this
 page: sources are not registered in a registry module. They are found through
 a Python package entry point in
-``[project.entry-points."osprey.trigger_sources"]``, the group OSPREY declares
-its own three sources under in ``pyproject.toml``. The entry point's name is
+``[project.entry-points."osprey.trigger_sources"]``, the group under which
+OSPREY's own ``pyproject.toml`` declares its three sources. The entry point's name is
 the ``source:`` value a trigger writes.
 ``osprey.dispatch.source_registry.SourceRegistry`` loads the group when the
 dispatcher starts. The dispatcher does not start when an entry point's

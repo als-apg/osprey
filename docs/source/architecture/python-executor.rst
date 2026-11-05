@@ -251,7 +251,7 @@ resolved dynamically:
   - ``Group`` attribute writes
   - ``command_inout``, refused on the ``Connection`` base that defines it as
     well as on ``DeviceProxy``. A Tango command acts on the device rather
-    than reading it
+    than reading it.
 
 **Acquisition frameworks.** These drive hardware through a client below them,
 so their write entry points refuse. They are also ordinary document and
@@ -321,8 +321,8 @@ recorded.
 
   - ``MultiChannel.put`` and ``putAsDoubleArray``, a write to a list of
     channels on either provider
-  - ``CaIoc.putField``, ``dbpf``, ``iocInit`` and ``start``. A record of an
-    IOC running inside the script can carry an output link to a real
+  - ``CaIoc.putField``, ``dbpf``, ``iocInit`` and ``start``, because a record of
+    an IOC running inside the script can carry an output link to a real
     channel. Setting that record writes the channel, and so does starting
     the IOC that scans it
 
@@ -409,8 +409,8 @@ recognises the marker ``raw client write refused`` in the run's stderr and
 files the refusal in the audit log with reason ``raw_client_write``, with the
 same operator alert a readonly refusal raises.
 
-**Before the run.** The approval hook acts before any human is asked to
-approve, for the ``execute`` tool in a ``readwrite`` run. It refuses the
+**Before the run.** For the ``execute`` tool in a ``readwrite`` run, the
+approval hook acts before any human is asked to approve. It refuses the
 unambiguous raw spellings: ``caput(``, ``caput_many(``, ``epics.caput(``, ``PV(...).put(``,
 ``aioca.caput(``, ``write_door`` and ``open_door``. It reads
 the source with comments and string literals removed, so a spelling inside a
@@ -545,7 +545,7 @@ Two layers enforce the set:
 
    The runtime guard is **defense in depth, not a security boundary.** It runs
    inside the same process as the code it is guarding. So code written to
-   defeat it can switch it off: nothing placed *inside* a process can
+   defeat it can simply switch it off: nothing placed *inside* a process can
    be hidden from that process. What the guard reliably stops is the honest
    miss: the computed or concatenated path the pre-run pass cannot see, and the
    everyday accident of writing output one directory too high.
@@ -573,9 +573,9 @@ Executed code gets a fixed set of environment variables from the executor,
 plus any names listed in ``python_executor.child_env_passthrough`` (see
 :ref:`config-python-executor`). The fixed set covers paths, locale, the
 interpreter, TLS trust, proxies, plotting caches, the control-system client
-settings and the osprey names the run reads. A credential osprey holds cannot be listed
-there. The child does not load the project's env chain (``.env.shared``,
-``.env``) itself.
+settings and the osprey names the run reads. A credential osprey holds cannot
+be listed in ``child_env_passthrough``. The child does not load the project's
+env chain (``.env.shared``, ``.env``) itself.
 
 Opening one of the project's ``.env`` files, or any ``/proc/*/environ`` or
 ``/proc/*/cmdline``, is refused in both modes, for reads and writes. The
@@ -593,7 +593,7 @@ Write posture
 -------------
 
 A ``readwrite`` ``execute`` asks the write verdict (:ref:`write-safety-config`)
-when the run is requested. The verdict is the login's tier, then its switch
+when the run is requested. The verdict reads the login's tier, then its switch
 for the run's control target, read fresh. So a flip made mid-conversation
 applies to the next run. A refused run gets the verdict's phrase and its trailer, for example::
 
