@@ -31,7 +31,9 @@ One run per target
    * - Targets
      - ``live``, ``va``, ``standin``: one lock per target
    * - Directory mode
-     - ``0o2775`` for each created directory: setgid and group-writable
+     - ``0o2775`` for each guarded-run directory a run creates: setgid and
+       group-writable. ``var/`` gets the process's default mode, and an
+       existing directory keeps the mode it has.
    * - File mode
      - ``0o664`` for a created lock file
    * - Directory contents
@@ -147,7 +149,8 @@ Refusals
 ========
 
 Each refusal is raised before the run's code starts. In the texts, ``<…>``
-stands for a value the refusal fills in.
+stands for a value the refusal fills in. A refusal of the operating system
+itself (an ``OSError`` the lock file's open raises) is passed on as it is.
 
 .. list-table:: Refusals
    :header-rows: 1
@@ -173,6 +176,18 @@ stands for a value the refusal fills in.
      - ``<path> is not a regular file; the guarded-run directory holds files only``
    * - Link at ``guarded_run`` or the target's directory
      - ``<path> is a link; a guarded-run directory is never a link``
+   * - Something other than a directory at ``guarded_run`` or the target's directory
+     - ``<path> is not a directory``
+   * - Lock file replaced while it was opened
+     - ``<path> was replaced while it was opened``
+   * - Target that is not a control target
+     - ``Unknown control target <name> for a guarded run. Valid targets are live, va, standin.``
+   * - No deployment repo root
+     - ``guarded runs need var/guarded_run: no deployment repo root found (resolved <root>, which holds no profile.yml or config.yml).``
+   * - Directory cannot be created
+     - ``guarded runs need var/guarded_run: cannot create <directory>: <error>``
+   * - Directory not writable
+     - ``guarded runs need var/guarded_run: <directory> is not writable.``
 
 What the lock does not do
 =========================
