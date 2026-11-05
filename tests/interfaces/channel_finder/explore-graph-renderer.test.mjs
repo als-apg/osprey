@@ -404,19 +404,21 @@ describe('the first render', () => {
     );
     expect(container.querySelector('.pager-pos')?.textContent).toBe('1 / 3');
 
-    // Panel chrome: the facets in the shared sidebar, the results, the
-    // inspector, and no toolbar of the finder's own; the search it holds is
-    // the panel toolbar's. Provenance lives in the corpus strip
-    // (stats-badges.js), not here.
+    // Panel chrome: the facets in the shared sidebar, then the main column
+    // with the results and, under them, the inspector; no toolbar of the
+    // finder's own, since the search it holds is the panel toolbar's.
+    // Provenance lives in the corpus strip (stats-badges.js), not here.
     expect(container.querySelector('.cf-toolbar, input[type="search"]')).toBeNull();
     expect(searchBox().disabled).toBe(false);
     expect(container.querySelector('.finder-layout > aside.osprey-panel-sidebar')).not.toBeNull();
     expect(
-      container.querySelector('.finder-layout > .finder-results #graph-finder-table')
+      container.querySelector('.finder-layout > .finder-main > .finder-results #graph-finder-table')
     ).not.toBeNull();
+    const inspector = container.querySelector('.finder-main > .finder-results ~ .finder-inspector');
+    expect(inspector?.hasAttribute('hidden')).toBe(true);
     expect(
-      container.querySelector('.finder-layout > .finder-inspector')?.hasAttribute('hidden')
-    ).toBe(true);
+      container.querySelector('.finder-main > .osprey-splitter')?.getAttribute('aria-orientation')
+    ).toBe('horizontal');
     expect(container.querySelector('.graph-store-badge')).toBeNull();
     expect(container.querySelector('.explore-unknown')).toBeNull();
     expect(container.querySelector('.graph-truncated')).toBeNull();
@@ -1268,7 +1270,7 @@ describe('the rail', () => {
 });
 
 describe('the inspector and the keyboard', () => {
-  test('a device opens beside the results, its rows are marked, and Escape closes it', async () => {
+  test('a device opens under the results, its rows are marked, and Escape closes it', async () => {
     stubDemo();
     await mountGraph(host());
 

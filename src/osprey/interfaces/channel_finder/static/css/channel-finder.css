@@ -1872,12 +1872,8 @@ textarea.form-input {
   min-height: 0;
 }
 
-/* The inspector's 5px splitter track is the gutter beside its card. */
-.finder-results + .osprey-splitter {
-  margin: 0 var(--space-1);
-}
-
-.finder-layout > [hidden] {
+.finder-layout > [hidden],
+.finder-main > [hidden] {
   display: none;
 }
 
@@ -1888,12 +1884,24 @@ textarea.form-input {
   padding: var(--space-2);
 }
 
-.finder-results {
+/* Right of the sidebar: the results, and under them the device inspector,
+   one wide row behind a horizontal handle. The inspector takes height from
+   the results, which keep scrolling above it, so an open device is always on
+   screen and its bindings have the full width to read in. */
+.finder-main {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+.finder-results {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 140px;
 }
 
 .finder-table {
@@ -1903,13 +1911,18 @@ textarea.form-input {
   min-height: 0;
 }
 
+/* The inspector's 5px splitter track is the gutter above its card. */
+.finder-results + .osprey-splitter {
+  margin: var(--space-1) 0;
+}
+
 .finder-inspector {
   display: flex;
-  flex: 0 0 340px;
+  flex: 0 0 280px;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: var(--space-2) var(--space-2) var(--space-2) 0;
+  padding: 0 var(--space-2) var(--space-2);
 }
 
 /* --- Facets --------------------------------------------------------- */
@@ -2451,8 +2464,9 @@ tr:focus-within .copy-btn,
   line-height: var(--leading-snug);
 }
 
-/* One row per binding. Top-aligned because the address and description
-   wrap in a narrow inspector. */
+/* One row per binding. The inspector spans the results' width, so an
+   address stays on one line and only the description wraps; the row is
+   top-aligned for the description's extra lines. */
 .sig-table {
   width: 100%;
   border-collapse: collapse;
@@ -2477,10 +2491,11 @@ tr:focus-within .copy-btn,
 
 .sig-table td.pv {
   font-family: var(--font-mono);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .sig-table td.sub {
+  width: 100%;
   color: var(--text-muted);
   font-size: var(--text-base);
 }
@@ -2523,39 +2538,6 @@ tr:focus-within .copy-btn,
 .corpus-prov .graph-tool-chip {
   font-family: var(--font-mono);
   font-weight: var(--weight-medium);
-}
-
-/* --- Narrow panel --------------------------------------------------- */
-
-/* Must stay after the base rules above (see the section note). Where the
-   shared sidebar turns into an overlay (720 px, panel-sidebar.js), the
-   inspector docks under the results instead of beside them. The frame
-   keeps its height and each region scrolls inside itself, so an opened
-   device is always on screen: the inspector takes up to half the height
-   and the results give up the room, rather than the card landing below a
-   long table the operator has to find a way to scroll past. This is the
-   common case for a narrow tile beside others, not only a phone. The
-   inspector's splitter goes; its inline sizes are overridden, not removed:
-   it is parked by its isEnabled gate and resumes when the panel widens. */
-@container panel (max-width: 720px) {
-  .finder-layout {
-    flex-direction: column;
-  }
-
-  .finder-results + .osprey-splitter {
-    display: none;
-  }
-
-  .finder-results {
-    min-height: 140px;
-  }
-
-  .finder-inspector {
-    flex: 0 1 auto !important;
-    max-width: none !important;
-    max-height: 50%;
-    padding: 0 var(--space-2) var(--space-2);
-  }
 }
 
 @media (max-width: 768px) {

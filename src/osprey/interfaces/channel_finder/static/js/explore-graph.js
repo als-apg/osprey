@@ -97,9 +97,6 @@ const ONTOLOGY_PATH = '/api/graph/ontology';
 const SEARCH_PATH = '/api/graph/search';
 const DEVICE_PATH = '/api/graph/device';
 
-/** The inspector's splitter drives only the side-by-side layout; a narrow panel stacks. */
-const WIDE_QUERY = '(min-width: 721px)';
-
 const LOADING_HTML =
   '<div class="loading-center"><div class="loading-spinner"></div> Searching the facility graph&hellip;</div>';
 const EMPTY_TITLE = 'The graph store is reachable, but holds no facility corpus yet.';
@@ -334,22 +331,24 @@ function part(id) {
  */
 function wireSkeleton() {
   teardownSkeleton();
-  const wide = () => window.matchMedia?.(WIDE_QUERY).matches ?? true;
   const sidebar = attachSidebar(
     /** @type {HTMLElement} */ (part(FINDER_IDS.rail)),
     part(FINDER_IDS.railSplit),
     RAIL_KEY
   );
+  // The inspector docks under the results, so its handle moves on the y axis
+  // and the size it keeps is a height: at least room for a card head and a
+  // few bindings, at most most of the pane, so the results never vanish.
   const inspector = initSplitter({
     handle: part(FINDER_IDS.cardSplit),
     pane: part(FINDER_IDS.card),
     storageKey: scopedStorageKey(INSPECTOR_KEY),
+    axis: 'y',
     anchor: 'end',
-    min: 260,
-    max: () => Math.max(320, Math.round((paneEl?.clientWidth || 1200) * 0.6)),
-    isEnabled: wide,
+    min: 160,
+    max: () => Math.max(220, Math.round((paneEl?.clientHeight || 800) * 0.7)),
   });
-  if (wide()) inspector.restoreSize();
+  inspector.restoreSize();
 
   const table = part(FINDER_IDS.table);
   const detach = table
@@ -497,10 +496,9 @@ function markOpenRows() {
 }
 
 /**
- * Redraw the inspector region from `cardHtml`. Opening it takes room from the
- * results (all of it below them in a narrow tile), so the row it was opened
- * from is scrolled back into the results' view; `nearest` leaves a row that is
- * still visible where it is.
+ * Redraw the inspector region from `cardHtml`. Opening it takes height from
+ * the results above it, so the row it was opened from is scrolled back into
+ * the results' view; `nearest` leaves a row that is still visible where it is.
  * @returns {void}
  */
 function renderCard() {

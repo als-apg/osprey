@@ -19,7 +19,7 @@ Coverage (one test each, every test in Chromium and in WebKit):
       drag does not also sort.
   (d) a right-click on a row opens the shared context menu inside the window,
       and its "Only section" row narrows the result.
-  (e) a device opens in the inspector beside the results, its rows are marked,
+  (e) a device opens in the inspector under the results, its rows are marked,
       and Escape closes it.
 
 The server is the graph-mode Channel Finder over the shared demo corpus
@@ -199,7 +199,7 @@ def test_a_row_menu_opens_inside_the_window_and_narrows_the_search(
     ) == {section}
 
 
-def test_a_device_opens_beside_the_results_and_escape_closes_it(
+def test_a_device_opens_under_the_results_and_escape_closes_it(
     engine_browser: Browser, finder_url: str
 ):
     page = _open(engine_browser, finder_url)
@@ -209,7 +209,10 @@ def test_a_device_opens_beside_the_results_and_escape_closes_it(
     card.wait_for()
     results = _box(page, ".finder-results")
     inspector = _box(page, ".finder-inspector")
-    assert inspector["x"] >= results["x"] + results["width"]
+    # One wide row under the results: it starts below them and spans their width.
+    assert inspector["y"] >= results["y"] + results["height"]
+    assert abs(inspector["width"] - results["width"]) <= 2
+    assert results["height"] >= 140
     assert page.locator("#graph-finder-table tbody tr.open").count() >= 1
 
     page.keyboard.press("Escape")

@@ -685,8 +685,10 @@ export const FINDER_IDS = Object.freeze({
 
 /**
  * The finder's skeleton: the facet sidebar (a shared `.osprey-panel-sidebar`,
- * closed until panel-sidebar.js opens it) and its handle, the results with
- * the active filters above them, and the inspector with its own handle. The
+ * closed until panel-sidebar.js opens it) and its handle, then the main
+ * column: the results with the active filters above them, and under them
+ * the device inspector behind its own horizontal handle, so an open device
+ * reads as one wide row while the results keep scrolling above it. The
  * search field, the result count and the sidebar toggle are the panel
  * toolbar's (index.html), which outlives this skeleton.
  * @returns {string} Markup for the panes and the regions inside them.
@@ -698,14 +700,16 @@ export function skeletonHtml() {
              aria-label="Filters"></aside>
       <div class="osprey-splitter" id="${FINDER_IDS.railSplit}" role="separator" aria-orientation="vertical"
            aria-label="Resize the filters" tabindex="0" title="Drag to resize · double-click to hide"></div>
-      <div class="finder-results">
-        <div class="active-filters" id="${FINDER_IDS.chips}"></div>
-        <div id="${FINDER_IDS.caution}"></div>
-        <div class="finder-table" id="${FINDER_IDS.table}"></div>
+      <div class="finder-main">
+        <div class="finder-results">
+          <div class="active-filters" id="${FINDER_IDS.chips}"></div>
+          <div id="${FINDER_IDS.caution}"></div>
+          <div class="finder-table" id="${FINDER_IDS.table}"></div>
+        </div>
+        <div class="osprey-splitter" id="${FINDER_IDS.cardSplit}" role="separator" aria-orientation="horizontal"
+             aria-label="Resize the device inspector" tabindex="0" hidden></div>
+        <div class="finder-inspector" id="${FINDER_IDS.card}" hidden></div>
       </div>
-      <div class="osprey-splitter" id="${FINDER_IDS.cardSplit}" role="separator" aria-orientation="vertical"
-           aria-label="Resize the device inspector" tabindex="0" hidden></div>
-      <div class="finder-inspector" id="${FINDER_IDS.card}" hidden></div>
     </div>
   `;
 }
