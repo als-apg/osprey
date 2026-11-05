@@ -40,6 +40,13 @@ def _fake_config(template):
     return _side_effect
 
 
+#: The SQL tool is served only on a store that names its read-only login.
+_SQL_STORE = {
+    "uri": "postgresql://ariel@localhost/test",
+    "readonly_uri": "postgresql://ariel_ro@localhost/test",
+}
+
+
 # ---------------------------------------------------------------------------
 # build_entry_url
 # ---------------------------------------------------------------------------
@@ -336,13 +343,7 @@ async def test_entry_get_omits_entry_url_for_native(ariel_registry):
 async def test_sql_query_rows_gain_entry_url(ariel_registry):
     """FR8: sql_query rows selecting entry_id gain entry_url; aggregate rows
     without an entry_id column are unchanged."""
-    # The SQL tool is served only on a store that names its read-only login.
-    ariel_registry(
-        database={
-            "uri": "postgresql://ariel@localhost/test",
-            "readonly_uri": "postgresql://ariel_ro@localhost/test",
-        }
-    )
+    ariel_registry(database=_SQL_STORE)
 
     mock_rows = [
         {"entry_id": "e1", "source_system": "Facility eLog", "author": "Alice"},
@@ -451,7 +452,6 @@ async def _sql_rows(mock_rows, resolved, sql="SELECT entry_id FROM enhanced_entr
     """Run sql_query over ``mock_rows`` with the batch lookup returning ``resolved``."""
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
-    mock_service.readonly_pool = None
     if isinstance(resolved, Exception):
         mock_service.repository.get_entries_by_ids.side_effect = resolved
     else:
@@ -471,7 +471,7 @@ async def _sql_rows(mock_rows, resolved, sql="SELECT entry_id FROM enhanced_entr
 async def test_sql_query_id_only_rows_resolve_sync_status_in_one_batch(ariel_registry):
     """A query selecting neither metadata nor source_system: the local-only row
     gets no URL, the facility row keeps one, and both resolve in one lookup."""
-    ariel_registry()
+    ariel_registry(database=_SQL_STORE)
     rows, lookup = await _sql_rows(
         [{"entry_id": "w-local"}, {"entry_id": "f-1"}, {"count": 2}],
         [
@@ -495,7 +495,7 @@ async def test_sql_query_id_only_rows_resolve_sync_status_in_one_batch(ariel_reg
 
 async def test_sql_query_source_system_without_metadata_resolves_metadata(ariel_registry):
     """A row selecting source_system but not metadata still learns it is local-only."""
-    ariel_registry()
+    ariel_registry(database=_SQL_STORE)
     rows, lookup = await _sql_rows(
         [{"entry_id": "w-local", "source_system": "OSPREY Logbook Web"}],
         [
@@ -513,7 +513,7 @@ async def test_sql_query_source_system_without_metadata_resolves_metadata(ariel_
 
 async def test_sql_query_rows_with_both_columns_skip_the_lookup(ariel_registry):
     """Rows that already carry metadata and source_system need no lookup."""
-    ariel_registry()
+    ariel_registry(database=_SQL_STORE)
     rows, lookup = await _sql_rows(
         [
             {
@@ -534,7 +534,7 @@ async def test_sql_query_rows_with_both_columns_skip_the_lookup(ariel_registry):
 async def test_sql_query_failed_lookup_omits_unresolved_urls(ariel_registry):
     """When the batch lookup fails the tool still answers, and rows whose sync
     status is unknown get no URL rather than a possibly wrong one."""
-    ariel_registry()
+    ariel_registry(database=_SQL_STORE)
     rows, _ = await _sql_rows(
         [
             {"entry_id": "x-1"},
