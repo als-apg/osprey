@@ -42,21 +42,8 @@ dispatcher trigger the bridge fires — that trigger decides what the agent is
 allowed to do with a chat question — and whether the agent may @mention people.
 The block is only meaningful next to a ``dispatch:`` block:
 
-.. code-block:: yaml
-
-   gchat_bridge:
-     trigger: gchat-question        # default; must exist in your triggers file
-     mentions: true            # default; false posts @mentions as plain text
-
-   dispatch:
-     triggers: my_triggers.yml      # the file that trigger must be declared in
-     worker_count: 1
-
-   env:
-     required:
-       - GCHAT_SA_KEY
-       - GCHAT_SUBSCRIPTION
-       - GCHAT_APP_ID
+.. literalinclude:: ../examples/profile-gchat-bridge.yml
+   :language: yaml
 
 .. note::
 

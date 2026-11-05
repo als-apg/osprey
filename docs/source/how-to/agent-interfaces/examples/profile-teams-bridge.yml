@@ -1,0 +1,15 @@
+teams_bridge:
+  trigger: teams-question        # default; must exist in your triggers file
+  mentions: true            # default; false posts @mentions as plain text
+
+dispatch:
+  triggers: my_triggers.yml      # the file that trigger must be declared in
+  worker_count: 1
+
+env:
+  required:
+    - TEAMS_APP_ID
+    - TEAMS_APP_SECRET
+    - TEAMS_TENANT_ID
+    - TEAMS_SERVICEBUS_CONNECTION_STRING
+    - TEAMS_SERVICEBUS_QUEUE
