@@ -651,12 +651,14 @@ agent wrote on the terminals' origin cannot read it. A visit without a valid
 sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.
 
-Who sees what is decided per person, from the roster, every time a page loads:
+Who sees what is decided per person, from the roster, every time a page loads.
+In ``profile.yml``, the roster goes under ``config:`` and ``agent_record:`` is a
+top-level key:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        authorization:
          roles:
            operator: {tier: readwrite, history: all}

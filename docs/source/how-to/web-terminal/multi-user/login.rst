@@ -42,6 +42,10 @@ name files under ``tiers/``. The ``control-assistant`` preset sets
 ``method: password`` with ``allow_insecure_http: true``, which suits
 ``127.0.0.1`` only; set ``method: token`` to use login URLs.
 
+Each snippet goes in ``profile.yml``, under ``config:``. Keep
+``modules.web_terminals`` there as one dotted key: a nested ``modules:`` block
+would replace the whole ``modules`` subtree and drop the keys the preset sets.
+
 Choose a method
 ===============
 
@@ -65,8 +69,8 @@ beyond it.
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        auth:
          method: none
 
@@ -90,8 +94,8 @@ not a boundary: ``none`` is for rooms where the agents are trusted too.
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        tls:
          enabled: true
          host_cert_dir: /etc/ssl/facility     # host side; mounted for you
@@ -106,8 +110,8 @@ user's terminal:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        tls:
          enabled: true
          host_cert_dir: /etc/ssl/facility
@@ -146,6 +150,9 @@ That symptom has one fix:
 
 .. code-block:: yaml
 
+   config:
+     modules.web_terminals:
+       auth:
          oidc:
            issuer: https://sso.example.org/realms/accelerator
            claim: email
@@ -241,8 +248,8 @@ the provider's groups choose:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        authorization:
          roles:
            operator: {tier: readwrite}
@@ -409,10 +416,12 @@ on the roster: they reach the app and nothing else.
 
 .. code-block:: yaml
 
-   shared:
-     - logbook                          # every roster login
-     - name: controls                   # the admins and two named experts
-       access: [tier:admin, "user:ada@example.org", "user:grace@example.org"]
+   config:
+     modules.web_terminals:
+       shared:
+         - logbook                        # every roster login
+         - name: controls                 # the admins and two named experts
+           access: [tier:admin, "user:ada@example.org", "user:grace@example.org"]
 
 A card whose set is anything but ``[self]`` is a **shared card**: one
 terminal, one tier, one audit directory, opened by more than one person.
@@ -420,8 +429,8 @@ Here is one shared with the whole roster:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        tls:
          enabled: true
          host_cert_dir: /etc/ssl/facility
@@ -453,8 +462,8 @@ with a whole single sign-on domain, one with two named people:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        auth:
          method: oidc
          oidc:
@@ -649,10 +658,12 @@ Keep names off the landing page
 
 .. code-block:: yaml
 
-   landing:
-     groups:
-       - type: users
-         names: hidden
+   config:
+     modules.web_terminals:
+       landing:
+         groups:
+           - type: users
+             names: hidden
 
 The users section then shows one "Log in to your terminal" button and no names.
 The button opens the sign-in described in :ref:`multi-user-own-terminal-entry`.
@@ -677,8 +688,8 @@ owner's account name instead:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        auth:
          method: oidc
          oidc:
@@ -780,8 +791,8 @@ port stays out of the origin and the callback is
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        external_origin: https://terminals.example.org   # what the browser reaches
        auth:
          method: password
@@ -865,8 +876,8 @@ The four keys and their defaults:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        auth:
          method: password
          throttle:
