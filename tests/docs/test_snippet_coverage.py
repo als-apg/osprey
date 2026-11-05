@@ -11,12 +11,18 @@ never grow. This module is the CI hook for it, in three parts:
   real test and reads at least one block, no pending claim has landed, and no
   page is over (or under) its allowance;
 * negative controls: a planted untested block, a stale allowance, a new page
-  with an untested block and a landed pending test each fail.
+  with an untested block and a landed pending test each fail;
+* the three bins past "tested": a block only a ``parses`` claim reads is
+  tested but parse-only, a ``not_testable:`` entry takes a block out of the
+  ratchet, and each guard on those entries (stale, unknown reason, empty
+  ``why``, a block a real claim reads) fails, as does a claim with both
+  ``contains:`` and ``matches:``.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
@@ -228,9 +234,28 @@ def test_every_claimed_language_is_one_the_scanner_produces():
 
 
 def test_every_pending_claim_names_its_pr():
+    """A PR number, or the campaign unit id (``W6-3``) until the pull request opens."""
     _, _, _, pending = _live()
 
-    assert all(isinstance(claim.pr, int) for claim in pending)
+    unnamed = [
+        claim.test
+        for claim in pending
+        if not isinstance(claim.pr, int)
+        and not (isinstance(claim.pr, str) and re.fullmatch(r"W\d+-\d+", claim.pr))
+    ]
+
+    assert unnamed == []
+
+
+def test_every_not_testable_entry_names_a_block_no_claim_reads():
+    module, tree, live, pending = _live()
+    entries = module.load_not_testable()
+
+    assert entries, "the ledger has no `not_testable:` entries; the section moved?"
+    problems = module.ledger_problems(
+        [], tree, _REPO_ROOT, waiting=live + pending, not_testable=entries
+    )
+    assert problems == []
 
 
 def test_every_not_counted_test_exists():
@@ -261,7 +286,14 @@ def test_the_check_passes_on_this_tree():
 # -- negative controls -----------------------------------------------------------
 
 
-def _repo(root: Path, *, allowed: dict[str, int], pending: list[dict] | None = None) -> list[str]:
+def _repo(
+    root: Path,
+    *,
+    allowed: dict[str, int],
+    pending: list[dict] | None = None,
+    tested: list[dict] | None = None,
+    not_testable: list[dict] | None = None,
+) -> list[str]:
     """A synthetic repo with one live claim, and the CLI flags that point the script at it."""
     _tree(root)
     (root / "tests" / "docs").mkdir(parents=True)
@@ -274,9 +306,11 @@ def _repo(root: Path, *, allowed: dict[str, int], pending: list[dict] | None = N
                 "languages": ["bash"],
                 "kind": "checks",
                 "what": "demo",
-            }
+            },
+            *(tested or []),
         ],
         "pending": pending or [],
+        "not_testable": not_testable or [],
     }
     (root / "ledger.yml").write_text(yaml.safe_dump(ledger), encoding="utf-8")
     (root / "baseline.json").write_text(json.dumps({"untested": allowed}), encoding="utf-8")
@@ -438,3 +472,166 @@ def test_a_claim_that_reads_no_block_is_a_ledger_problem(tmp_path):
     ]
     assert "no such test file" in problems[0]
     assert "matches no block" in problems[1]
+
+
+# -- parse-only, not testable, and `matches:` ------------------------------------------
+
+
+def _claim(**entry) -> dict:
+    return {"test": "tests/docs/test_demo.py", "pages": ["guide/*.rst"], "what": "demo", **entry}
+
+
+def _skip(**entry) -> dict:
+    return {"pages": ["guide/page.rst"], "reason": "llm", "why": "the model answers it", **entry}
+
+
+def _page(module, flags, capsys) -> dict:
+    capsys.readouterr()
+    module.main(["--json", *flags])
+    document = json.loads(capsys.readouterr().out)
+    (row,) = document["pages"]
+    return {"totals": document["totals"], **row}
+
+
+def test_a_parses_claim_counts_as_tested_and_parse_only(tmp_path, capsys):
+    flags = _repo(
+        tmp_path,
+        allowed={"guide/page.rst": 4},
+        tested=[_claim(languages=["python", "bash"], kind="parses")],
+    )
+    module = _coverage()
+
+    row = _page(module, flags, capsys)
+
+    # bash is also read by the `checks` claim, so only python is parse-only.
+    assert (row["tested"], row["parse_only"], row["untested"]) == (2, 1, 5)
+    assert row["kind"] == "parses"
+    assert row["totals"]["parse_only"] == 1
+    assert module.main(["--check", *flags]) == 1  # 4 allowed, 5 untested
+
+
+def test_a_block_read_by_a_stronger_claim_is_not_parse_only(tmp_path, capsys):
+    flags = _repo(
+        tmp_path,
+        allowed={"guide/page.rst": 6},
+        tested=[_claim(languages=["bash"], kind="parses")],
+    )
+
+    row = _page(_coverage(), flags, capsys)
+
+    assert (row["tested"], row["parse_only"], row["kind"]) == (1, 0, "checks")
+
+
+def test_a_not_testable_block_leaves_the_ratchet_and_shows_its_reason(tmp_path, capsys):
+    flags = _repo(
+        tmp_path,
+        allowed={"guide/page.rst": 5},
+        tested=[_claim(languages=["console"], kind="parses")],
+        not_testable=[_skip(languages=["console"], contains="$ osprey up")],
+    )
+    module = _coverage()
+
+    row = _page(module, flags, capsys)
+    assert (row["tested"], row["parse_only"], row["not_testable"], row["untested"]) == (1, 0, 1, 5)
+    assert row["not_testable_blocks"] == [
+        {
+            "line": _line(_PAGE, "$ osprey up"),
+            "language": "console",
+            "reason": "llm",
+            "why": "the model answers it",
+        }
+    ]
+    assert row["totals"]["not_testable"] == 1
+    assert module.main(["--check", *flags]) == 0
+
+    capsys.readouterr()
+    module.main([*flags])
+    report = capsys.readouterr().out
+    assert "1 tested (14%; 0 parse-only), 1 not testable, 5 untested" in report
+    assert "| Page | Blocks | Tested | Parse-only | Not testable | Untested |" in report
+    assert "| guide/page.rst | 7 | 1 |  | 1 | 5 |" in report
+
+    module.main(["--page", "guide/page.rst", *flags])
+    narrowed = capsys.readouterr().out
+    assert f"- line {_line(_PAGE, '$ osprey up')} console: llm -- the model answers it" in narrowed
+
+
+def test_matches_is_a_line_anchored_regex_and_contains_a_substring(tmp_path, capsys):
+    module = _coverage()
+    block = module.Block("guide/page.rst", 1, "bash", None, "cd demo\nosprey build --dev")
+    claim = module.Claim("t.py", ("guide/*.rst",), ("bash",), "checks", "")
+
+    assert module.Claim(**{**vars(claim), "regex": r"^osprey build"}).matches(block)
+    assert not module.Claim(**{**vars(claim), "regex": r"\Aosprey build"}).matches(block)
+    assert module.Claim(**{**vars(claim), "contains": "build --dev"}).matches(block)
+    assert not module.Claim(**{**vars(claim), "contains": "^osprey"}).matches(block)
+
+    flags = _repo(
+        tmp_path,
+        allowed={"guide/page.rst": 6},
+        tested=[_claim(languages=["literal"], kind="pins", matches=r"^literal line two$")],
+    )
+    assert _page(module, flags, capsys)["tested"] == 2
+
+
+@pytest.mark.parametrize(
+    ("bad", "message"),
+    [
+        ({"contains": "x", "matches": "x"}, "has both `contains:` and `matches:`"),
+        ({"matches": "(unclosed"}, "is not a regular expression"),
+        ({"kind": "guesses"}, "kind 'guesses' is not one of"),
+    ],
+)
+def test_a_malformed_claim_is_a_ledger_problem(tmp_path, capsys, bad, message):
+    flags = _repo(
+        tmp_path,
+        allowed={"guide/page.rst": 6},
+        tested=[_claim(languages=["bash"], **{"kind": "checks", **bad})],
+    )
+
+    assert _coverage().main(["--check", *flags]) == 1
+    assert message in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        (_skip(languages=["toml"], contains="x"), "matches no block on any page"),
+        (_skip(languages=["text"], contains="plain", reason="hard"), "reason 'hard' is not one of"),
+        (_skip(languages=["text"], contains="plain", why=" "), "`why:` is empty"),
+        (_skip(languages=["text"]), "needs `contains:` or `matches:`"),
+        (_skip(languages=["bash"], contains="osprey build"), "it is tested after all"),
+    ],
+)
+def test_each_not_testable_guard_fails(tmp_path, capsys, entry, message):
+    flags = _repo(tmp_path, allowed={"guide/page.rst": 6}, not_testable=[entry])
+
+    assert _coverage().main(["--check", *flags]) == 1
+    assert message in capsys.readouterr().out
+
+
+def test_an_entry_on_a_block_a_waiting_pending_claim_reads_fails(tmp_path, capsys):
+    """Whatever the merge order: the pending test will read the block, so it is not untestable."""
+    flags = _repo(
+        tmp_path,
+        allowed={"guide/page.rst": 5},
+        pending=[_pending_yaml_claim()],
+        not_testable=[_skip(languages=["yaml"], contains="key: value")],
+    )
+
+    assert _coverage().main(["--check", *flags]) == 1
+    assert "read by tests/docs/test_future.py; it is tested after all" in capsys.readouterr().out
+
+
+def test_an_entry_on_a_block_a_parses_claim_reads_passes(tmp_path, capsys):
+    flags = _repo(
+        tmp_path,
+        allowed={"guide/page.rst": 5},
+        tested=[_claim(languages=["python"], kind="parses")],
+        not_testable=[_skip(languages=["python"], matches=r"^print\(")],
+    )
+    module = _coverage()
+
+    assert module.main(["--check", *flags]) == 0
+    row = _page(module, flags, capsys)
+    assert (row["parse_only"], row["not_testable"]) == (0, 1)
