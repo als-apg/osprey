@@ -108,8 +108,8 @@ The host's profile variant
 ==========================
 
 ``OSPREY_PROFILE_VARIANT`` names the overlay profile, ``profiles/<name>.yml``,
-that a build of this checkout merges over ``profile.yml``. Unlike the knobs
-above, it is not read from the shell environment or the ``.env`` chain. The
+that a build of this checkout merges over ``profile.yml``. Unlike the host-level
+knobs, it is not read from the shell environment or the ``.env`` chain. The
 build reads it only from the gitignored ``.env.variant`` file at the repository
 root (see :ref:`profile-host-variants`).
 
