@@ -1,30 +1,25 @@
-"""The optimizer ServerDefinition: opt-in, read-only, error guidance on every tool."""
+"""The optimizer ServerDefinition: opt-in, no launch token, error guidance on every tool."""
+
+import asyncio
+import importlib
+import pkgutil
 
 from osprey.registry.mcp import resolve_servers
 from tests.registry._ctx import base_ctx
-
-_READ_TOOLS = [
-    "list_environments",
-    "get_environment",
-    "environment_status",
-    "read_variables",
-    "read_observables",
-    "list_presets",
-    "initial_bounds",
-    "resolve_bounds",
-    "list_jobs",
-    "get_job",
-    "current_job",
-    "get_job_config",
-    "list_results",
-    "get_result",
-    "list_models",
-]
 
 
 def _resolve(cfg=None):
     (optimizer,) = [s for s in resolve_servers(cfg or {}, base_ctx()) if s["name"] == "optimizer"]
     return optimizer
+
+
+def _registered_tools() -> list[str]:
+    """The tools the server's ``@mcp.tool()`` decorators register."""
+    from osprey.mcp_server.optimizer import server, tools
+
+    for found in pkgutil.iter_modules(tools.__path__):
+        importlib.import_module(f"{tools.__name__}.{found.name}")
+    return [tool.name for tool in asyncio.run(server.mcp.list_tools())]
 
 
 def test_module_and_env():
@@ -44,9 +39,11 @@ def test_off_by_default_and_on_by_override():
     assert _resolve({"servers": {"optimizer": {"enabled": True}}})["enabled"] is True
 
 
-def test_every_tool_is_allowed_and_nothing_asks_or_gates():
+def test_every_registered_tool_is_allowed_and_nothing_asks_or_gates():
     optimizer = _resolve()
-    assert optimizer["permissions_allow"] == _READ_TOOLS
+    allowed = optimizer["permissions_allow"]
+    assert len(allowed) == len(set(allowed))
+    assert sorted(allowed) == sorted(_registered_tools())
     assert optimizer["permissions_ask"] == []
     assert optimizer["hooks_pre"] == []
 

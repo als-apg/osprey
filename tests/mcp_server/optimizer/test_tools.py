@@ -1,17 +1,24 @@
 """The optimizer MCP tools: what each one asks the service, and how answers come back.
 
 Every tool runs against :class:`StubOptimizer` (an ``httpx.MockTransport``), so
-the assertions are on the real request the tool sent — method, path, query and
-body — and on the real response it parsed.
+the assertions are on the real request the tool sent — method, path and query —
+and on the real response it parsed.
 """
 
 from __future__ import annotations
 
+import ast
+import asyncio
+import importlib.util
 import json
+import pathlib
+import re
+from dataclasses import dataclass
 
 import httpx
 import pytest
 
+from osprey.mcp_server.optimizer.server import mcp
 from osprey.mcp_server.optimizer.tools import environments, jobs, results
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.mcp_server.optimizer.conftest import BASE_URL, SESSION_TARGET
@@ -22,7 +29,7 @@ def _tool(module, name):
 
 
 # (module, tool, kwargs, method, path, query) — query as the service sees it.
-_REQUESTS = [
+REQUESTS = [
     (environments, "list_environments", {}, "GET", "/environments", {}),
     (environments, "get_environment", {"name": "lin"}, "GET", "/environments/lin", {}),
     (
@@ -35,19 +42,11 @@ _REQUESTS = [
     ),
     (
         environments,
-        "read_variables",
-        {"name": "lin", "names": ["a", "b"]},
-        "GET",
-        "/environments/lin/variables",
-        {"target": [SESSION_TARGET], "names": ["a", "b"]},
-    ),
-    (
-        environments,
         "read_observables",
-        {"name": "lin", "names": ["q"], "target": "va"},
+        {"name": "lin", "names": ["q", "r"], "target": "va"},
         "GET",
         "/environments/lin/observables",
-        {"target": ["va"], "names": ["q"]},
+        {"target": ["va"], "names": ["q", "r"]},
     ),
     (environments, "list_presets", {"name": "lin"}, "GET", "/environments/lin/presets", {}),
     (
@@ -66,14 +65,6 @@ _REQUESTS = [
         "/environments/lin/initial-bounds",
         {"target": ["live"], "preset": ["phase"]},
     ),
-    (
-        environments,
-        "resolve_bounds",
-        {"name": "lin", "current_values": {"a": 1.0}},
-        "POST",
-        "/environments/lin/resolve-bounds",
-        {},
-    ),
     (jobs, "list_jobs", {}, "GET", "/jobs", {}),
     (jobs, "get_job", {"job_id": "j1"}, "GET", "/jobs/j1", {}),
     (jobs, "get_job", {"job_id": "j1", "detail": "full"}, "GET", "/jobs/j1", {"detail": ["full"]}),
@@ -84,21 +75,31 @@ _REQUESTS = [
     (results, "list_models", {}, "GET", "/models", {}),
 ]
 
+_IDS = [f"{r[1]}-{i}" for i, r in enumerate(REQUESTS)]
+
+
+def test_the_route_table_covers_every_registered_tool():
+    registered = {tool.name for tool in asyncio.run(mcp.list_tools())}
+    assert {r[1] for r in REQUESTS} == registered
+
 
 @pytest.mark.parametrize(
-    ("module", "name", "kwargs", "method", "path", "query"),
-    _REQUESTS,
-    ids=[f"{r[1]}-{i}" for i, r in enumerate(_REQUESTS)],
+    ("module", "name", "kwargs", "method", "path", "query"), REQUESTS, ids=_IDS
 )
-async def test_each_tool_sends_its_route(optimizer, module, name, kwargs, method, path, query):
-    await _tool(module, name)(**kwargs)
+async def test_each_tool_sends_its_route_and_returns_the_answer_parsed(
+    optimizer, module, name, kwargs, method, path, query
+):
+    answer = [{"name": "lin", "display_name": "Linac", "valid": True}]
+    optimizer.respond = lambda _r: httpx.Response(200, json=answer)
+
+    out = json.loads(await _tool(module, name)(**kwargs))
 
     (sent,) = optimizer.requests
     assert sent.method == method
     assert str(sent.url).startswith(BASE_URL)
     assert sent.url.path == path
-    parsed = {key: sent.url.params.get_list(key) for key in sent.url.params}
-    assert parsed == query
+    assert {key: sent.url.params.get_list(key) for key in sent.url.params} == query
+    assert out == ({"config": answer, "revision": None} if name == "get_job_config" else answer)
 
 
 async def test_a_path_segment_is_escaped(optimizer):
@@ -106,19 +107,18 @@ async def test_a_path_segment_is_escaped(optimizer):
     assert optimizer.requests[0].url.raw_path == b"/environments/a%2Fb"
 
 
-async def test_resolve_bounds_posts_its_body(optimizer):
-    overrides = {"a": {"window_fraction": 0.1}}
-    await _tool(environments, "resolve_bounds")(
-        name="lin", current_values={"a": 1.0}, overrides=overrides
-    )
-    body = json.loads(optimizer.requests[0].content)
-    assert body == {"current_values": {"a": 1.0}, "overrides": overrides}
+async def test_a_run_id_segment_is_escaped(optimizer):
+    await _tool(results, "get_result")(run_id="lin/2026 11?x")
+    assert optimizer.requests[0].url.raw_path == b"/results/lin/2026%2011%3Fx"
 
 
-async def test_the_service_answer_is_returned_as_parsed(optimizer):
-    answer = [{"name": "lin", "display_name": "Linac", "valid": True}]
-    optimizer.respond = lambda _r: httpx.Response(200, json=answer)
-    assert json.loads(await _tool(environments, "list_environments")()) == answer
+@pytest.mark.parametrize(
+    "run_id", ["../jobs/j1", "lin/..", "./2026", "lin", "lin/", "/2026", "a/b/c", ""]
+)
+async def test_a_run_id_that_is_not_env_slash_timestamp_is_refused_unsent(optimizer, run_id):
+    with assert_raises_error(error_type="validation_error"):
+        await _tool(results, "get_result")(run_id=run_id)
+    assert optimizer.requests == []
 
 
 @pytest.mark.parametrize(("headers", "revision"), [({"X-Config-Revision": "7"}, "7"), ({}, None)])
@@ -129,20 +129,67 @@ async def test_get_job_config_passes_the_revision_header_through(optimizer, head
     assert out == {"config": config, "revision": revision}
 
 
+# Each row: the tool called, the service's answer, the error type, the relayed detail.
+_REFUSALS = [
+    (
+        "get_job",
+        httpx.Response(404, json={"detail": "Job j1 not found"}),
+        "not_found",
+        "Job j1 not found",
+    ),
+    (
+        "read_observables",
+        httpx.Response(422, json={"detail": [{"loc": ["names"]}]}),
+        "validation_error",
+        [{"loc": ["names"]}],
+    ),
+    (
+        "environment_status",
+        httpx.Response(403, json={"detail": "does not drive 'live' (allowed: standin, va)"}),
+        "optimizer_target_refused",
+        "does not drive 'live' (allowed: standin, va)",
+    ),
+    # A 403 on a request that named no target is not a target refusal.
+    ("get_job", httpx.Response(403, json={"detail": "forbidden"}), "optimizer_error", "forbidden"),
+    ("get_job", httpx.Response(503, text="upstream down"), "optimizer_error", "upstream down"),
+    ("list_models", httpx.Response(500, json={"detail": "boom"}), "optimizer_error", "boom"),
+]
+
+_KWARGS = {
+    "get_job": (jobs, {"job_id": "j1"}),
+    "read_observables": (environments, {"name": "lin", "names": ["q"]}),
+    "environment_status": (environments, {"name": "lin"}),
+    "list_models": (results, {}),
+}
+
+
 @pytest.mark.parametrize(
-    ("response", "detail"),
-    [
-        (httpx.Response(404, json={"detail": "Job j1 not found"}), "Job j1 not found"),
-        (httpx.Response(422, json={"detail": [{"loc": ["names"]}]}), [{"loc": ["names"]}]),
-        (httpx.Response(503, text="upstream down"), "upstream down"),
-    ],
+    ("name", "response", "error_type", "detail"),
+    _REFUSALS,
+    ids=[f"{r[1].status_code}-{r[0]}" for r in _REFUSALS],
 )
-async def test_a_non_2xx_carries_status_and_detail(optimizer, response, detail):
+async def test_a_non_2xx_is_typed_by_its_status(optimizer, name, response, error_type, detail):
+    module, kwargs = _KWARGS[name]
     optimizer.respond = lambda _r: response
-    with assert_raises_error(error_type="optimizer_error") as ctx:
-        await _tool(jobs, "get_job")(job_id="j1")
+    with assert_raises_error(error_type=error_type) as ctx:
+        await _tool(module, name)(**kwargs)
     assert ctx["envelope"]["details"] == {"status": response.status_code, "detail": detail}
     assert str(response.status_code) in ctx["envelope"]["error_message"]
+
+
+async def test_a_target_refusal_hints_to_name_the_target(optimizer):
+    optimizer.respond = lambda _r: httpx.Response(403, json={"detail": "allowed: va"})
+    with assert_raises_error(error_type="optimizer_target_refused") as ctx:
+        await _tool(environments, "initial_bounds")(name="lin")
+    assert any("`target`" in hint for hint in ctx["envelope"]["suggestions"])
+
+
+async def test_a_2xx_body_that_is_not_json_is_an_error_envelope(optimizer):
+    optimizer.respond = lambda _r: httpx.Response(200, text="<html>proxy</html>")
+    with assert_raises_error(error_type="optimizer_error") as ctx:
+        await _tool(jobs, "list_jobs")()
+    assert ctx["envelope"]["details"]["status"] == 200
+    assert "not JSON" in ctx["envelope"]["error_message"]
 
 
 async def test_an_unreachable_service_is_optimizer_unreachable(optimizer):
@@ -153,3 +200,125 @@ async def test_an_unreachable_service_is_optimizer_unreachable(optimizer):
     with assert_raises_error(error_type="optimizer_unreachable") as ctx:
         await _tool(results, "list_models")()
     assert BASE_URL in ctx["envelope"]["error_message"]
+    assert any("osprey status" in hint for hint in ctx["envelope"]["suggestions"])
+
+
+async def test_a_read_timeout_says_the_service_may_still_be_working(optimizer):
+    def hang(request):
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    optimizer.respond = hang
+    with assert_raises_error(error_type="optimizer_unreachable") as ctx:
+        await _tool(environments, "read_observables")(name="lin", names=["q"])
+    assert "may still be working" in ctx["envelope"]["error_message"]
+    assert not any("osprey status" in hint for hint in ctx["envelope"]["suggestions"])
+
+
+async def test_a_connect_timeout_is_unreachable(optimizer):
+    def hang(request):
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    optimizer.respond = hang
+    with assert_raises_error(error_type="optimizer_unreachable") as ctx:
+        await _tool(results, "list_models")()
+    assert "Could not reach" in ctx["envelope"]["error_message"]
+
+
+def test_the_client_outwaits_the_services_own_read_backstop():
+    from osprey.mcp_server.optimizer.server_context import TIMEOUT_S
+    from osprey_optimizer.environments.interface import OP_TIMEOUT
+
+    assert TIMEOUT_S > OP_TIMEOUT
+
+
+# ---------------------------------------------------------------------------
+# The service's own route table, read from its router source: the service extra
+# (torch, xopt, polars) that importing ``osprey_optimizer.api`` needs is not in
+# the framework's test lanes, so the app itself cannot be imported here.
+# ---------------------------------------------------------------------------
+
+_HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+
+
+@dataclass(frozen=True)
+class _Route:
+    method: str
+    pattern: re.Pattern[str]
+    template: str
+    gated: bool
+
+
+def _api_dir() -> pathlib.Path:
+    spec = importlib.util.find_spec("osprey_optimizer")
+    assert spec is not None and spec.submodule_search_locations
+    return pathlib.Path(next(iter(spec.submodule_search_locations))) / "api"
+
+
+def _routes() -> list[_Route]:
+    """Every route of the service, in the order FastAPI tries them."""
+    api = _api_dir()
+    main = ast.parse((api / "main.py").read_text())
+    alias_module = {
+        alias.asname: node.module.rsplit(".", 1)[1]
+        for node in ast.walk(main)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith("osprey_optimizer.api.routers.")
+        for alias in node.names
+        if alias.name == "router" and alias.asname
+    }
+    included = [
+        call.args[0].id
+        for call in ast.walk(main)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "include_router"
+        and isinstance(call.args[0], ast.Name)
+    ]
+    routes: list[_Route] = []
+    for alias in included:
+        tree = ast.parse((api / "routers" / f"{alias_module[alias]}.py").read_text())
+        prefix = next(
+            kw.value.value
+            for node in tree.body
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+            for kw in node.value.keywords
+            if kw.arg == "prefix" and isinstance(kw.value, ast.Constant)
+        )
+        for fn in tree.body:
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for deco in fn.decorator_list:
+                if not (
+                    isinstance(deco, ast.Call)
+                    and isinstance(deco.func, ast.Attribute)
+                    and deco.func.attr in _HTTP_METHODS
+                ):
+                    continue
+                template = prefix + deco.args[0].value
+                regex = re.sub(r"\{[^}]+\}", "[^/]+", template)
+                gated = "require_launch_token" in ast.unparse(deco) + ast.unparse(fn.args)
+                routes.append(
+                    _Route(deco.func.attr.upper(), re.compile(f"{regex}$"), template, gated)
+                )
+    return routes
+
+
+def test_the_route_table_is_read_with_its_gates():
+    routes = _routes()
+    assert any(r.method == "POST" and r.template == "/optimizations" and r.gated for r in routes)
+    assert any(r.method == "GET" and r.template == "/jobs" and not r.gated for r in routes)
+
+
+@pytest.mark.parametrize(("module", "name", "kwargs"), [r[:3] for r in REQUESTS], ids=_IDS)
+async def test_every_tool_gets_an_ungated_route_the_service_serves(optimizer, module, name, kwargs):
+    await _tool(module, name)(**kwargs)
+    (sent,) = optimizer.requests
+
+    assert sent.method == "GET"
+    # FastAPI serves a request with the first route whose path and method match;
+    # none is a 404 (no path matches) or a 405 (no method does).
+    served = next(
+        (r for r in _routes() if r.pattern.match(sent.url.path) and r.method == sent.method), None
+    )
+    assert served is not None, f"no {sent.method} route serves {sent.url.path}"
+    assert not served.gated, f"{name} calls {served.template}, which needs the launch token"

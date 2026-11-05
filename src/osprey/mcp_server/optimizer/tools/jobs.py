@@ -15,7 +15,7 @@ from typing import Literal
 from urllib.parse import quote
 
 from osprey.mcp_server.optimizer.server import mcp
-from osprey.mcp_server.optimizer.server_context import get_json, request
+from osprey.mcp_server.optimizer.server_context import request
 
 #: The response header carrying a stored config's revision, when the service sends one.
 CONFIG_REVISION_HEADER = "X-Config-Revision"
@@ -28,25 +28,27 @@ def _job(job_id: str) -> str:
 @mcp.tool()
 async def list_jobs() -> str:
     """List every job that has not finished (created, submitted, running or paused), with its status. Finished jobs are read with get_job or list_results."""
-    return json.dumps(await get_json("/jobs"))
+    return json.dumps(await request("GET", "/jobs"))
 
 
 @mcp.tool()
 async def get_job(job_id: str, detail: Literal["summary", "full"] | None = None) -> str:
     """Read one job's status.
 
+    ``full`` can be large (every evaluated point of the run): ask for ``summary`` first, and for ``full`` only when the evaluated data itself is needed.
+
     Args:
         job_id: Job id, from list_jobs or current_job.
         detail: For an optimization job: ``summary`` adds ``result_summary`` (best points, initial point, iteration count); ``full`` also adds the evaluated data, variable bounds and snapshots. Omitted: the basic status only.
     """
     params = {"detail": detail} if detail is not None else None
-    return json.dumps(await get_json(_job(job_id), params=params))
+    return json.dumps(await request("GET", _job(job_id), params=params))
 
 
 @mcp.tool()
 async def current_job() -> str:
-    """Read the job the optimizer panel currently shows: ``{"job_id": <id or null>}``."""
-    return json.dumps(await get_json("/jobs/current"))
+    """Read the optimizer's current-job pointer, the job a start launches: ``{"job_id": <id or null>}``."""
+    return json.dumps(await request("GET", "/jobs/current"))
 
 
 @mcp.tool()
@@ -58,5 +60,5 @@ async def get_job_config(job_id: str) -> str:
     Args:
         job_id: Job id of an optimization job.
     """
-    resp = await request("GET", f"{_job(job_id)}/config")
-    return json.dumps({"config": resp.json(), "revision": resp.headers.get(CONFIG_REVISION_HEADER)})
+    config, revision = await request("GET", f"{_job(job_id)}/config", header=CONFIG_REVISION_HEADER)
+    return json.dumps({"config": config, "revision": revision})

@@ -674,22 +674,18 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
-            # Empty when unset, which resolve_optimizer_url reads as "no
-            # override": the rendered config's services.optimizer.port wins.
+            # Empty when unset, which optimizer_url reads as "no override":
+            # the rendered config's services.optimizer.port wins.
             "OPTIMIZER_URL": "${OPTIMIZER_URL:-}",
         },
-        # Every tool only reads (resolve_bounds computes and reads no machine).
-        # The server calls no write route and holds no launch token, so there
-        # is nothing to gate.
+        # Every tool only reads, so there is nothing to gate.
         permissions_allow=[
             "list_environments",
             "get_environment",
             "environment_status",
-            "read_variables",
             "read_observables",
             "list_presets",
             "initial_bounds",
-            "resolve_bounds",
             "list_jobs",
             "get_job",
             "current_job",

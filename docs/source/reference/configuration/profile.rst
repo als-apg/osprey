@@ -1568,9 +1568,9 @@ refused. The routes that move hardware are guarded by
 the token says a caller may start a run, not whose run it is. The image is built locally on the first
 ``osprey up``; set ``OSPREY_OPTIMIZER_IMAGE`` to run a published one.
 
-The agent reads the service through the ``optimizer`` MCP server, which is off
-until ``config:`` sets ``claude_code.servers.optimizer.enabled: true``. It only
-reads and is never given the launch token (:doc:`/architecture/mcp-servers`).
+The agent reaches the service through the ``optimizer`` MCP server
+(:doc:`/architecture/mcp-servers`), switched on by
+``claude_code.servers.optimizer.enabled: true`` under ``config:``.
 
 A run writes only under one **write authorization** (:ref:`how-to-write-from-a-program`),
 never under the owner's switch alone, so the switch can stay off for the whole

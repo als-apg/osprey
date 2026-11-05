@@ -399,30 +399,29 @@ Package: ``osprey.mcp_server.optimizer``
 
 Reads the optimizer service a profile deploys with its ``optimizer:`` section
 (:doc:`/reference/configuration/profile`). It is off in every preset and
-switched on with ``claude_code.servers.optimizer.enabled: true``; the build
-refuses that switch on a deployment that runs no optimizer. The server dials
-``services.optimizer.port`` on loopback, or ``OPTIMIZER_URL`` when that is set.
+switched on with ``claude_code.servers.optimizer.enabled: true``. The build
+refuses that switch on a render with no optimizer to dial: a deployment that
+does not run one, or an attached render whose host publishes no
+``services.optimizer.port``. The server dials ``services.optimizer.port`` on
+loopback, or ``OPTIMIZER_URL`` when that is set.
 
-Every tool only reads. The server calls no route that writes, holds no launch
-token, and cannot create, start, pause or cancel a run: a run is started by a
-person, from the optimizer's web panel. A tool that reads a machine
-(``environment_status``, ``read_variables``, ``read_observables``,
-``initial_bounds``) asks about the session's current control target unless it
-is given a ``target``.
+The server holds no launch token and cannot start a run: a person starts
+every run. A tool that reads a machine (``environment_status``,
+``read_observables``, ``initial_bounds``) asks about the session's current
+control target unless it is given a ``target``; the optimizer serves only the
+targets its profile lists (``va`` and ``standin`` today), and refuses any other.
 
 **Tools:**
 
 - ``list_environments`` -- List the optimization environments the service offers.
 - ``get_environment`` -- Read one environment's variable and observable definitions.
 - ``environment_status`` -- Check whether an environment is reachable on a machine.
-- ``read_variables`` -- Read the current readbacks of an environment's variables.
 - ``read_observables`` -- Read the current values of an environment's observables.
 - ``list_presets`` -- List the run presets an environment offers.
 - ``initial_bounds`` -- Resolve each variable's starting bounds from its current setpoint.
-- ``resolve_bounds`` -- Compute the bounds given current values and overrides; reads no machine.
 - ``list_jobs`` -- List the jobs that have not finished.
 - ``get_job`` -- Read one job's status, optionally with its result summary or full data.
-- ``current_job`` -- Read which job the optimizer panel currently shows.
+- ``current_job`` -- Read the current-job pointer, the job a start launches.
 - ``get_job_config`` -- Read an optimization job's stored config and its revision.
 - ``list_results`` -- List the stored runs.
 - ``get_result`` -- Read one stored run: config, best point and evaluated records.

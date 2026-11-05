@@ -104,11 +104,7 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
 )
-from osprey.optimizer_connection import (
-    DEFAULT_OPTIMIZER_PORT,
-    OPTIMIZER_URL_ENV_VAR,
-    optimizer_url_from_config,
-)
+from osprey.optimizer_connection import DEFAULT_OPTIMIZER_PORT, optimizer_url
 from osprey.port_layout import resolve_port_base
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 
@@ -435,6 +431,10 @@ def _optimizer_server_on(config: Mapping[str, Any]) -> bool:
     )
 
 
+def _optimizer_port_set(config: Mapping[str, Any]) -> bool:
+    return bool(dotted_get(config, "services.optimizer.port"))
+
+
 def _launch_token_needed(lane: str) -> Predicate:
     # A lane is bound at render time to ONE control target, so the token that
     # arms a queue start there is granted on that target's write posture and no
@@ -707,9 +707,7 @@ def _bridge_dial(config: Mapping[str, Any]) -> Dial | None:
 
 
 def _optimizer_dial(config: Mapping[str, Any]) -> Dial | None:
-    # resolve_optimizer_url's order, on the config the caller holds.
-    url = os.environ.get(OPTIMIZER_URL_ENV_VAR) or optimizer_url_from_config(config)
-    return _host_port(url, DEFAULT_OPTIMIZER_PORT)
+    return _host_port(optimizer_url(config), DEFAULT_OPTIMIZER_PORT)
 
 
 def _second_lane_dial(lane: str) -> Dialer:
@@ -1148,14 +1146,15 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
                 name="optimizer MCP server",
                 switch_key="claude_code.servers.optimizer.enabled",
                 is_on=_optimizer_server_on,
-                # optimizer_url_from_config always answers (the layout slot);
-                # the projection keeps it the host's port.
-                resolves=_always,
+                # The build writes services.optimizer.port wherever it deploys
+                # the optimizer, and projects it into an attached render; a
+                # render without it would dial the layout slot on a guess.
+                resolves=_optimizer_port_set,
                 dial=_optimizer_dial,
             ),
         ),
         projected=(ProjectedKey("services.optimizer.port", gate=_optimizer_server_on),),
-        note="resolve_optimizer_url dials the published port on loopback",
+        note="optimizer_url dials the published port on loopback",
     ),
     **_outbound_only_contracts(),
 }
