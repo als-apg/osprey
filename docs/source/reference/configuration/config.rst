@@ -26,7 +26,9 @@ note records the **protected set** — the files and keys no agent-side writer
 may touch.
 
 Each example names its file on its first line. ``# build/config.yml`` marks the
-nested form that ``osprey build`` writes. ``# profile.yml, under config:`` marks
+nested form that ``osprey build`` writes. Every build wipes and re-renders that
+file, so set a key through the profile and never edit the rendered file.
+``# profile.yml, under config:`` marks
 the dotted form you write in the profile's ``config:`` block. Both spell the
 same key: ``health.disk.min_free_gb: 2.0`` under ``config:`` renders as
 ``min_free_gb: 2.0`` under ``disk:`` under ``health:``. In a profile, always use

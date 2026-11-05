@@ -11,15 +11,22 @@ by hand that the code also holds, and nothing else compares the two:
   ``src/osprey/health/probes/``: the probe's ``spec`` mapping is subscripted
   with it, passed it as the first argument of ``spec.get``, or tested with
   ``in spec``. The reverse holds too: every key a module reads is in its row,
-  apart from the keys the runner hands every probe. A "(default ``x``)" beside
-  a parameter is the default its ``spec.get`` falls back to.
+  apart from the keys the runner hands every probe. Only those three spellings
+  on the name ``spec`` count, so a key read through a helper or after
+  ``spec`` is renamed is invisible: the reverse check then passes for it
+  rather than failing, and a forward failure names the missing read. A
+  "(default ``x``)" beside a parameter is the default its ``spec.get`` falls
+  back to.
 * **Stated defaults.** Every ``Key / Default`` table row, and every default a
-  sentence or a ``What it does`` cell states outside a code block ("Default
-  ``7979``", "(default 500)", "``read`` (default)", "unset by default" and
-  the like), equals the ``default:`` column of
+  sentence or a ``What it does`` cell states outside a code block in one of
+  the forms of :data:`_STATED_DEFAULT` ("Default ``7979``", "(default 500)",
+  "``read`` (default)", "``var/agent_data`` by default", "``x`` …, which is
+  the default", "on by default", "unset by default" and the like), equals the ``default:`` column of
   ``src/osprey/profiles/config_key_manifest.yml`` for its key. A sentence's key
-  is the nearest inline literal before it that the manifest declares, else the
-  nearest key-like literal, else its section (see :data:`_SECTION_KEYS`).
+  is its section's, for a section listed in :data:`_SECTION_KEYS`; else the
+  nearest inline literal before it that the manifest declares; else the
+  nearest key-like literal; else the section heading. A stated value the
+  manifest spells differently is translated by :data:`_STATED_AS`.
   ``""`` and the manifest's ``'""'`` are one value; a stated "unset" matches a
   manifest ``null``, ``""`` or ``no-fallback``; a manifest ``derived`` default
   is skipped, since the page states what the derivation gives. A stated
@@ -89,6 +96,15 @@ _SECTION_KEYS = {
     "The onboarding tour invite": "web.tour",
     "The control-target picker": "web.control_target_picker",
     "How often the file watchers re-read the tree": "web.file_watch_reconcile_interval_s",
+    "Auto-derived MCP server checks (``health.auto``)": "health.auto",
+}
+
+#: ``(key, stated)`` -> the value the statement means, with the reason.
+_STATED_AS = {
+    ("simulation.default_scenarios", "``nominal``"): (
+        "``[]``",
+        "starting in nominal alone is the empty start set",
+    ),
 }
 
 #: Stated defaults whose subject is not a manifest key with a ``default:``.
@@ -109,6 +125,9 @@ _STATED_DEFAULT = re.compile(
             r"\bdefaults to ``(?P<to>[^`]+)``",
             r"``(?P<trail>[^`]+)``(?: \(default\)|, the default| - The default| \(the default\))",
             r"\bAbsent means ``(?P<absent>[^`]+)``",
+            r"``(?P<by>[^`]+)`` by default",
+            r"``(?P<which>[^`]+)``[^`.]*, which is the default",
+            r"(?P<on>\bon by default)",
             r"(?P<unset>\bunset by default)",
         ]
     )
@@ -211,6 +230,7 @@ def _probe_reads(probe: str) -> dict[str, Any]:
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "get"
             and is_spec(node.func.value)
+            and node.args
             and isinstance(node.args[0], ast.Constant)
         ):
             reads[node.args[0].value] = _literal(node.args[1]) if len(node.args) > 1 else None
@@ -291,6 +311,8 @@ def _table_defaults(text: str) -> Iterator[tuple[str, str]]:
 
 def _subject(before: str, heading: str) -> str:
     """The key a stated default is about: see the module docstring."""
+    if heading in _SECTION_KEYS:
+        return _SECTION_KEYS[heading]
     names = [literal.split(": ", 1)[0] for literal in _LITERAL.findall(before)]
     declared = [name for name in names if name in _manifest()]
     if declared:
@@ -298,7 +320,7 @@ def _subject(before: str, heading: str) -> str:
     keys = [name for name in names if _KEY_LIKE.fullmatch(name)]
     if keys:
         return keys[-1]
-    return _SECTION_KEYS.get(heading, heading)
+    return heading
 
 
 def _prose_defaults(text: str) -> Iterator[tuple[str, str]]:
@@ -313,8 +335,10 @@ def _prose_defaults(text: str) -> Iterator[tuple[str, str]]:
         for match in _STATED_DEFAULT.finditer(flat):
             groups = {name: value for name, value in match.groupdict().items() if value}
             ((kind, value),) = groups.items()
-            stated = "unset" if kind == "unset" else f"``{value}``"
-            yield _subject(flat[: match.start()], heading), stated
+            stated = {"unset": "unset", "on": "``true``"}.get(kind, f"``{value}``")
+            subject = _subject(flat[: match.start()], heading)
+            stated = _STATED_AS.get((subject, stated), (stated, ""))[0]
+            yield subject, stated
 
 
 def _stated(cell: str) -> object:
@@ -383,6 +407,9 @@ def test_the_tables_and_the_prose_both_reach_the_check() -> None:
         "web.tour",
         "web.terminal",
         "health.disk.max_used_percent",
+        "agent_data.base_dir",
+        "simulation.default_scenarios",
+        "health.auto",
     } <= prose_keys
 
 
@@ -392,6 +419,8 @@ def test_the_tables_and_the_prose_both_reach_the_check() -> None:
         ("     - ``1800``", "     - ``1700``"),
         ("Default ``7979``", "Default ``7980``"),
         ("``read`` (default)", "``read_write`` (default)"),
+        ("``var/agent_data`` by default", "``var/data`` by default"),
+        ("``nominal`` alone, which is the default", "``still`` alone, which is the default"),
     ],
 )
 def test_a_wrong_default_is_caught(right: str, wrong: str) -> None:
@@ -466,3 +495,10 @@ def test_the_axes_sentence_spells_no_row_count() -> None:
     assert _table_rows()
     words = "|".join(_NUMBER_WORDS)
     assert re.findall(rf"\b(?:{words}|\d+)\s+rows above\b", _page(), re.IGNORECASE) == []
+
+
+def test_every_section_key_and_stated_as_entry_is_used() -> None:
+    text = _prose(_page())
+    assert [heading for heading in _SECTION_KEYS if f"\n{heading}\n" not in text] == []
+    flat = " ".join(text.split())
+    assert [stated for _, stated in _STATED_AS if stated not in flat] == []
