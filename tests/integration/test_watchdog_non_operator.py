@@ -107,7 +107,9 @@ class _HttpStub:
                 pass
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        ).start()
 
     @property
     def port(self) -> int:

@@ -216,7 +216,9 @@ def otlp_json(request: Any) -> dict[str, Any]:
 def sink() -> Iterator[Sink]:
     collected = Sink()
     collected.server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(collected))
-    thread = threading.Thread(target=collected.server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=collected.server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield collected
