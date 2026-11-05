@@ -183,7 +183,7 @@ def _bindings(
         isinstance(over, list) and all(isinstance(k, str) for k in over) for _, over in digests
     ):
         return None
-    return states, digests  # type: ignore[return-value]
+    return states, digests
 
 
 def _recomputed(arguments: Mapping[str, Any], name: str, over: list[str]) -> str | Refusal:
