@@ -23,7 +23,10 @@
  * a bare `document.createElement('div')`.
  */
 
-import { test, expect, describe, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { test, expect, describe, afterEach, beforeEach, vi } from 'vitest';
 
 vi.mock('../../../src/osprey/interfaces/artifacts/static/js/preview-content.js', () => ({
   renderMarkdownView: vi.fn(),
@@ -42,7 +45,9 @@ vi.mock('/design-system/js/theme-manager.js', () => ({
 import {
   artifactViewportHtml,
   mountArtifactViewport,
+  setViewerImporter,
 } from '../../../src/osprey/interfaces/artifacts/static/js/artifact-viewport.js';
+import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import {
   renderMarkdownView,
   renderJsonView,
@@ -230,7 +235,7 @@ describe('artifactViewportHtml: per-type dispatch', () => {
 
   test.each([
     ['metadata.data_type', { metadata: { data_type: 'timeseries', data_file: 'x.parquet' } }],
-    ['archiver_data category', { category: 'archiver_data', data_file: 'y.parquet' }],
+    ['archiver_read tool_source', { tool_source: 'archiver_read', data_file: 'y.parquet' }],
   ])('timeseries by %s wins over the artifact_type switch', (_label, overrides) => {
     const container = document.createElement('div');
     // artifact_type would otherwise route to the <img> branch.
@@ -246,7 +251,7 @@ describe('artifactViewportHtml: per-type dispatch', () => {
       expect(html).not.toMatch(/\sid=/);
     }
     expect(
-      artifactViewportHtml(makeArtifact({ data_file: 'x.parquet', category: 'archiver_data' }))
+      artifactViewportHtml(makeArtifact({ data_file: 'x.parquet', tool_source: 'archiver_read' }))
     ).not.toMatch(/\sid=/);
   });
 });
@@ -271,7 +276,7 @@ describe('mountArtifactViewport: post-mount renderers', () => {
   });
 
   test('timeseries fires onTimeseriesNeeded with the ts container and the artifact', () => {
-    const artifact = makeArtifact({ category: 'archiver_data', data_file: 'y.parquet' });
+    const artifact = makeArtifact({ tool_source: 'archiver_read', data_file: 'y.parquet' });
     const onTimeseriesNeeded = vi.fn();
     const container = mount(artifact, onTimeseriesNeeded);
 
@@ -303,7 +308,7 @@ describe('mountArtifactViewport: post-mount renderers', () => {
   });
 
   test('onTimeseriesNeeded is optional — a caller that omits it does not throw', () => {
-    const artifact = makeArtifact({ category: 'archiver_data', data_file: 'y.parquet' });
+    const artifact = makeArtifact({ tool_source: 'archiver_read', data_file: 'y.parquet' });
     const container = document.createElement('div');
     container.innerHTML = artifactViewportHtml(artifact);
 
@@ -337,5 +342,186 @@ describe('mountArtifactViewport: container scoping', () => {
 
     firstPane.remove();
     secondPane.remove();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The viewer hook: an extension type's own ES module renders its artifacts
+// ---------------------------------------------------------------------------
+
+/** The shared /api/type-registry fixture: `beam_log` has a viewer, `orbit_fit` none. */
+const REGISTRY = JSON.parse(
+  readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/type-registry.json'),
+    'utf8'
+  )
+);
+
+/** @param {any} registry */
+async function loadRegistry(registry) {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ json: () => Promise.resolve(registry) }));
+  await initTypeRegistry();
+  vi.unstubAllGlobals();
+}
+
+/**
+ * Mount the way preview.js does: the viewport sits inside pane chrome the
+ * dispatch must never touch, and the container handed to mount is the pane.
+ * @param {any} artifact
+ */
+async function mountInPane(artifact) {
+  const pane = document.createElement('div');
+  pane.innerHTML = `<div class="pane-chrome">chrome</div><div class="preview-viewport">${artifactViewportHtml(artifact)}</div>`;
+  await mountArtifactViewport(pane, artifact, {});
+  return pane;
+}
+
+describe('the viewer hook', () => {
+  /** @type {import('vitest').Mock} */
+  let importer;
+  /** @type {import('vitest').MockInstance} */
+  let warn;
+
+  beforeEach(async () => {
+    await loadRegistry(REGISTRY);
+    importer = vi.fn();
+    setViewerImporter(importer);
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    setViewerImporter(null);
+    warn.mockRestore();
+    await loadRegistry({});
+    document.documentElement.style.removeProperty('--bg-primary');
+  });
+
+  const beamLog = () => makeArtifact({ kind: 'beam_log', artifact_type: 'table_html' });
+
+  test('the fixture declares beam_log with a viewer and orbit_fit without', () => {
+    const byKey = Object.fromEntries(REGISTRY.extension_types.map((e) => [e.key, e]));
+    expect(byKey.beam_log.viewer_url).toBeTruthy();
+    expect(byKey.orbit_fit.viewer_url).toBeNull();
+  });
+
+  test('render receives the container, the artifact and ctx {fileUrl, theme, tokens}', async () => {
+    themeState.current = 'retro-light';
+    document.documentElement.style.setProperty('--bg-primary', '#123456');
+    const render = vi.fn((/** @type {HTMLElement} */ el) => {
+      el.textContent = 'rendered by beam_log';
+    });
+    importer.mockResolvedValue({ render });
+    const artifact = beamLog();
+
+    const pane = await mountInPane(artifact);
+
+    expect(importer).toHaveBeenCalledTimes(1);
+    expect(importer).toHaveBeenCalledWith('/viewers/beam_log.js');
+    expect(render).toHaveBeenCalledTimes(1);
+    const [el, passed, ctx] = render.mock.calls[0];
+    expect(el).toBe(pane.querySelector('.ext-viewer-container'));
+    expect(passed).toBe(artifact);
+    expect(ctx.fileUrl).toBe('/files/a1/beam_profile.png');
+    expect(ctx.theme).toBe('retro-light');
+    expect(ctx.tokens['--bg-primary']).toBe('#123456');
+    expect(qs(pane, '.pane-chrome').textContent).toBe('chrome');
+    expect(qs(pane, '.ext-viewer-container').textContent).toBe('rendered by beam_log');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test('the key is URL-encoded into the import path', async () => {
+    await loadRegistry({
+      extension_types: [{ key: 'a b', label: 'AB', base_form: 'data', viewer_url: '/x' }],
+    });
+    importer.mockResolvedValue({ render: vi.fn() });
+    await mountInPane(makeArtifact({ kind: 'a b' }));
+    expect(importer).toHaveBeenCalledWith('/viewers/a%20b.js');
+  });
+
+  /** @type {[string, () => void][]} */
+  const failures = [
+    ['a rejected import', () => importer.mockRejectedValue(new Error('404'))],
+    ['a module without a render export', () => importer.mockResolvedValue({ default: () => {} })],
+    [
+      'a render that throws',
+      () =>
+        importer.mockResolvedValue({
+          render: () => {
+            throw new Error('boom');
+          },
+        }),
+    ],
+    [
+      'a render whose promise rejects',
+      () => importer.mockResolvedValue({ render: () => Promise.reject(new Error('late boom')) }),
+    ],
+  ];
+
+  test.each(failures)('%s falls back to the base dispatch and warns once', async (_name, arm) => {
+    arm();
+    const artifact = beamLog();
+
+    const pane = await mountInPane(artifact);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('beam_log');
+    // The base dispatch for a table_html: the opaque iframe, inside the
+    // viewport — the pane's chrome is untouched.
+    const iframe = qs(pane, '.ext-viewer-container iframe');
+    expect(iframe.getAttribute('src')).toBe('/files/a1/beam_profile.png');
+    expect(qs(pane, '.pane-chrome').textContent).toBe('chrome');
+  });
+
+  test('a fallback runs the base post-mount step too', async () => {
+    importer.mockRejectedValue(new Error('404'));
+    const artifact = makeArtifact({ kind: 'beam_log', artifact_type: 'markdown' });
+
+    const pane = await mountInPane(artifact);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(renderMarkdownView).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(renderMarkdownView).mock.calls[0][0]).toBe(
+      pane.querySelector('.ext-viewer-container .md-preview-container')
+    );
+  });
+
+  test('a kind without a viewer takes the base dispatch, no import', async () => {
+    const artifact = makeArtifact({ kind: 'orbit_fit', artifact_type: 'plot_png' });
+    expect(artifactViewportHtml(artifact)).toBe(artifactViewportHtml(makeArtifact()));
+    await mountInPane(artifact);
+    expect(importer).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test('an unregistered kind takes the base dispatch, no import', async () => {
+    const artifact = makeArtifact({ kind: 'no_such_type' });
+    expect(artifactViewportHtml(artifact)).toBe(artifactViewportHtml(makeArtifact()));
+    await mountInPane(artifact);
+    expect(importer).not.toHaveBeenCalled();
+  });
+
+  test('an artifact without a kind takes the base dispatch, no import', async () => {
+    const artifact = makeArtifact({ artifact_type: 'markdown' });
+    const pane = await mountInPane(artifact);
+    expect(importer).not.toHaveBeenCalled();
+    expect(pane.querySelector('.ext-viewer-container')).toBeNull();
+    expect(renderMarkdownView).toHaveBeenCalledTimes(1);
+  });
+
+  test('a viewer outranks the timeseries branch for its kind', async () => {
+    const render = vi.fn();
+    importer.mockResolvedValue({ render });
+    const onTimeseriesNeeded = vi.fn();
+    const artifact = makeArtifact({
+      kind: 'beam_log',
+      artifact_type: 'plot_html',
+      tool_source: 'archiver_read',
+      data_file: 'data.json',
+    });
+    const pane = document.createElement('div');
+    pane.innerHTML = artifactViewportHtml(artifact);
+    await mountArtifactViewport(pane, artifact, { onTimeseriesNeeded });
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(onTimeseriesNeeded).not.toHaveBeenCalled();
   });
 });
