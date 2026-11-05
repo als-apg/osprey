@@ -109,7 +109,7 @@ _FOLLOWER_HTML = """<!DOCTYPE html>
 def _create_follower_app() -> FastAPI:
     """A minimal real app mounting the real design-system static dir.
 
-    Stands in for a full embedded interface (artifacts/lattice/etc.) in flows
+    Stands in for a full embedded interface (artifacts, ARIEL, ...) in flows
     that only need a genuine ``initTheme({role: 'follower'})`` runtime behind
     the panel-manager proxy — not a full production UI.
     """
