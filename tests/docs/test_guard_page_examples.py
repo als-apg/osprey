@@ -21,9 +21,9 @@ number), then handed to the code that owns it:
   the hook twin.
 
 A page text that differs from the code it quotes is a finding, recorded in
-:data:`_STALE` with the owning code and the fix; the test passes while the
-entry still describes the page, and fails once the page is fixed so the entry
-goes too.
+:data:`_STALE` with the owning code and the fix. The test accepts the page with
+or without the stale text, so it passes before and after the fix lands; once it
+has, the entry can go.
 """
 
 from __future__ import annotations
@@ -32,23 +32,21 @@ import importlib
 import os
 import re
 import sys
-from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.cli import watchdog_cmd
-from osprey.cli.init_cmd import init
 from osprey.services.python_executor.analysis.safety_checks import check_readonly_imports
 from osprey.services.watchdog.config import INSTRUCTIONS_FILENAME, REFERENCES_DIRNAME
 from osprey.services.watchdog.definitions import load_profile_watchdogs
 from osprey.services.watchdog.history import build_session_view_from_nodes, rough_tokens
 from osprey_connectors.errors import BuildProfileError, raw_client_write_message
 from osprey_connectors.refusals import refusal_text
+from tests._builds import init_project
 from tests._by_path import load_module
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -62,13 +60,14 @@ EXECUTOR_PAGE = "architecture/python-executor.rst"
 CONNECTORS_PAGE = "reference/contracts/connectors.rst"
 
 #: Page text that differs from the code it quotes: (page, quoted text) -> what
-#: the code says and the fix. Each entry must still be on the page.
+#: the code says and the fix. The page may hold the text or not: the fix is in
+#: flight (#2416), and the test must pass on either side of it.
 _STALE: dict[tuple[str, str], str] = {
     (EXECUTOR_PAGE, "ctxt.put("): (
         "The 'Before the run' paragraph lists ``ctxt.put(`` among the spellings the "
         "approval hook denies, but osprey_approval.py _RAW_CLIENT_WRITE_SPELLINGS leaves "
         "the p4p put out on purpose (the runtime limits-checks it; the hook keeps the ask). "
-        "Fix: drop '``ctxt.put(``,' from that list."
+        "Fix (in #2416): drop '``ctxt.put(``,' from that list."
     ),
 }
 
@@ -84,18 +83,23 @@ def _page_text(page: str) -> str:
 
 
 def _block(page: str, language: str, needle: str):
-    """The one block on *page* in *language* whose text holds *needle*."""
+    """The one block on *page* in *language* whose text, or included path, holds *needle*."""
     found = [
         block
         for block in _scanner().scan_page(_page_text(page), page, _DOCS)
-        if block.language == language and needle in block.text
+        if block.language == language and (needle in block.text or needle in (block.include or ""))
     ]
     assert len(found) == 1, f"{page}: {len(found)} {language} blocks hold {needle!r}"
     return found[0]
 
 
 def _hook(name: str) -> ModuleType:
-    """A hook module, imported by dotted path; its ``sys.path`` shim is taken back out."""
+    """A hook module, imported by dotted path; its ``sys.path`` shim is taken back out.
+
+    The same import as ``tests/hooks/conftest.py:import_hook``, which ``tests/docs``
+    cannot reach (a conftest is not importable from another directory) and which
+    refuses ``osprey_target_state``, a hook it does not list.
+    """
     try:
         return importlib.import_module(f"{_HOOKS_PACKAGE}.{name}")
     finally:
@@ -103,9 +107,11 @@ def _hook(name: str) -> ModuleType:
         sys.path[:] = [entry for entry in sys.path if os.path.abspath(entry) != hooks_dir]
 
 
-def test_every_stale_entry_still_describes_its_page() -> None:
-    fixed = [key for key in _STALE if key[1] not in _page_text(key[0])]
-    assert fixed == [], f"page fixed; drop the _STALE entry: {fixed}"
+def test_every_stale_entry_is_still_absent_from_the_code() -> None:
+    hook = _hook("osprey_approval")
+    labels = {label for label, _pattern in hook._RAW_CLIENT_WRITE_SPELLINGS}
+    now_true = [key for key in _STALE if key[1] in labels]
+    assert now_true == [], f"the code now has it; drop the _STALE entry: {now_true}"
 
 
 # -- how-to/safety-watchdogs.rst ------------------------------------------------
@@ -240,21 +246,16 @@ def test_profile_tree_without_its_required_instructions_is_refused(tmp_path: Pat
 
 
 @pytest.fixture(scope="module")
-def control_assistant(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    repo = tmp_path_factory.mktemp("control-assistant") / "my-facility"
-    result = CliRunner().invoke(
-        init,
-        [str(repo), "--preset", "control-assistant", "--no-git"],
-        env={name: None for name in os.environ if name.endswith("_API_KEY")},
+def control_assistant(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return init_project(
+        tmp_path_factory.mktemp("control-assistant"), "control-assistant", "my-facility"
     )
-    assert result.exit_code == 0, result.output
-    yield repo
 
 
 def test_included_instructions_are_what_init_writes_and_the_loader_reads(
     control_assistant: Path,
 ) -> None:
-    block = _block(WATCHDOGS_PAGE, "literalinclude", "")
+    block = _block(WATCHDOGS_PAGE, "literalinclude", "guard-circumvention")
     assert block.include.endswith(f"guard-circumvention/{INSTRUCTIONS_FILENAME}")
     caption = re.search(
         rf"^\.\. literalinclude:: \S*/guard-circumvention/{INSTRUCTIONS_FILENAME}\n(?:\s+:.*\n)*?"
@@ -346,7 +347,9 @@ def test_hook_spellings_in_prose_are_the_hooks_own() -> None:
     hook = _hook("osprey_approval")
     stale = {text for page, text in _STALE if page == EXECUTOR_PAGE}
     labels = {label for label, _pattern in hook._RAW_CLIENT_WRITE_SPELLINGS}
-    assert _listed_hook_spellings() - stale == labels
+    listed = _listed_hook_spellings()
+    assert listed - stale == labels
+    assert listed <= labels | stale
 
 
 # -- the switch_off refusal, on the executor page and the connectors contract ---
