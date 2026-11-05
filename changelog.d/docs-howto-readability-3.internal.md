@@ -1,0 +1,1 @@
+The Phoebus bridge, control-target switch, plan-writing and first-plan how-to pages are reworded for reading: numbered steps for enabling the Phoebus server, going live and installing a facility plan library, a label column and term list for the three control targets, and long sentences split.
