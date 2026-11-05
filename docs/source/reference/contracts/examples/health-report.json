@@ -26,7 +26,7 @@
       "name": "archive_last_pass",
       "category": "archive",
       "status": "warning",
-      "message": "Archive unreadable: [Errno 13] Permission denied",
+      "message": "Archive unreadable: [Errno 13] Permission denied: '/srv/osprey/my-agent/var/archive/2026-10-31/MANIFEST.jsonl'",
       "details": "Check the archive container with `osprey logs archive`."
     },
     {

@@ -111,7 +111,8 @@ _JQ_EXPECTED: dict[str, tuple[str, int]] = {
     ".errors == 0": ("false\n", 1),
     '.results[] | select(.status == "error" or .status == "warning") '
     '| "\\(.status)\\t\\(.category)/\\(.name)\\t\\(.message)"': (
-        "warning\tarchive/archive_last_pass\tArchive unreadable: [Errno 13] Permission denied\n"
+        "warning\tarchive/archive_last_pass\tArchive unreadable: [Errno 13] Permission denied: "
+        "'/srv/osprey/my-agent/var/archive/2026-10-31/MANIFEST.jsonl'\n"
         "error\tconfiguration/config_file_exists\t"
         "config.yml not found at /srv/osprey/my-agent/config.yml\n",
         0,
@@ -172,6 +173,11 @@ def test_channel_database_passes_channel_finder_validate(name: str, pipeline: st
     )
     assert code == 0, output.getvalue()
     assert "No issues found" in output.getvalue(), output.getvalue()
+
+
+def test_in_context_example_count_is_its_row_count() -> None:
+    document = _example("channel-finder-in-context.json")
+    assert document["count"] == len(document["channels"])
 
 
 def test_hierarchical_example_holds_the_channels_the_page_names() -> None:
