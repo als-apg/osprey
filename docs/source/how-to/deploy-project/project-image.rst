@@ -242,8 +242,8 @@ TLS-Intercepting Proxies
 Some proxies do more than relay: they terminate every HTTPS connection and
 re-sign it with the site's own CA (Squid is a common example).
 
-**Why the build fails.** Delivering the proxy values as above is then not
-enough. Every fetch inside the build (apt, npm, pip, the optional
+**Why the build fails.** With such a proxy, delivering the proxy values as
+above is not enough. Every fetch inside the build (apt, npm, pip, the optional
 ``osprey vendor fetch``) fails cert verification, because nothing in the image
 trusts that CA yet.
 
@@ -364,8 +364,9 @@ read-only mount, on a network that cannot reach the model host.
 
 To stage the files:
 
-#. Copy them from a machine that can reach ``huggingface.co``, or from the
-   model cache of one that has already built the sidecar image.
+#. Copy them into the ``models_dir`` directory from a machine that can reach
+   ``huggingface.co``, or from the model cache of one that has already built
+   the sidecar image.
 #. Rename them to the names above.
 #. Check them before setting the key:
 
@@ -427,8 +428,8 @@ The Privilege Split
 
 The agent never runs as root:
 
-- **the agent CLI refuses to run in bypassPermissions mode as root**, and
-- running it there would in any case put the whole project within its own
+- **The agent CLI refuses to run in bypassPermissions mode as root.**
+- Running it there would in any case put the whole project within its own
   reach.
 
 The image satisfies that in a way that still lets the container fix itself at
@@ -476,8 +477,8 @@ its own uid. Before it serves anything, ``osprey web`` does two things:
 - On Linux, it marks itself non-dumpable.
 
 Its exec-time environment and memory are then closed to the agent and
-everything the agent runs. The panel token is not among them: the agent's own
-panel tooling is handed it by design. The dispatch worker does the same with
+everything the agent runs. The panel token is not one of those credentials:
+the agent's own panel tooling is handed it by design. The dispatch worker does the same with
 its bearer. The approval prompt the operator answers at the terminal therefore
 records that a person intended a write. What contains agent code is the
 connector's checks and the container, as :doc:`/architecture/safety-chain`
