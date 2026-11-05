@@ -14,8 +14,7 @@ deployment can share the host without being renumbered service by service:
 
    # profile.yml
    config:
-     deployment:
-       port_base: 20000
+     deployment.port_base: 20000
 
 With that base the web terminal answers on ``20100`` instead of ``10100``, the
 database on ``20800`` instead of ``10800``, and so on for every row of the
@@ -144,8 +143,11 @@ band, and moves with the base like everything else.
 The keys
 ========
 
-All three are set in ``profile.yml``, but not at the same level of it, and a
-key written at the wrong level is simply not read.
+Each is set in ``profile.yml``, but not at the same level of it. A key
+misplaced at the top level is refused; one misplaced under ``config:`` is
+accepted and not read. Write a ``config:`` key dotted, one per
+line: a nested ``deployment:`` mapping replaces the whole ``deployment``
+subtree (see :ref:`reference-profile`).
 
 .. list-table::
    :header-rows: 1
@@ -160,6 +162,11 @@ key written at the wrong level is simply not read.
      - Under ``config:``
      - The first port of the deployment's block. Everything in the table above
        is this number plus an offset.
+   * - ``port_base``
+     - --
+     - Top level
+     - Shorthand for ``deployment.port_base``, and wins over it when both are
+       set.
    * - ``worker_port_stride``
      - ``1``
      - Top-level ``dispatch:``
@@ -175,13 +182,12 @@ key written at the wrong level is simply not read.
 .. code-block:: yaml
 
    # profile.yml
+   port_base: 20000
+
    dispatch:
+     triggers: my_triggers.yml
      network: host
      worker_port_stride: 10
-
-   config:
-     deployment:
-       port_base: 20000
 
 A base below ``1024`` is refused: those ports are privileged, and the
 deployment could not bind its own block without running as root. A base whose

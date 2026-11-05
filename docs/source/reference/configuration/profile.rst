@@ -48,6 +48,14 @@ Profile YAML reference
        tree, so a profile that names none is refused. May resolve outside the
        profile directory; only existence and shape are checked
        (see :ref:`profile-self-contained`).
+   * - ``extends``
+     - string
+     - ``None``
+     - A bundled preset name, or a path relative to this file, to inherit from.
+       The parent is deep-merged under this file, recursively; a cycle is
+       refused. A tier or app file may not spell it, and an override that would
+       give a materialized profile a parent is refused (see
+       :doc:`/how-to/build-profiles`).
    * - ``provider``
      - string
      - *required*
@@ -76,6 +84,14 @@ Profile YAML reference
        spellings on one command line is an error rather than a silent
        last-one-wins; a custom connector is still addressed by its dotted
        module path under ``config``.
+   * - ``port_base``
+     - integer
+     - absent
+     - Shorthand for ``config: {deployment.port_base: ...}``, the first port of
+       the deployment's thousand-port block (see :ref:`reference-ports`). It
+       must be an integer the port layout accepts. When ``config:`` also sets
+       ``deployment.port_base``, dotted or nested, even in a child profile,
+       this value wins without a warning.
    * - ``web_panels``
      - list
      - ``[]``
@@ -96,6 +112,14 @@ Profile YAML reference
        ``{split: row|column, items: [...]}``, never naming the terminal. The
        ``label: [ids]`` list form fails the build with the layout to write.
        Renders ``web.presets``.
+   * - ``claude_md_template``
+     - string
+     - ``CLAUDE.md.j2``
+     - The bundled ``templates/claude_code/`` template rendered as the
+       project's ``CLAUDE.md``, for a preset that ships an alternate render. A
+       name that is not a bundled render is refused. The project copy is the
+       build's, so a hand-written ``CLAUDE.md`` in the ``project/`` mirror is
+       refused.
    * - ``config``
      - mapping
      - ``{}``
@@ -117,11 +141,28 @@ Profile YAML reference
    * - ``mcp_servers``
      - mapping
      - ``{}``
-     - MCP server definitions to inject.
+     - MCP server definitions to inject (see :ref:`profile-mcp-servers`).
    * - ``services``
      - mapping
      - ``{}``
      - Container services the deployment runs (see :ref:`profile-services`).
+   * - ``deploy_services``
+     - boolean
+     - ``true``
+     - ``false`` marks an attached project: one that uses a services stack
+       another OSPREY project on the same host deploys. Its service sections
+       are still parsed and validated, but the build scaffolds no
+       ``services/`` directory and writes no ``services.*`` blocks.
+   * - ``deploy``
+     - mapping
+     - absent
+     - Where the project is built, pushed and run: ``ci``, ``host``,
+       ``registry``, ``image_source``, ``ci_image_prefix`` and
+       ``external_projects``. ``osprey scaffold ci`` renders the CI files from
+       it. When the profile configures web terminals, the build also writes
+       its image source, and its registry URL when ``config:`` names none, into
+       the rendered config the web-terminal stack reads (see
+       :doc:`/how-to/deploy-a-facility`).
    * - ``virtual_accelerator``
      - mapping
      - absent
@@ -134,6 +175,53 @@ Profile YAML reference
      - Declares a stored archive for a simulated machine: a MongoDB store and a
        recorder the deploy stands up, seeds and records into
        (see :ref:`profile-va-archiver`).
+   * - ``dispatch``
+     - mapping
+     - absent
+     - Deploys the event dispatcher and its workers
+       (see :ref:`profile-dispatch-block`).
+   * - ``bluesky``
+     - mapping
+     - absent
+     - Deploys the Bluesky stack (see :ref:`profile-bluesky`).
+   * - ``bluesky_web``
+     - mapping
+     - absent
+     - Deploys the ``bluesky-web`` sidecar that serves the ``plan``,
+       ``results`` and ``health`` panels. Its one key, ``port``, defaults to
+       the port layout's ``bluesky_web`` slot (see :ref:`reference-ports`).
+   * - ``optimizer``
+     - mapping
+     - absent
+     - Deploys the optimizer service and its Redis job store
+       (see :ref:`profile-optimizer`).
+   * - ``nextcloud_bridge`` / ``gchat_bridge`` / ``teams_bridge``
+     - mapping
+     - absent
+     - Deploys one chat bridge, which hands messages to the event dispatcher,
+       so it needs a ``dispatch:`` block. Keys: ``trigger``, a trigger the
+       ``dispatch.triggers`` file declares (default ``nextcloud-question``,
+       ``gchat-question`` or ``teams-question``), and ``mentions`` (default
+       ``true``). Credentials are runtime variables, never profile keys (see
+       :ref:`how-to-chat-bridges`).
+   * - ``artifact_server``
+     - mapping
+     - ``{}``
+     - Overrides merged into the rendered ``artifact_server`` block of
+       ``config.yml``: ``host``, ``port``, ``auto_launch`` and ``categories``
+       (see :ref:`config-artifact-server`).
+   * - ``agent_record``
+     - mapping
+     - embedded backend
+     - Where the deployment's agent record is kept, how long, and who reads it.
+       Written into the rendered ``config.yml`` under ``agent_record`` (see
+       :doc:`/how-to/health-and-monitoring/agent-record`).
+   * - ``watchdogs``
+     - mapping
+     - ``{}``
+     - The deployment's watchdogs, by name; each one's files live in
+       ``watchdogs/<name>/`` beside the profile
+       (see :ref:`profile-watchdogs-block`).
    * - ``lifecycle``
      - mapping
      - ``{}``
@@ -565,6 +653,65 @@ preserved for the container or shell to resolve at runtime.
 **Permission wiring:** for a server named ``my_server`` with
 ``allow: ["safe_tool"]``, the build adds ``mcp__my_server__safe_tool`` to the
 allow list.
+
+Each entry under ``mcp_servers:`` takes these keys:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 12 70
+
+   * - Key
+     - Default
+     - Meaning
+   * - ``command``
+     - ``""``
+     - The executable that launches a stdio server. Excludes ``url`` and
+       ``port``; a server needs ``command`` or ``url`` (or ``port``).
+   * - ``args``
+     - ``[]``
+     - Arguments passed to ``command``.
+   * - ``env``
+     - ``{}``
+     - For a ``command`` server, variables set in the server's environment.
+       The placeholders above resolve in the values.
+   * - ``permissions``
+     - ``{}``
+     - ``allow`` and ``ask`` lists of the server's tool names. The build adds
+       ``mcp__<server>__<tool>`` to the matching permission list.
+   * - ``url``
+     - absent
+     - The address of a remote server. Excludes ``command``.
+   * - ``transport``
+     - ``http``
+     - ``http`` or ``sse``, for a ``url`` server only. A ``command`` server that
+       sets it is refused.
+   * - ``port``
+     - absent
+     - The one port an HTTP server publishes, an integer in 1--65535. With no
+       ``url``, it derives ``http://localhost:<port>/mcp``. Excludes
+       ``command``, and cannot stand in for an ``sse`` server's ``url``.
+   * - ``hooks``
+     - ``{}``
+     - ``{pre_tool_use: [<preset>, ...]}``: hook presets (``approval``,
+       ``writes_check``, ``limits``) attached to every tool of the server.
+       ``pre_tool_use`` is the only event; any other is refused, as is a value
+       that is not a list of names. An unknown preset name, and
+       ``writes_check`` on a whole server (declare ``writes`` instead), are
+       read with a warning that names the release that refuses them.
+   * - ``writes``
+     - absent
+     - The server's write tools, as bare names: no ``mcp__`` prefix, no
+       wildcard or pattern, each listed once. The build gates each one with the
+       writes-check and approval hooks. An unlisted tool is gated the same way
+       when it is in ``permissions.ask``, or in ``permissions.allow`` with a
+       destructive marker in its name. ``[]`` declares that no tool writes;
+       absent leaves gating to the server's ``hooks`` and ``permissions``.
+       A list beside the ``writes_check`` preset is refused. The build never
+       asks the server for its tool list, so a name it does not serve is not
+       caught.
+
+A key the entry does not define is ignored with a warning that names the release
+from which it is refused.
 
 Shipping the server's code
 --------------------------
@@ -1454,6 +1601,8 @@ message, along with the ``inherit_exclude`` block that clears all of them.
 
 
 
+.. _profile-bluesky:
+
 bluesky
 =======
 
@@ -1527,6 +1676,8 @@ build** and prints the valid set:
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for
 what the stack looks like when it is up.
+
+.. _profile-optimizer:
 
 optimizer
 =========
