@@ -95,6 +95,12 @@ deployment, which is why none of them is a config key.
        per-user container so the reverse proxy stays the only path in from off
        the host; a single-user ``osprey web`` sets nothing and ``--host`` is
        honoured as given.
+   * - ``OSPREY_PROFILE_VARIANT``
+     - The overlay profile a build of this checkout merges over
+       ``profile.yml``: ``profiles/<name>.yml``. Read only from the
+       gitignored ``.env.variant`` file at the repository root, never from the
+       shell environment or the ``.env`` chain. See
+       :ref:`profile-host-variants`.
 
 ``OSPREY_SITE_CA`` and the ``PIP_*`` names are host-level knobs and Docker
 **build arguments** at once: the Dockerfiles in
@@ -103,6 +109,29 @@ deployment, which is why none of them is a config key.
 ``images.*`` key behind it. One spelling for one setting, whether the build is
 managed or a hand-run ``docker build``. What they configure is the build — a
 container that is already running reads nothing from them.
+
+The archive pass
+================
+
+``osprey archive`` (:doc:`/reference/cli`) reads three of its options from a
+variable when the flag is not given. The archive service's compose file sets
+all three for its container.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``OSPREY_ARCHIVE_SOURCES``
+     - The sources tree, ``<sources>/<kind>/<name>/...``. Stands in for
+       ``--sources``.
+   * - ``OSPREY_ARCHIVE_DEST``
+     - The existing archive root the day directories are written into. Stands
+       in for ``--dest``.
+   * - ``OSPREY_ARCHIVE_INTERVAL_SECONDS``
+     - Seconds between passes under ``--watch``, at least ``60``, default
+       ``86400``. Stands in for ``--interval``.
 
 CANOPY payload
 ==============
