@@ -87,12 +87,12 @@ What ``osprey init`` writes
 
    my-facility/
      profile.yml     the full configuration — edit freely
-     providers.yml   every model provider the profile's provider: can name
+     providers.yml   the catalog of model providers profile.yml selects from
      data/           the facility tree (data/facility/) and the agent's other data
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
      .env            your values and secrets (when your shell had keys to seed, or the profile declares env.defaults)
-     .env.lock       the lock file beside .env; it comes and goes with .env
+     .env.lock       keeps two writers from editing .env at once; leave it be
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
      tiers/          one delta per web-terminal access level (multi-user presets only)
@@ -1073,9 +1073,9 @@ What the build does
    working directory, or the one under ``--repo``) and read it.
 2. Resolve and validate the profile, including any tier merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
-4. Start the new render in ``build/.tmp``. The previous ``build/``, apart from
-   its venv, stays as it was until the render succeeds, and only then is it
-   replaced.
+4. Start the new render in ``build/.tmp``. Until it succeeds, the previous
+   ``build/`` (apart from its venv) stays as it was, so a failed build leaves
+   the last good one in place.
 5. Run ``pre_build`` commands.
 6. Create the project venv and install OSPREY plus the profile's dependencies.
 7. Render the base template and the profile's ``data/`` tree. No env file is
@@ -1136,7 +1136,7 @@ OSPREY … is … — it has moved on since"** — a note, not an error. The pre
 profile came from has changed in the OSPREY release you run. Your deployment
 does not change with it, because the profile inherits nothing. To see what
 moved, diff a fresh ``osprey init`` against your profile, as shown under
-*Preset → Profile → Build* at the top of this page.
+*Preset → Profile → Build* above.
 
 **"Profile convention directories are invalid"** — a convention directory has
 the wrong shape: a ``.md`` directory holding something else, a skill that is a
