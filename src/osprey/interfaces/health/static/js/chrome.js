@@ -10,13 +10,16 @@
  *   its worst-status dot and its passed/total count.
  * - The tile ⋯ "This panel" entries (one protocol-v3 `menu` contribution):
  *   Expand all details, Copy summary, Copy on-demand CLI commands. The
- *   panel contributes nothing else to the hub's tile bar.
+ *   panel contributes nothing else to the hub's tile bar. A standalone or
+ *   popped-out page has no tile bar, so there the toolbar ends in its own ⋯
+ *   that lists the same entries and runs the same handlers.
  *
  * This module builds and updates that chrome and the clipboard texts; the
  * dashboard (dashboard.js) owns the data and decides what each action does.
  * Status colours stay CSS classes (`dot s-ok` …), never inline colours.
  */
 
+import { openContextMenu } from '/design-system/js/context-menu.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { icon } from '/design-system/js/icons.js';
 import { writeTitle } from '/design-system/js/tooltip.js';
@@ -192,7 +195,7 @@ export function renderCategories(list, groups, selected, onSelect) {
  * The "This panel" entries for the current state.
  *
  * @param {MenuState} state
- * @returns {Array<{id: string, label: string, disabled?: boolean}>}
+ * @returns {MenuEntry[]}
  */
 export function menuItems({ hasData, hasDetails, allOpen, hasCli }) {
   return [
@@ -206,8 +209,22 @@ export function menuItems({ hasData, hasDetails, allOpen, hasCli }) {
   ];
 }
 
+/**
+ * @typedef {{id: string, label: string, checked?: boolean, disabled?: boolean,
+ *   danger?: boolean, separator?: boolean}} MenuEntry
+ */
+
 /** @type {string | null} */
 let lastMenu = null;
+/** The entries of the last contribution: what the standalone ⋯ lists. */
+let currentEntries = menuItems({
+  hasData: false,
+  hasDetails: false,
+  allOpen: false,
+  hasCli: false,
+});
+/** @type {Partial<Record<string, () => void>>} */
+let entryHandlers = {};
 
 /**
  * Send the panel's whole contribution: the one `menu`. A contribution equal
@@ -216,24 +233,85 @@ let lastMenu = null;
  * @param {MenuState} state
  */
 export function contributeMenu(state) {
-  const items = [{ kind: /** @type {'menu'} */ ('menu'), id: MENU_ID, items: menuItems(state) }];
+  currentEntries = menuItems(state);
+  const items = [{ kind: /** @type {'menu'} */ ('menu'), id: MENU_ID, items: currentEntries }];
   const wire = JSON.stringify(items);
   if (wire === lastMenu) return;
   lastMenu = wire;
   contributeHeader(items);
 }
 
+/** @param {string} entryId */
+function runEntry(entryId) {
+  const handler = entryHandlers[entryId];
+  if (handler) handler();
+}
+
 /**
- * Route the hub's menu-entry clicks to `handlers[entryId]`.
+ * Route the menu-entry clicks, from the hub's tile ⋯ or the standalone ⋯,
+ * to `handlers[entryId]`.
  *
  * @param {Partial<Record<string, () => void>>} handlers keyed by MENU_ENTRY values
  */
 export function onMenuAction(handlers) {
+  entryHandlers = handlers;
   onHeaderAction((id, value) => {
     if (id !== MENU_ID || !value) return;
-    const handler = handlers[value];
-    if (handler) handler();
+    runEntry(value);
   });
+}
+
+/**
+ * The context-menu rows for the menu entries: the same labels and states,
+ * with a divider before an entry that asks for a separator.
+ *
+ * @param {MenuEntry[]} entries
+ * @returns {import('/design-system/js/context-menu.js').MenuItem[]}
+ */
+export function contextItems(entries) {
+  return entries.flatMap((entry) => {
+    const row = {
+      label: entry.label,
+      checked: entry.checked,
+      disabled: entry.disabled,
+      danger: entry.danger,
+      run: () => runEntry(entry.id),
+    };
+    return entry.separator ? [{ divider: true }, row] : [row];
+  });
+}
+
+/**
+ * On a standalone or popped-out page (no hub tile bar), append the panel's
+ * own ⋯ to `host`, the toolbar's end. Embedded in the hub it adds nothing:
+ * a tile has one ⋯, the hub's.
+ *
+ * @param {HTMLElement} host
+ * @returns {HTMLElement | null} the button, or null when embedded
+ */
+export function initStandaloneMenu(host) {
+  if (document.body.classList.contains('embedded')) return null;
+  const button = el('button', {
+    type: 'button',
+    class: 'osprey-icon-btn',
+    title: 'Panel menu',
+    'aria-label': 'Panel menu',
+    'aria-haspopup': 'menu',
+  });
+  button.appendChild(icon('more'));
+  button.addEventListener('click', () => {
+    const rect = button.getBoundingClientRect();
+    openContextMenu({
+      x: rect.right,
+      y: rect.bottom,
+      anchorEl: button,
+      triggerEl: button,
+      ariaLabel: 'Panel menu',
+      items: contextItems(currentEntries),
+    });
+  });
+  host.appendChild(button);
+  return button;
 }
 
 // -- clipboard texts -------------------------------------------------------------

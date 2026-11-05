@@ -395,6 +395,33 @@ describe('dashboard', () => {
     expect(writeText).toHaveBeenLastCalledWith('osprey health --full --category model_chat');
   });
 
+  test('embedded in the hub, the panel adds no ⋯ of its own', async () => {
+    await boot();
+    expect(document.querySelector('[aria-label="Panel menu"]')).toBeNull();
+  });
+
+  test('standalone, the toolbar ends in a ⋯ that runs the same entries', async () => {
+    document.body.classList.remove('embedded');
+    await boot();
+    const more = /** @type {HTMLElement} */ (
+      document.querySelector('.osprey-panel-toolbar__end > [aria-label="Panel menu"]')
+    );
+    expect(more).not.toBeNull();
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    expect(more.parentElement?.lastElementChild).toBe(more);
+
+    more.click();
+    const rows = Array.from(document.querySelectorAll('.osprey-context-menu [role^="menuitem"]'));
+    expect(rows.map((r) => r.textContent?.trim())).toEqual([
+      'Expand all details',
+      'Copy summary',
+      'Copy on-demand CLI commands',
+    ]);
+    /** @type {HTMLElement} */ (rows[1]).click();
+    await flush();
+    expect(writeText).toHaveBeenLastCalledWith(expect.stringContaining(ENVELOPE.summary));
+  });
+
   test('the Scan now tooltip counts down to the next automatic scan', async () => {
     await boot();
     const button = byId('scan-now');

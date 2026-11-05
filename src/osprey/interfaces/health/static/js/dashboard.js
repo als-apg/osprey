@@ -40,6 +40,7 @@ import {
   countsText,
   initFilter,
   initScanButton,
+  initStandaloneMenu,
   onMenuAction,
   renderCategories,
   summaryText,
@@ -421,7 +422,7 @@ function renderWarming() {
 /** @param {string} message */
 function renderError(message) {
   const root = showState({
-    icon: 'info',
+    icon: 'triangle-alert',
     message: 'Cannot reach the health checks',
     action: { label: 'Retry', onClick: doRefresh },
   });
@@ -586,6 +587,8 @@ onMenuAction({
     if (data && !data.warming) copyText(cliCommands(groupsOf(data)));
   },
 });
+// Standalone or popped out (no tile bar): the toolbar ends in the panel's own ⋯.
+initStandaloneMenu(/** @type {HTMLElement} */ (must('scan-now').parentElement));
 
 showState({ icon: 'refresh', message: 'Scanning…' });
 syncMenu();
