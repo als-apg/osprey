@@ -295,10 +295,10 @@ Pick a control system
    .. tab-item:: Your own
       :sync: custom
 
-      LabVIEW, MOAT, or any other stack OSPREY does not ship a
-      connector for: write a custom connector against the same interface and
-      register it with ``ConnectorFactory``. It then selects by name exactly
-      like the in-tree ones. The seam -- the class to subclass, the pinning
+      Any other stack OSPREY does not ship a connector for: write a custom
+      connector against the same interface and register it with
+      ``ConnectorFactory``. It then selects by name exactly like the in-tree
+      ones. The seam -- the class to subclass, the pinning
       test, and how registration works -- is documented in
       :doc:`/contributing/extending-osprey`.
 
