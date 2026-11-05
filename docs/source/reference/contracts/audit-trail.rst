@@ -13,9 +13,9 @@ trail has two halves: the record, which keeps every entry for
 for good, exported as ``var/archive/<day>/agent_record/entries.parquet``
 (:doc:`/how-to/health-and-monitoring/agent-record`). This page is the shape of
 that trail --- which surface files a decision, what each field holds, who can
-read it, and what the trail does not promise. For the policy that produces most of the
-refusals, see :ref:`the protected set <config-protected-set>`. For the
-per-target write posture that refuses control-system writes see
+read it, and what the trail does not promise. For the policy that produces
+most of the refusals, see :ref:`the protected set <config-protected-set>`. For
+the per-target write posture that refuses control-system writes see
 :ref:`web-terminal-session-posture`.
 
 Both halves are durable by construction: ``osprey build`` re-renders
@@ -29,8 +29,8 @@ record and ``var/archive``. ``osprey reset --purge-audit`` removes:
 - the record's exports in the archive (``var/archive/<day>/agent_record/``)
 
 It also appends an ``agent_record_purged`` line to each of those days'
-manifests. It keeps the rest of ``var/archive``: the artifact and Bluesky copies and the manifests
-themselves.
+manifests. It keeps the rest of ``var/archive``: the artifact and Bluesky
+copies and the manifests themselves.
 
 .. _audit-trail-files:
 
@@ -115,9 +115,8 @@ refusal never share one.
 - ``approved``: the harness reported that the call ran.
 - ``denied``: the turn ended without it --- declined or interrupted.
 
-A write the
-switch's *allowed* position let run has no ``ask``: its ``approved`` names
-``approver=write_switch`` in ``detail``.
+A write the switch's *allowed* position let run has no ``ask``: its
+``approved`` names ``approver=write_switch`` in ``detail``.
 ``safety_watchdog`` has its own too: ``flagged``, ``clear``, ``unavailable``,
 ``stop``, ``continue`` and ``stop_unconfirmed``.
 
@@ -273,10 +272,10 @@ the account is a name a container can compare itself against.
 
 A deployment that pins an older login-service image with ``auth.image`` gets no
 account header. The container then falls back to comparing the subject, as it
-did before this release. Usually the mapped subject is not the roster name but an
-opaque ``sub`` or an email. Where it is not, it never matches, so
-``expected_account=`` and a warning ride every audited request. Building against
-this release's image is what clears it.
+did before this release. Usually the mapped subject is not the roster name
+but an opaque ``sub`` or an email. Wherever it is not the roster name, it never
+matches, so ``expected_account=`` and a warning ride every audited request.
+Building against this release's image is what clears it.
 
 .. _audit-trail-attribution:
 
@@ -441,9 +440,9 @@ The tool-call record
 The default records hold identifiers and, except on the two surfaces in
 :ref:`audit-trail-payloads`, never values. Beside them, every
 osprey MCP server files one ``audit`` entry on the ``tool_call`` surface for
-each call that ran against something worth naming. That is a control target, an
-approval, or facts the tool noted while it ran. There is no switch; it is
-always written.
+each call that ran against something worth naming. Something worth naming is
+a control target, an approval, or facts the tool noted while it ran. There is
+no switch; it is always written.
 
 It carries no arguments and no result: the agent's transcript, which the record
 holds too, has both once, joined by ``tool_use_id``. Nor does it repeat the
@@ -566,21 +565,22 @@ the host's administrator included. Nothing in a later read would show
 that they had. It is an operational record of what the deployment
 decided, which is what answers "what happened here". If you need something that
 holds against someone with write access, ship the archive's day files off the
-host as they are written. Ship them to a collector the deployment cannot reach
+host as they are written. Send them to a collector the deployment cannot reach
 back into.
 
 **The record keeps it for a window; the archive keeps it for good.** The
 record removes whole arrival days past ``agent_record.retention_days``. It
-removes only the days the archive already holds, so no entry leaves the record before
-it has a lasting copy. Nothing in OSPREY deletes the archive's exports except
-``osprey reset --purge-audit``, which marks each day it purged in that day's
+removes only the days the archive already holds, so no entry leaves the record
+before it has a lasting copy. Nothing in OSPREY deletes the archive's exports
+except ``osprey reset --purge-audit``, which marks each day it purged in that day's
 manifest.
 
 **Two surfaces carry a payload:** ``executor`` and ``canopy``. Every other
 default record holds identifiers and config keys only: a surface name, a
 username, a tool name, a dotted key, a short reason. It never holds a config
-value, a prompt, or an agent message. A record of a write that does not say what the
-write *was* is an alert, not an audit trail, so there are two exceptions:
+value, a prompt, or an agent message. A record of a write that does not say
+what the write *was* is an alert, not an audit trail, so there are two
+exceptions:
 
 - **The Python executor.** A refused run records the code it refused, whole, in
   a ``source`` field (8000 characters, with ``source_truncated: true`` where a
