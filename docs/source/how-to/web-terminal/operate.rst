@@ -60,9 +60,9 @@ The window has a sidebar on the left and two panes:
   Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
-  plots, and data files appear in
-  the sidebar's **Artifacts** list as the agent creates them, with no refresh.
-  On a fresh deployment the list is not empty: the control-assistant preset
+  plots, and data files appear under their session in the sidebar
+  (`Sessions and artifacts`_) as the agent creates them, with no refresh.
+  On a fresh deployment the tree is not empty: the control-assistant preset
   ships one interactive example plot (synthetic data). It is there for you,
   not the agent, which never lists or cites it. Delete it when you no longer
   want it; it does not come back. It is switched on by
@@ -466,13 +466,11 @@ The sidebar is on the left. From top to bottom, it shows:
 
   - **Workspace** starts with these rows:
 
-    - **Agent** opens the agent pane, or moves the focus to it. When the pane
+    - **Agent** opens the agent pane, or moves the focus to it, and opens
+      your session tree below it (`Sessions and artifacts`_). When the pane
       is closed, the row shows a hollow dot. When the agent waits for your
       answer, the row shows the number of open questions. **Agent** is always
       the first row of the first group.
-    - **Artifacts** opens the work pane and lists the artifacts of the agent.
-      Click a row to show that artifact in the work pane.
-    - **Script runs** lists the run records. It is always below **Artifacts**.
     - **Events** shows only when the deployment enables the events panel.
 
   - **Tools** starts with all other panels that this deployment enables.
@@ -483,9 +481,43 @@ The sidebar is on the left. From top to bottom, it shows:
   out** shows only on a multi-user deployment. See
   :ref:`web-terminal-sign-out`.
 
-When the window is short, only the group that holds **Artifacts** and
-**Script runs** scrolls. The other groups and the footer always stay on the
-screen.
+When the window is short, only the group that holds the session tree
+scrolls. The other groups and the footer always stay on the screen.
+
+.. _web-terminal-sessions:
+
+Sessions and artifacts
+~~~~~~~~~~~~~~~~~~~~~~
+
+The **Agent** row's ▾ opens your sessions, newest first. A session is named
+from your first prompt ("naming…" until the name arrives); ``/clear`` starts a
+new one. Under a session, its artifacts are grouped by kind: **Runs**,
+**Plots**, **Trends**, **Tables**, **Documents**, **Dashboards**, **Images**,
+**Data**, plus any kind the deployment registers. A script run is one row with
+a dot for **succeeded**, **failed** or **not run** (none while it runs); its
+approval preview, code and outputs are its parts. A run that was never run
+opens on its proposed code. **Earlier** holds your artifacts that have no
+session; **More sessions** loads older ones.
+
+- Click a session name to switch to it: the Agent pane opens on it and shows
+  the artifact last open there (its newest if none). ▸ only browses.
+- Click an artifact to show it. This never changes the session.
+- The title in the agent tile's header has its own ▾ switcher: your sessions
+  with state, age and message count, and **+ New session**.
+- While the agent is answering in chat, a switch from any of these asks
+  first: **Cancel**, or **Stop & switch**.
+
+Right-click a session to rename it, export its transcript or group its
+artifacts by day (**Group by Activity**); a run to open its result, approval
+preview or code; an artifact to pin it. Runs and artifacts also have
+**Delete…**.
+
+A reload, a new tab or another device resumes your last session. Its
+last-open artifact is shown in the Artifacts panel if that panel is docked,
+otherwise highlighted in the tree; the layout does not change. The command
+palette finds your sessions and artifacts (by name, kind, or session name);
+opening a result enters its session. The Artifacts panel has no sidebar row;
+open it from the palette.
 
 .. _web-terminal-sidebar-groups:
 
@@ -513,9 +545,8 @@ To move a row to a different group, do one of these:
   group. Then type the name of the new group.
 - Drag the row into the other group. Release it where it must go.
 
-You can move each row except **Agent**. **Script runs** moves with
-**Artifacts**. A group without rows shows "No panels — move one here from a
-row's menu".
+You can move each row except **Agent**. A group without rows shows "No
+panels — move one here from a row's menu".
 
 Your groups are kept in this browser, for your user only. They do not change
 the sidebar of other users.
@@ -525,8 +556,8 @@ Hide the labels
 
 To hide the labels, click the toggle at the top of the sidebar, or press ⌘\\
 (Ctrl+\\ on other systems). The sidebar then shows only icons. Put the pointer
-on an icon to see its name. In this state, a click on **Artifacts** opens the
-artifact list next to the sidebar. To show the labels again, click the toggle
+on an icon to see its name. In this state, a click on **Agent** opens the
+session tree next to the sidebar. To show the labels again, click the toggle
 or press the same keys.
 
 .. note::
@@ -541,8 +572,8 @@ Pop a pane out
 ~~~~~~~~~~~~~~
 
 You can move a panel out of the workspace into its own browser window. This
-works for each service panel, Artifacts included. The agent pane stays in the
-workspace.
+works for each service panel, the Artifacts panel included. The agent pane
+stays in the workspace.
 
 To pop a panel out, do one of these:
 

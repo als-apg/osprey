@@ -461,6 +461,30 @@ variable already covers your need — most service knobs (ports, images,
 credentials, retention) are configurable without owning the template.
 
 
+.. _profile-artifact-viewer:
+
+A facility artifact kind and its viewer
+---------------------------------------
+
+The sidebar and gallery group artifacts by base form (``plots``, ``trends``,
+``tables``, ``documents``, ``dashboards``, ``images``, ``data``). A kind of
+your own is an extension type that conforms to one of them; a writer tags an
+entry with it (``kind="beam_study"`` on the store's save). Declare it in the
+profile:
+
+.. code-block:: yaml
+
+   config:
+     artifact_server.extension_types.beam_study:
+       {label: Beam study, base_form: plots, viewer: viewers/beam_study.mjs}
+
+and ship the viewer through ``project/`` (here
+``project/viewers/beam_study.mjs``). The viewer is an ES module exporting
+``render(container, artifact, ctx)``, with ``ctx = {fileUrl, theme, tokens}``;
+it draws only into ``container``. A viewer that fails to load, lacks
+``render`` or throws falls back to the base form's viewer. What ``osprey
+build`` refuses is listed under :ref:`config-artifact-server`.
+
 .. _profile-custom-hooks:
 
 Custom hooks
