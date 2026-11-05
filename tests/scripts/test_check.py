@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import fnmatch
 import functools
 import importlib.util
 import json
@@ -854,59 +855,97 @@ def test_the_macos_subset_runs_its_list_alone() -> None:
         *SWEEP_IGNORES,
         *SWEEP_MARKER,
     ]
+    # A path would replace the list, not narrow it.
+    with pytest.raises(ValueError, match="takes no paths"):
+        fw.unit_argv("full", ["tests/cli"], shard="macos")
 
 
-def _test_names(source: str) -> set[str]:
-    """Every test function and class of a module, as its node ID spells it."""
-    names: set[str] = set()
+#: The function and class names pytest collects, as pyproject declares them.
+COLLECTED = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"][
+    "pytest"
+]["ini_options"]
+
+
+def _collects(option: str, name: str) -> bool:
+    return any(name.startswith(p) or fnmatch.fnmatchcase(name, p) for p in COLLECTED[option])
+
+
+def _tests(source: str) -> dict[str, ast.AST]:
+    """Every test function, class and method pytest collects from a module, by
+    the name its node ID spells."""
+    tests: dict[str, ast.AST] = {}
 
     def walk(body: list[ast.stmt], prefix: str) -> None:
         for node in body:
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                names.add(prefix + node.name)
-            elif isinstance(node, ast.ClassDef):
-                names.add(prefix + node.name)
+                if _collects("python_functions", node.name):
+                    tests[prefix + node.name] = node
+            elif isinstance(node, ast.ClassDef) and _collects("python_classes", node.name):
+                tests[prefix + node.name] = node
                 walk(node.body, f"{prefix}{node.name}::")
 
     walk(ast.parse(source).body, "")
-    return names
+    return tests
 
 
-def _unresolved(entries: Sequence[str]) -> list[str]:
-    """The entries that name no collected test file, or a test it does not hold."""
-    swept = {path for path, _lane in fw.UNIT_SELECTION.ignores}
+def _unresolved(entries: Sequence[str], unit: Any = fw.UNIT_SELECTION) -> list[str]:
+    """The entries that name no collected test file under the roots, or a test it
+    does not hold."""
+    swept = {path for path, _lane in unit.ignores}
+    roots = tuple(root.rstrip("/") + "/" for root in unit.roots)
     missing = []
     for entry in entries:
         path, _, name = entry.partition("::")
         file = REPO_ROOT / path
         if (
-            not file.is_file()
+            not path.startswith(roots)
+            or not file.is_file()
             or not fw._is_pytest_file(file.name)
             or fw._hosted_outside_sweep(path)
             or path in swept
-            or (name and name not in _test_names(file.read_text(encoding="utf-8")))
+            or (name and name not in _tests(file.read_text(encoding="utf-8")))
         ):
             missing.append(entry)
     return missing
 
 
+def _parents(entry: str) -> list[str]:
+    """The file and classes whose selection selects *entry*."""
+    parts = entry.split("::")
+    return ["::".join(parts[:i]) for i in range(1, len(parts))]
+
+
+def _covered_twice(entries: Sequence[str]) -> list[str]:
+    """The entries another entry already selects: a file's or a class's own tests."""
+    listed = set(entries)
+    return [entry for entry in entries if listed.intersection(_parents(entry))]
+
+
 def test_the_macos_subset_names_tests_that_exist() -> None:
     # pytest refuses a node ID it cannot find, but only once the cell runs on
-    # macOS; a whole file and its own tests both listed would run them twice.
+    # macOS; a file or class and its own tests both listed would run them twice.
     listed = fw.UNIT_SELECTION.subsets["macos"]
-    whole = {entry for entry in listed if "::" not in entry}
     assert len(set(listed)) == len(listed)
     assert [e for e in listed if "[" in e] == []
-    assert [e for e in listed if "::" in e and e.partition("::")[0] in whole] == []
+    assert _covered_twice(listed) == []
     assert _unresolved(listed) == []
 
 
 def test_the_macos_subset_names_tests_that_exist__mutation_renames_a_test() -> None:
     pool = "tests/connectors/ipc/test_pool.py"
-    assert _unresolved((pool, f"{pool}::test_no_such_test", "tests/test_no_such_file.py")) == [
-        f"{pool}::test_no_such_test",
-        "tests/test_no_such_file.py",
-    ]
+    unit = fw.UNIT_SELECTION
+    entries = (pool, f"{pool}::test_no_such_test", f"{pool}::spawns", "tests/test_no_such_file.py")
+    assert _unresolved(entries) == list(entries[1:])
+    connectors = (
+        "packages/osprey-connectors/tests/osprey_connectors_tests/test_write_authorization.py"
+    )
+    assert _unresolved((connectors,)) == []
+    assert _unresolved((connectors,), dataclasses.replace(unit, roots=("tests/",))) == [connectors]
+    stores = (
+        "tests/stores/test_artifact_two_file_entries.py::TestOutsideStoreDirectoryIsNeverUnlinked"
+    )
+    method = f"{stores}::test_symlinked_companion_escaping_the_store_survives"
+    assert _covered_twice((stores, method, pool, f"{pool}::test_x")) == [method, f"{pool}::test_x"]
 
 
 def _dropped_keeps(unit: Any) -> dict[str, str]:
@@ -932,7 +971,7 @@ def test_the_macos_subset_keeps_what_macos_can_answer__mutation_drops_a_keep() -
 DARWIN = frozenset({"darwin"})
 
 
-def _darwin_branches(source: str) -> list[int]:
+def _darwin_branches(source: str | ast.AST) -> list[int]:
     """The lines where *source* compares a value to darwin: a skip unless or
     except on macOS, or a branch macOS alone takes. Matched in the syntax
     tree, so faking the platform (an assignment, a parametrized value) or a
@@ -944,9 +983,10 @@ def _darwin_branches(source: str) -> list[int]:
             for n in ast.walk(node)
         )
 
+    tree = ast.parse(source) if isinstance(source, str) else source
     return sorted(
         node.lineno
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(tree)
         if (isinstance(node, ast.Compare) and darwin(node))
         or (
             isinstance(node, ast.Call)
@@ -957,20 +997,43 @@ def _darwin_branches(source: str) -> list[int]:
     )
 
 
+def _darwin_unlisted(path: str, source: str, listed: Sequence[str]) -> list[str]:
+    """What of the test file at *path* branches on darwin and *listed* leaves out:
+    the file, when no entry names it; else each test whose body or decorators,
+    or whose class's decorators, compare to darwin and no entry selects."""
+    entries = set(listed)
+    if path in entries:
+        return []
+    if not any(entry.partition("::")[0] == path for entry in entries):
+        return [path] if _darwin_branches(source) else []
+    tests = _tests(source)
+    marked = [
+        f"{name}::"
+        for name, node in tests.items()
+        if isinstance(node, ast.ClassDef) and any(map(_darwin_branches, node.decorator_list))
+    ]
+    darwin = [
+        name
+        for name, node in tests.items()
+        if not isinstance(node, ast.ClassDef)
+        and (_darwin_branches(node) or name.startswith(tuple(marked)))
+    ]
+    node_ids = (f"{path}::{name}" for name in darwin)
+    return [n for n in node_ids if n not in entries and not entries.intersection(_parents(n))]
+
+
 def test_a_test_file_that_branches_on_darwin_is_in_the_macos_subset() -> None:
-    # Ubuntu never takes a darwin branch, so the file's outcome there says
+    # Ubuntu never takes a darwin branch, so a test's outcome there says
     # nothing about it; off the list, nothing would run it.
     unit = fw.UNIT_SELECTION
-    listed = {entry.partition("::")[0] for entry in unit.subsets["macos"]}
-    unlisted = {}
+    listed = unit.subsets["macos"]
+    unlisted = []
     for root in unit.roots:
         for file in sorted((REPO_ROOT / root).rglob("*.py")):
             path = file.relative_to(REPO_ROOT).as_posix()
-            if not fw._is_pytest_file(file.name) or fw._hosted_outside_sweep(path):
-                continue
-            if path not in listed and (lines := _darwin_branches(file.read_text("utf-8"))):
-                unlisted[path] = lines
-    assert unlisted == {}
+            if fw._is_pytest_file(file.name) and not fw._hosted_outside_sweep(path):
+                unlisted += _darwin_unlisted(path, file.read_text("utf-8"), listed)
+    assert unlisted == []
 
 
 def test_a_test_file_that_branches_on_darwin__mutation_skips_unless_darwin() -> None:
@@ -990,6 +1053,30 @@ def test_a_test_file_that_branches_on_darwin__mutation_skips_unless_darwin() -> 
         "    mock_sys.platform = 'darwin'\n"
     )
     assert _darwin_branches(faked) == []
+
+
+def test_a_test_file_that_branches_on_darwin__mutation_adds_a_darwin_test() -> None:
+    listed = fw.UNIT_SELECTION.subsets["macos"]
+    worker = "tests/imaging/test_render_worker.py"
+    source = (REPO_ROOT / worker).read_text("utf-8")
+    added = "\ndef test_added():\n    if sys.platform == 'darwin': ...\n"
+    assert _darwin_unlisted(worker, source, listed) == []
+    assert _darwin_unlisted(worker, source + added, listed) == [f"{worker}::test_added"]
+    path = "tests/test_x.py"
+    source = (
+        "@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS only')\n"
+        "class TestK:\n"
+        "    def test_k(self): ...\n"
+        "class TestL:\n"
+        "    def test_l(self):\n"
+        "        if sys.platform == 'darwin': ...\n"
+        "def _helper():\n"
+        "    if sys.platform == 'darwin': ...\n"
+    )
+    assert _darwin_unlisted(path, source, (f"{path}::TestL",)) == [f"{path}::TestK::test_k"]
+    assert _darwin_unlisted(path, source, (f"{path}::TestK::test_k", f"{path}::TestL")) == []
+    assert _darwin_unlisted(path, source, (path,)) == []
+    assert _darwin_unlisted(path, source, ()) == [path]
 
 
 def test_the_tiers_bound_their_pytest_runs() -> None:

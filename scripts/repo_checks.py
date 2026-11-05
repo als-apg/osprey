@@ -792,6 +792,8 @@ def unit_argv(
 ) -> list[str]:
     """The parallel sweep's selection: paths, ignores and marker expression."""
     if shard in unit.subsets:
+        if targets:
+            raise ValueError(f"the {shard} subset names its own tests; it takes no paths")
         roots, shard_ignores = unit.subsets[shard], ()
     else:
         roots, shard_ignores = unit.shards[shard] if shard else (unit.roots, ())
