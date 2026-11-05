@@ -474,16 +474,18 @@ export function activityRows(entries, { shownId, highlightId = null, openRuns })
   const yesterday = dayBefore(today);
   /** @type {HTMLElement[]} */
   const nodes = [];
-  const dayOf = (/** @type {TreeEntry} */ e) => (e.timestamp ? facilityDayKey(e.timestamp) : '');
-  // A heading only separates days: none while every row falls on one day.
-  const banded = new Set(entries.filter((e) => e.form).map(dayOf)).size > 1;
+  const labelOf = (/** @type {TreeEntry} */ e) => {
+    const day = e.timestamp ? facilityDayKey(e.timestamp) : '';
+    return day === today ? 'Today' : day === yesterday ? 'Yesterday' : 'Older';
+  };
+  // A heading only separates bands: none while every row falls in one.
+  const banded = new Set(entries.filter((e) => e.form).map(labelOf)).size > 1;
   let band = '';
   for (const entry of entries) {
     if (!entry.form) continue;
     const isHead = entry.form === 'runs';
     if (!isHead && entry.exec_id && entry.run_part === 'output') continue;
-    const day = dayOf(entry);
-    const label = day === today ? 'Today' : day === yesterday ? 'Yesterday' : 'Older';
+    const label = labelOf(entry);
     if (banded && label !== band) {
       band = label;
       nodes.push(plainRow('osprey-tree-day osprey-tree-d1', label));

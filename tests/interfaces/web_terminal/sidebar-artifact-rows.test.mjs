@@ -579,6 +579,14 @@ describe('Activity mode', () => {
     expect(bandsOf(two)).toEqual(['Today', 'Yesterday']);
   });
 
+  test('two older days share one band, so they show no heading', () => {
+    const older = [
+      entry('a', 'markdown', '2026-10-01T10:00:00Z', { form: 'documents' }),
+      entry('b', 'markdown', '2026-09-20T10:00:00Z', { form: 'documents' }),
+    ];
+    expect(bandsOf(older)).toEqual([]);
+  });
+
   test('a run is one row: its outputs and parts are not listed beside it', () => {
     const nodes = rows.activityRows(entries, { shownId: null, openRuns: new Set() });
     expect(treeRowIds(nodes)).toEqual(['h1', 'y', 'old']);
