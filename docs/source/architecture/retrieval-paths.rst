@@ -31,15 +31,19 @@ Three things are worth reading off the map:
 **Only one stack needs an embedding provider on the host.** :doc:`ARIEL's
 </how-to/ariel/search-modes>` ``semantic`` mode embeds both the corpus at ingest
 and the *query* at query time, so Ollama (or OpenAI) has to be reachable when an
-operator searches, not just when entries are ingested. The qmd sidecar carries
-its own embedder inside the image, and the channel finder uses no embeddings
-anywhere — it ranks with BM25 and lets the agent walk a hierarchy.
+operator searches, not just when entries are ingested. The qmd sidecar (a
+search service that indexes a markdown corpus and answers combined keyword and
+semantic queries) carries its own embedder inside the image. The channel finder
+uses no embeddings anywhere — it ranks with BM25 (a standard keyword-relevance
+score) and lets the agent walk a hierarchy.
 
 **The qmd sidecar is the one cross-stack component.** It answers ARIEL's
 ``hybrid`` mode and backs :doc:`facility-knowledge </how-to/facility-knowledge/index>`
-search, from one sidecar per corpus — one for the markdown mirror ARIEL exports,
-one for the OKF bundle, one for each corpus a deployment declares. Its internals,
-and the ``rerank`` tradeoff, are covered under :ref:`qmd-search-sidecar`.
+search. A deployment runs one sidecar per corpus — one for the markdown mirror
+ARIEL exports, one for the
+:doc:`Open Knowledge Format (OKF) </how-to/facility-knowledge/okf-bundle>`
+bundle, and one for each other corpus it declares. Its internals, and the
+``rerank`` tradeoff, are covered under :ref:`qmd-search-sidecar`.
 
 **Every stack degrades rather than fails.** The dashed edges are fallbacks: OKF
 search drops to a substring scan when the sidecar is absent, and ARIEL's
