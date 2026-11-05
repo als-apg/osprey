@@ -64,7 +64,7 @@
 
 import { attachChannelCombobox } from '/design-system/js/channel-combobox.js';
 
-import { h } from './hyperscript.js';
+import { h, infoTip } from './hyperscript.js';
 
 /**
  * Sentinel returned by a field's ``collect()`` when it has no value to
@@ -1114,7 +1114,8 @@ function buildObject(root, node, seed) {
 
 /**
  * Wrap a control in a labeled block: field name (with a required marker) and,
- * when present, the schema ``description`` as help text under the label.
+ * when present, the schema ``description`` as field help — the tooltip of a
+ * small Info icon beside the name, never a line of text on the page.
  *
  * @param {JsonSchemaNode} root
  * @param {string} name
@@ -1134,13 +1135,11 @@ function buildLabeledField(root, name, rawNode, required, value) {
       'div',
       { class: 'field-label' },
       h('span', { class: 'field-name', text: node.title || name }),
-      required ? h('span', { class: 'field-required', title: 'required', text: '*' }) : null
-    )
+      required ? h('span', { class: 'field-required', title: 'required', text: '*' }) : null,
+      node.description ? infoTip(node.description) : null
+    ),
+    h('div', { class: 'field-control' }, control.el)
   );
-  if (node.description) {
-    row.appendChild(h('p', { class: 'field-help', text: node.description }));
-  }
-  row.appendChild(h('div', { class: 'field-control' }, control.el));
 
   return { el: row, collect: control.collect, setValue: control.setValue };
 }

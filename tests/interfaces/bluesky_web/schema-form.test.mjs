@@ -221,6 +221,24 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
     expect($$(form, '.field-required').length).toBe(4);
   });
 
+  test('field help is a small Info icon beside the name, never a line on the page', () => {
+    renderSchemaForm(form, ORM_SCHEMA);
+    // No help paragraph under any label any more.
+    expect($$(form, 'p.field-help')).toHaveLength(0);
+
+    const label = $(form, '.field-label');
+    expect($(label, '.field-name').textContent).toBe('Correctors');
+    const help = $(label, '.field-help');
+    // The schema description is the tooltip (the design system's layer reads
+    // `data-tip`) and the accessible name; the icon takes keyboard focus too.
+    expect(help.dataset.tip).toBe('Corrector device names to sweep, one at a time.');
+    expect(help.getAttribute('aria-label')).toBe(help.dataset.tip);
+    expect(help.getAttribute('tabindex')).toBe('0');
+    expect(help.querySelector('svg.osprey-ic')).not.toBeNull();
+    // One per described field: all five carry a description.
+    expect($$(form, '.field-label .field-help')).toHaveLength(5);
+  });
+
   test('a layout option places fields into side-by-side rows', () => {
     renderSchemaForm(form, ORM_SCHEMA, {
       layout: [['correctors', 'readbacks'], ['span_a', 'num'], ['sweep']],

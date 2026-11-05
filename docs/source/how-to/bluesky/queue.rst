@@ -28,14 +28,14 @@ One queue, three ways to drive it
    .. tab-item:: Panels
 
       The **PLAN** tab composes; the **BLUESKY** tab runs and watches. A
-      badge in BLUESKY's status strip names the queue's state on every tab —
-      *ready*, *running*, *stopped*, *stopping after current* — and a **?**
-      beside it explains the buttons.
+      status chip in BLUESKY's toolbar names the queue's state on every view —
+      *ready*, *running*, *stopped*, *stopping after current*. Click the chip
+      to read what each button does.
 
       - **Run** (PLAN) — on an armed queue, queues exactly the draft on your
         screen after a confirming click, and it runs now. On a stopped queue
         the same button reads **Add to queue**: the plan waits.
-      - **Start** (BLUESKY, Queue tab) — arms a stopped queue: it runs
+      - **Start** (BLUESKY, Queue view) — arms a stopped queue: it runs
         everything waiting, in order, and whatever is added later. It starts
         the queue you are looking at. If the list moved between your glance and
         your click the start is refused with the bridge's own sentence, and
@@ -45,16 +45,18 @@ One queue, three ways to drive it
       - **Stop** and **Abort** (BLUESKY) — never disabled. Stop lets the
         current plan finish; Abort stops it right now, after a second,
         confirming click. Both leave the queue stopped. They sit on the Queue
-        tab always, quiet while nothing moves, and appear on the other tabs
+        view always, quiet while nothing moves, and appear on the other views
         whenever a plan is moving or the state is in doubt.
-      - **Clear** (BLUESKY, Queue tab) — drops every waiting plan, after a
-        confirming click. The running plan is Abort's.
+      - **Clear waiting plans** (BLUESKY, tile **⋯** menu) — drops every
+        waiting plan. You confirm it at the top of the Queued card. The running
+        plan is Abort's.
       - Every queued row has reorder (↑ ↓) and remove (✕) buttons — the queue
         is editable right up until it runs.
       - **History** lists finished runs. Each row's ✕ removes that run from
-        the list, and the card's **Clear** removes them all after a
-        confirming click; the Results view offers **Remove from history** for
-        the run on screen. Run data is kept — see *Where the data lives*.
+        the list. **Clear history** in the tile **⋯** menu removes them all,
+        after you confirm at the top of the History card. The Results view
+        offers **Remove from history** for the run on screen. Run data is kept
+        — see *Where the data lives*.
       - Under those runs, History also lists **what was taken off the queue**
         — one quiet row for every plan removed, whether one at a time or by
         clearing the queue, and one for every plan aborted. Each gives the time
@@ -62,7 +64,7 @@ One queue, three ways to drive it
         still named: the queue server keeps no record of one. A row with no name
         means the request authorised without naming anybody, which some do. The
         rows are a record of what happened, and nothing on the queue is allowed
-        or refused because of them. The card's **Clear** empties both halves.
+        or refused because of them. **Clear history** empties both halves.
 
       See :doc:`/how-to/web-terminal/panels` for where these tabs live.
 
@@ -228,7 +230,7 @@ quirks worth knowing:
    this, and a name shown on one of its items is a label rather than a gate.
 
    On a two-lane deployment the BLUESKY panel carries a **lane picker** in its
-   status strip, labelled by the machine each lane drives. The panel is bound
+   toolbar, labelled by the machine each lane drives. The panel is bound
    to one lane at a time — plans, shared draft, queue and results all follow
    the picked lane, and its Start button arms with that lane's own token —
    so what you see and what a click starts can never belong to two different
