@@ -590,9 +590,10 @@ jobs:
       run: uv run python scripts/check.py run pytest-pty
 
     - name: Run the wall-clock budgets serially
-      # The check selects by marker over the tree, so an image-free budget
-      # added anywhere is timed here with no new wiring, alone in the process
-      # and with no xdist flags. tests/integration is left to qmd-sidecar-e2e, whose
+      # The check collects only the test files that carry the marker, found by
+      # a scan of the tree when it runs, so an image-free budget added anywhere
+      # is timed here with no new wiring, alone in the process and with no
+      # xdist flags. tests/integration is left to qmd-sidecar-e2e, whose
       # budgets need the image that job builds. Linux only, for the reason the
       # pty step above gives: a budget measures the box, and the macOS runners
       # are the noisier ones.

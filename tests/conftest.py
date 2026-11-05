@@ -48,7 +48,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     write_server_report,
 )
 from osprey_connectors_tests._harness._ports import port_reserver
-from tests import _canopy_contract, _scoped_temp
+from tests import _canopy_contract, _scoped_temp, _wallclock_files
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant,
@@ -1089,12 +1089,26 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
 
 
 def pytest_collection_modifyitems(items):
-    """Auto-skip items whose `requires_<resource>` marker's resource is missing.
+    """Hold the wall-clock scan to pytest's marks, then auto-skip items whose
+    `requires_<resource>` marker's resource is missing.
+
+    This runs before `-m` deselects anything, so the sweep, which deselects the
+    `wallclock` marker, still sees every marked test it collects; one in a file
+    tests/_wallclock_files.py does not find would be timed by nothing, and the
+    run stops with its name.
 
     Each predicate is evaluated at most once per pytest run via cache. A
     missing resource adds a real `pytest.mark.skip(reason=...)`; satisfied
     markers are no-ops.
     """
+    strays = _wallclock_files.unscanned(
+        item.path for item in items if item.get_closest_marker(_wallclock_files.MARKER)
+    )
+    if strays:
+        # Written out as well as raised: an xdist worker's UsageError reaches
+        # the controller only as an INTERNALERROR without its text.
+        print("\n".join(strays), file=sys.stderr, flush=True)
+        raise pytest.UsageError("\n".join(strays))
     cache: dict[str, tuple[bool, str]] = {}
     for item in items:
         for marker_name, (predicate, reason) in _RESOURCE_CHECKS.items():

@@ -331,7 +331,10 @@ LANE_LEAVING_MARKERS = (
                 "-m wallclock",
             ),
             # The image-free budgets, on every event: the step selects the
-            # marker over the tree, minus the directories with hosts of their own.
+            # marker in the files under the tree, minus the directories with
+            # hosts of their own, that a scan finds carrying it
+            # (tests/_wallclock_files.py; the root conftest holds the scan to
+            # what pytest marks).
             SerialHost(
                 SERIAL_SUITES_JOB, "Run the wall-clock budgets serially", "tests/", "-m wallclock"
             ),
@@ -2045,15 +2048,22 @@ def test_nothing_else_times_it__mutation_sidecar_step_drops_the_term() -> None:
         _check_nothing_else_times_it(mutated, row)
 
 
-def test_nothing_else_times_it__mutation_a_file_carries_both_markers() -> None:
+def test_nothing_else_times_it__mutation_a_file_carries_both_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A host that selects its own marker alone still reaches a file that
-    carries another row's marker as well, and runs those tests a second time."""
+    carries another row's marker as well, and runs those tests a second time.
+    The wall-clock host collects the files its scan finds, and the scan would
+    find this one, so the scan is told about it too."""
     sources = _test_module_sources()
     phantom = "tests/cli/test_future_pty_wallclock_scenarios.py"
     sources[phantom] = "pytestmark = [pytest.mark.pty, pytest.mark.wallclock]\n"
     _check_nothing_else_times_it(_load_workflow(), TERMINAL_ROW)
+    scanned = framework_checks.wallclock_unit_files()
+    monkeypatch.setattr(framework_checks, "wallclock_unit_files", lambda: [*scanned, phantom])
+    rescanned = _parsed_workflow.__wrapped__()
     with pytest.raises(AssertionError, match="Run the wall-clock budgets serially"):
-        _check_nothing_else_times_it(_load_workflow(), TERMINAL_ROW, sources)
+        _check_nothing_else_times_it(rescanned, TERMINAL_ROW, sources)
 
 
 def test_unit_lane_says_the_canopy_contract_was_not_exercised(workflow: dict[str, Any]) -> None:
@@ -2660,7 +2670,8 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_narrows_the_path(
 ) -> None:
     source = _tier_source(tier)
     hosts = [host.path.rstrip("/") for host in _per_pr_hosts(workflow, row)]
-    host_re = re.compile(rf"(?<!\S)(?:{'|'.join(map(re.escape, hosts))})/?(?=\s)")
+    # A host path, or a file under one: the wall-clock check names its files.
+    host_re = re.compile(rf"(?<!\S)(?:{'|'.join(map(re.escape, hosts))})(?:/\S*)?(?=\s)")
     mutated = "\n".join(
         host_re.sub("tests/_nowhere/test_x.py", line) if row.select() in line else line
         for line in source.splitlines()
