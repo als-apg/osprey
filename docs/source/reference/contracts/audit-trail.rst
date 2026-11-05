@@ -6,38 +6,41 @@ Audit Trail Contract
 
 Every safety-relevant decision a deployment makes is one ``audit`` entry in
 the agent record. The process that decided appends it to its own identity's
-spool, ``var/spool/<identity>/``, and the ``agent-record`` service takes it in
-from there; the surface that decided is in the entry's ``surface`` field. The
+spool, ``var/spool/<identity>/``. The ``agent-record`` service takes it in
+from there. The entry's ``surface`` field names the surface that decided. The
 trail has two halves: the record, which keeps every entry for
 ``agent_record.retention_days``, and the archive, which keeps each closed day
 for good, exported as ``var/archive/<day>/agent_record/entries.parquet``
 (:doc:`/how-to/health-and-monitoring/agent-record`). This page is the shape of
 that trail --- which surface files a decision, what each field holds, who can
-read it, and what the trail does not promise. For the policy that produces most of the
-refusals see :ref:`the protected set <config-protected-set>`; for the
-per-target write posture that refuses control-system writes see
+read it, and what the trail does not promise. For the policy that produces
+most of the refusals, see :ref:`the protected set <config-protected-set>`. For
+the per-target write posture that refuses control-system writes see
 :ref:`web-terminal-session-posture`.
 
 Both halves are durable by construction: ``osprey build`` re-renders
 ``build/`` wholesale and never touches ``var/``. A plain ``osprey reset`` keeps
 the audit files written before the agent record (``var/audit``), the agent
-record and ``var/archive``. ``osprey reset --purge-audit`` removes
-``var/audit``, the agent record on either backend (with the ClickHouse
-backend's data volume), the spool feeding it and the record's
-exports in the archive (``var/archive/<day>/agent_record/``), and appends an
-``agent_record_purged`` line to each of those days' manifests. It keeps the rest
-of ``var/archive``: the artifact and Bluesky copies and the manifests
-themselves.
+record and ``var/archive``. ``osprey reset --purge-audit`` removes:
+
+- ``var/audit``
+- the agent record on either backend, with the ClickHouse backend's data volume
+- the spool feeding it
+- the record's exports in the archive (``var/archive/<day>/agent_record/``)
+
+It also appends an ``agent_record_purged`` line to each of those days'
+manifests. It keeps the rest of ``var/archive``: the artifact and Bluesky
+copies and the manifests themselves.
 
 .. _audit-trail-files:
 
 Entries, by surface
 ===================
 
-The identity is whoever was acting, so on a multi-user deployment each
-person's entries are written from their own spool and the record files them
-under that person (:ref:`how it is resolved <audit-trail-identity-ladder>`);
-the ``surface`` is the layer that decided, so a gallery refusal and a config
+The identity is whoever was acting. So on a multi-user deployment, each
+person's entries are written from their own spool, and the record files them
+under that person (:ref:`how it is resolved <audit-trail-identity-ladder>`).
+The ``surface`` is the layer that decided, so a gallery refusal and a config
 refusal never share one.
 
 .. list-table::
@@ -106,19 +109,22 @@ refusal never share one.
 
 ``decision`` reads ``allowed`` or ``refused`` on almost all of them.
 ``hook_approval`` has three words of its own, all on the same
-``tool_use_id``: ``ask`` when the hook put the call in front of an approver,
-then ``approved`` when the harness reported that the call ran, or ``denied``
-when the turn ended without it --- declined or interrupted. A write the
-switch's *allowed* position let run has no ``ask``: its ``approved`` names
-``approver=write_switch`` in ``detail``.
+``tool_use_id``. ``ask`` comes first, then either ``approved`` or ``denied``:
+
+- ``ask``: the hook put the call in front of an approver.
+- ``approved``: the harness reported that the call ran.
+- ``denied``: the turn ended without it --- declined or interrupted.
+
+A write the switch's *allowed* position let run has no ``ask``: its
+``approved`` names ``approver=write_switch`` in ``detail``.
 ``safety_watchdog`` has its own too: ``flagged``, ``clear``, ``unavailable``,
 ``stop``, ``continue`` and ``stop_unconfirmed``.
 
 Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves ``http_mutation``
-entries next to the config edits. One asymmetry worth knowing
-before you go looking: a *refused* WebSocket upgrade is recorded, an admitted
-one is not --- a live session's activity is its tool records, not its
+entries next to the config edits. One asymmetry is worth knowing
+before you go looking. A *refused* WebSocket upgrade is recorded; an admitted
+one is not. A live session's activity is its tool records, not its
 connection.
 
 .. _audit-trail-record:
@@ -206,15 +212,15 @@ JSON object:
 A ``PUT`` that would have changed many protected keys at once names the first
 ten and counts the rest in the message, but **every changed key gets its own
 entry**. The cap trims the message, never the audit. A refused request leaves
-exactly those entries and no others: the surface that decided files the record,
-and the layers around it stand aside rather than filing the same refusal
+exactly those entries and no others. The surface that decided files the record.
+The layers around it stand aside rather than filing the same refusal
 again.
 
 .. note::
 
    **Recording is best-effort; refusing is not.** An unwritable spool or a
-   record that is down degrades the trail and never turns a refusal into
-   a server error --- an error that reads like the gate malfunctioned is the one
+   record that is down degrades the trail. It never turns a refusal into
+   a server error. An error that reads like the gate malfunctioned is the one
    shape an operator could mistake for a gate that failed open.
 
 .. _audit-trail-identity-keys:
@@ -258,18 +264,18 @@ part of the message:
 Two forwarded headers carry that from the login service through nginx:
 ``X-Osprey-Auth-Account`` names the card, ``X-Osprey-Auth-Subject`` names the
 login that proved it. Under ``auth.method: password`` they hold the same value
-on a person's own card, because the roster username *is* the proof; on a shared
-card the subject header names the opener instead, and under ``oidc`` the two
+on a person's own card, because the roster username *is* the proof. On a shared
+card, the subject header names the opener instead. Under ``oidc``, the two
 part on every card. Where a card's ``access:`` rule admitted the session, that
 header carries the asserted identity rather than a roster name. Either way only
 the account is a name a container can compare itself against.
 
 A deployment that pins an older login-service image with ``auth.image`` gets no
 account header. The container then falls back to comparing the subject, as it
-did before this release. Where the mapped subject is not the roster name --- an
-opaque ``sub`` or an email, the usual case --- it never matches, so
-``expected_account=`` and a warning ride every audited request. Building against
-this release's image is what clears it.
+did before this release. Usually the mapped subject is not the roster name
+but an opaque ``sub`` or an email. Wherever it is not the roster name, it never
+matches, so ``expected_account=`` and a warning ride every audited request.
+Building against this release's image is what clears it.
 
 .. _audit-trail-attribution:
 
@@ -285,7 +291,7 @@ same name beside the person, so a put-log line can be joined back to who asked
 for the write.
 
 The names are read in the process that writes, never from an environment
-variable, and travel as keys in ``detail`` on a plain record and as noted
+variable. They travel as keys in ``detail`` on a plain record, and as noted
 ``facts`` on a :ref:`tool-call record <audit-trail-tool-call>`.
 ``ca_user``, ``ca_host`` and ``owner`` are in both:
 
@@ -403,9 +409,9 @@ belong to a card whose ``access:`` key names a
 
 **The first two are login-time gates, and they do not re-evaluate.** Neither
 claim is written into the session, so no later request can be measured against
-it: a token is refused for either reason at the moment it arrives, and a
+it. A token is refused for either reason at the moment it arrives. A
 session already open is untouched by what those claims would say now. Principal
-coverage is the opposite --- the card's principal set is matched against the
+coverage is the opposite. The card's principal set is matched against the
 session's identity on *every* request, so withdrawing a principal closes the
 card on the next one.
 
@@ -421,7 +427,7 @@ instead: the browser sees the ordinary refusal, and the fix is
 
 A login at ``/auth/enter``, which names no card
 (:ref:`multi-user-own-terminal-entry`), files ``no_card`` when it proved who
-arrived but no card admits them; the fix is the roster or a card's
+arrived but no card admits them. The fix is the roster or a card's
 ``access:``, never the password or the provider. A card-less single sign-on
 refused before any card is known files under the subject ``(sign-in)``, never
 under the asserted identity.
@@ -434,9 +440,9 @@ The tool-call record
 The default records hold identifiers and, except on the two surfaces in
 :ref:`audit-trail-payloads`, never values. Beside them, every
 osprey MCP server files one ``audit`` entry on the ``tool_call`` surface for
-each call that ran against something worth naming: a control target, an
-approval, or facts the tool noted while it ran. There is no switch; it is
-always written.
+each call that ran against something worth naming. Something worth naming is
+a control target, an approval, or facts the tool noted while it ran. There is
+no switch; it is always written.
 
 It carries no arguments and no result: the agent's transcript, which the record
 holds too, has both once, joined by ``tool_use_id``. Nor does it repeat the
@@ -471,8 +477,8 @@ the default record shape:
        limits verdict, each channel's value before the write, and the
        attribution facts in :ref:`audit-trail-attribution`
 
-The Tiled catalog a plan lane writes is not part of the audit trail and stays
-out of the agent record and the archive: it is beamline data, with its own
+The Tiled catalog a plan lane writes is not part of the audit trail. It stays
+out of the agent record and the archive. It is beamline data, with its own
 retention and backup, not a record of what the agent was asked and did.
 
 .. _audit-trail-identity-ladder:
@@ -480,7 +486,7 @@ retention and backup, not a record of what the agent was asked and did.
 Which directory a record lands in
 =================================
 
-The acting identity is resolved once, by one ladder, and the same answer is
+The acting identity is resolved once, by one ladder. The same answer is
 used twice: as the record's ``actor`` field and as the spool directory the
 entry is written to, ``var/spool/<identity>/``. The record takes the identity
 from that directory, never from the entry, so an entry cannot claim to be
@@ -509,13 +515,13 @@ specific first:
        that is routine, and an unresolvable identity must never cost the
        record.
 
-**The hostname is never a rung.** It looks like an identity and is not one: a
+**The hostname is never a rung.** It looks like an identity and is not one. A
 host-network container reports the shared host's name, so every service on the
-box would collide into one identity, and a bridge-network container reports a
+box would collide into one identity. A bridge-network container reports a
 fresh container id on every restart.
 
 A value carrying a path separator, or naming ``.`` or ``..``, is not a usable
-identity and falls to the next rung — the same string becomes a directory name,
+identity and falls to the next rung. The same string becomes a directory name,
 and ``../elsewhere`` would file one service's records under another's spool.
 
 **These variables are the framework's, not yours to set.** The build renders
@@ -534,14 +540,14 @@ Who can read it
 own, and the record answers each login only what that login may see. A
 terminal's login reads what its own identity wrote, so alice's terminal cannot
 read bob's entries, though both are in one record. Inside a container the admin
-tier reads its own entries without a shell: ``GET /api/audit/recent`` returns
+tier reads its own entries without a shell. ``GET /api/audit/recent`` returns
 the newest ``audit`` entries this identity wrote, newest first, behind the same
 switch as the Config panel (``web.config_panel.enabled``). It never reaches
 another identity's.
 
-**The deployment-wide view is a reader's.** A question spanning several people
-is answered by a reader, a person the profile names under
-``agent_record.readers``, on the history page or with a reader key
+**The deployment-wide view is a reader's.** A reader is a person the profile
+names under ``agent_record.readers``. A question spanning several people
+is answered by a reader, on the history page or with a reader key
 (:doc:`/how-to/health-and-monitoring/read-the-record`). Past the retention
 window, it is answered from the archive on the deploy host, where whoever owns
 ``var/archive/`` reads every day's export.
@@ -553,26 +559,28 @@ What the trail is not
 
 **It is append-only, not tamper-evident.** Entries are only ever added, and
 OSPREY never rewrites one; it removes them only by whole day, under the
-retention rule below. But there is no hash chain and no signature: anyone who
+retention rule below. But there is no hash chain and no signature. Anyone who
 can write the record's files or the archive can edit or delete entries ---
-the host's administrator included --- and nothing in a later read would show
+the host's administrator included. Nothing in a later read would show
 that they had. It is an operational record of what the deployment
 decided, which is what answers "what happened here". If you need something that
 holds against someone with write access, ship the archive's day files off the
-host as they are written, to a collector the deployment cannot reach back into.
+host as they are written. Send them to a collector the deployment cannot reach
+back into.
 
 **The record keeps it for a window; the archive keeps it for good.** The
-record removes whole arrival days past ``agent_record.retention_days``, and
-only the days the archive already holds, so no entry leaves the record before
-it has a lasting copy. Nothing in OSPREY deletes the archive's exports except
-``osprey reset --purge-audit``, which marks each day it purged in that day's
+record removes whole arrival days past ``agent_record.retention_days``. It
+removes only the days the archive already holds, so no entry leaves the record
+before it has a lasting copy. Nothing in OSPREY deletes the archive's exports
+except ``osprey reset --purge-audit``, which marks each day it purged in that day's
 manifest.
 
 **Two surfaces carry a payload:** ``executor`` and ``canopy``. Every other
-default record holds identifiers and config keys only --- a surface name, a
-username, a tool name, a dotted key, a short reason --- never a config value, a
-prompt, or an agent message. A record of a write that does not say what the
-write *was* is an alert, not an audit trail, so there are two exceptions:
+default record holds identifiers and config keys only: a surface name, a
+username, a tool name, a dotted key, a short reason. It never holds a config
+value, a prompt, or an agent message. A record of a write that does not say
+what the write *was* is an alert, not an audit trail, so there are two
+exceptions:
 
 - **The Python executor.** A refused run records the code it refused, whole, in
   a ``source`` field (8000 characters, with ``source_truncated: true`` where a
@@ -581,12 +589,12 @@ write *was* is an alert, not an audit trail, so there are two exceptions:
   its outcome, a refusal --- carries the value, as the last two ``detail``
   tokens, ``value_len=<n> value=<text>``. ``value_len`` is the length of the
   whole value. The text keeps at most 256 characters, fewer where the rest of
-  ``detail`` leaves less room, and is written as a JSON string with no
+  ``detail`` leaves less room. It is written as a JSON string with no
   whitespace, so a value cannot forge a token. A panel write is one click with
   no tool call behind it, so no tool-call record holds the value.
 
-What that means for anyone reading or forwarding the trail: ``executor``
+This matters for anyone reading or forwarding the trail. ``executor``
 contains whatever the agent tried to run, including anything the conversation
-put into the script, and ``canopy`` contains every value a person sent to the
+put into the script. ``canopy`` contains every value a person sent to the
 machine from a panel. Give both the same care as the code and the setpoints
 themselves, and expect ``executor`` to be the surface that grows.
