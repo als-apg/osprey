@@ -80,6 +80,7 @@ const CONTRACT_NAMES = [
   'list-tree',
   'text-search',
   'clock',
+  'triangle-alert',
 ];
 
 describe('icons.js', () => {

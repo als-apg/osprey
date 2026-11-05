@@ -867,12 +867,17 @@ button.osprey-search {
   gap: var(--space-2);
 }
 
+/* The start keeps its size: the view switcher never folds (§2.3). The end
+   takes the rest and shrinks first, so a long status chip truncates instead
+   of overrunning the switcher in a narrow tile. */
 .osprey-panel-toolbar__start {
-  flex: 0 1 auto;
+  flex: none;
 }
 
 .osprey-panel-toolbar__end {
-  flex: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
   margin-left: auto;
 }
 

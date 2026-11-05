@@ -275,6 +275,11 @@ const SHAPES = Object.freeze({
     'm21 19-1.9-1.9',
   ],
   clock: [['circle', { cx: '12', cy: '12', r: '10' }], 'M12 6v6l4 2'],
+  'triangle-alert': [
+    'M21.73 18 13.73 4a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3',
+    'M12 9v4',
+    'M12 17h.01',
+  ],
 });
 
 /** Icons drawn heavier than the 1.75 default, set on each child. */
