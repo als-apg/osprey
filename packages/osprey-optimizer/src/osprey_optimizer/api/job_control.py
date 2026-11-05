@@ -16,9 +16,10 @@ from osprey_optimizer.models.enums import JobStatus, JobType
 from osprey_optimizer.models.protocols import JobStateWriter
 from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.cancellation import CancellationToken, get_cancellation_token
-from osprey_optimizer.utils.job_keys import config_key
+from osprey_optimizer.utils.job_keys import config_key, meta_key, state_prefix
 from osprey_optimizer.utils.process import reap_finished_children, shutdown_grace_seconds
 from osprey_optimizer.utils.redis_state_store import CREATED_STATE_TTL_SECONDS
+from osprey_optimizer.utils.serialization import serialize_obj
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,25 @@ SHUTDOWN_KILLED_MESSAGE = (
     "worker left them, possibly part-way through a write; check the machine before the "
     "next run."
 )
+
+# Write a draft's config, with the draft's TTL, only while its status is still
+# CREATED. KEYS[1]=the job's pickled status key, KEYS[2]=its config key,
+# KEYS[3]=its meta key. ARGV[1]=pickled CREATED, ARGV[2]=config JSON, ARGV[3]=ttl.
+# Byte equality on the pickle, as the status CAS in core.state does. Returns 1 on
+# write, 0 when the job left CREATED, -1 when its status is gone (expired).
+_STORE_IF_CREATED_LUA = """
+local status = redis.call('GET', KEYS[1])
+if not status then
+    return -1
+end
+if status ~= ARGV[1] then
+    return 0
+end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
+redis.call('EXPIRE', KEYS[3], tonumber(ARGV[3]))
+return 1
+"""
 
 
 def require_created_or_409(job_id: str, action: str, current: JobStatus | None) -> None:
@@ -71,20 +91,41 @@ def persist_created_job(
     """
     make_writer(job_id).set_status(JobStatus.CREATED)
     tracker.register_created_job(job_id, job_type=job_type)
-    store_created_config(tracker, job_id, payload_json)
+    store_created_config(job_id, payload_json)
 
 
-def store_created_config(tracker: JobTracker, job_id: str, payload_json: str) -> None:
-    """Write a CREATED job's stored config and normalize its namespace TTL.
+def store_created_config(job_id: str, payload_json: str) -> None:
+    """Write a CREATED job's stored config and normalize its TTL, in one step.
 
-    The TTL is lifted across the whole ``job:{id}:*`` footprint (meta + state +
-    config) so a created-but-never-started job self-expires as one unit. The
-    state writer stamps the short RUNNING TTL on the status key inline; this
-    lifts it to the created-job window to match meta and config.
+    Shared by create and edit. A draft owns its meta, status and config keys;
+    all three get the created-job window together, so a draft that is never
+    started self-expires as one unit (the state writer stamps the short RUNNING
+    TTL on the status key; this lifts it). The write happens only while the
+    status is still CREATED: 409 when a start or cancel landed while the draft
+    was prepared, so a started job's config is never replaced; 404 when the
+    draft expired.
     """
-    client = _redis_client.get_redis_client(binary=False)
-    client.set(config_key(job_id), payload_json, ex=CREATED_STATE_TTL_SECONDS)
-    tracker.expire_job(job_id, CREATED_STATE_TTL_SECONDS)
+    stored = _redis_client.get_redis_client(binary=False).register_script(_STORE_IF_CREATED_LUA)(
+        keys=[f"{state_prefix(job_id)}:status", config_key(job_id), meta_key(job_id)],
+        args=[serialize_obj(JobStatus.CREATED), payload_json, CREATED_STATE_TTL_SECONDS],
+    )
+    if stored == -1:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
+    if stored != 1:
+        require_created_or_409(
+            job_id, "update", create_job_state(JobType.OPTIMIZATION, job_id).get_status()
+        )
+
+
+def draft_changed_409(job_id: str) -> HTTPException:
+    """The 409 for a start whose draft changed since its caller was shown it."""
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"Job {job_id}'s draft changed since it was shown; read it again "
+            f"(GET /jobs/{job_id}/config) before starting it."
+        ),
+    )
 
 
 def load_stored_config(job_id: str, *, missing_status: int, missing_detail: str) -> str:
@@ -172,21 +213,25 @@ def launch_job(
     tracker: JobTracker,
     job_id: str,
     job_type: JobType,
+    config_json: str,
     make_writer: Callable[[str], JobStateWriter],
     spawn_target: Callable[..., None],
     spawn_args: tuple[object, ...],
 ) -> int | None:
-    """Claim the single active-job slot and spawn the worker subprocess.
+    """Claim the single active-job slot, start the draft, and spawn its worker.
 
-    The concurrency-critical launch protocol shared by the optimization and
-    script run endpoints, with rollback on each failure:
+    The concurrency-critical launch protocol, with rollback on each failure:
 
     1. Atomically ``SET NX`` claim the active slot (409 if a concurrent start
        won it) — the friendly ``get_active_job`` guard the caller runs first is
        not atomic across workers, so this is the real gate. Claiming also
        pre-registers the job at PID 0 so status polls don't 404 before spawn.
-    2. Pre-initialize the state writer to RUNNING (503 + release the slot on a
-       Redis failure) so polling doesn't 404.
+    2. Move the job CREATED -> RUNNING in one step, only while its stored config
+       is still ``config_json``, the exact value the caller read and gated
+       (:meth:`JobTracker.start_claimed_job`). A cancel or edit that landed
+       first wins: the claim is undone and the start answers 409. Once the job
+       is RUNNING an edit answers 409 and a cancel is the worker's to finish.
+       503 + release the slot on a Redis failure.
     3. Reap finished children to prevent zombie accumulation.
     4. Spawn a daemon ``"spawn"``-context ``Process`` (500 + release on OSError;
        spawn avoids epics/libca fork issues).
@@ -204,8 +249,7 @@ def launch_job(
         )
 
     try:
-        writer = make_writer(job_id)
-        writer.set_status(JobStatus.RUNNING)
+        started = tracker.start_claimed_job(job_id, config_json, job_type)
     except Exception as e:
         logger.exception("Failed to pre-initialize job state")
         tracker.mark_completed(job_id)
@@ -213,6 +257,14 @@ def launch_job(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Failed to initialize job state (Redis unavailable): {e}",
         ) from e
+    if not started:
+        current = make_writer(job_id).get_status()
+        if current.is_terminal:
+            # A cancel ended the draft before the claim, which overwrote the
+            # meta the cancel left: put back what the cancel wrote.
+            tracker.mark_completed(job_id)
+        require_created_or_409(job_id, "start", current)
+        raise draft_changed_409(job_id)
 
     reap_finished_children()
 

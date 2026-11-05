@@ -1,6 +1,6 @@
-"""The deployment's gates: the launch token on the routes that move hardware,
-write what a start will run, or accept code, and the targets a deployment's
-optimizer may drive.
+"""The deployment's gates: the launch token on the routes that move hardware or
+accept code, and the targets a deployment's optimizer may drive. Drafts are
+open; a start names the draft revision it runs (``test_jobs_api.py``).
 
 Both are deployment credentials rather than route behaviour, so the rest of the
 suite runs past a stand-in for the token (``conftest._launch_token_armed``);
@@ -43,9 +43,6 @@ GATED = [
         {"json": {"variables": {}, "observables": []}},
         id="evaluate",
     ),
-    pytest.param("post", "/optimizations", {"json": {}}, id="create_draft"),
-    pytest.param("put", "/jobs/nope/config", {"json": {}}, id="update_draft"),
-    pytest.param("put", "/jobs/current", {"json": {"job_id": "nope"}}, id="current_job"),
     pytest.param("post", "/jobs/nope/start", {}, id="start"),
     pytest.param("post", "/jobs/nope/resume", {}, id="resume"),
     pytest.param("post", "/results/env/ts/restore", {}, id="restore"),
@@ -111,14 +108,41 @@ def test_the_right_token_is_admitted(
     assert resp.status_code not in (403, 503), resp.text
 
 
+#: The routes that need no token, as (method, path, request kwargs, the status
+#: the stubbed request gets). Stopping a run must never wait on a credential,
+#: and a draft is open since a start must name the revision it runs.
+UNGATED = [
+    pytest.param("post", "/jobs/nope/cancel", {}, 404, id="cancel"),
+    pytest.param("post", "/jobs/nope/pause", {}, 404, id="pause"),
+    pytest.param("post", "/optimizations", {"json": {}}, 422, id="create_draft"),
+    pytest.param("put", "/jobs/nope/config", {"json": {}}, 404, id="update_draft"),
+    pytest.param("put", "/jobs/current", {"json": {"job_id": "nope"}}, 200, id="current_job"),
+]
+
+
 @pytest.mark.launch_token_gate
-@pytest.mark.parametrize("action", ["cancel", "pause"])
-def test_stopping_a_run_needs_no_token(
-    gate_client: TestClient, monkeypatch: pytest.MonkeyPatch, action: str
+@pytest.mark.parametrize(("method", "path", "kwargs", "expected"), UNGATED)
+def test_the_ungated_routes_need_no_token(
+    gate_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+    kwargs: dict,
+    expected: int,
 ) -> None:
     monkeypatch.delenv(LAUNCH_TOKEN_ENV, raising=False)
-    resp = gate_client.post(f"/jobs/nope/{action}")
-    assert resp.status_code not in (403, 503), resp.text
+    resp = _call(gate_client, method, path, kwargs)
+    assert resp.status_code == expected, resp.text
+
+
+@pytest.mark.launch_token_gate
+def test_a_wrong_token_on_a_start_without_a_revision_is_forbidden_not_unprocessable(
+    gate_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The token gate answers before the required ``config_revision`` is checked."""
+    monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
+    resp = gate_client.post("/jobs/nope/start", headers={LAUNCH_TOKEN_HEADER: "wrong"})
+    assert resp.status_code == 403, resp.text
 
 
 @pytest.mark.launch_token_gate
