@@ -1,0 +1,659 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.identity &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/identity';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/identity.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.identity</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.identity</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Who an audit record names — one ladder, shared by every surface that records.</span>
+
+<span class="sd">An audit record uses its identity twice: once as the ``actor`` field inside the</span>
+<span class="sd">envelope, and once as the ``&lt;identity&gt;`` path component of the spool directory</span>
+<span class="sd">``var/spool/&lt;identity&gt;`` it is written into. If those two were resolved by</span>
+<span class="sd">separate code they would drift by a rung the first time one of them grew a</span>
+<span class="sd">fallback, and the record would start naming one actor while filing under</span>
+<span class="sd">another. This module is the single resolution, so both uses read the same</span>
+<span class="sd">answer by construction.</span>
+
+<span class="sd">The ladder, most specific first:</span>
+
+<span class="sd">1. ``OSPREY_TERMINAL_USER`` — the multi-user deployment&#39;s per-container user</span>
+<span class="sd">   name. When it is set, a real person is behind the container.</span>
+<span class="sd">2. ``OSPREY_AUDIT_IDENTITY`` — what a container that hosts no single user is</span>
+<span class="sd">   named instead: a framework service&#39;s key, ``sidecar`` for auth. Rendered by</span>
+<span class="sd">   the same derivation that names the audit mount path, so the writer&#39;s path</span>
+<span class="sd">   and the mounted path cannot diverge. Without this rung a shared or framework</span>
+<span class="sd">   service container would file everything under the process account —</span>
+<span class="sd">   ``osprey`` or ``root``, which names nobody.</span>
+<span class="sd">3. The local account (:func:`getpass.getuser`) — the single-user laptop case,</span>
+<span class="sd">   where the process account *is* the person.</span>
+<span class="sd">4. :data:`UNKNOWN_IDENTITY` — an honest floor. An unresolvable identity must</span>
+<span class="sd">   never cost the record.</span>
+
+<span class="sd">**Never the hostname.** It looks like an identity and is not one: a</span>
+<span class="sd">host-network container reports the shared host&#39;s name, so every service on the</span>
+<span class="sd">box would collide into one file, and a bridge-network container reports a</span>
+<span class="sd">random container id, so the same service would scatter across a new file per</span>
+<span class="sd">restart.</span>
+
+<span class="sd">**``OSPREY_AUDIT_IDENTITY`` must never join a scrub list.** An executor sandbox</span>
+<span class="sd">and a notebook kernel are severed from most of the environment they inherit,</span>
+<span class="sd">and they resolve their own record directory through this ladder — the audit</span>
+<span class="sd">directory and the per-identity control-state directory both. Rung 2 is the only</span>
+<span class="sd">rung that survives that severing inside a container: the ``OSPREY_TERMINAL_``</span>
+<span class="sd">prefix is scrubbed by design, and the process account there names ``osprey`` or</span>
+<span class="sd">``root``. Drop this one variable from a child and the child writes its records</span>
+<span class="sd">and reads its narrowing under a name no reader looks for, which is worse than</span>
+<span class="sd">either failing or being scrubbed — it is silently answering about somebody</span>
+<span class="sd">else.</span>
+
+<span class="sd">Stdlib only, and a leaf of this package. It is read where ``osprey`` cannot be</span>
+<span class="sd">imported at all — connector-host children, executor sandboxes, notebook kernels</span>
+<span class="sd">— and it is imported from ``mcp_server``, from the interface apps and from the</span>
+<span class="sd">services, where an ``osprey`` import here would risk a cycle between those</span>
+<span class="sd">packages. ``osprey_connectors.identity`` re-exports every name below, so the</span>
+<span class="sd">historical import path costs no second implementation.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">getpass</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;AUDIT_IDENTITY_ENV&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;IDENTITY_ENV_LADDER&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;TERMINAL_USER_ENV&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;UNKNOWN_IDENTITY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;acting_identity&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;usable_identity&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1">#: The multi-user deployment&#39;s per-container user name. Spelled locally rather</span>
+<span class="c1">#: than imported from ``interfaces.common_middleware``, which owns the same</span>
+<span class="c1">#: constant for URL-prefix purposes: importing it would cost this module its</span>
+<span class="c1">#: leaf property, and the name is a deployment contract that does not move.</span>
+<span class="n">TERMINAL_USER_ENV</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_TERMINAL_USER&quot;</span>
+
+<span class="c1">#: The identity of a container that hosts no single user — a framework</span>
+<span class="c1">#: service&#39;s key, or ``sidecar`` for auth. Rendered into every containerized</span>
+<span class="c1">#: service&#39;s ``environment:`` by the same derivation that names its audit</span>
+<span class="c1">#: mount. Audit-critical in both directions: it is stripped from every MCP</span>
+<span class="c1">#: server spec&#39;s declared ``env:``, so that no spec can repoint another</span>
+<span class="c1">#: service&#39;s records at itself, and never from a child&#39;s inherited process</span>
+<span class="c1">#: environment, which is where a sandbox or a kernel reads it - see the</span>
+<span class="c1">#: never-scrub rule above.</span>
+<span class="n">AUDIT_IDENTITY_ENV</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_AUDIT_IDENTITY&quot;</span>
+
+<span class="c1">#: The environment rungs, in the order they are consulted. Exposed so a test</span>
+<span class="c1">#: or a drift check can assert the order rather than re-encode it.</span>
+<span class="n">IDENTITY_ENV_LADDER</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">TERMINAL_USER_ENV</span><span class="p">,</span> <span class="n">AUDIT_IDENTITY_ENV</span><span class="p">)</span>
+
+<span class="c1">#: What a record names when no rung resolves. A slim image often has no</span>
+<span class="c1">#: ``pwd`` entry for its uid, which is normal rather than exceptional, so this</span>
+<span class="c1">#: is a routine outcome and not an error path.</span>
+<span class="n">UNKNOWN_IDENTITY</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;unknown&quot;</span>
+
+<span class="c1"># Characters that would let an identity escape its own directory or split into</span>
+<span class="c1"># several. The identity is a single path component; anything carrying one of</span>
+<span class="c1"># these is not one.</span>
+<span class="n">_PATH_SEPARATORS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="se">\\</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="se">\0</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Names that are a path component syntactically but resolve elsewhere.</span>
+<span class="n">_RESERVED_NAMES</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="s2">&quot;..&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="usable_identity">
+<a class="viewcode-back" href="../../reference/connectors-api/utilities.html#osprey_connectors.identity.usable_identity">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">usable_identity</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *value* stripped, or ``&quot;&quot;`` if it cannot serve as an identity.</span>
+
+<span class="sd">    A rung must produce a value that works for *both* uses or it has not</span>
+<span class="sd">    produced an identity at all. Empty and whitespace-only values are the unset</span>
+<span class="sd">    case spelled differently — a rendered-but-blank ``environment:`` entry, an</span>
+<span class="sd">    env var exported as ``&quot;&quot;``. Values carrying a path separator or naming a</span>
+<span class="sd">    relative directory are rejected because the same string becomes a directory</span>
+<span class="sd">    name under ``var/spool/``, where ``../elsewhere`` would file one service&#39;s</span>
+<span class="sd">    records into another&#39;s mount.</span>
+
+<span class="sd">    Rejection is deliberately narrow: it covers what breaks path semantics and</span>
+<span class="sd">    nothing else. A stricter character allowlist would turn a legitimate</span>
+<span class="sd">    account name into :data:`UNKNOWN_IDENTITY`, which loses more than it</span>
+<span class="sd">    protects.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">candidate</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">candidate</span> <span class="ow">or</span> <span class="n">candidate</span> <span class="ow">in</span> <span class="n">_RESERVED_NAMES</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">separator</span> <span class="ow">in</span> <span class="n">candidate</span> <span class="k">for</span> <span class="n">separator</span> <span class="ow">in</span> <span class="n">_PATH_SEPARATORS</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">candidate</span></div>
+
+
+
+<div class="viewcode-block" id="acting_identity">
+<a class="viewcode-back" href="../../reference/connectors-api/utilities.html#osprey_connectors.identity.acting_identity">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">acting_identity</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the identity an audit record should carry, per the module ladder.</span>
+
+<span class="sd">    Reads the environment on every call rather than caching at import: the</span>
+<span class="sd">    markers are set per process by compose and by the entrypoint, and a value</span>
+<span class="sd">    frozen at import time would be whatever the first importer happened to see.</span>
+
+<span class="sd">    Takes no arguments on purpose. A caller-supplied override would be a second</span>
+<span class="sd">    ladder — the exact drift this module exists to prevent — so every surface</span>
+<span class="sd">    gets the same answer from the same source or none at all.</span>
+
+<span class="sd">    Never raises: :func:`getpass.getuser` raises ``KeyError`` (Python 3.12 and</span>
+<span class="sd">    earlier) or ``OSError`` (3.13+) for a uid with no passwd entry, which is</span>
+<span class="sd">    ordinary in a slim container, and any other failure is equally not worth an</span>
+<span class="sd">    audit record. Every failure lands on :data:`UNKNOWN_IDENTITY`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">env_name</span> <span class="ow">in</span> <span class="n">IDENTITY_ENV_LADDER</span><span class="p">:</span>
+        <span class="n">candidate</span> <span class="o">=</span> <span class="n">usable_identity</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">env_name</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">candidate</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">candidate</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">local_account</span> <span class="o">=</span> <span class="n">getpass</span><span class="o">.</span><span class="n">getuser</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># an unnamed account must not cost the record</span>
+        <span class="k">return</span> <span class="n">UNKNOWN_IDENTITY</span>
+
+    <span class="k">return</span> <span class="n">usable_identity</span><span class="p">(</span><span class="n">local_account</span><span class="p">)</span> <span class="ow">or</span> <span class="n">UNKNOWN_IDENTITY</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

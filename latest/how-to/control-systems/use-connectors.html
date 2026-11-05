@@ -61,7 +61,7 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Use the Virtual Accelerator" href="use-virtual-accelerator.html" />
+    <link rel="next" title="Use the Connectors Without the Framework" href="use-connectors-standalone.html" />
     <link rel="prev" title="Control Systems" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -447,6 +447,7 @@
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
 <li class="toctree-l2"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
 <li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
@@ -551,32 +552,50 @@ so moving from the simulator to real hardware is a change of
 <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> and its connector block, not of code.</p>
 <section id="one-api-whatever-the-machine">
 <h2>One API, whatever the machine<a class="headerlink" href="#one-api-whatever-the-machine" title="Link to this heading">#</a></h2>
-<p>The Python API is the same for every connector. The simulator served in
-process answers for the addresses of the built facility file without hardware
-or network access, which is what makes it the development and R&amp;D default. Run
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> first; the simulator refuses an address outside the facility
-file:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
+<p>The Python API is the same for every connector, and works from a script of your
+own with no deployment at all (<a class="reference internal" href="use-connectors-standalone.html"><span class="doc">Use the Connectors Without the Framework</span></a>). The simulator
+served in process answers for the addresses of the built facility file without
+hardware or network access, which is what makes it the development and R&amp;D
+default. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> first, and run the script from the deployment; the
+simulator refuses an address outside the facility file. This script reads the
+beam current, a channel of the example facility <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> starts from:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">read_simulator.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Read a channel from the simulator in process, in a built OSPREY deployment.&quot;&quot;&quot;</span>
 
-<span class="n">register_builtin_connectors</span><span class="p">()</span>   <span class="c1"># registers the built-in names; idempotent</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 
-<span class="c1"># The simulator in process - serves the addresses of the built facility file</span>
-<span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">({</span>
-    <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;virtual_accelerator&#39;</span><span class="p">,</span>
-    <span class="s1">&#39;connector&#39;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s1">&#39;virtual_accelerator&#39;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s1">&#39;serving&#39;</span><span class="p">:</span> <span class="s1">&#39;in_process&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;response_delay_ms&#39;</span><span class="p">:</span> <span class="mi">10</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
+
+<span class="c1"># The simulator in process: serves the addresses of the built facility file.</span>
+<span class="n">CONFIG</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;virtual_accelerator&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;connector&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;virtual_accelerator&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;serving&quot;</span><span class="p">:</span> <span class="s2">&quot;in_process&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;response_delay_ms&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
         <span class="p">}</span>
-    <span class="p">}</span>
-<span class="p">})</span>
+    <span class="p">},</span>
+<span class="p">}</span>
 
-<span class="n">channel_value</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s1">&#39;SR:BEAM:CURRENT&#39;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Value: </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">units</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-<span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">register_builtin_connectors</span><span class="p">()</span>  <span class="c1"># registers the built-in type names; idempotent</span>
+    <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">(</span><span class="n">CONFIG</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">channel_value</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s2">&quot;SR:DIAG:DCCT:01:CURRENT:RB&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Value: </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">units</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
 </pre></div>
 </div>
+</div>
+<p>The examples on this page are files the test suite runs against a soft IOC and
+a built simulator view.</p>
 <p>A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
 index, with the state names alongside it in the metadata: <code class="docutils literal notranslate"><span class="pre">value</span></code> is the
 index, <code class="docutils literal notranslate"><span class="pre">metadata.enum_label</span></code> the name of that state and
@@ -817,10 +836,10 @@ simulator in process can’t run plans):</p>
 <input id="sd-tab-item-5" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" data-sync-group="cs" data-sync-id="custom" for="sd-tab-item-5">
 Your own</label><div class="sd-tab-content docutils">
-<p>LabVIEW, MOAT, or any other stack OSPREY does not ship a
-connector for: write a custom connector against the same interface and
-register it with <code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code>. It then selects by name exactly
-like the in-tree ones. The seam – the class to subclass, the pinning
+<p>Any other stack OSPREY does not ship a connector for: write a custom
+connector against the same interface and register it with
+<code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code>. It then selects by name exactly like the in-tree
+ones. The seam – the class to subclass, the pinning
 test, and how registration works – is documented in
 <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
 </div>
@@ -1054,15 +1073,15 @@ machine’s switch can stay off throughout, and moving it to <em>asked</em> or
 <p><strong>1. Ask.</strong> The program writes a request into its ledger directory
 (<code class="docutils literal notranslate"><span class="pre">OSPREY_WRITE_LEDGER_DIR</span></code>; on a host with no deployment, its own state
 directory). Spell each channel exactly as it will be written, and count the
-completion write (<code class="docutils literal notranslate"><span class="pre">apply_best</span></code> or <code class="docutils literal notranslate"><span class="pre">restore</span></code>) in <code class="docutils literal notranslate"><span class="pre">steps</span></code>:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">write_authorization</span> <span class="k">as</span> <span class="n">wa</span>
-
-<span class="n">request</span> <span class="o">=</span> <span class="n">wa</span><span class="o">.</span><span class="n">write_request</span><span class="p">(</span>
+completion write (<code class="docutils literal notranslate"><span class="pre">apply_best</span></code> or <code class="docutils literal notranslate"><span class="pre">restore</span></code>) in <code class="docutils literal notranslate"><span class="pre">steps</span></code>. The steps below
+are taken from one program,
+<a class="reference download internal" download="" href="../../_downloads/dc47666e4e600044c53721897e965d86/write_from_a_program.py"><code class="xref download docutils literal notranslate"><span class="pre">write_from_a_program.py</span></code></a>, which
+the test suite runs against a stand-in soft IOC, approving its request as the
+person would:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">request</span> <span class="o">=</span> <span class="n">wa</span><span class="o">.</span><span class="n">write_request</span><span class="p">(</span>
     <span class="s2">&quot;standin&quot;</span><span class="p">,</span>
     <span class="p">{</span><span class="s2">&quot;SR:CORRECTOR:H1&quot;</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="s2">&quot;SR:CORRECTOR:H2&quot;</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)},</span>
-    <span class="n">steps</span><span class="o">=</span><span class="mi">41</span><span class="p">,</span>                                  <span class="c1"># 40 evaluations + apply_best</span>
+    <span class="n">steps</span><span class="o">=</span><span class="mi">41</span><span class="p">,</span>  <span class="c1"># 40 evaluations + apply_best</span>
     <span class="n">expires_at_ns</span><span class="o">=</span><span class="n">time</span><span class="o">.</span><span class="n">time_ns</span><span class="p">()</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="mi">3600</span> <span class="o">*</span> <span class="mi">10</span><span class="o">**</span><span class="mi">9</span><span class="p">,</span>
     <span class="n">lease_s</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span>
     <span class="n">label</span><span class="o">=</span><span class="s2">&quot;injector tuning 7&quot;</span><span class="p">,</span>
@@ -1084,7 +1103,7 @@ stays there.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">while</span> <span class="p">(</span><span class="n">grant</span> <span class="o">:=</span> <span class="n">wa</span><span class="o">.</span><span class="n">approved_grant</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">))</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
 <span class="n">wa</span><span class="o">.</span><span class="n">withdraw_request</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
-<span class="n">wa</span><span class="o">.</span><span class="n">start_lease</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>        <span class="c1"># once, by the process that renews it</span>
+<span class="n">wa</span><span class="o">.</span><span class="n">start_lease</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>  <span class="c1"># once, by the process that renews it</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">approved_grant</span></code> raises <code class="docutils literal notranslate"><span class="pre">AuthorizationRefused</span></code> for a grant that is there
@@ -1092,13 +1111,19 @@ and does not stand (revoked, expired, unreadable, another holder’s).</p>
 <p><strong>3. Write.</strong> Name the authorization to the connector pool once the lease is
 open, and renew the lease from a heartbeat at a fraction of <code class="docutils literal notranslate"><span class="pre">lease_s</span></code>. A
 handle taken before the lease started selected the read gateway, and its
-writes are refused <code class="docutils literal notranslate"><span class="pre">switching</span></code> (nothing spent) like any other refusal:</p>
+writes are refused <code class="docutils literal notranslate"><span class="pre">switching</span></code> (nothing spent) like any other refusal. The
+program builds its pool from the deployment’s own configuration,
+<code class="docutils literal notranslate"><span class="pre">ConnectorHostPool(get_config_value(&quot;control_system&quot;,</span> <span class="pre">{}),</span>
+<span class="pre">config_file=default_config_path())</span></code>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pool</span><span class="o">.</span><span class="n">connector</span><span class="p">(</span><span class="s2">&quot;standin&quot;</span><span class="p">,</span> <span class="n">owner</span><span class="o">=</span><span class="n">grant</span><span class="o">.</span><span class="n">owner</span><span class="p">,</span> <span class="n">authorization</span><span class="o">=</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
 <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_multiple_channels</span><span class="p">(</span>
     <span class="p">[(</span><span class="s2">&quot;SR:CORRECTOR:H1&quot;</span><span class="p">,</span> <span class="mf">0.12</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;SR:CORRECTOR:H2&quot;</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.03</span><span class="p">)],</span> <span class="n">confirm</span><span class="o">=</span><span class="kc">True</span>
 <span class="p">)</span>
-<span class="o">...</span>
-<span class="n">wa</span><span class="o">.</span><span class="n">renew_lease</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>        <span class="c1"># False: the lease has lapsed, stop</span>
+</pre></div>
+</div>
+<p>and, between write calls, renews its lease:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="ow">not</span> <span class="n">wa</span><span class="o">.</span><span class="n">renew_lease</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">):</span>  <span class="c1"># False: the lease has lapsed, stop</span>
+    <span class="k">return</span>
 </pre></div>
 </div>
 <p>One write call is one step, a batch included, and the step is spent before
@@ -1169,11 +1194,11 @@ safety gates, and the archiver <code class="docutils literal notranslate"><span 
       </div>
     </a>
     <a class="right-next"
-       href="use-virtual-accelerator.html"
+       href="use-connectors-standalone.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Use the Virtual Accelerator</p>
+        <p class="prev-next-title">Use the Connectors Without the Framework</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

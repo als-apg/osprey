@@ -1,0 +1,1995 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.config &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/config';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/config.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.config</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.config</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Configuration system.</span>
+
+<span class="sd">Loads a single YAML config file, resolves environment variables,</span>
+<span class="sd">and provides dot-path access to values.</span>
+
+<span class="sd">**Importing this module does not read ``.env`` and does not touch</span>
+<span class="sd">``os.environ``.** Building a :class:`ConfigBuilder` does (see its ``load_env``</span>
+<span class="sd">argument), and that is deliberate — but it must be an *application* that asks</span>
+<span class="sd">for a config, never the mere act of importing an ``osprey`` module. Loading</span>
+<span class="sd">``.env`` at import time made a library consumer&#39;s environment depend on which</span>
+<span class="sd">directory the process happened to start in, gave non-credential keys</span>
+<span class="sd">``override=True`` semantics they were never scoped for, and silently undid</span>
+<span class="sd">callers&#39; own ``os.environ`` writes depending on import order.</span>
+
+<span class="sd">Applications load ``.env`` explicitly at startup: the CLI in</span>
+<span class="sd">``osprey.cli.main``, MCP servers via :func:`osprey.mcp_env.load_dotenv_from_project`,</span>
+<span class="sd">and the Claude Code launch paths via</span>
+<span class="sd">:func:`osprey.agent_runner.provider_env.inject_provider_env`.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">MutableMapping</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextmanager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">overload</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">yaml</span>
+
+<span class="c1"># Safe at module level despite this module&#39;s no-osprey-imports rule below:</span>
+<span class="c1"># ``workspace`` and ``yaml_loader`` import nothing from osprey itself, so</span>
+<span class="c1"># there is no cycle.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">yaml_loader</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">DEFAULT_AGENT_DATA_BASE_DIR</span><span class="p">,</span>
+    <span class="n">SIMULATION_STATE_DIR_CONFIG_KEY</span><span class="p">,</span>
+    <span class="n">anchored_path</span><span class="p">,</span>
+    <span class="n">dotted_config_str</span><span class="p">,</span>
+    <span class="n">repo_root_for_config</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Iterator</span><span class="p">,</span> <span class="n">Mapping</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">zoneinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZoneInfo</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;ConfigBuilder&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;apply_env_chain&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;config_anchored_at&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;config_flag&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;default_config_path&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;dotenv_shell_overrides&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_agent_dir&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_config_builder&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_config_value&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_configurable&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_facility_timezone&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_full_configuration&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;is_unresolved_placeholder&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;load_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;load_project_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;load_project_dotenv&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;localize_facility&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;mapping_or_empty&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;resolve_env_vars&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;unresolved_placeholders&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1"># Use standard logging (not get_logger) to avoid circular imports with logger.py</span>
+<span class="c1"># The short name &#39;CONFIG&#39; enables easy filtering: quiet_logger([&#39;registry&#39;, &#39;CONFIG&#39;])</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;CONFIG&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="resolve_env_vars">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.resolve_env_vars">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_env_vars</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">environ</span><span class="p">:</span> <span class="s2">&quot;Mapping[str, str] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Recursively resolve environment variables in configuration data.</span>
+
+<span class="sd">    Supports both simple and bash-style default value syntax:</span>
+<span class="sd">    - ``${VAR_NAME}`` — simple substitution</span>
+<span class="sd">    - ``${VAR_NAME:-default_value}`` — with default value</span>
+<span class="sd">    - ``$VAR_NAME`` — simple substitution without braces</span>
+
+<span class="sd">    Placeholders inside ``claude_code.servers.*.env`` blocks are preserved</span>
+<span class="sd">    verbatim: Claude Code expands ``${VAR}`` in ``.mcp.json`` env at MCP</span>
+<span class="sd">    server *launch* time, so expanding here would bake either secrets or</span>
+<span class="sd">    empty strings (when vars are unset, e.g. in CI image builds) into build</span>
+<span class="sd">    artifacts.</span>
+
+<span class="sd">    This is the public, standalone version of ConfigBuilder._resolve_env_vars.</span>
+<span class="sd">    Use it when you need env-var resolution without a full ConfigBuilder</span>
+<span class="sd">    instance (e.g., after a raw ``yaml.safe_load``).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        data: The config data (dict/list/str/scalar) to resolve.</span>
+<span class="sd">        environ: Optional mapping to resolve ``${VAR}`` against instead of the</span>
+<span class="sd">            process environment. Lets callers expand against an</span>
+<span class="sd">            ``os.environ`` + ``.env`` overlay without mutating global state</span>
+<span class="sd">            (e.g. the Claude Code provider loader). Defaults to ``os.environ``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">lookup</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span> <span class="k">if</span> <span class="n">environ</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">environ</span>
+    <span class="n">raw_server_envs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">cc</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;claude_code&quot;</span><span class="p">)</span>
+        <span class="n">servers</span> <span class="o">=</span> <span class="n">cc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;servers&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cc</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">servers</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">spec</span> <span class="ow">in</span> <span class="n">servers</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;env&quot;</span><span class="p">),</span> <span class="nb">dict</span><span class="p">):</span>
+                    <span class="n">raw_server_envs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">spec</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">resolved</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">key</span><span class="p">:</span> <span class="n">resolve_env_vars</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">environ</span><span class="o">=</span><span class="n">lookup</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="p">}</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">resolve_env_vars</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="n">environ</span><span class="o">=</span><span class="n">lookup</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">data</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">replace_env_var</span><span class="p">(</span><span class="n">match</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">):</span>  <span class="c1"># ${VAR_NAME:-default} or ${VAR_NAME}</span>
+                <span class="n">var_name</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+                <span class="n">default_value</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="k">if</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">else</span><span class="p">:</span>  <span class="c1"># $VAR_NAME (simple form)</span>
+                <span class="n">var_name</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+                <span class="n">default_value</span> <span class="o">=</span> <span class="kc">None</span>
+
+            <span class="n">env_value</span> <span class="o">=</span> <span class="n">lookup</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">var_name</span><span class="p">)</span>
+            <span class="c1"># Match bash :- semantics: empty string triggers default too</span>
+            <span class="k">if</span> <span class="n">env_value</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="p">(</span><span class="ow">not</span> <span class="n">env_value</span> <span class="ow">and</span> <span class="n">default_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">default_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">default_value</span>
+                <span class="c1"># DEBUG, not INFO: this resolver is generic over the whole</span>
+                <span class="c1"># config tree and knows nothing about which of the values it</span>
+                <span class="c1"># walks actually matter to the caller. Reported at INFO it</span>
+                <span class="c1"># rendered every build as a wall of misses for providers the</span>
+                <span class="c1"># project never uses, while saying nothing about the keys</span>
+                <span class="c1"># that *did* resolve. User-facing credential reporting lives</span>
+                <span class="c1"># in osprey.cli.build_environment.report_provider_credentials,</span>
+                <span class="c1"># which knows the selected provider.</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;OSPREY_QUIET&quot;</span><span class="p">):</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Environment variable &#39;</span><span class="si">{</span><span class="n">var_name</span><span class="si">}</span><span class="s2">&#39; not found, keeping placeholder verbatim&quot;</span>
+                    <span class="p">)</span>
+                <span class="k">return</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">env_value</span>
+
+        <span class="n">pattern</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">&quot;\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)&quot;</span>
+        <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">replace_env_var</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">data</span>
+
+    <span class="c1"># Restore preserved MCP server env blocks (only meaningful at the top of a</span>
+    <span class="c1"># config dict; sub-recursions never hit this path because they have no</span>
+    <span class="c1"># ``claude_code`` key and therefore no snapshot to restore).</span>
+    <span class="k">if</span> <span class="n">raw_server_envs</span><span class="p">:</span>
+        <span class="n">cc</span> <span class="o">=</span> <span class="n">resolved</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;claude_code&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">servers</span> <span class="o">=</span> <span class="n">cc</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;servers&quot;</span><span class="p">,</span> <span class="p">{})</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cc</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">servers</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">env</span> <span class="ow">in</span> <span class="n">raw_server_envs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">spec</span> <span class="o">=</span> <span class="n">servers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                    <span class="n">spec</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">env</span>
+    <span class="k">return</span> <span class="n">resolved</span></div>
+
+
+
+<span class="c1">#: A string that is nothing but a single unresolved env-var placeholder, e.g.</span>
+<span class="c1">#: ``&quot;${MISSING}&quot;`` or ``&quot;$MISSING&quot;``. :func:`resolve_env_vars` leaves such a</span>
+<span class="c1">#: value verbatim when the variable is unset (there is nothing to substitute and</span>
+<span class="c1">#: no declared default), so every consumer that reads a config value has to know</span>
+<span class="c1">#: this shape to tell &quot;not configured&quot; from a value.</span>
+<span class="c1">#:</span>
+<span class="c1">#: The two branches are the two branches of the resolver&#39;s own pattern above,</span>
+<span class="c1">#: character class included: the braced form takes any name without ``}`` or</span>
+<span class="c1">#: ``:`` (a ``:-`` default always substitutes, so it never survives), the bare</span>
+<span class="c1">#: form the shell-style identifier. Narrowing either half here would fail to</span>
+<span class="c1">#: recognise a reference the resolver did leave verbatim.</span>
+<span class="n">_LONE_PLACEHOLDER</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;^\$\{[^}:]+\}$|^\$[A-Za-z_][A-Za-z0-9_]*$&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="is_unresolved_placeholder">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.is_unresolved_placeholder">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_unresolved_placeholder</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *value* is an env-var reference :func:`resolve_env_vars` left alone.</span>
+
+<span class="sd">    The counterpart to :func:`resolve_env_vars`: it keeps ``${VAR}`` verbatim</span>
+<span class="sd">    when ``VAR`` is unset, so a consumer that treats what it reads as data sees</span>
+<span class="sd">    the literal string ``&quot;${VAR}&quot;`` where a URL or a key belongs. This is the</span>
+<span class="sd">    one producer of that test, so a caller never has to re-state the syntax the</span>
+<span class="sd">    resolver accepts.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        value: A config value, of any type. Only a ``str`` can be a placeholder.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        True when the value is exactly one unsubstituted reference.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">bool</span><span class="p">(</span><span class="n">_LONE_PLACEHOLDER</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">value</span><span class="p">))</span></div>
+
+
+
+<span class="c1">#: The placeholder shapes :func:`resolve_env_vars` substitutes; one still</span>
+<span class="c1">#: present after resolution named a variable the environment does not have.</span>
+<span class="n">_PLACEHOLDER</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="unresolved_placeholders">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.unresolved_placeholders">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">unresolved_placeholders</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Every placeholder left in *value*, depth-first.</span>
+
+<span class="sd">    Where :func:`is_unresolved_placeholder` asks whether a value is exactly one</span>
+<span class="sd">    reference, this finds every reference anywhere in a string, and in every</span>
+<span class="sd">    string nested in mappings, lists and tuples — so a block a supervisor is</span>
+<span class="sd">    about to hand a connector can be refused whole when any part of it is still</span>
+<span class="sd">    unresolved.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        value: A config value, of any type, after :func:`resolve_env_vars`.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The placeholders found, in order, repeats included; empty when none.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_PLACEHOLDER</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">found</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">for</span> <span class="n">found</span> <span class="ow">in</span> <span class="n">unresolved_placeholders</span><span class="p">(</span><span class="n">item</span><span class="p">)]</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">found</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">value</span> <span class="k">for</span> <span class="n">found</span> <span class="ow">in</span> <span class="n">unresolved_placeholders</span><span class="p">(</span><span class="n">item</span><span class="p">)]</span>
+    <span class="k">return</span> <span class="p">[]</span></div>
+
+
+
+<span class="n">_FLAG_ON</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;true&quot;</span><span class="p">,</span> <span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;on&quot;</span><span class="p">,</span> <span class="s2">&quot;1&quot;</span><span class="p">})</span>
+<span class="n">_FLAG_OFF</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;false&quot;</span><span class="p">,</span> <span class="s2">&quot;no&quot;</span><span class="p">,</span> <span class="s2">&quot;off&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">})</span>
+
+
+<div class="viewcode-block" id="config_flag">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.config_flag">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">config_flag</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read an on/off config value for what it spells.</span>
+
+<span class="sd">    :func:`resolve_env_vars` substitutes text, so ``${USE_NS:-false}`` reaches a</span>
+<span class="sd">    consumer as the *string* ``&quot;false&quot;`` — and ``bool(&quot;false&quot;)`` is True. Every</span>
+<span class="sd">    consumer of such a switch reads it through here, so they all agree on one</span>
+<span class="sd">    rule: a bool is itself, ``None`` is off, ``0``/``1`` are off/on, and a string</span>
+<span class="sd">    is matched case-insensitively against ``true/yes/on/1`` and</span>
+<span class="sd">    ``false/no/off/0`` (blank is off). Anything else — an unresolved</span>
+<span class="sd">    ``${VAR}``, a typo, another number — is refused rather than guessed, since</span>
+<span class="sd">    either guess would silently pick a behaviour nobody configured.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        value: The raw config value.</span>
+<span class="sd">        key: The dotted config key, named in the refusal.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The switch&#39;s state.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: When the value spells neither on nor off.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">value</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="n">word</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">_FLAG_ON</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">if</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">_FLAG_OFF</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> must be true or false, got </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">&quot;</span>
+        <span class="o">+</span> <span class="p">(</span><span class="s2">&quot; (an unset environment variable)&quot;</span> <span class="k">if</span> <span class="n">is_unresolved_placeholder</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="c1">#: The defaults :class:`ConfigBuilder` fills in for a config with no</span>
+<span class="c1">#: ``execution`` or ``python_executor`` section. Private: the executor&#39;s</span>
+<span class="c1">#: vocabulary is the framework&#39;s (``osprey.utils.execution_method``, whose</span>
+<span class="c1">#: public names a test holds equal to these).</span>
+<span class="n">_EXECUTION_METHOD_SUBPROCESS</span> <span class="o">=</span> <span class="s2">&quot;subprocess&quot;</span>
+<span class="n">_DEFAULT_EXECUTION_TIMEOUT_SECONDS</span> <span class="o">=</span> <span class="mi">600</span>
+
+
+<span class="c1">#: Directory the build owns end to end: every file under it is rendered from the</span>
+<span class="c1">#: profile/preset and checksummed into the manifest.</span>
+<span class="n">_BUILD_OWNED_DATA_DIR</span> <span class="o">=</span> <span class="s2">&quot;data&quot;</span>
+
+<span class="c1">#: Directory runtime state belongs in — the durable ``var/`` zone, outside the</span>
+<span class="c1">#: render entirely, so it survives every rebuild of ``build/``. Named in the</span>
+<span class="c1">#: advisory that fires when a runtime writer is pointed at build-owned ``data/``.</span>
+<span class="n">_RUNTIME_STATE_DIR</span> <span class="o">=</span> <span class="n">DEFAULT_AGENT_DATA_BASE_DIR</span>
+
+<span class="c1">#: Config keys this package reads whose value names a path something writes to</span>
+<span class="c1">#: *at run time* (the framework&#39;s own, its services&#39; among them, are in</span>
+<span class="c1">#: ``osprey.utils.workspace.RUNTIME_WRITE_PATH_KEYS``). These must stay out of</span>
+<span class="c1">#: ``data/``: that tree is build-owned and checksummed by</span>
+<span class="c1">#: :func:`osprey.cli.templates.manifest.calculate_file_checksums`, so a runtime</span>
+<span class="c1">#: write landing there reads as project drift and is erased by the next</span>
+<span class="c1">#: ``osprey build``.</span>
+<span class="n">_RUNTIME_WRITE_PATH_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="n">SIMULATION_STATE_DIR_CONFIG_KEY</span><span class="p">,)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_runtime_write_paths_under_data</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="s2">&quot;Mapping[str, Any]&quot;</span><span class="p">,</span> <span class="n">project_root</span><span class="p">:</span> <span class="n">Path</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find configured runtime-write paths that resolve inside ``&lt;root&gt;/data/``.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: Loaded ``config.yml`` mapping.</span>
+<span class="sd">        project_root: Directory relative paths in the config resolve against.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``(config_key, configured_value)`` pairs for every offending key, in</span>
+<span class="sd">        :data:`_RUNTIME_WRITE_PATH_KEYS` order. Empty when the config is clean.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">data_root</span> <span class="o">=</span> <span class="p">(</span><span class="n">project_root</span> <span class="o">/</span> <span class="n">_BUILD_OWNED_DATA_DIR</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+    <span class="n">offenders</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">_RUNTIME_WRITE_PATH_KEYS</span><span class="p">:</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">dotted_config_str</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">continue</span>
+
+        <span class="n">resolved</span> <span class="o">=</span> <span class="n">anchored_path</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">project_root</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">resolved</span> <span class="o">==</span> <span class="n">data_root</span> <span class="ow">or</span> <span class="n">data_root</span> <span class="ow">in</span> <span class="n">resolved</span><span class="o">.</span><span class="n">parents</span><span class="p">:</span>
+            <span class="n">offenders</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">offenders</span>
+
+
+<span class="c1">#: Shell values :func:`load_project_dotenv`&#39;s ``override=True`` replaced, keyed</span>
+<span class="c1">#: by variable name. The entry-time passthrough makes ``.env`` win inside the</span>
+<span class="c1">#: osprey *process*; compose&#39;s own precedence is the opposite (a shell export</span>
+<span class="c1">#: beats ``--env-file``), so the deploy path needs the shell as it really was —</span>
+<span class="c1">#: both to warn about a divergent export and to hand compose an environment</span>
+<span class="c1">#: that honors it. Empty when nothing differing was overridden.</span>
+<span class="n">_dotenv_shell_overrides</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<div class="viewcode-block" id="dotenv_shell_overrides">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.dotenv_shell_overrides">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">dotenv_shell_overrides</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The shell&#39;s own values for variables the ``.env`` entry-load overrode.</span>
+
+<span class="sd">    Only variables whose exported value *differed* from the file&#39;s are</span>
+<span class="sd">    recorded: a key the shell never set, or set to the same value, was not</span>
+<span class="sd">    shadowed. Overlaying this onto ``os.environ`` reconstructs the environment</span>
+<span class="sd">    the operator&#39;s shell actually provided, which is what compose interpolation</span>
+<span class="sd">    is documented against.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="n">_dotenv_shell_overrides</span><span class="p">)</span></div>
+
+
+
+<span class="c1">#: Variables the env chain never sets in a process environment. Each one is a</span>
+<span class="c1">#: name that chooses which program runs, what code a runtime loads at start, or</span>
+<span class="c1">#: what code an installer fetches, so it comes from the operator&#39;s shell, never</span>
+<span class="c1">#: from a repo file. Names compare case-insensitively; the entries here and in</span>
+<span class="c1">#: :data:`_SHELL_ONLY_ENV_PREFIXES` are upper-case.</span>
+<span class="n">_SHELL_ONLY_ENV_VARS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;PATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;HOME&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;SHELL&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;ENV&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;BASH_ENV&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;ZDOTDIR&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;NODE_OPTIONS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;NODE_PATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONPATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONHOME&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONSTARTUP&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONUSERBASE&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONWARNINGS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONINSPECT&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONBREAKPOINT&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONEXECUTABLE&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONPLATLIBDIR&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PYTHONPYCACHEPREFIX&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;NODE_REPL_EXTERNAL_MODULE&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PERL5LIB&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PERLLIB&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PERL5OPT&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PERL5DB&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;RUBYOPT&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;RUBYLIB&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;JAVA_TOOL_OPTIONS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;_JAVA_OPTIONS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;JDK_JAVA_OPTIONS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CLASSPATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;GCONV_PATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;GLIBC_TUNABLES&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;LOCPATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;NLSPATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;HOSTALIASES&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;OPENSSL_CONF&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;OPENSSL_MODULES&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;OPENSSL_ENGINES&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;XDG_CONFIG_HOME&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;XDG_CONFIG_DIRS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;XDG_CACHE_HOME&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;XDG_DATA_HOME&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PROMPT_COMMAND&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PS4&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;IFS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;SHELLOPTS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;BASHOPTS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CC&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CXX&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;LDSHARED&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CFLAGS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CPPFLAGS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CXXFLAGS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;LDFLAGS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;ARCHFLAGS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CPATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;C_INCLUDE_PATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CPLUS_INCLUDE_PATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;LIBRARY_PATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;COMPILER_PATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;GCC_EXEC_PREFIX&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;DOCKER_HOST&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;DOCKER_CONFIG&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;DOCKER_CONTEXT&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CLAUDE_CONFIG_DIR&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CLAUDE_CODE_SHELL&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CLAUDE_CODE_SHELL_PREFIX&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CLAUDE_CODE_GIT_BASH_PATH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CLAUDE_ENV_FILE&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;SSH_ASKPASS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;SUDO_ASKPASS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;LESSOPEN&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;LESSCLOSE&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PAGER&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;MANPAGER&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;EDITOR&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;VISUAL&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;BROWSER&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+
+<span class="c1">#: Name prefixes of the dynamic loader&#39;s variables, bash&#39;s exported functions</span>
+<span class="c1">#: and the variables git, npm, uv, pip and compose read, shell-only for the same reason</span>
+<span class="c1">#: as :data:`_SHELL_ONLY_ENV_VARS`.</span>
+<span class="n">_SHELL_ONLY_ENV_PREFIXES</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;LD_&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;DYLD_&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;BASH_FUNC_&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;GIT_&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;NPM_CONFIG_&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;UV_&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;PIP_&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;COMPOSE_&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1">#: ``(resolved file, name)`` pairs whose ignored shell-only name was already</span>
+<span class="c1">#: reported, so a chain applied many times in one process warns once.</span>
+<span class="n">_shell_only_reported</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_shell_only_env_var</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether ``name`` is a launch variable the env chain never applies, in any case.&quot;&quot;&quot;</span>
+    <span class="n">upper</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">upper</span> <span class="ow">in</span> <span class="n">_SHELL_ONLY_ENV_VARS</span> <span class="ow">or</span> <span class="n">upper</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">_SHELL_ONLY_ENV_PREFIXES</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="apply_env_chain">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.apply_env_chain">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_env_chain</span><span class="p">(</span>
+    <span class="n">environ</span><span class="p">:</span> <span class="n">MutableMapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
+    <span class="n">paths</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">override</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply env-chain files to ``environ``, except the shell-only launch variables.</span>
+
+<span class="sd">    ``paths`` is in ascending precedence (``.env.shared`` before ``.env``); a</span>
+<span class="sd">    path that is not a file is skipped. Each file is read with python-dotenv&#39;s</span>
+<span class="sd">    ``dotenv_values`` and written into ``environ`` in turn, so a later file</span>
+<span class="sd">    wins on a key both set. Every key is applied except those</span>
+<span class="sd">    :func:`_is_shell_only_env_var` names: for those ``environ`` keeps exactly</span>
+<span class="sd">    what it held (set, or absent), and one warning per file names the ignored</span>
+<span class="sd">    keys — never their values.</span>
+
+<span class="sd">    With ``override=False`` a name ``environ`` held when the call began is</span>
+<span class="sd">    never written, while a later file may still replace a value this call</span>
+<span class="sd">    wrote, so the local file outranks the shared one and the shell outranks</span>
+<span class="sd">    both.</span>
+
+<span class="sd">    :return: The sorted names written into ``environ``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">dotenv</span><span class="w"> </span><span class="kn">import</span> <span class="n">dotenv_values</span>
+
+    <span class="n">preset</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span> <span class="k">if</span> <span class="n">override</span> <span class="k">else</span> <span class="nb">set</span><span class="p">(</span><span class="n">environ</span><span class="p">)</span>
+    <span class="n">written</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">paths</span><span class="p">:</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+            <span class="k">continue</span>
+        <span class="n">ignored</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">dotenv_values</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">_is_shell_only_env_var</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+                <span class="n">ignored</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">preset</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">environ</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+            <span class="n">written</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">_report_shell_only</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">ignored</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">written</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_report_shell_only</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Warn once per process about the shell-only names ``path`` sets.&quot;&quot;&quot;</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
+    <span class="n">fresh</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">({</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span> <span class="k">if</span> <span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_shell_only_reported</span><span class="p">})</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">fresh</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="n">_shell_only_reported</span><span class="o">.</span><span class="n">update</span><span class="p">((</span><span class="n">resolved</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">fresh</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+        <span class="s2">&quot;Ignored </span><span class="si">%s</span><span class="s2"> in </span><span class="si">%s</span><span class="s2">: launch variables come from the shell only. &quot;</span>
+        <span class="s2">&quot;Export them in your shell instead.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">fresh</span><span class="p">),</span>
+        <span class="n">path</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<div class="viewcode-block" id="load_project_dotenv">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.load_project_dotenv">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_project_dotenv</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load the cwd&#39;s env chain into ``os.environ``, overriding existing values.</span>
+
+<span class="sd">    This is the env → environ passthrough the framework depends on: it</span>
+<span class="sd">    feeds the ``${VAR}`` references Claude Code expands in ``.mcp.json`` at MCP</span>
+<span class="sd">    server launch time (``EPICS_CA_ADDR_LIST``, ``PHOEBUS_BRIDGE_URL``,</span>
+<span class="sd">    ``BLUESKY_*``), and it makes the chain the source of truth for API keys over</span>
+<span class="sd">    a stale shell export. Every key in the files is passed through, not a</span>
+<span class="sd">    declared subset — narrowing it would drop Channel Access addressing with no</span>
+<span class="sd">    error. The one exception is the shell-only launch variables</span>
+<span class="sd">    (:func:`_is_shell_only_env_var`): :func:`apply_env_chain` leaves them as the</span>
+<span class="sd">    shell set them and warns.</span>
+
+<span class="sd">    The chain is ``.env.shared`` then ``.env``</span>
+<span class="sd">    (:data:`osprey_connectors.dotenv.ENV_CHAIN_FILENAMES`), each applied with</span>
+<span class="sd">    override, so the host-local ``.env`` wins over the committed</span>
+<span class="sd">    defaults on a key both set — the same local-wins precedence every other</span>
+<span class="sd">    delivery path applies. A project with no ``.env.shared`` behaves exactly as</span>
+<span class="sd">    it did when ``.env`` was the whole chain.</span>
+
+<span class="sd">    What the override replaces is not discarded: the shell&#39;s own differing</span>
+<span class="sd">    values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can</span>
+<span class="sd">    still see — and warn about — an export that disagrees with the store, and</span>
+<span class="sd">    hand compose an environment with the shell&#39;s precedence intact. The record</span>
+<span class="sd">    is taken once per key against the *merged* chain, before any file is</span>
+<span class="sd">    loaded: the value a key ends up with is the local file&#39;s, so that is the</span>
+<span class="sd">    value the shell&#39;s export is judged against, and a key both files set is</span>
+<span class="sd">    recorded once rather than twice.</span>
+
+<span class="sd">    ``override=True`` and the breadth of the copy are exactly why this must be</span>
+<span class="sd">    called deliberately. Call it from process entry points only; never at</span>
+<span class="sd">    import time, and never from library code that a host application merely</span>
+<span class="sd">    imports. Missing files and an unreadable file are non-fatal.</span>
+
+<span class="sd">    A process stamped with</span>
+<span class="sd">    :data:`~osprey_connectors.dotenv.ENV_CHAIN_APPLIED_ENV` was handed its</span>
+<span class="sd">    environment by a parent that chose it, and this returns without loading</span>
+<span class="sd">    anything: reloading the chain would put back what the parent withheld.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.dotenv</span><span class="w"> </span><span class="kn">import</span> <span class="n">ENV_CHAIN_APPLIED_ENV</span>
+
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ENV_CHAIN_APPLIED_ENV</span><span class="p">):</span>
+        <span class="k">return</span>
+
+    <span class="n">repo_root</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.dotenv</span><span class="w"> </span><span class="kn">import</span> <span class="n">chain_files</span><span class="p">,</span> <span class="n">merge_chain</span>
+
+        <span class="n">paths</span> <span class="o">=</span> <span class="n">chain_files</span><span class="p">(</span><span class="n">repo_root</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">paths</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No .env file found at </span><span class="si">{</span><span class="n">repo_root</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="c1"># Accumulate, never clear: this runs more than once per process, and</span>
+        <span class="c1"># after the first load os.environ already matches the chain — a later</span>
+        <span class="c1"># call sees no difference and must not erase the genuine shell values</span>
+        <span class="c1"># the first one recorded. First-seen wins; only the pre-load value is</span>
+        <span class="c1"># the shell&#39;s own. A shell-only name is never replaced, so it is never</span>
+        <span class="c1"># recorded.</span>
+        <span class="n">pinned</span> <span class="o">=</span> <span class="n">merge_chain</span><span class="p">(</span><span class="n">repo_root</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">pinned</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="ow">not</span> <span class="n">_is_shell_only_env_var</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="ow">and</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span>
+                <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">!=</span> <span class="n">value</span>
+                <span class="ow">and</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_dotenv_shell_overrides</span>
+            <span class="p">):</span>
+                <span class="n">_dotenv_shell_overrides</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+        <span class="n">apply_env_chain</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">,</span> <span class="n">paths</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Loaded the env chain from </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">paths</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># e.g. a 0600 .env owned by another uid mounted into a non-root</span>
+        <span class="c1"># container (dispatch worker on a uid-mismatched host). Provider</span>
+        <span class="c1"># env should already be in os.environ by the time config is built,</span>
+        <span class="c1"># so degrade gracefully instead of crash-looping the process.</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not read the .env chain at </span><span class="si">{</span><span class="n">repo_root</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="ConfigBuilder">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.ConfigBuilder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ConfigBuilder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and</span>
+<span class="sd">    pre-computes a ``configurable`` dict for framework and standalone use.</span>
+
+<span class="sd">    Singleton access: use :func:`get_config_builder` or :func:`_get_config`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Sentinel to distinguish &quot;no default given&quot; from &quot;default is None&quot;.</span>
+    <span class="n">_REQUIRED</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_require_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">_REQUIRED</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get config value, raising ValueError if required (no default) and missing.</span>
+
+<span class="sd">        When *default* is provided, uses it with a warning. When *default* is</span>
+<span class="sd">        omitted (_REQUIRED sentinel), raises on missing/None values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">default</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">_REQUIRED</span><span class="p">:</span>
+                <span class="c1"># No default provided - this is a required configuration</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Missing required configuration: &#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39;. For profile-built &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;projects, set it under `config:` in profile.yml and run &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;`osprey build`; otherwise add it to your config file.&quot;</span>
+                <span class="p">)</span>
+            <span class="c1"># Default provided - use it but warn for visibility</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using default value for &#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39; = </span><span class="si">{</span><span class="n">default</span><span class="si">}</span><span class="s2">. &quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">default</span>
+        <span class="k">return</span> <span class="n">value</span>
+
+<div class="viewcode-block" id="ConfigBuilder.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.ConfigBuilder.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">load_env</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize configuration builder.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            config_path: Path to the config.yml file. If None, looks in current directory.</span>
+<span class="sd">            load_env: When True (the default), load the env chain from the</span>
+<span class="sd">                current working directory into ``os.environ``. This env →</span>
+<span class="sd">                environ passthrough is load-bearing: it feeds the ``${VAR}``</span>
+<span class="sd">                references Claude Code expands in ``.mcp.json`` at MCP server</span>
+<span class="sd">                launch time.</span>
+<span class="sd">                Pass False only when the caller has already populated the</span>
+<span class="sd">                environment (or must not mutate it) and wants a config load with</span>
+<span class="sd">                no side effects on ``os.environ``.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            FileNotFoundError: If config.yml is not found and no path is provided.</span>
+<span class="sd">            ValueError: If a connector block still spells its call bound</span>
+<span class="sd">                ``timeout`` instead of ``timeout_s``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">load_env</span><span class="p">:</span>
+            <span class="n">load_project_dotenv</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">cwd_config</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span> <span class="o">/</span> <span class="s2">&quot;config.yml&quot;</span>
+            <span class="k">if</span> <span class="n">cwd_config</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                <span class="n">config_path</span> <span class="o">=</span> <span class="n">cwd_config</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;No config.yml found in current directory: </span><span class="si">{</span><span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Please run this command from a project directory containing config.yml,</span><span class="se">\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;or set CONFIG_FILE environment variable to point to your config file.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Example: export CONFIG_FILE=/path/to/your/config.yml</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;For profile-built projects, config.yml is rendered to build/config.yml —</span><span class="se">\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;run from the built deployment directory, or run `osprey build` first if</span><span class="se">\n</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;build/config.yml does not exist yet.&quot;</span>
+                <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+
+        <span class="c1"># Fail fast with an actionable message when the config path is not a</span>
+        <span class="c1"># regular file. A common cause: a container bind-mount whose host source</span>
+        <span class="c1"># did not exist at container-create time, which the runtime silently</span>
+        <span class="c1"># materializes as an empty directory on both ends — so config_path</span>
+        <span class="c1"># resolves to a directory and the YAML loader would otherwise surface a</span>
+        <span class="c1"># bare &quot;[Errno 21] Is a directory&quot;. Treat a missing explicit path the</span>
+        <span class="c1"># same way rather than failing later in open().</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">IsADirectoryError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Config path is a directory, not a file: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;config.yml is expected to be a file here. This usually means it &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;was meant to be provided at runtime (e.g. a bind-mount whose &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;source was missing, so the container runtime created an empty &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;directory) or was not baked into the image. Ensure config.yml &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;exists as a file at this path.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Config file not found: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Set the CONFIG_FILE environment variable to a valid config.yml, &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;or run from a project directory that contains one.&quot;</span>
+            <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">raw_config</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unexpanded_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_load_config</span><span class="p">()</span>
+
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.call_timeout</span><span class="w"> </span><span class="kn">import</span> <span class="n">refuse_renamed_timeout_keys</span>
+
+        <span class="n">refuse_renamed_timeout_keys</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">raw_config</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_warn_on_runtime_write_paths_under_data</span><span class="p">()</span>
+
+        <span class="c1"># Pre-compute nested structures for efficient runtime access</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">configurable</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_configurable</span><span class="p">()</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_warn_on_runtime_write_paths_under_data</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Warn when a runtime writer is pointed at the build-owned ``data/`` tree.</span>
+
+<span class="sd">        Advisory only: the misconfiguration still works until the next</span>
+<span class="sd">        ``osprey build`` wipes ``data/`` and takes the runtime state</span>
+<span class="sd">        with it, so this warns rather than raising.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">configured_root</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">raw_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;project_root&quot;</span><span class="p">)</span>
+        <span class="n">project_root</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">Path</span><span class="p">(</span><span class="n">configured_root</span><span class="p">)</span> <span class="k">if</span> <span class="n">configured_root</span> <span class="k">else</span> <span class="n">repo_root_for_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">)</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">_runtime_write_paths_under_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">raw_config</span><span class="p">,</span> <span class="n">project_root</span><span class="p">):</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="s2">&quot;Runtime-write path &#39;</span><span class="si">%s</span><span class="s2">&#39; = </span><span class="si">%r</span><span class="s2"> resolves inside the build-owned &quot;</span>
+                <span class="s2">&quot;&#39;</span><span class="si">%s</span><span class="s2">/&#39; tree (</span><span class="si">%s</span><span class="s2">). That directory is re-rendered and checksummed on &quot;</span>
+                <span class="s2">&quot;every build, so runtime writes there show up as project drift and &quot;</span>
+                <span class="s2">&quot;are erased by the next &#39;osprey build&#39;. Point it at &#39;</span><span class="si">%s</span><span class="s2">/&#39; instead.&quot;</span><span class="p">,</span>
+                <span class="n">key</span><span class="p">,</span>
+                <span class="n">value</span><span class="p">,</span>
+                <span class="n">_BUILD_OWNED_DATA_DIR</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">,</span>
+                <span class="n">_RUNTIME_STATE_DIR</span><span class="p">,</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_load_yaml_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Load and validate a YAML configuration file.&quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">config</span> <span class="o">=</span> <span class="n">yaml_loader</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Configuration file is empty: </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">{}</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="n">error_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Configuration file must contain a dictionary/mapping: </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded configuration from </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">config</span>
+        <span class="k">except</span> <span class="n">yaml</span><span class="o">.</span><span class="n">YAMLError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">error_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Error parsing YAML configuration: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">yaml</span><span class="o">.</span><span class="n">YAMLError</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_resolve_env_vars</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Recursively resolve environment variables in configuration data.</span>
+
+<span class="sd">        Delegates to the module-level :func:`resolve_env_vars` function.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">resolve_env_vars</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_load_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Load configuration from single file.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Tuple of (expanded_config, unexpanded_config) where:</span>
+<span class="sd">            - expanded_config: Config with ${VAR} placeholders resolved to actual values</span>
+<span class="sd">            - unexpanded_config: Config with ${VAR} placeholders preserved (for deployment)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_load_yaml_file</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">)</span>
+
+        <span class="n">unexpanded_config</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+
+        <span class="n">expanded_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_env_vars</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded configuration from </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">expanded_config</span><span class="p">,</span> <span class="n">unexpanded_config</span>
+
+<div class="viewcode-block" id="ConfigBuilder.get_unexpanded_config">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.ConfigBuilder.get_unexpanded_config">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_unexpanded_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get configuration with environment variable placeholders preserved.</span>
+
+<span class="sd">        Returns the configuration as loaded from YAML, without expanding</span>
+<span class="sd">        ${VAR_NAME} placeholders. This is useful for deployment scenarios</span>
+<span class="sd">        where secrets should NOT be written to disk - instead, the placeholders</span>
+<span class="sd">        are preserved and resolved at container runtime.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict: Configuration with ${VAR} placeholders intact</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+        <span class="k">return</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_unexpanded_config</span><span class="p">)</span></div>
+
+
+    <span class="c1">#: Keys older deployed configs may still carry but nothing honours any more:</span>
+    <span class="c1">#: ``python_env_path`` (the agent interpreter is resolved at run time) and</span>
+    <span class="c1">#: ``modes`` (Jupyter-era kernel/gateway descriptions with no reader).</span>
+    <span class="n">_RETIRED_EXECUTION_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;python_env_path&quot;</span><span class="p">,</span> <span class="s2">&quot;modes&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_execution_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get execution configuration with sensible defaults.</span>
+
+<span class="sd">        Retired keys (:attr:`_RETIRED_EXECUTION_KEYS`) are dropped here if an</span>
+<span class="sd">        older config still carries them, so already-deployed projects keep</span>
+<span class="sd">        loading unchanged instead of failing on keys nothing honours any more.</span>
+<span class="sd">        An empty section reads as no settings, and a non-mapping is refused by name.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict: Execution configuration including the execution method.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Try to get execution config from file</span>
+        <span class="n">execution_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_section</span><span class="p">(</span><span class="s2">&quot;execution&quot;</span><span class="p">)</span>
+
+        <span class="c1"># If execution section exists and has content, use it</span>
+        <span class="k">if</span> <span class="n">execution_config</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_RETIRED_EXECUTION_KEYS</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">execution_config</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                        <span class="s2">&quot;Ignoring retired &#39;execution.</span><span class="si">%s</span><span class="s2">&#39; (</span><span class="si">%s</span><span class="s2">) in </span><span class="si">%s</span><span class="s2">; the key has &quot;</span>
+                        <span class="s2">&quot;no effect on the subprocess execution backend.&quot;</span><span class="p">,</span>
+                        <span class="n">key</span><span class="p">,</span>
+                        <span class="n">execution_config</span><span class="p">[</span><span class="n">key</span><span class="p">],</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">,</span>
+                    <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="n">key</span><span class="p">:</span> <span class="n">value</span>
+                <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">execution_config</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_RETIRED_EXECUTION_KEYS</span>
+            <span class="p">}</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+            <span class="s2">&quot;&#39;execution&#39; section missing from config.yml; defaulting to subprocess Python execution&quot;</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;execution_method&quot;</span><span class="p">:</span> <span class="n">_EXECUTION_METHOD_SUBPROCESS</span><span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_python_executor_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get python executor configuration with sensible defaults.</span>
+
+<span class="sd">        Returns python_executor configuration from config.yml if present, otherwise</span>
+<span class="sd">        provides a reasonable default for the execution timeout.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            dict: Python executor configuration with timeout settings</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Try to get python_executor config from file</span>
+        <span class="n">python_executor_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_section</span><span class="p">(</span><span class="s2">&quot;python_executor&quot;</span><span class="p">)</span>
+
+        <span class="c1"># If python_executor section exists and has content, use it</span>
+        <span class="k">if</span> <span class="n">python_executor_config</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">python_executor_config</span>
+
+        <span class="c1"># Otherwise, provide sensible defaults</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;execution_timeout_seconds&quot;</span><span class="p">:</span> <span class="n">_DEFAULT_EXECUTION_TIMEOUT_SECONDS</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_configurable</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the configurable dictionary with pre-computed nested structures.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;model_configs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_model_configs</span><span class="p">(),</span>
+            <span class="s2">&quot;provider_configs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_provider_configs</span><span class="p">(),</span>
+            <span class="s2">&quot;service_configs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_service_configs</span><span class="p">(),</span>
+            <span class="s2">&quot;execution&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_execution_config</span><span class="p">(),</span>
+            <span class="s2">&quot;python_executor&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_python_executor_config</span><span class="p">(),</span>
+            <span class="s2">&quot;logging&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;logging&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+            <span class="s2">&quot;development&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;development&quot;</span><span class="p">,</span> <span class="p">{}),</span>
+            <span class="s2">&quot;project_root&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;project_root&quot;</span><span class="p">),</span>
+            <span class="s2">&quot;registry_path&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;registry_path&quot;</span><span class="p">),</span>
+            <span class="s2">&quot;facility_timezone&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;system.timezone&quot;</span><span class="p">,</span> <span class="s2">&quot;UTC&quot;</span><span class="p">),</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_model_configs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get model configs from flat structure.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_section</span><span class="p">(</span><span class="s2">&quot;models&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_provider_configs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build provider configs.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_section</span><span class="p">(</span><span class="s2">&quot;api.providers&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_service_configs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get service configs from flat structure.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_section</span><span class="p">(</span><span class="s2">&quot;services&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_section</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read the section at ``path`` as a mapping; empty reads as ``{}``.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">mapping_or_empty</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">path</span><span class="p">),</span> <span class="n">path</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ConfigBuilder.get">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.ConfigBuilder.get">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get configuration value using dot notation path.&quot;&quot;&quot;</span>
+        <span class="n">keys</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">raw_config</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">KeyError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">default</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="mapping_or_empty">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.mapping_or_empty">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">mapping_or_empty</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">source</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a config section as a mapping: ``None`` reads as ``{}``, a non-mapping is refused.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">value</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39; in </span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2"> must be a mapping, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_project_config">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.load_project_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_project_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">wrap_errors</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load a built project&#39;s ``config.yml`` the way the deploy path loads it.</span>
+
+<span class="sd">    The single entry point every project-facing command and deployment step</span>
+<span class="sd">    uses to read a project&#39;s effective config: :class:`ConfigBuilder`, with the</span>
+<span class="sd">    loader&#39;s own INFO chatter quieted. Going through one function is what keeps</span>
+<span class="sd">    those consumers agreeing on what the config *says* — a caller that</span>
+<span class="sd">    hand-rolled ``yaml.safe_load`` would resolve ``${VAR}`` without the ``.env``</span>
+<span class="sd">    passthrough ConfigBuilder performs (see :func:`load_project_dotenv`), and</span>
+<span class="sd">    would miss the module flags and derived fields ConfigBuilder computes. It</span>
+<span class="sd">    could then report on — or render from — a config the deploy would never</span>
+<span class="sd">    have produced.</span>
+
+<span class="sd">    This lives here, next to ``ConfigBuilder``, rather than in a CLI helper</span>
+<span class="sd">    module: the deployment layer is one of its consumers and imports nothing</span>
+<span class="sd">    from :mod:`osprey.cli` at module scope, so a CLI home would have made this</span>
+<span class="sd">    the first such edge.</span>
+
+<span class="sd">    Existence checks stay at the call site. ``ConfigBuilder``&#39;s own</span>
+<span class="sd">    ``FileNotFoundError`` advises setting ``CONFIG_FILE``, which is the wrong</span>
+<span class="sd">    instruction for a ``--project`` verb, so a caller that needs its own</span>
+<span class="sd">    &quot;no project here&quot; message must check before calling (see</span>
+<span class="sd">    :func:`osprey.cli.scaffold_cmd._load_config`).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Path to the project&#39;s ``config.yml``.</span>
+<span class="sd">        wrap_errors: When True, re-raise any load failure as ``RuntimeError``</span>
+<span class="sd">            naming the config path. Deployment entry points use this so an</span>
+<span class="sd">            operator sees which file failed rather than a bare YAML error.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The env-var-expanded config mapping (``ConfigBuilder.raw_config``).</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        RuntimeError: If the load fails and *wrap_errors* is True.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.log_filter</span><span class="w"> </span><span class="kn">import</span> <span class="n">quiet_logger</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">quiet_logger</span><span class="p">([</span><span class="s2">&quot;registry&quot;</span><span class="p">,</span> <span class="s2">&quot;CONFIG&quot;</span><span class="p">]):</span>
+            <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">))</span><span class="o">.</span><span class="n">raw_config</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">wrap_errors</span><span class="p">:</span>
+            <span class="k">raise</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not load config file </span><span class="si">{</span><span class="n">config_path</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">return</span> <span class="n">config</span></div>
+
+
+
+<span class="n">_default_config</span><span class="p">:</span> <span class="n">ConfigBuilder</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="n">_default_configurable</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="n">_config_cache</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ConfigBuilder</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfigBuilder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get configuration instance (singleton pattern with optional explicit path).</span>
+
+<span class="sd">    This function supports two modes:</span>
+<span class="sd">    1. Default singleton: When no config_path provided, uses CONFIG_FILE env var or cwd/config.yml</span>
+<span class="sd">    2. Explicit path: When config_path provided, caches and returns config for that specific path</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional explicit path to configuration file. If provided,</span>
+<span class="sd">                    this path is used instead of the default singleton behavior.</span>
+<span class="sd">        set_as_default: If True and config_path is provided, also set this config as the</span>
+<span class="sd">                       default singleton so future calls without config_path use it.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ConfigBuilder instance for the specified or default configuration</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Default singleton behavior (backward compatible)</span>
+<span class="sd">        &gt;&gt;&gt; config = _get_config()</span>
+
+<span class="sd">        &gt;&gt;&gt; # Explicit config path</span>
+<span class="sd">        &gt;&gt;&gt; config = _get_config(&quot;/path/to/config.yml&quot;)</span>
+
+<span class="sd">        &gt;&gt;&gt; # Explicit path that becomes the default</span>
+<span class="sd">        &gt;&gt;&gt; config = _get_config(&quot;/path/to/config.yml&quot;, set_as_default=True)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span>
+
+    <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">_default_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">config_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">)</span>
+            <span class="n">_default_config</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span> <span class="k">if</span> <span class="n">config_file</span> <span class="k">else</span> <span class="n">ConfigBuilder</span><span class="p">()</span>
+
+            <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">_default_config</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Initialized default configuration system&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">_default_config</span>
+
+    <span class="n">resolved_path</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
+
+    <span class="k">if</span> <span class="n">resolved_path</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_config_cache</span><span class="p">:</span>
+        <span class="c1"># Log honestly: a missing file is about to raise in ConfigBuilder, and</span>
+        <span class="c1"># many callers swallow that — a cheerful &quot;Loading configuration from</span>
+        <span class="c1"># explicit path&quot; would then be the only (misleading) trace in the log.</span>
+        <span class="k">if</span> <span class="n">Path</span><span class="p">(</span><span class="n">resolved_path</span><span class="p">)</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loading configuration from explicit path: </span><span class="si">{</span><span class="n">resolved_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Config file not found: </span><span class="si">{</span><span class="n">resolved_path</span><span class="si">}</span><span class="s2"> — load will fail&quot;</span><span class="p">)</span>
+        <span class="n">_config_cache</span><span class="p">[</span><span class="n">resolved_path</span><span class="p">]</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">(</span><span class="n">resolved_path</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">set_as_default</span><span class="p">:</span>
+        <span class="n">_default_config</span> <span class="o">=</span> <span class="n">_config_cache</span><span class="p">[</span><span class="n">resolved_path</span><span class="p">]</span>
+        <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">_default_config</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Set explicit config as default: </span><span class="si">{</span><span class="n">resolved_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">_config_cache</span><span class="p">[</span><span class="n">resolved_path</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="get_configurable">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.get_configurable">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_configurable</span><span class="p">(</span>
+    <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get configurable dict with automatic context detection.</span>
+
+<span class="sd">    This function supports both framework execution contexts and standalone execution,</span>
+<span class="sd">    with optional explicit configuration path support.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional explicit path to configuration file</span>
+<span class="sd">        set_as_default: If True and config_path is provided, set as default config</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Complete configuration dictionary with all configurable values</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="n">set_as_default</span><span class="o">=</span><span class="n">set_as_default</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">global</span> <span class="n">_default_configurable</span>
+        <span class="k">if</span> <span class="n">_default_configurable</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">_default_configurable</span>
+
+    <span class="k">return</span> <span class="n">config</span><span class="o">.</span><span class="n">configurable</span></div>
+
+
+
+<div class="viewcode-block" id="get_config_builder">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.get_config_builder">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_config_builder</span><span class="p">(</span>
+    <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfigBuilder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get configuration builder instance for full config access.</span>
+
+<span class="sd">    This is the primary public API for accessing the configuration system.</span>
+<span class="sd">    Returns a ConfigBuilder instance that provides access to both raw configuration</span>
+<span class="sd">    data and pre-computed configurable structures.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional explicit path to configuration file. If provided,</span>
+<span class="sd">                    loads configuration from this path. If None, uses the default</span>
+<span class="sd">                    singleton (CONFIG_FILE env var or cwd/config.yml).</span>
+<span class="sd">        set_as_default: If True and config_path is provided, also set this config</span>
+<span class="sd">                       as the default singleton for future calls without config_path.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ConfigBuilder instance with access to:</span>
+<span class="sd">        - .raw_config: The raw YAML configuration dictionary</span>
+<span class="sd">        - .configurable: Pre-computed configuration for framework</span>
+<span class="sd">        - .get(path, default): Dot-notation access to config values</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Default configuration</span>
+<span class="sd">        &gt;&gt;&gt; config = get_config_builder()</span>
+<span class="sd">        &gt;&gt;&gt; timeout = config.get(&quot;execution.timeout&quot;, 30)</span>
+
+<span class="sd">        &gt;&gt;&gt; # Load from specific path</span>
+<span class="sd">        &gt;&gt;&gt; config = get_config_builder(&quot;/path/to/config.yml&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; raw = config.raw_config</span>
+
+<span class="sd">        &gt;&gt;&gt; # Load and set as default for subsequent calls</span>
+<span class="sd">        &gt;&gt;&gt; config = get_config_builder(&quot;/path/to/config.yml&quot;, set_as_default=True)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="default_config_path">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.default_config_path">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">default_config_path</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Path of the config file the default singleton actually loaded, if any.</span>
+
+<span class="sd">    This answers &quot;which config is this process&#39;s unqualified lookups reading</span>
+<span class="sd">    from&quot; — the CONFIG_FILE target, the cwd fallback, or a</span>
+<span class="sd">    :func:`config_anchored_at` anchor, whichever produced the singleton.</span>
+<span class="sd">    Callers that resolve paths *relative to the config in use* (e.g.</span>
+<span class="sd">    ``LimitsValidator.resolve_database_path``) anchor on this rather than</span>
+<span class="sd">    re-deriving the location from the environment, which can disagree with</span>
+<span class="sd">    what was actually loaded.</span>
+
+<span class="sd">    Side-effect free: no singleton is created and no ``.env`` chain is loaded.</span>
+<span class="sd">    Returns ``None`` until something initializes the default configuration.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">_default_config</span><span class="o">.</span><span class="n">config_path</span><span class="p">)</span> <span class="k">if</span> <span class="n">_default_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="config_anchored_at">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.config_anchored_at">[docs]</a>
+<span class="nd">@contextmanager</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">config_anchored_at</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Iterator[None]&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Answer this process&#39;s unqualified config lookups from *config_path*.</span>
+
+<span class="sd">    Every :func:`get_config_value` and :func:`get_facility_timezone` call that</span>
+<span class="sd">    names no config resolves the default singleton, which knows exactly two</span>
+<span class="sd">    places to look: ``CONFIG_FILE``, and ``config.yml`` in the working</span>
+<span class="sd">    directory. Compose satisfies that contract for every container by injecting</span>
+<span class="sd">    ``CONFIG_FILE``. On the host there is nobody to inject it, and a deployment</span>
+<span class="sd">    repo keeps its render one zone down in ``build/`` while its verbs stand at</span>
+<span class="sd">    the repo root — so a host verb doing in-process work satisfies neither</span>
+<span class="sd">    branch, and every lookup it makes degrades to a default. Silently: a</span>
+<span class="sd">    degraded answer (UTC, an empty dict) is indistinguishable from a configured</span>
+<span class="sd">    one at the call site, which is how a whole archive can be synthesized</span>
+<span class="sd">    against the wrong clock without anything failing.</span>
+
+<span class="sd">    This is the host&#39;s half of that contract, and it is deliberately in-process</span>
+<span class="sd">    rather than an exported ``CONFIG_FILE``. The attached start path</span>
+<span class="sd">    ``os.execvpe``-replaces itself with the container runtime, and an exported</span>
+<span class="sd">    variable would ride into that process&#39;s interpolation environment; the</span>
+<span class="sd">    anchor has no business outliving the verb that set it.</span>
+
+<span class="sd">    Scoped for the same reason — the previous default is restored on exit, so a</span>
+<span class="sd">    verb pointed at one deployment with ``--repo`` cannot leave the next lookup</span>
+<span class="sd">    in this process answering for it.</span>
+
+<span class="sd">    Never raises. A config that will not load leaves the previous default in</span>
+<span class="sd">    place and warns: this makes lookups honest, and an anchor that aborted its</span>
+<span class="sd">    caller would turn a degraded lookup into a failed deploy.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: The rendered config this process is acting on — normally</span>
+<span class="sd">            ``&lt;repo&gt;/build/config.yml`` (see</span>
+<span class="sd">            :func:`osprey_connectors.workspace.rendered_config_path`).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span>
+
+    <span class="n">previous</span> <span class="o">=</span> <span class="p">(</span><span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_get_config</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">),</span> <span class="n">set_as_default</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># an unusable anchor must not fail the caller</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Could not anchor configuration at </span><span class="si">{</span><span class="n">config_path</span><span class="si">}</span><span class="s2"> &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">). Values this process reads without an &quot;</span>
+                <span class="s2">&quot;explicit path will fall back to their defaults.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">yield</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">previous</span></div>
+
+
+
+<div class="viewcode-block" id="load_config">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.load_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load raw configuration dictionary from YAML file.</span>
+
+<span class="sd">    Convenience function that returns the raw configuration dictionary</span>
+<span class="sd">    as loaded from the YAML file, with environment variables resolved.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional path to configuration file. If None, uses the</span>
+<span class="sd">                    default configuration (CONFIG_FILE env var or cwd/config.yml).</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Raw configuration dictionary with all values from the YAML file.</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Load default configuration</span>
+<span class="sd">        &gt;&gt;&gt; config = load_config()</span>
+<span class="sd">        &gt;&gt;&gt; api_key = config.get(&quot;api&quot;, {}).get(&quot;key&quot;)</span>
+
+<span class="sd">        &gt;&gt;&gt; # Load from specific path</span>
+<span class="sd">        &gt;&gt;&gt; config = load_config(&quot;/path/to/config.yml&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; channels = config.get(&quot;channel_finder&quot;, {})</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span><span class="o">.</span><span class="n">raw_config</span></div>
+
+
+
+<div class="viewcode-block" id="get_agent_dir">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.get_agent_dir">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_agent_dir</span><span class="p">(</span><span class="n">sub_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">host_path</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get the target directory path within the agent data directory using absolute paths.</span>
+
+<span class="sd">    The root comes from ``agent_data.base_dir`` — the single key naming this</span>
+<span class="sd">    directory — while ``file_paths`` supplies the subdirectory names. A</span>
+<span class="sd">    subdirectory key absent from ``file_paths`` falls back to its own name.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        sub_dir: Subdirectory name (e.g., &#39;registry_exports_dir&#39;)</span>
+<span class="sd">        host_path: If True, force return of host filesystem path even when running in container</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Absolute path to the target directory</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">agent_data_base_dir</span>
+
+    <span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">()</span>
+
+    <span class="n">project_root</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;project_root&quot;</span><span class="p">)</span>
+    <span class="n">main_file_paths</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;file_paths&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">agent_data_root</span> <span class="o">=</span> <span class="n">agent_data_base_dir</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">raw_config</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">sub_dir</span> <span class="ow">in</span> <span class="n">main_file_paths</span><span class="p">:</span>
+        <span class="n">sub_dir_path</span> <span class="o">=</span> <span class="n">main_file_paths</span><span class="p">[</span><span class="n">sub_dir</span><span class="p">]</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found </span><span class="si">{</span><span class="n">sub_dir</span><span class="si">}</span><span class="s2"> in file_paths: </span><span class="si">{</span><span class="n">sub_dir_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">sub_dir_path</span> <span class="o">=</span> <span class="n">sub_dir</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using fallback path for </span><span class="si">{</span><span class="n">sub_dir</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">sub_dir_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">project_root</span><span class="p">:</span>
+        <span class="n">project_root_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">project_root</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">host_path</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Forcing host path resolution for: </span><span class="si">{</span><span class="n">sub_dir</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="n">project_root_path</span> <span class="o">/</span> <span class="n">agent_data_root</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">project_root_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                <span class="c1"># A configured root written on the host does not exist inside a</span>
+                <span class="c1"># container. ``CONFIG_FILE`` names the config this process</span>
+                <span class="c1"># actually loaded, so its directory IS the project root here —</span>
+                <span class="c1"># a fact rather than the guess at a container layout this used</span>
+                <span class="c1"># to make.</span>
+                <span class="n">config_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">)</span>
+                <span class="n">anchor</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="k">if</span> <span class="n">config_file</span> <span class="k">else</span> <span class="kc">None</span>
+                <span class="k">if</span> <span class="n">anchor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">anchor</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Configured project root </span><span class="si">{</span><span class="n">project_root</span><span class="si">}</span><span class="s2"> is absent; anchoring on &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;CONFIG_FILE&#39;s directory </span><span class="si">{</span><span class="n">anchor</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+                    <span class="n">path</span> <span class="o">=</span> <span class="n">anchor</span> <span class="o">/</span> <span class="n">agent_data_root</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Configured project root does not exist: </span><span class="si">{</span><span class="n">project_root</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Falling back to relative path resolution&quot;</span><span class="p">)</span>
+                    <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">agent_data_root</span><span class="p">)</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+                    <span class="n">path</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">path</span> <span class="o">=</span> <span class="n">project_root_path</span> <span class="o">/</span> <span class="n">agent_data_root</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;No project root configured, using relative path for agent data directory&quot;</span><span class="p">)</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">agent_data_root</span><span class="p">)</span> <span class="o">/</span> <span class="n">sub_dir_path</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_config_value">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.get_config_value">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_config_value</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get a specific configuration value by dot-separated path.</span>
+
+<span class="sd">    This function provides context-aware access to configuration values,</span>
+<span class="sd">    working both inside and outside framework execution contexts. Optionally,</span>
+<span class="sd">    an explicit configuration file path can be provided.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        path: Dot-separated configuration path (e.g., &quot;execution.timeout&quot;)</span>
+<span class="sd">        default: Default value to return if path is not found</span>
+<span class="sd">        config_path: Optional explicit path to configuration file</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The configuration value at the specified path, or default if not found</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If path is empty or None</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; timeout = get_config_value(&quot;execution.timeout&quot;, 30)</span>
+<span class="sd">        &gt;&gt;&gt; debug_mode = get_config_value(&quot;development.debug&quot;, False)</span>
+
+<span class="sd">        &gt;&gt;&gt; # With explicit config path</span>
+<span class="sd">        &gt;&gt;&gt; timeout = get_config_value(&quot;execution.timeout&quot;, 30, &quot;/path/to/config.yml&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Configuration path cannot be empty or None&quot;</span><span class="p">)</span>
+
+    <span class="n">configurable</span> <span class="o">=</span> <span class="n">get_configurable</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+
+    <span class="n">keys</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">configurable</span>
+
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">value</span></div>
+
+
+
+<span class="n">_tz_drift_warned</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="n">_tz_fallback_warned</span> <span class="o">=</span> <span class="kc">False</span>
+
+
+<div class="viewcode-block" id="get_facility_timezone">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.get_facility_timezone">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_facility_timezone</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="s2">&quot;ZoneInfo&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the facility timezone from config as a ZoneInfo object.</span>
+
+<span class="sd">    This is the safe default resolver for every simulation synthesis primitive</span>
+<span class="sd">    and timestamp render site, so it must never raise: an unloaded config (no</span>
+<span class="sd">    ``config.yml`` and no ``CONFIG_FILE``) or a misconfigured/typo&#39;d zone name</span>
+<span class="sd">    degrades to UTC with a logged warning rather than propagating to callers.</span>
+
+<span class="sd">    The fallback warns **once per process**, not once per call. Synthesis calls</span>
+<span class="sd">    this per channel per chunk — thousands of times to seed one archive — and a</span>
+<span class="sd">    failed load is never cached (only a successful one is), so the fallback is</span>
+<span class="sd">    re-taken on every one of them. Repeating the multi-line &quot;no config.yml</span>
+<span class="sd">    found&quot; remedy that often buries every other line of the deploy and makes a</span>
+<span class="sd">    seed that is working normally read as a hung terminal. Once is deliberate</span>
+<span class="sd">    rather than none: a process resolving the wrong config still has to be</span>
+<span class="sd">    diagnosable from its own log.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ZoneInfo for the configured facility timezone, defaulting to UTC.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_tz_fallback_warned</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">zoneinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZoneInfo</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">tz_name</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;facility_timezone&quot;</span><span class="p">,</span> <span class="s2">&quot;UTC&quot;</span><span class="p">)</span>
+        <span class="n">zone</span> <span class="o">=</span> <span class="n">ZoneInfo</span><span class="p">(</span><span class="n">tz_name</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># any failure must degrade to UTC, not raise</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">_tz_fallback_warned</span><span class="p">:</span>
+            <span class="n">_tz_fallback_warned</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Falling back to UTC facility timezone (</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ZoneInfo</span><span class="p">(</span><span class="s2">&quot;UTC&quot;</span><span class="p">)</span>
+
+    <span class="n">_warn_on_tz_drift</span><span class="p">(</span><span class="n">tz_name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">zone</span></div>
+
+
+
+<span class="nd">@overload</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">localize_facility</span><span class="p">(</span><span class="n">dt</span><span class="p">:</span> <span class="s2">&quot;datetime&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;datetime&quot;</span><span class="p">:</span> <span class="o">...</span>
+
+
+<span class="nd">@overload</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">localize_facility</span><span class="p">(</span><span class="n">dt</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
+
+
+<div class="viewcode-block" id="localize_facility">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.localize_facility">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">localize_facility</span><span class="p">(</span><span class="n">dt</span><span class="p">:</span> <span class="s2">&quot;datetime | None&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;datetime | None&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read a naive datetime as facility-local wall-clock; pass an aware one through.</span>
+
+<span class="sd">    A naive datetime is stamped with the facility zone -- never the box ``$TZ``,</span>
+<span class="sd">    which ``astimezone`` would silently impose. :func:`get_facility_timezone`</span>
+<span class="sd">    degrades to UTC when the zone is unset or unreadable.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        dt: A datetime in either state, or ``None``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The same instant, timezone-aware, or ``None`` for ``None`` input.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">dt</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">dt</span><span class="o">.</span><span class="n">tzinfo</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">get_facility_timezone</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">dt</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_warn_on_tz_drift</span><span class="p">(</span><span class="n">tz_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Warn once if the container ``$TZ`` disagrees with an explicit system.timezone.</span>
+
+<span class="sd">    Agent-facing timestamps key off ``system.timezone``, not ``$TZ``, so a</span>
+<span class="sd">    divergence only mis-stamps OS-level container logs — but it signals a</span>
+<span class="sd">    misconfigured deploy (container clock != agent zone). We surface it as a</span>
+<span class="sd">    one-time warning rather than enforcing equality: ``system.timezone`` stays the</span>
+<span class="sd">    single source of truth, and this check never changes the returned value or</span>
+<span class="sd">    raises. Skips the implicit-UTC default (config absent) so CI/tests with</span>
+<span class="sd">    ``$TZ`` set but no configured ``system.timezone`` stay quiet.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_tz_drift_warned</span>
+    <span class="k">if</span> <span class="n">_tz_drift_warned</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="n">host_tz</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;TZ&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">host_tz</span> <span class="ow">or</span> <span class="n">host_tz</span> <span class="o">==</span> <span class="n">tz_name</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="c1"># Only meaningful when system.timezone was explicitly configured (the alias</span>
+    <span class="c1"># default would otherwise make every $TZ-set environment look divergent).</span>
+    <span class="k">if</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;system.timezone&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="n">_tz_drift_warned</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Container $TZ=</span><span class="si">{</span><span class="n">host_tz</span><span class="si">!r}</span><span class="s2"> differs from the facility system.timezone=</span><span class="si">{</span><span class="n">tz_name</span><span class="si">!r}</span><span class="s2">; &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;OS-level log timestamps will differ from agent-reported times. Set both to &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;the same zone (system.timezone is authoritative for what the agent reports).&quot;</span>
+    <span class="p">)</span>
+
+
+<div class="viewcode-block" id="get_full_configuration">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.get_full_configuration">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_full_configuration</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get the complete configuration dictionary.</span>
+
+<span class="sd">    This function provides access to the entire configurable dictionary,</span>
+<span class="sd">    working both inside and outside framework execution contexts. Optionally,</span>
+<span class="sd">    an explicit configuration file path can be provided.</span>
+
+<span class="sd">    When an explicit config_path is provided, it is also set as the default</span>
+<span class="sd">    configuration so that subsequent config access without explicit path will</span>
+<span class="sd">    use this configuration.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config_path: Optional explicit path to configuration file. If provided,</span>
+<span class="sd">                    loads configuration from this path and sets it as the default.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Complete configuration dictionary with all configurable values</span>
+
+<span class="sd">    Examples:</span>
+<span class="sd">        &gt;&gt;&gt; # Default configuration (backward compatible)</span>
+<span class="sd">        &gt;&gt;&gt; config = get_full_configuration()</span>
+<span class="sd">        &gt;&gt;&gt; project_root = config.get(&quot;project_root&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; models = config.get(&quot;model_configs&quot;, {})</span>
+
+<span class="sd">        &gt;&gt;&gt; # Explicit configuration path (also becomes default)</span>
+<span class="sd">        &gt;&gt;&gt; config = get_full_configuration(&quot;/path/to/my-config.yml&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; models = config.get(&quot;model_configs&quot;, {})</span>
+<span class="sd">        &gt;&gt;&gt; # Subsequent calls without path use this config</span>
+<span class="sd">        &gt;&gt;&gt; other_value = get_config_value(&quot;some.setting&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">set_as_default</span> <span class="o">=</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">get_configurable</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="n">set_as_default</span><span class="o">=</span><span class="n">set_as_default</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># No eager _get_config() here, deliberately. Building the default config at</span>
+<span class="c1"># import time loaded `.env` into os.environ as a side effect of importing any</span>
+<span class="c1"># osprey module (osprey/utils/__init__.py imports this one), which is the</span>
+<span class="c1"># behaviour the module docstring rules out. The first real get_config_value()</span>
+<span class="c1"># call builds it instead; entry points that need `.env` in the environment</span>
+<span class="c1"># load it themselves.</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,2041 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.posture_store &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/posture_store';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/posture_store.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.posture_store</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.posture_store</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;The write-switch reader — one field of one record, one verdict.</span>
+
+<span class="sd">An operator sets one control target&#39;s writes to off, asked or allowed from the</span>
+<span class="sd">header chip: &quot;writes on for the stand-in, leave the virtual accelerator alone&quot;.</span>
+<span class="sd">That switch is one field of the control-context record</span>
+<span class="sd">(:mod:`osprey_connectors.control_context`) and is enforced at *write* time</span>
+<span class="sd">rather than delivered by respawning the agent, which is what lets a flip land</span>
+<span class="sd">on a session already mid-conversation.</span>
+
+<span class="sd">This module is the canonical reader of that field. Two others answer from the</span>
+<span class="sd">same file and must agree with it: the controls MCP server (which imports this</span>
+<span class="sd">one) and the stdlib-only PreToolUse hook in</span>
+<span class="sd">``osprey/templates/claude_code/claude/hooks/osprey_target_state.py``, which</span>
+<span class="sd">cannot import anything and therefore *restates* the contract below. Treat the</span>
+<span class="sd">following five rules as the contract; a change here is a change there.</span>
+
+<span class="sd">**1. Where the file is.** One directory per identity:</span>
+<span class="sd">:func:`~osprey_connectors.identity.acting_identity` under</span>
+<span class="sd">:data:`STATE_DIR_NAME` under the agent-data root, so one directory answers</span>
+<span class="sd">&quot;control state for whoever this process is acting as&quot;. The switch is one</span>
+<span class="sd">operator&#39;s, not the deployment&#39;s, and a single shared directory would make one</span>
+<span class="sd">user&#39;s chip decide every other user&#39;s writes. The directory resolves by ONE</span>
+<span class="sd">ladder, used by every writer and every reader:</span>
+
+<span class="sd">* :data:`CONTROL_CONTEXT_DIR_ENV_VAR` when it names a non-blank path — the</span>
+<span class="sd">  container&#39;s own state directory, bound in by compose. It is already the</span>
+<span class="sd">  per-identity directory, so nothing is appended to it: a container sees its</span>
+<span class="sd">  own dir at a path that has nothing to do with the host&#39;s tree, and deriving</span>
+<span class="sd">  the identity hop inside it would name a directory nobody binds;</span>
+<span class="sd">* otherwise :data:`AGENT_DATA_ROOT_ENV_VAR` when it names a non-blank path —</span>
+<span class="sd">  the stamp a session child carries — else</span>
+<span class="sd">  :func:`~osprey_connectors.workspace.resolve_shared_data_root`, the config</span>
+<span class="sd">  derivation the state file has always used; and then the two fixed hops,</span>
+<span class="sd">  :data:`STATE_DIR_NAME` and the acting identity.</span>
+
+<span class="sd">There is no third path and no fallback. A root that resolves to nothing makes</span>
+<span class="sd">:func:`state_dir` ``None``, which a route surfaces as ``store_unavailable``</span>
+<span class="sd">rather than quietly writing somewhere a reader will never look, and which</span>
+<span class="sd">:func:`write_verdict` refuses as ``record_unavailable``.</span>
+
+<span class="sd">**2. What the shapes mean.** The record&#39;s ``switch`` field is a per-target map</span>
+<span class="sd">of positions, and :func:`~osprey_connectors.control_context.switch_position` is</span>
+<span class="sd">its one reader: a machine is armed only at ``&quot;asked&quot;`` or ``&quot;allowed&quot;``, and a</span>
+<span class="sd">stored ``&quot;on&quot;`` from an older release reads as ``&quot;asked&quot;``. Everything else — no</span>
+<span class="sd">record, a record that does not name the machine, any other value — is that</span>
+<span class="sd">machine&#39;s writes off. The record&#39;s ``posture`` field is a mirror of the switch</span>
+<span class="sd">(:func:`~osprey_connectors.control_context.posture_mirror`) kept for readers</span>
+<span class="sd">that predate it, and no verdict reads it. :func:`parse_posture_value` is the</span>
+<span class="sd">grammar of that mirror, applied by</span>
+<span class="sd">:func:`~osprey_connectors.control_context.parse_posture` rather than restated</span>
+<span class="sd">there.</span>
+
+<span class="sd">**3. How a write is decided.** :func:`write_verdict` is the whole rule: one</span>
+<span class="sd">total order of terms — read-only run, tier, target, owner, owner tier, record,</span>
+<span class="sd">switch, launch pin — and the first that refuses names the reason. Its order is</span>
+<span class="sd">shared with the hook&#39;s stdlib twin, so a write is refused for the same reason</span>
+<span class="sd">on both sides. An allowed verdict carries the effective position: the stored</span>
+<span class="sd">one, capped by the ceiling the environment&#39;s verdict already evaluates — the</span>
+<span class="sd">section&#39;s tier on a host, the owner&#39;s rung under a bound tree. A position above</span>
+<span class="sd">the ceiling refuses nothing and stays on disk. :func:`backstop_verdict` is the</span>
+<span class="sd">floor for a write no target or owner can be named for: its first two terms and</span>
+<span class="sd">nothing else, so it reports no position.</span>
+
+<span class="sd">Both are blind to a session&#39;s hold, because they also choose the gateway a</span>
+<span class="sd">connector child connects on. The hold is decided where a write executes:</span>
+<span class="sd">:func:`session_hold_refusal` asks it alone, and :func:`execution_verdict` is</span>
+<span class="sd">:func:`write_verdict` with the hold placed after its first two terms.</span>
+
+<span class="sd">The switch is a property of one OWNER&#39;s record, not of a process tree: no</span>
+<span class="sd">session key indexes it, and a process that belongs to no session — a dispatch</span>
+<span class="sd">worker, a CLI run — is decided by the same field as one that does.</span>
+<span class="sd">``OSPREY_POSTURE_SESSION`` remains the audit session id and nothing more.</span>
+
+<span class="sd">Inside an executor sandbox one further term is read, and only there:</span>
+<span class="sd">:data:`LAUNCH_POSTURE_ENV_VAR`, the switch state the run was LAUNCHED under</span>
+<span class="sd">(:func:`launch_posture_stamp` writes it, :func:`_launch_pin_term` reads it). Its</span>
+<span class="sd">job is asymmetry: a machine switched off mid-run is refused by the record read,</span>
+<span class="sd">while a machine switched ON never reaches a run that started with it off, which</span>
+<span class="sd">would otherwise hand a running script write access the operator had not given</span>
+<span class="sd">it when the run began.</span>
+
+<span class="sd">**4. When a change is seen.** Every read re-stats the record and re-parses on</span>
+<span class="sd">``(st_mtime_ns, st_size, st_ino)`` — the cache lives in</span>
+<span class="sd">:mod:`~osprey_connectors.control_context`, and :func:`invalidate_cache` is the</span>
+<span class="sd">hook a process that moved roots (or a test) drops it through. A missing record</span>
+<span class="sd">is every switch off, not an error.</span>
+
+<span class="sd">This module reads no config for the switch, holds no cache of its own, and</span>
+<span class="sd">imports nothing from ``osprey``: it runs inside the connector-host child and</span>
+<span class="sd">the executor sandbox, where the dependency budget is the lean connector chain.</span>
+<span class="sd">The record reader is imported inside the functions that need it, because the</span>
+<span class="sd">import direction between the two modules is one-way — the record module</span>
+<span class="sd">imports THIS one at module scope for the root and the grammar.</span>
+
+<span class="sd">**5. Whose switch decides.** A chip is one person&#39;s, so a verdict needs a name</span>
+<span class="sd">as well as a target. That name is the OWNER, and it is resolved by one ladder</span>
+<span class="sd">here — :func:`current_owner`, with :data:`NO_OWNER` for work that belongs to</span>
+<span class="sd">nobody — so that the write monitor and the queue never disagree about whose</span>
+<span class="sd">switch a plan runs under. The owner of a queued plan rides on the item as</span>
+<span class="sd">:data:`RESERVED_OWNER_KWARG` and is bound for the wrapper&#39;s body by</span>
+<span class="sd">:func:`bind_owner`.</span>
+
+<span class="sd">A container that holds no chip of its own — a lane&#39;s queueserver, the dispatch</span>
+<span class="sd">worker — reads that owner&#39;s record out of a read-only bind of the WHOLE tree,</span>
+<span class="sd">:data:`CONTROL_CONTEXT_TREE_ENV_VAR`, rather than out of a directory of its own.</span>
+<span class="sd">That read fails CLOSED: an unprovisioned mount, a group the container could not</span>
+<span class="sd">join and a record written 0600 must not be answered as an operator who switched</span>
+<span class="sd">nothing on, nor as one whose switch nobody could read being on. So the tree</span>
+<span class="sd">reader separates the one absence that is an answer — no record for this owner,</span>
+<span class="sd">every switch off — from every failure on a path that is THERE, which refuses as</span>
+<span class="sd">``record_unavailable``. :data:`CONTROL_TREE_MARKER_NAME` is what makes the first</span>
+<span class="sd">question answerable at all: a bind whose source does not exist is created empty</span>
+<span class="sd">by the container runtime, and an empty directory says nothing about whether it</span>
+<span class="sd">was ever built.</span>
+
+<span class="sd">The invariant that binding rests on: **the owner variable is read on the</span>
+<span class="sd">connector&#39;s async path, never after a thread or executor hop.** A context is</span>
+<span class="sd">copied into a task when the task is created, so the binding reaches everything</span>
+<span class="sd">a RunEngine schedules from the wrapper&#39;s context. An offload is where that</span>
+<span class="sd">stops being true, and which helper made it decides whether it does:</span>
+<span class="sd">``asyncio.to_thread`` copies the context and carries the binding into the</span>
+<span class="sd">thread, while ``loop.run_in_executor``, a raw executor submit and a bare</span>
+<span class="sd">``threading.Thread`` do not. No gate may depend on the carrying one having been</span>
+<span class="sd">chosen. A verdict taken behind such a hop would read :data:`NO_OWNER`; every</span>
+<span class="sd">verdict is therefore taken before the offload.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextvars</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">errno</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">stat</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Iterator</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextmanager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">replace</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">NamedTuple</span><span class="p">,</span> <span class="n">cast</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">session_hold</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.identity</span><span class="w"> </span><span class="kn">import</span> <span class="n">acting_identity</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_readonly_run</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CONTROL_TARGETS</span><span class="p">,</span>
+    <span class="n">TIER_WORDS</span><span class="p">,</span>
+    <span class="n">machine_kind</span><span class="p">,</span>
+    <span class="n">published_machine_kind</span><span class="p">,</span>
+    <span class="n">resolve_target</span><span class="p">,</span>
+    <span class="n">tier_allows</span><span class="p">,</span>
+    <span class="n">tier_writes</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_shared_data_root</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.posture_store&quot;</span><span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;NoOwner&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;AGENT_DATA_ROOT_ENV_VAR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;CONTROL_CONTEXT_DIR_ENV_VAR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;CONTROL_CONTEXT_TREE_ENV_VAR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;CONTROL_OWNER_ENV_VAR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;CONTROL_TREE_MARKER_NAME&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;DISPATCH_RUN_ENV_VAR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LAUNCH_POSTURE_ALL_TARGETS&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LAUNCH_POSTURE_ENV_VAR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LOGIN_TIERS_KEY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;NO_OWNER&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;POSTURE_SANDBOX&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;POSTURE_WRITES&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RESERVED_OWNER_KWARG&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;STATE_DIR_NAME&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;VALID_POSTURES&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;WriteVerdict&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;agent_data_root&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;backstop_verdict&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;bind_owner&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;bound_owner&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;bound_state_dir&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;current_owner&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;execution_verdict&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;invalidate_cache&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;launch_posture_stamp&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;owner_tier_term&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;parse_posture_value&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;session_hold_refusal&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;stamped_agent_data_root&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;state_dir&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;write_ceiling&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;write_verdict&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1">#: The anchor stamp. Read by NAME rather than imported from</span>
+<span class="c1">#: ``osprey.audit.posture``, which declares it for the stamping side: this</span>
+<span class="c1">#: package is the lean connector chain and must not grow an ``osprey`` import</span>
+<span class="c1">#: to learn one string.</span>
+<span class="n">AGENT_DATA_ROOT_ENV_VAR</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_AGENT_DATA_ROOT&quot;</span>
+
+<span class="c1">#: Subdirectory of the agent-data root holding one directory per identity, each</span>
+<span class="c1">#: with that identity&#39;s control-context record, per-server reports and request</span>
+<span class="c1">#: files. The same tree ``target_state.state_dir()`` resolves, spelled here</span>
+<span class="c1">#: because a record the writer puts in one directory and a reader looks for in</span>
+<span class="c1">#: another is a switch that silently never applies.</span>
+<span class="n">STATE_DIR_NAME</span> <span class="o">=</span> <span class="s2">&quot;control_target&quot;</span>
+
+<span class="c1">#: The container&#39;s OWN state directory, bound in by compose and named in the</span>
+<span class="c1">#: environment of every container that holds a chip: the terminal&#39;s</span>
+<span class="c1">#: ``web-&lt;user&gt;``. Top rung of rule 1, and already the per-identity directory —</span>
+<span class="c1">#: a container&#39;s bind target has nothing to do with the host tree&#39;s shape, so</span>
+<span class="c1">#: the two fixed hops are the host derivation&#39;s business and never appended to</span>
+<span class="c1">#: this. Distinct from :data:`CONTROL_CONTEXT_TREE_ENV_VAR`, the read-only bind</span>
+<span class="c1">#: of every identity&#39;s directory, which names no single one of them.</span>
+<span class="c1">#:</span>
+<span class="c1">#: It belongs in ``NON_PINNABLE_AUDIT_MARKERS`` for the same reason the audit</span>
+<span class="c1">#: identity does: a spec that could pin it could point one user&#39;s writes at</span>
+<span class="c1">#: another user&#39;s switch.</span>
+<span class="n">CONTROL_CONTEXT_DIR_ENV_VAR</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_CONTROL_CONTEXT_DIR&quot;</span>
+
+<span class="c1">#: The launch-pin value: the run started with the machine&#39;s writes off. The</span>
+<span class="c1">#: only posture value that ever refuses anything.</span>
+<span class="n">POSTURE_SANDBOX</span> <span class="o">=</span> <span class="s2">&quot;sandbox&quot;</span>
+
+<span class="c1">#: The run started with the machine&#39;s writes on. Recorded so a stamp states</span>
+<span class="c1">#: what the run launched under; it never grants anything.</span>
+<span class="n">POSTURE_WRITES</span> <span class="o">=</span> <span class="s2">&quot;writes&quot;</span>
+
+<span class="c1">#: The two values a posture entry may spell. Everything else is dropped.</span>
+<span class="n">VALID_POSTURES</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">POSTURE_SANDBOX</span><span class="p">,</span> <span class="n">POSTURE_WRITES</span><span class="p">})</span>
+
+<span class="c1">#: The launch-time pin, stamped into an executor sandbox&#39;s environment by</span>
+<span class="c1">#: ``osprey.mcp_server.python_executor.executor._apply_target_stamp`` and read</span>
+<span class="c1">#: back HERE, inside that sandbox, by :func:`_launch_pin_term`.</span>
+<span class="c1">#:</span>
+<span class="c1">#: The wire format is one ``&quot;&lt;target&gt;=&lt;posture&gt;&quot;`` pair and nothing else:</span>
+<span class="c1">#:</span>
+<span class="c1">#: * ``&lt;target&gt;`` is the control target the run was stamped against — a member</span>
+<span class="c1">#:   of :data:`~osprey_connectors.types.CONTROL_TARGETS` — or</span>
+<span class="c1">#:   :data:`LAUNCH_POSTURE_ALL_TARGETS` when the executor could not identify</span>
+<span class="c1">#:   one, in which case the pin covers every target;</span>
+<span class="c1">#: * ``&lt;posture&gt;`` is :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES`.</span>
+<span class="c1">#:</span>
+<span class="c1">#: ``sandbox`` is the only value that does anything: ``writes`` is recorded so</span>
+<span class="c1">#: the in-flight marker states what the run launched under, and is inert here:</span>
+<span class="c1">#: a stamp can refuse and never grant. A missing or blank stamp is inert too,</span>
+<span class="c1">#: which is what makes every process that is not an executor sandbox</span>
+<span class="c1">#: unaffected by this term; an unparseable one refuses (:func:`_launch_pin_term`).</span>
+<span class="c1">#:</span>
+<span class="c1">#: Spelled here rather than imported because this is the reading side and the</span>
+<span class="c1">#: reading side runs in the lean connector chain;</span>
+<span class="c1">#: ``registry/mcp.py`` and the executor import the name from this module, and</span>
+<span class="c1">#: it is stripped from every rendered ``.mcp.json`` env block</span>
+<span class="c1">#: (``NON_PINNABLE_AUDIT_MARKERS``) — a spec that could pin it could hand a</span>
+<span class="c1">#: run launched with writes off the writes it was denied.</span>
+<span class="n">LAUNCH_POSTURE_ENV_VAR</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_LAUNCH_POSTURE&quot;</span>
+
+<span class="c1">#: The launch stamp&#39;s target when the executor could not name one. Covers every</span>
+<span class="c1">#: target: a run that could not say which machine it is about must not be the</span>
+<span class="c1">#: one run a switched-off machine fails to reach.</span>
+<span class="n">LAUNCH_POSTURE_ALL_TARGETS</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span>
+
+<span class="c1">#: The stamped owner of the work a process is doing, exported into a dispatch</span>
+<span class="c1">#: job&#39;s environment by the dispatch worker&#39;s ``sdk_runner`` — the one export</span>
+<span class="c1">#: site — and read back as the third rung of :func:`current_owner`. Always a</span>
+<span class="c1">#: ``str`` when it is set at all: the absence of an owner is :data:`NO_OWNER`,</span>
+<span class="c1">#: which has no spelling, so a blank value here is the unset case and not a</span>
+<span class="c1">#: nameless owner.</span>
+<span class="c1">#:</span>
+<span class="c1">#: It belongs in ``NON_PINNABLE_AUDIT_MARKERS`` for the same reason the audit</span>
+<span class="c1">#: identity does: a spec that could pin the owner could hand a plan another</span>
+<span class="c1">#: user&#39;s switch — or take one away.</span>
+<span class="n">CONTROL_OWNER_ENV_VAR</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_CONTROL_OWNER&quot;</span>
+
+<span class="c1">#: The mark the dispatch worker&#39;s ``sdk_runner`` sets on every job it runs: a</span>
+<span class="c1">#: scheduled or triggered job, started by no login at a terminal. Only the value</span>
+<span class="c1">#: ``&quot;1&quot;`` marks a dispatch run; anything else, ``&quot;0&quot;`` included, is no dispatch.</span>
+<span class="c1">#: A dispatch run that names no owner resolves :data:`NO_OWNER` and is refused</span>
+<span class="c1">#: ``owner_unscheduled`` (:func:`write_verdict`): the process account it runs as</span>
+<span class="c1">#: is no login whose switch could cover it.</span>
+<span class="n">DISPATCH_RUN_ENV_VAR</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_DISPATCH_RUN&quot;</span>
+
+<span class="c1">#: The read-only bind of the whole per-user control-state tree, named in the</span>
+<span class="c1">#: environment of a container that holds no chip of its own: a lane&#39;s</span>
+<span class="c1">#: queueserver, the dispatch worker. Only its PRESENCE is read here; the tree is</span>
+<span class="c1">#: read by the verdict.</span>
+<span class="c1">#:</span>
+<span class="c1">#: Presence is what makes such a container owned-or-nothing. The account it runs</span>
+<span class="c1">#: as names nobody whose chip anyone ever set, so falling through to</span>
+<span class="c1">#: :func:`~osprey_connectors.identity.acting_identity` there would read a record</span>
+<span class="c1">#: directory that does not exist, so a plan would be decided by nobody&#39;s</span>
+<span class="c1">#: switch rather than its owner&#39;s.</span>
+<span class="n">CONTROL_CONTEXT_TREE_ENV_VAR</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_CONTROL_CONTEXT_TREE&quot;</span>
+
+<span class="c1">#: The marker file at the root of the control-context tree, written by</span>
+<span class="c1">#: ``osprey build``. Its PRESENCE is the tree reader&#39;s first question, because a</span>
+<span class="c1">#: read-only bind whose host source does not exist is created empty by the</span>
+<span class="c1">#: container runtime — after which an unprovisioned tree is indistinguishable</span>
+<span class="c1">#: from a tree in which nobody has switched anything on, and a provisioning</span>
+<span class="c1">#: fault reads as an operator&#39;s answer on exactly the deployment that never</span>
+<span class="c1">#: provisioned it.</span>
+<span class="c1">#:</span>
+<span class="c1">#: Restated here rather than imported from</span>
+<span class="c1">#: ``osprey.deployment.compose_generator``, which declares it for the writing</span>
+<span class="c1">#: side: this package is the lean connector chain and may not import the</span>
+<span class="c1">#: deployment layer. The two spellings are pinned together by a test that</span>
+<span class="c1">#: imports both — a drift between them is a tree that reads as unprovisioned in</span>
+<span class="c1">#: every container.</span>
+<span class="n">CONTROL_TREE_MARKER_NAME</span> <span class="o">=</span> <span class="s2">&quot;.osprey-control-tree&quot;</span>
+
+<span class="c1">#: The plan kwarg an owner rides on into a queueserver worker, popped by</span>
+<span class="c1">#: :func:`bind_owner` before the plan&#39;s own signature is validated against it.</span>
+<span class="c1">#: Reserved: it is never a plan parameter and never appears in a relayed view of</span>
+<span class="c1">#: a queue item.</span>
+<span class="c1">#:</span>
+<span class="c1">#: Spelled here rather than in the bridge because the import direction between</span>
+<span class="c1">#: the two is one-way — the bridge imports this name; nothing in this package</span>
+<span class="c1">#: may import the bridge — and a reserved key restated on the far side is a key</span>
+<span class="c1">#: one end strips while the other leaks it into a plan&#39;s arguments.</span>
+<span class="n">RESERVED_OWNER_KWARG</span> <span class="o">=</span> <span class="s2">&quot;_osprey_owner&quot;</span>
+
+
+<span class="c1"># -- owner ------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="NoOwner">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.NoOwner">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">NoOwner</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The absence of an owner: one instance, compared by identity and nothing else.</span>
+
+<span class="sd">    ``None`` cannot carry this meaning, because :func:`current_owner` already</span>
+<span class="sd">    uses ``None`` for &quot;the caller named nobody, so walk the ladder&quot; — a</span>
+<span class="sd">    different question from &quot;the ladder ran out&quot;. A string cannot carry it</span>
+<span class="sd">    either: every string is a name some deployment may legitimately give an</span>
+<span class="sd">    account, so an owner spelled ``&quot;&quot;`` or ``&quot;none&quot;`` would be indistinguishable</span>
+<span class="sd">    from a real one at the directory a verdict reads.</span>
+
+<span class="sd">    There is deliberately no parse in the other direction: nothing turns</span>
+<span class="sd">    ``&quot;&lt;no owner&gt;&quot;`` back into this value. The string form exists so that a</span>
+<span class="sd">    warning line about an owner-less plan can print it — a raising ``__str__``</span>
+<span class="sd">    would cost the one line that says the plan ran for nobody — and printing</span>
+<span class="sd">    is all it is for. Callers ask ``owner is NO_OWNER``, never truthiness (a real</span>
+<span class="sd">    name can be falsey only by being empty, which this module never produces)</span>
+<span class="sd">    and never equality with the text.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="vm">__slots__</span> <span class="o">=</span> <span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;&lt;no owner&gt;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;&lt;no owner&gt;&quot;</span></div>
+
+
+
+<span class="c1">#: The answer every owner-less path gives. See :class:`NoOwner`.</span>
+<span class="n">NO_OWNER</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="n">NoOwner</span><span class="p">()</span>
+
+<span class="c1">#: Who the work running in this context belongs to.</span>
+<span class="c1">#:</span>
+<span class="c1">#: Set by :func:`bind_owner` around a plan wrapper&#39;s body and read by the write</span>
+<span class="c1">#: monitor through :func:`current_owner`. A context variable rather than a</span>
+<span class="c1">#: module global because a queueserver worker runs one plan at a time while the</span>
+<span class="c1">#: processes that share this module do not: an owner that leaked between</span>
+<span class="c1">#: concurrent tasks would gate one user&#39;s write against another user&#39;s chip.</span>
+<span class="c1">#:</span>
+<span class="c1">#: **The owner is read on the connector&#39;s async path, never after a thread or</span>
+<span class="c1">#: executor hop.** A context is copied when a task is created, so the value</span>
+<span class="c1">#: reaches everything a RunEngine schedules from the wrapper&#39;s own context,</span>
+<span class="c1">#: including the task a device&#39;s ``AsyncStatus`` wraps a write into. Off that</span>
+<span class="c1">#: path it depends on the helper the caller reached for: ``asyncio.to_thread``</span>
+<span class="c1">#: copies the context and carries the owner into the worker thread, while</span>
+<span class="c1">#: ``loop.run_in_executor``, a raw executor ``submit`` and a bare</span>
+<span class="c1">#: ``threading.Thread`` start from a fresh context and read the default. The</span>
+<span class="c1">#: gate rests on neither — every store verdict is decided before any offload, so</span>
+<span class="c1">#: the rule above holds whichever helper is used, and a gate moved behind a hop</span>
+<span class="c1">#: would start reading :data:`NO_OWNER` for the hops that do not copy.</span>
+<span class="n">_owner_var</span><span class="p">:</span> <span class="n">contextvars</span><span class="o">.</span><span class="n">ContextVar</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span><span class="p">]</span> <span class="o">=</span> <span class="n">contextvars</span><span class="o">.</span><span class="n">ContextVar</span><span class="p">(</span>
+    <span class="s2">&quot;osprey_control_owner&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">NO_OWNER</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="current_owner">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.current_owner">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">current_owner</span><span class="p">(</span><span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The owner whose switch decides a write, by a five-rung ladder.</span>
+
+<span class="sd">    Most specific first:</span>
+
+<span class="sd">    1. *owner* when the caller named one, stripped — the same normalisation the</span>
+<span class="sd">       two rungs below apply, so a padded name and a bare one address one</span>
+<span class="sd">       person&#39;s directory rather than two. Passing :data:`NO_OWNER` explicitly</span>
+<span class="sd">       is naming one — it says &quot;this work belongs to nobody&quot;, which a verdict</span>
+<span class="sd">       refuses — which is why the &quot;unnamed&quot; spelling is ``None`` and not the</span>
+<span class="sd">       sentinel. A caller that names an owner with no name (``&quot;&quot;``, or only</span>
+<span class="sd">       spaces) is answered with that empty name rather than falling through to</span>
+<span class="sd">       the rungs below: the fall-through is for a caller that named nobody, and</span>
+<span class="sd">       a name no directory can hold is a lookup that fails rather than one that</span>
+<span class="sd">       is not attempted.</span>
+<span class="sd">    2. The bound context variable, set by :func:`bind_owner` from the reserved</span>
+<span class="sd">       kwarg a queued plan carried. This is the rung that makes a lane&#39;s plan</span>
+<span class="sd">       obey the chip of the person who queued it.</span>
+<span class="sd">    3. :data:`CONTROL_OWNER_ENV_VAR`, the stamp a dispatch job&#39;s environment</span>
+<span class="sd">       carries. Always answered as a ``str``; a blank or whitespace-only value is</span>
+<span class="sd">       the unset case spelled differently — a rendered-but-empty ``environment:``</span>
+<span class="sd">       entry — and falls through rather than naming an owner with no name.</span>
+<span class="sd">    4. :data:`NO_OWNER` for a dispatch run (:data:`DISPATCH_RUN_ENV_VAR` is</span>
+<span class="sd">       ``&quot;1&quot;``) that none of the rungs above named an owner for. The account a</span>
+<span class="sd">       scheduled job runs as is not a person, so it never stands in for one.</span>
+<span class="sd">    5. Otherwise: :data:`NO_OWNER` when a tree is bound (:func:`_tree_is_bound`,</span>
+<span class="sd">       the one spelling of that question), else</span>
+<span class="sd">       :func:`~osprey_connectors.identity.acting_identity`. A container holding</span>
+<span class="sd">       the tree holds no chip of its own, so the account it runs as is not an</span>
+<span class="sd">       answer; anywhere else the process account *is* the person whose chip the</span>
+<span class="sd">       record was written from.</span>
+
+<span class="sd">    Never raises: this is read on a write path, and a lookup that cannot name an</span>
+<span class="sd">    owner must produce a verdict rather than an exception.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">owner</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">owner</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">owner</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">owner</span>
+
+    <span class="n">bound</span> <span class="o">=</span> <span class="n">_owner_var</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">bound</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">NO_OWNER</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">bound</span>
+
+    <span class="n">stamped</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">CONTROL_OWNER_ENV_VAR</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">stamped</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">stamped</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">stamped</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">_is_dispatch_run</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">NO_OWNER</span>
+
+    <span class="k">if</span> <span class="n">_tree_is_bound</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">NO_OWNER</span>
+
+    <span class="k">return</span> <span class="n">acting_identity</span><span class="p">()</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_dispatch_run</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether this process is a dispatch job: :data:`DISPATCH_RUN_ENV_VAR` is ``&quot;1&quot;``.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">DISPATCH_RUN_ENV_VAR</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;1&quot;</span>
+
+
+<div class="viewcode-block" id="bound_owner">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.bound_owner">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">bound_owner</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The owner :func:`bind_owner` bound for the running plan, and nothing else.</span>
+
+<span class="sd">    Rung 2 of :func:`current_owner` alone: no caller argument, no environment</span>
+<span class="sd">    stamp, no process account. This is the question an attribution asks — whose</span>
+<span class="sd">    queued plan is this — and the ladder&#39;s lower rungs answer a different one:</span>
+<span class="sd">    whose switch governs a write here. A record attributed through them would</span>
+<span class="sd">    name the account the worker runs as rather than the person who queued the</span>
+<span class="sd">    run, so outside a :func:`bind_owner` block this answers :data:`NO_OWNER`.</span>
+
+<span class="sd">    Never raises.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_owner_var</span><span class="o">.</span><span class="n">get</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="bind_owner">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.bind_owner">[docs]</a>
+<span class="nd">@contextmanager</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">bind_owner</span><span class="p">(</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bind the owner riding on *kwargs* for the body, yielding the kwargs without it.</span>
+
+<span class="sd">    The one way an owner enters a queueserver worker: the bridge puts it on the</span>
+<span class="sd">    item as :data:`RESERVED_OWNER_KWARG`, the worker hands those kwargs to the</span>
+<span class="sd">    plan wrapper, and the wrapper runs its body inside this block. The yielded</span>
+<span class="sd">    mapping is what the plan&#39;s own signature is validated against — the reserved</span>
+<span class="sd">    key is gone by then, so a plan never sees an argument it does not declare.</span>
+
+<span class="sd">    *kwargs* itself is not mutated. The caller keeps whatever it was handed, and</span>
+<span class="sd">    two wrappers reading the same mapping cannot race over who pops the key.</span>
+
+<span class="sd">    A missing key, a blank one, or one carrying anything that is not a string</span>
+<span class="sd">    binds :data:`NO_OWNER`: the plan reached the queue without a name, and no</span>
+<span class="sd">    login&#39;s switch can cover its writes.</span>
+
+<span class="sd">    The reset is an assignment to :data:`NO_OWNER`, not a token restore. Plan</span>
+<span class="sd">    wrappers are generators, so the ``set`` and the ``finally`` can run in</span>
+<span class="sd">    different contexts, and a token from one context cannot be reset in another.</span>
+<span class="sd">    There is nothing to restore in any case: owners do not nest — a run belongs</span>
+<span class="sd">    to one person or to nobody — so the floor is the only correct value to leave</span>
+<span class="sd">    behind, and leaving it is what stops one run&#39;s owner from gating the next</span>
+<span class="sd">    run&#39;s writes.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">clean</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">key</span> <span class="o">!=</span> <span class="n">RESERVED_OWNER_KWARG</span><span class="p">}</span>
+    <span class="n">claimed</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">RESERVED_OWNER_KWARG</span><span class="p">)</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">=</span> <span class="n">NO_OWNER</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">claimed</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">claimed</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="n">owner</span> <span class="o">=</span> <span class="n">claimed</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+    <span class="n">_owner_var</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">owner</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">clean</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">_owner_var</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">NO_OWNER</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># -- path resolution --------------------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_absolute_bind</span><span class="p">(</span><span class="n">variable</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The bind *variable* names as an absolute path, or ``None`` when it names none.</span>
+
+<span class="sd">    The one normalisation every bind in rule 1 goes through, so the container&#39;s</span>
+<span class="sd">    own state directory and the read-only tree cannot read their environment two</span>
+<span class="sd">    different ways.</span>
+
+<span class="sd">    Three answers are &quot;no bind&quot;: unset, blank or whitespace-only, and a value</span>
+<span class="sd">    that is not absolute after expansion. A bind names a path in the container&#39;s</span>
+<span class="sd">    own filesystem — the compose file is where it is written — so a relative one</span>
+<span class="sd">    would resolve against whatever directory the process happened to start in,</span>
+<span class="sd">    which is a directory nothing binds and no writer creates. It is a deployment</span>
+<span class="sd">    mistake rather than a degraded state, and it gets the one warning line that</span>
+<span class="sd">    says which variable to fix; falling back to the derivation below it is what</span>
+<span class="sd">    keeps a mistake here from raising into a write path.</span>
+
+<span class="sd">    Expansion is :func:`os.path.expanduser` rather than</span>
+<span class="sd">    :meth:`pathlib.Path.expanduser`, which raises ``RuntimeError`` for a ``~``</span>
+<span class="sd">    naming a user this container has no passwd entry for — a container binds</span>
+<span class="sd">    paths from another host&#39;s layout, so that is an ordinary value here and must</span>
+<span class="sd">    degrade to &quot;no bind&quot; rather than to an exception. The stdlib hook restates</span>
+<span class="sd">    this rule with the same call.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">raw</span> <span class="o">=</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">variable</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">raw</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">expanded</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">expanduser</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isabs</span><span class="p">(</span><span class="n">expanded</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+            <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">=</span><span class="si">%s</span><span class="s2"> is not an absolute path, so it names no bind: a bind is a path &quot;</span>
+            <span class="s2">&quot;in this container&#39;s own filesystem. Set it to an absolute path or &quot;</span>
+            <span class="s2">&quot;unset it.&quot;</span><span class="p">,</span>
+            <span class="n">variable</span><span class="p">,</span>
+            <span class="n">raw</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">expanded</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="stamped_agent_data_root">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.stamped_agent_data_root">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">stamped_agent_data_root</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The :data:`AGENT_DATA_ROOT_ENV_VAR` stamp as a path, or ``None`` unstamped.</span>
+
+<span class="sd">    The stamp half of rule 1 on its own, so that the files under this root</span>
+<span class="sd">    cannot read one environment variable two different ways. A blank or</span>
+<span class="sd">    whitespace-only stamp is no stamp, and a ``~`` in it is expanded: a reader</span>
+<span class="sd">    that took either literally would look in a directory no writer ever</span>
+<span class="sd">    creates, which is the silently-ignored-switch failure rule 1 exists to prevent.</span>
+<span class="sd">    The expansion is :func:`os.path.expanduser`, for the reason</span>
+<span class="sd">    :func:`_absolute_bind` uses it: the ``Path`` method raises for a ``~``</span>
+<span class="sd">    naming a user this process cannot resolve, and this is read on a write path.</span>
+
+<span class="sd">    Unlike a bind, a stamp is not required to be absolute: it is written by a</span>
+<span class="sd">    process that shares this one&#39;s working directory rather than by a compose</span>
+<span class="sd">    file describing another host&#39;s layout.</span>
+
+<span class="sd">    ``osprey.mcp_server.control_system.target_state.state_dir`` calls this</span>
+<span class="sd">    rather than restating it. The CONFIG half below is deliberately not shared:</span>
+<span class="sd">    that module raises where this one answers ``None``, and a route turns its</span>
+<span class="sd">    raise into a ``store_unavailable`` 503.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">stamped</span> <span class="o">=</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">AGENT_DATA_ROOT_ENV_VAR</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">expanduser</span><span class="p">(</span><span class="n">stamped</span><span class="p">))</span> <span class="k">if</span> <span class="n">stamped</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="agent_data_root">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.agent_data_root">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">agent_data_root</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The agent-data root the control state lives under.</span>
+
+<span class="sd">    Rule 1 of the module contract: the :data:`AGENT_DATA_ROOT_ENV_VAR` stamp</span>
+<span class="sd">    when it names a non-blank path, else the config derivation. ``None`` when</span>
+<span class="sd">    neither answers — a deployment whose project root cannot be resolved has</span>
+<span class="sd">    no record, which is a different thing from having one with every switch off.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">stamped</span> <span class="o">=</span> <span class="n">stamped_agent_data_root</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">stamped</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">stamped</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">resolve_shared_data_root</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># an unresolvable root is &quot;no record&quot;, not a crash</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Could not resolve the shared data root for the control state&quot;</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="bound_state_dir">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.bound_state_dir">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">bound_state_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The :data:`CONTROL_CONTEXT_DIR_ENV_VAR` bind as a path, or ``None`` unset.</span>
+
+<span class="sd">    The top rung of rule 1 on its own, so that the three seams resolving this</span>
+<span class="sd">    directory cannot read one environment variable three different ways. Blank,</span>
+<span class="sd">    whitespace-only and non-absolute values all name no bind, and a ``~`` is</span>
+<span class="sd">    expanded — :func:`_absolute_bind` is that rule, shared with the tree bind</span>
+<span class="sd">    beside it.</span>
+
+<span class="sd">    ``osprey.mcp_server.control_system.target_state.state_dir`` calls this</span>
+<span class="sd">    rather than restating it, exactly as it calls</span>
+<span class="sd">    :func:`stamped_agent_data_root`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_absolute_bind</span><span class="p">(</span><span class="n">CONTROL_CONTEXT_DIR_ENV_VAR</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="state_dir">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.state_dir">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;This identity&#39;s control-state directory, or ``None``.</span>
+
+<span class="sd">    Rule 1 of the module contract: the :func:`bound_state_dir` bind when a</span>
+<span class="sd">    container carries one, else the acting identity under</span>
+<span class="sd">    :data:`STATE_DIR_NAME` under :func:`agent_data_root`.</span>
+
+<span class="sd">    The identity is resolved on every call rather than once at import, because</span>
+<span class="sd">    :func:`~osprey_connectors.identity.acting_identity` reads an environment</span>
+<span class="sd">    that compose and the entrypoint set per process; a value frozen at import</span>
+<span class="sd">    would be whatever the first importer happened to see. It never fails —</span>
+<span class="sd">    an unresolvable identity is :data:`~osprey_connectors.identity.UNKNOWN_IDENTITY`,</span>
+<span class="sd">    a real directory holding the state of whoever could not be named, which is</span>
+<span class="sd">    a switch that applies rather than one that silently does not.</span>
+
+<span class="sd">    A ``None`` here is what a route reports as ``store_unavailable``: there is</span>
+<span class="sd">    nowhere to record a switch that any reader would find.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">bound</span> <span class="o">=</span> <span class="n">bound_state_dir</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">bound</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">bound</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="n">agent_data_root</span><span class="p">()</span>
+    <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">root</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">root</span> <span class="o">/</span> <span class="n">STATE_DIR_NAME</span> <span class="o">/</span> <span class="n">acting_identity</span><span class="p">()</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_tree_is_bound</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether this process was handed the read-only tree at all — usable or not.</span>
+
+<span class="sd">    The ONE spelling of that question, because two readings of it are a</span>
+<span class="sd">    split-brain on the write path: :func:`current_owner` answers</span>
+<span class="sd">    :data:`NO_OWNER` for a container that holds the tree (it holds no chip of</span>
+<span class="sd">    its own), while :func:`write_verdict` picks the reader that governs the</span>
+<span class="sd">    write. A variable that made one of them say &quot;tree&quot; and the other say &quot;host&quot;</span>
+<span class="sd">    would send a container with no host record to the host reader, which</span>
+<span class="sd">    answers for this host&#39;s login and not for the owner of the work — the</span>
+<span class="sd">    split the tree reader exists to close.</span>
+
+<span class="sd">    So this asks only whether a value is THERE. Whether the value is usable is</span>
+<span class="sd">    :func:`_control_context_tree`&#39;s question, and a bind that is set but</span>
+<span class="sd">    unusable is a deployment mistake that refuses rather than falls back.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">bool</span><span class="p">((</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">CONTROL_CONTEXT_TREE_ENV_VAR</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_control_context_tree</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The :data:`CONTROL_CONTEXT_TREE_ENV_VAR` bind as a path, or ``None`` unset.</span>
+
+<span class="sd">    The read-only bind of EVERY identity&#39;s directory, carried by a container</span>
+<span class="sd">    that holds no chip of its own. It is not a rung of :func:`state_dir`: it</span>
+<span class="sd">    names no single identity&#39;s directory, so nothing reads a record through it</span>
+<span class="sd">    without first being told whose record to read — which is what</span>
+<span class="sd">    :func:`_read_tree_context` is for.</span>
+
+<span class="sd">    Normalised by :func:`_absolute_bind`, the same rule the container&#39;s own</span>
+<span class="sd">    state directory goes through, so the two binds cannot disagree about what a</span>
+<span class="sd">    ``~`` or a relative path means.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_absolute_bind</span><span class="p">(</span><span class="n">CONTROL_CONTEXT_TREE_ENV_VAR</span><span class="p">)</span>
+
+
+<span class="c1"># -- parsing ----------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="parse_posture_value">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.parse_posture_value">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_posture_value</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The record&#39;s ``posture`` mirror as ``{target: &quot;sandbox&quot;}`` — the switched-off targets.</span>
+
+<span class="sd">    The grammar of the mirror field (rule 2), in one place:</span>
+<span class="sd">    :func:`~osprey_connectors.control_context.parse_posture` reaches this</span>
+<span class="sd">    filter rather than restating it. No verdict reads the result — the switch</span>
+<span class="sd">    decides every write — so this is the shape a reader that predates the</span>
+<span class="sd">    switch sees, and nothing more.</span>
+
+<span class="sd">    Never raises. Anything that is not a ``&quot;sandbox&quot;`` entry — a bare</span>
+<span class="sd">    ``&quot;writes&quot;``, an unknown string, a non-string target key, a hand-edited or</span>
+<span class="sd">    future-version shape — is dropped, so a field nobody can repair from the</span>
+<span class="sd">    browser never fails a read.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="o">==</span> <span class="n">POSTURE_SANDBOX</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">(</span><span class="n">CONTROL_TARGETS</span><span class="p">,</span> <span class="n">POSTURE_SANDBOX</span><span class="p">)</span>
+        <span class="c1"># Bare &quot;writes&quot; (and every unknown string) maps nothing.</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="n">target</span><span class="p">:</span> <span class="n">posture</span>
+            <span class="k">for</span> <span class="n">target</span><span class="p">,</span> <span class="n">posture</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">posture</span> <span class="o">==</span> <span class="n">POSTURE_SANDBOX</span>
+        <span class="p">}</span>
+    <span class="k">return</span> <span class="p">{}</span></div>
+
+
+
+<div class="viewcode-block" id="invalidate_cache">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.invalidate_cache">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">invalidate_cache</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Forget the parsed record. For tests and for a process that moved roots.</span>
+
+<span class="sd">    The cache is the record reader&#39;s — this module holds none — so this is the</span>
+<span class="sd">    hook, not a second cache. Kept here because the callers that drop it (a</span>
+<span class="sd">    notebook kernel restamping its root, every fixture that writes a posture)</span>
+<span class="sd">    are readers of this module and should not have to know where the parse is</span>
+<span class="sd">    memoised.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">control_context</span>
+
+        <span class="n">control_context</span><span class="o">.</span><span class="n">invalidate_cache</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># dropping a cache must not raise into a caller</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Could not drop the control-context cache&quot;</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># -- the read-only tree -----------------------------------------------------</span>
+
+
+<span class="c1">#: Characters that cannot appear in the one path segment an owner names. The</span>
+<span class="c1">#: same rule :func:`~osprey_connectors.identity.acting_identity` applies to an</span>
+<span class="c1">#: identity, restated for the name a queue item carries rather than shared with</span>
+<span class="c1">#: it, because that function ANSWERS a name while this one screens one somebody</span>
+<span class="c1">#: else supplied.</span>
+<span class="n">_TREE_UNSAFE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="se">\\</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="se">\x00</span><span class="s2">&quot;</span><span class="p">})</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_TreeContext</span><span class="p">(</span><span class="n">NamedTuple</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One read of one owner&#39;s whole record out of the read-only tree.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        record: The parsed record — its ``switch`` already filtered by</span>
+<span class="sd">            :mod:`~osprey_connectors.control_context`&#39;s parser to the targets</span>
+<span class="sd">            at ``&quot;asked&quot;`` or ``&quot;allowed&quot;`` — or ``None`` when the tree holds no record for</span>
+<span class="sd">            this owner or the record could not be read.</span>
+<span class="sd">        unavailable: ``None`` when the read reached an answer — a record, or</span>
+<span class="sd">            a provisioned tree holding none for this owner — and otherwise the</span>
+<span class="sd">            operator-facing sentence saying what could not be read and what to</span>
+<span class="sd">            do about it. The caller turns a non-``None`` into its own refusal;</span>
+<span class="sd">            the remedy is this reader&#39;s, because only the read knows which of</span>
+<span class="sd">            the ways of not knowing happened.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">record</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="n">unavailable</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_tree_unprovisioned</span><span class="p">(</span><span class="n">tree</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">why</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The remedy for a tree that was never built: *why* names how it shows.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;the control-context tree </span><span class="si">{</span><span class="n">tree</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">why</span><span class="si">}</span><span class="s2">, so it is not provisioned — &quot;</span>
+        <span class="s2">&quot;run `osprey build` on the deployment&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_tree_unreadable</span><span class="p">(</span><span class="n">tree</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The remedy for a tree this container cannot get into.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;the control-context tree </span><span class="si">{</span><span class="n">tree</span><span class="si">}</span><span class="s2"> is not readable by this container — &quot;</span>
+        <span class="s2">&quot;check the group join; on Docker Desktop the bind&#39;s ownership is remapped, &quot;</span>
+        <span class="s2">&quot;so share the tree through a group the container can join or run the &quot;</span>
+        <span class="s2">&quot;worker on a Linux host&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_tree_record_unreadable</span><span class="p">(</span><span class="n">record_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">detail</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The remedy for a record that is THERE and could not be used: *detail* says how.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;the control-context record </span><span class="si">{</span><span class="n">record_file</span><span class="si">}</span><span class="s2"> is present but </span><span class="si">{</span><span class="n">detail</span><span class="si">}</span><span class="s2"> — &quot;</span>
+        <span class="s2">&quot;check the file&#39;s mode and group&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_tree_record_oversized</span><span class="p">(</span><span class="n">record_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The remedy for a record too large to be the one a chip wrote.</span>
+
+<span class="sd">    Its own sentence rather than the unreadable one&#39;s: the mode and the group</span>
+<span class="sd">    permitted this read, so an operator sent to check them finds both correct</span>
+<span class="sd">    and learns nothing. A record is a few hundred bytes, and one past the bound</span>
+<span class="sd">    is a file something other than the chip put at that name.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;the control-context record </span><span class="si">{</span><span class="n">record_file</span><span class="si">}</span><span class="s2"> is larger than the &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">_RECORD_READ_LIMIT</span><span class="si">}</span><span class="s2"> bytes a record may be, so it was not read — &quot;</span>
+        <span class="s2">&quot;re-select the control target to write the record again&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_tree_bind_unusable</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The remedy for a bind that is set and names no directory to open.</span>
+
+<span class="sd">    Its own wording rather than the unprovisioned one: nothing is missing on</span>
+<span class="sd">    the deployment&#39;s disk, the variable simply does not name a path this</span>
+<span class="sd">    container can resolve, and the operator repairs the compose file rather</span>
+<span class="sd">    than building anything.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">CONTROL_CONTEXT_TREE_ENV_VAR</span><span class="si">}</span><span class="s2"> names no usable path, so the read-only &quot;</span>
+        <span class="s2">&quot;control-context tree could not be opened — the bind must name an &quot;</span>
+        <span class="s2">&quot;absolute path in this container&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_tree_planted_link</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The remedy for a symbolic link where a real *what* belongs.</span>
+
+<span class="sd">    Its own wording rather than a mode-and-group one, because the operator has</span>
+<span class="sd">    to remove something rather than fix a permission, and because a link here is</span>
+<span class="sd">    the one failure that may be somebody&#39;s doing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;the control-context </span><span class="si">{</span><span class="n">what</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2"> is a symbolic link, which this reader &quot;</span>
+        <span class="s2">&quot;will not follow: the tree is group-writable, so a link planted there can &quot;</span>
+        <span class="s2">&quot;point one account&#39;s reader at a record its owner never wrote — remove it &quot;</span>
+        <span class="s2">&quot;and check the directory&#39;s mode and group&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="c1">#: The most a record may be and still be read. A record is a few hundred bytes,</span>
+<span class="c1">#: so this is headroom rather than a limit anything real approaches. It exists</span>
+<span class="c1">#: because the file lives in a group-writable tree and is re-read on every</span>
+<span class="c1">#: gated write: without it, the account whose plan is running chooses how much</span>
+<span class="c1">#: the container allocates per write, and the container is shared with other</span>
+<span class="c1">#: people&#39;s plans.</span>
+<span class="n">_RECORD_READ_LIMIT</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">64</span> <span class="o">*</span> <span class="mi">1024</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_no_follow</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;*path*&#39;s text, refusing to follow a symbolic link at its last component.</span>
+
+<span class="sd">    ``O_NOFOLLOW`` rather than a :meth:`~pathlib.Path.is_symlink` check before</span>
+<span class="sd">    an ordinary open: the check and the open are two trips to the filesystem,</span>
+<span class="sd">    and the directory holding this file is group-writable by parties other than</span>
+<span class="sd">    its owner, so a link planted between the two would be followed by a reader</span>
+<span class="sd">    that had just decided there was none. The flag makes the kernel decide it</span>
+<span class="sd">    once, at the open, and a link raises ``ELOOP`` there.</span>
+
+<span class="sd">    The read is bounded at :data:`_RECORD_READ_LIMIT` and an over-long file</span>
+<span class="sd">    raises rather than being truncated into a parse — a truncated record either</span>
+<span class="sd">    fails to parse or, worse, parses into a different switch than the one on</span>
+<span class="sd">    disk. The bound is applied to the read itself rather than to a prior</span>
+<span class="sd">    :func:`os.fstat`, so nothing is allocated for a file that grew between the</span>
+<span class="sd">    two.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        OSError: The file is absent (``FileNotFoundError``), is a symbolic link</span>
+<span class="sd">            (``ELOOP``), is longer than the limit (``EFBIG``), or could not be</span>
+<span class="sd">            read.</span>
+<span class="sd">        UnicodeDecodeError: The bytes are not UTF-8.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">fd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">O_RDONLY</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">O_NOFOLLOW</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">os</span><span class="o">.</span><span class="n">fdopen</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">,</span> <span class="n">closefd</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
+            <span class="n">text</span> <span class="o">=</span> <span class="n">handle</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">_RECORD_READ_LIMIT</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_RECORD_READ_LIMIT</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span>
+            <span class="n">errno</span><span class="o">.</span><span class="n">EFBIG</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;the file is larger than the </span><span class="si">{</span><span class="n">_RECORD_READ_LIMIT</span><span class="si">}</span><span class="s2"> bytes a record may be&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">text</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_tree_context</span><span class="p">(</span><span class="n">tree</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_TreeContext</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;*owner*&#39;s whole record out of the read-only *tree*, with the reason when there is none.</span>
+
+<span class="sd">    The reader a container uses when it holds the whole tree and no chip of its</span>
+<span class="sd">    own: a lane&#39;s queueserver, the dispatch worker. It fails CLOSED, and that is</span>
+<span class="sd">    the whole difference from the host reader.</span>
+<span class="sd">    :func:`~osprey_connectors.control_context.read_record` folds an unreadable</span>
+<span class="sd">    file into ``None`` — tolerable for a display on the host, and wrong here,</span>
+<span class="sd">    where an unprovisioned bind, a group the container could not join or a</span>
+<span class="sd">    record written 0600 must not be answered as the owner&#39;s switch. So this</span>
+<span class="sd">    reader does not go through it.</span>
+
+<span class="sd">    Exactly one failure is not a refusal: an ENOENT on the record. A tree that</span>
+<span class="sd">    is provisioned and readable and holds no record for this owner is an owner</span>
+<span class="sd">    whose every switch is off. Every other failure on a PRESENT path — EACCES,</span>
+<span class="sd">    EISDIR, a corrupt payload, a payload from another schema — is a switch that</span>
+<span class="sd">    may exist and cannot be read, and is reported rather than guessed at.</span>
+
+<span class="sd">    **Nothing here follows a symbolic link.** The tree root is group-writable</span>
+<span class="sd">    (2770) and its group is shared with accounts other than the one reading, so</span>
+<span class="sd">    any account in it can plant a link under another identity&#39;s name; followed,</span>
+<span class="sd">    that link decides whether a real machine is written to, from a file its</span>
+<span class="sd">    supposed owner never wrote. The marker and the ``&lt;owner&gt;/`` directory are</span>
+<span class="sd">    therefore checked with :func:`os.lstat` and the record is opened</span>
+<span class="sd">    ``O_NOFOLLOW`` — the open is what closes the window between a check and a</span>
+<span class="sd">    read — and a link found at any of the three answers unavailable NAMING the</span>
+<span class="sd">    path. Never ENOENT: an absent record means every switch is off, and a</span>
+<span class="sd">    planted link is not an absence.</span>
+
+<span class="sd">    There is no cache. The parse memo in</span>
+<span class="sd">    :mod:`~osprey_connectors.control_context` is reached through the reader</span>
+<span class="sd">    whose ``None`` this one exists to avoid, and a memo of its own would be a</span>
+<span class="sd">    second thing to invalidate for a file that is a few hundred bytes and is</span>
+<span class="sd">    read once per verdict.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        tree: The tree bind, from :func:`_control_context_tree`.</span>
+<span class="sd">        owner: The name whose record to read — one path segment, resolved by</span>
+<span class="sd">            :func:`current_owner` before the call. :data:`NO_OWNER` never</span>
+<span class="sd">            reaches here: work that belongs to nobody is refused before</span>
+<span class="sd">            any record is read.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A :class:`_TreeContext`: the parsed record (``None`` when the tree holds</span>
+<span class="sd">        none for this owner, or when it could not be read) and the sentence when</span>
+<span class="sd">        it could not. Never raises: this is read on a write path.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">tree</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_tree_unprovisioned</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="s2">&quot;does not exist&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">access</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">R_OK</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">X_OK</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_tree_unreadable</span><span class="p">(</span><span class="n">tree</span><span class="p">))</span>
+
+    <span class="n">marker</span> <span class="o">=</span> <span class="n">tree</span> <span class="o">/</span> <span class="n">CONTROL_TREE_MARKER_NAME</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">marker_mode</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">lstat</span><span class="p">(</span><span class="n">marker</span><span class="p">)</span><span class="o">.</span><span class="n">st_mode</span>
+    <span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span>
+            <span class="kc">None</span><span class="p">,</span> <span class="n">_tree_unprovisioned</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;carries no </span><span class="si">{</span><span class="n">CONTROL_TREE_MARKER_NAME</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_tree_unreadable</span><span class="p">(</span><span class="n">tree</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">stat</span><span class="o">.</span><span class="n">S_ISLNK</span><span class="p">(</span><span class="n">marker_mode</span><span class="p">):</span>
+        <span class="c1"># A link here would let any account in the tree&#39;s group declare an</span>
+        <span class="c1"># unbuilt tree provisioned, which is the fail-open this marker exists</span>
+        <span class="c1"># to close.</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_tree_planted_link</span><span class="p">(</span><span class="n">marker</span><span class="p">,</span> <span class="s2">&quot;tree marker&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">stat</span><span class="o">.</span><span class="n">S_ISREG</span><span class="p">(</span><span class="n">marker_mode</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span>
+            <span class="kc">None</span><span class="p">,</span>
+            <span class="n">_tree_unprovisioned</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;carries a </span><span class="si">{</span><span class="n">CONTROL_TREE_MARKER_NAME</span><span class="si">}</span><span class="s2"> that is not a file&quot;</span><span class="p">),</span>
+        <span class="p">)</span>
+
+    <span class="c1"># An owner that is not one path segment addresses no record in this tree,</span>
+    <span class="c1"># and must not be answered as an owner whose switches are off: the name</span>
+    <span class="c1"># arrived on a queue item, and a name nobody can look up is a lookup that</span>
+    <span class="c1"># did not happen rather than a lookup that found nothing.</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">owner</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="n">owner</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="s2">&quot;..&quot;</span><span class="p">}</span> <span class="ow">or</span> <span class="n">_TREE_UNSAFE</span> <span class="o">&amp;</span> <span class="nb">set</span><span class="p">(</span><span class="n">owner</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span>
+            <span class="kc">None</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;the owner </span><span class="si">{</span><span class="n">owner</span><span class="si">!r}</span><span class="s2"> is not a name the control-context tree can hold, &quot;</span>
+            <span class="s2">&quot;so no narrowing can be read for it — the owner a plan carries must be &quot;</span>
+            <span class="s2">&quot;one directory name&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Imported here, not at module scope: ``control_context`` imports THIS</span>
+    <span class="c1"># module for the root and the grammar, and the two must not import each</span>
+    <span class="c1"># other at load time.</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">control_context</span>
+
+    <span class="n">owner_dir</span> <span class="o">=</span> <span class="n">tree</span> <span class="o">/</span> <span class="n">owner</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">owner_mode</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">lstat</span><span class="p">(</span><span class="n">owner_dir</span><span class="p">)</span><span class="o">.</span><span class="n">st_mode</span>
+    <span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
+        <span class="c1"># The one absence that is an answer: every switch is off for this</span>
+        <span class="c1"># owner, and a missing ``&lt;owner&gt;/`` directory says exactly that.</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Could not stat the control-context directory </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">owner_dir</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_tree_unreadable</span><span class="p">(</span><span class="n">tree</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">stat</span><span class="o">.</span><span class="n">S_ISLNK</span><span class="p">(</span><span class="n">owner_mode</span><span class="p">):</span>
+        <span class="c1"># ``O_NOFOLLOW`` on the record below guards its last component only, so</span>
+        <span class="c1"># the directory above it is checked here: a link at this level redirects</span>
+        <span class="c1"># the read just as effectively.</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_tree_planted_link</span><span class="p">(</span><span class="n">owner_dir</span><span class="p">,</span> <span class="s2">&quot;directory&quot;</span><span class="p">))</span>
+
+    <span class="n">record_file</span> <span class="o">=</span> <span class="n">owner_dir</span> <span class="o">/</span> <span class="n">control_context</span><span class="o">.</span><span class="n">RECORD_FILENAME</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">record</span> <span class="o">=</span> <span class="n">control_context</span><span class="o">.</span><span class="n">parse_record</span><span class="p">(</span><span class="n">_read_no_follow</span><span class="p">(</span><span class="n">record_file</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
+        <span class="c1"># No record for this owner: the same answer as no directory.</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># every failure here REFUSES</span>
+        <span class="c1"># Blanket on purpose, and the opposite of the one this reader avoids:</span>
+        <span class="c1"># an unexpected failure on a present record leaves a switch that may</span>
+        <span class="c1"># exist unread, so it answers unavailable rather than guessing.</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Could not read the control-context record at </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">record_file</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s2">&quot;errno&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="o">==</span> <span class="n">errno</span><span class="o">.</span><span class="n">ELOOP</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_tree_planted_link</span><span class="p">(</span><span class="n">record_file</span><span class="p">,</span> <span class="s2">&quot;record&quot;</span><span class="p">))</span>
+        <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s2">&quot;errno&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="o">==</span> <span class="n">errno</span><span class="o">.</span><span class="n">EFBIG</span><span class="p">:</span>
+            <span class="c1"># Asked by name for the same reason the planted link is: the size</span>
+            <span class="c1"># bound refuses a file whose mode and group are beyond reproach, so</span>
+            <span class="c1"># the generic remedy points at two things an operator then finds</span>
+            <span class="c1"># correct.</span>
+            <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_tree_record_oversized</span><span class="p">(</span><span class="n">record_file</span><span class="p">))</span>
+        <span class="n">detail</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s2">&quot;strerror&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span>
+            <span class="kc">None</span><span class="p">,</span> <span class="n">_tree_record_unreadable</span><span class="p">(</span><span class="n">record_file</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;could not be read (</span><span class="si">{</span><span class="n">detail</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">record</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span>
+            <span class="kc">None</span><span class="p">,</span>
+            <span class="n">_tree_record_unreadable</span><span class="p">(</span><span class="n">record_file</span><span class="p">,</span> <span class="s2">&quot;is not a record this version can read&quot;</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_TreeContext</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+
+<span class="c1"># -- the launch-time pin ----------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="launch_posture_stamp">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.launch_posture_stamp">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">launch_posture_stamp</span><span class="p">(</span><span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">launch_posture</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Compose the :data:`LAUNCH_POSTURE_ENV_VAR` value for one launch.</span>
+
+<span class="sd">    The one place the wire format is written, so the executor that stamps it</span>
+<span class="sd">    and :func:`_launch_pin_term` which reads it cannot disagree about the</span>
+<span class="sd">    separator or about how &quot;no target&quot; is spelled.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        target: The control target the run is stamped against, or ``None`` when</span>
+<span class="sd">            the executor could not identify one — spelled</span>
+<span class="sd">            :data:`LAUNCH_POSTURE_ALL_TARGETS`, which covers every target.</span>
+<span class="sd">        launch_posture: :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES` — the</span>
+<span class="sd">            recorded answer for that target at the moment of launch.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">target</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">LAUNCH_POSTURE_ALL_TARGETS</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">launch_posture</span><span class="si">}</span><span class="s2">&quot;</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_launch_pin_term</span><span class="p">(</span><span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;none&quot;</span><span class="p">,</span> <span class="s2">&quot;pinned&quot;</span><span class="p">,</span> <span class="s2">&quot;unreadable&quot;</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The launch pin as a term of the write verdict — fail-closed on a bad stamp.</span>
+
+<span class="sd">    Reads :data:`LAUNCH_POSTURE_ENV_VAR` on every call and answers, for *target*:</span>
+
+<span class="sd">    * ``&quot;none&quot;`` — no stamp (absent or blank), or a ``&lt;t&gt;=writes`` stamp whose</span>
+<span class="sd">      ``&lt;t&gt;`` is a member of :data:`~osprey_connectors.types.CONTROL_TARGETS` or</span>
+<span class="sd">      :data:`LAUNCH_POSTURE_ALL_TARGETS`, or a ``&lt;t&gt;=sandbox`` stamp naming a</span>
+<span class="sd">      different target than *target*;</span>
+<span class="sd">    * ``&quot;pinned&quot;`` — a ``&lt;t&gt;=sandbox`` stamp with ``&lt;t&gt;`` equal to *target*, or</span>
+<span class="sd">      ``&lt;t&gt;`` :data:`LAUNCH_POSTURE_ALL_TARGETS`. A caller that names no target</span>
+<span class="sd">      (``None``) is pinned by any sandbox stamp: the most restrictive answer</span>
+<span class="sd">      wins;</span>
+<span class="sd">    * ``&quot;unreadable&quot;`` — anything else, for every target: no separator, an empty</span>
+<span class="sd">      or unknown target, a posture that is neither :data:`POSTURE_SANDBOX` nor</span>
+<span class="sd">      :data:`POSTURE_WRITES`.</span>
+
+<span class="sd">    ``pinned`` and ``unreadable`` both refuse as ``launch_pinned``; a stamp is</span>
+<span class="sd">    only ever written by the executor, so one this module cannot read is a run</span>
+<span class="sd">    whose launch posture is unknown, and that must not widen to writable.</span>
+<span class="sd">    Surrounding whitespace on the stamp and on each half is ignored.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">LAUNCH_POSTURE_ENV_VAR</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">text</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;none&quot;</span>
+    <span class="n">stamped</span><span class="p">,</span> <span class="n">separator</span><span class="p">,</span> <span class="n">launch_posture</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s2">&quot;=&quot;</span><span class="p">)</span>
+    <span class="n">stamped</span> <span class="o">=</span> <span class="n">stamped</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="n">launch_posture</span> <span class="o">=</span> <span class="n">launch_posture</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="p">(</span>
+        <span class="ow">not</span> <span class="n">separator</span>
+        <span class="ow">or</span> <span class="n">launch_posture</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">VALID_POSTURES</span>
+        <span class="ow">or</span> <span class="p">(</span><span class="n">stamped</span> <span class="o">!=</span> <span class="n">LAUNCH_POSTURE_ALL_TARGETS</span> <span class="ow">and</span> <span class="n">stamped</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">CONTROL_TARGETS</span><span class="p">)</span>
+    <span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;unreadable&quot;</span>
+    <span class="k">if</span> <span class="n">launch_posture</span> <span class="o">!=</span> <span class="n">POSTURE_SANDBOX</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;none&quot;</span>
+    <span class="k">if</span> <span class="n">stamped</span> <span class="ow">in</span> <span class="p">(</span><span class="n">LAUNCH_POSTURE_ALL_TARGETS</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">target</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;pinned&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;none&quot;</span>
+
+
+<span class="c1"># -- the owner rung ---------------------------------------------------------</span>
+
+<span class="c1">#: The build-rendered login→tier map: ``{&lt;login&gt;: &quot;never&quot; | &quot;asked&quot; | &quot;allowed&quot;}``,</span>
+<span class="c1">#: each value the resolved render&#39;s ``tier_writes`` for that login. A process</span>
+<span class="c1">#: that reads other logins&#39; records (a shared container) cannot use its own</span>
+<span class="c1">#: section&#39;s tier for the record&#39;s owner, so it reads the owner&#39;s entry here.</span>
+<span class="n">LOGIN_TIERS_KEY</span> <span class="o">=</span> <span class="s2">&quot;control_system.login_tiers&quot;</span>
+
+<span class="c1">#: The leaf under the ``control_system`` section that :data:`LOGIN_TIERS_KEY` names.</span>
+<span class="n">_LOGIN_TIERS_LEAF</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;login_tiers&quot;</span>
+
+<span class="c1">#: The three values a map entry may carry — the same three :func:`tier_writes` answers.</span>
+<span class="n">_LOGIN_TIERS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="n">TIER_WORDS</span>
+
+
+<div class="viewcode-block" id="owner_tier_term">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.owner_tier_term">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">owner_tier_term</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;never&quot;</span><span class="p">,</span> <span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The owner&#39;s tier out of :data:`LOGIN_TIERS_KEY` — the verdict&#39;s owner rung.</span>
+
+<span class="sd">    *section* is the ``control_system`` section; *owner* the login whose record</span>
+<span class="sd">    governs the write. The rung applies when the section carries the map (any</span>
+<span class="sd">    value) **or** a control-context tree is bound (:func:`_tree_is_bound`, the</span>
+<span class="sd">    one marker of a process that reads other logins&#39; records). Answers:</span>
+
+<span class="sd">    * ``&quot;skip&quot;`` — the rung does not apply: no map and no tree;</span>
+<span class="sd">    * ``&quot;never&quot;`` / ``&quot;asked&quot;`` / ``&quot;allowed&quot;`` — the owner&#39;s entry;</span>
+<span class="sd">    * ``&quot;unknown&quot;`` — the rung applies and the owner&#39;s tier cannot be read: a</span>
+<span class="sd">      tree with no map, a map that is not a mapping, a map with any key that is</span>
+<span class="sd">      not a non-empty string or any value other than the three tier words</span>
+<span class="sd">      (unreadable as a whole — it is one render&#39;s output), an owner that is not</span>
+<span class="sd">      a non-empty string, or an owner the map does not name. The verdict refuses</span>
+<span class="sd">      it as ``owner_unknown``; ``never`` refuses as ``tier_never``.</span>
+
+<span class="sd">    Logins match exactly: no case folding, no trimming. Never raises.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">carries</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_LOGIN_TIERS_LEAF</span> <span class="ow">in</span> <span class="n">section</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">carries</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;unknown&quot;</span> <span class="k">if</span> <span class="n">_tree_is_bound</span><span class="p">()</span> <span class="k">else</span> <span class="s2">&quot;skip&quot;</span>
+        <span class="n">login_tiers</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="n">_LOGIN_TIERS_LEAF</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">login_tiers</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span>
+            <span class="nb">isinstance</span><span class="p">(</span><span class="n">login</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">login</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">tier</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">tier</span> <span class="ow">in</span> <span class="n">_LOGIN_TIERS</span>
+            <span class="k">for</span> <span class="n">login</span><span class="p">,</span> <span class="n">tier</span> <span class="ow">in</span> <span class="n">login_tiers</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="p">):</span>
+            <span class="k">return</span> <span class="s2">&quot;unknown&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">owner</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">owner</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;unknown&quot;</span>
+        <span class="n">tier</span> <span class="o">=</span> <span class="n">login_tiers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">owner</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># a rung that cannot read the map refuses; it never raises</span>
+        <span class="k">return</span> <span class="s2">&quot;unknown&quot;</span>
+    <span class="k">return</span> <span class="n">tier</span> <span class="k">if</span> <span class="n">tier</span> <span class="ow">in</span> <span class="n">_LOGIN_TIERS</span> <span class="k">else</span> <span class="s2">&quot;unknown&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="write_ceiling">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.write_ceiling">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">write_ceiling</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">tree_bound</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;never&quot;</span><span class="p">,</span> <span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The highest position a write by *owner* runs at: the verdict&#39;s ceiling.</span>
+
+<span class="sd">    Under a bound tree the owner&#39;s rung (:func:`owner_tier_term`), otherwise</span>
+<span class="sd">    :func:`~osprey_connectors.types.tier_writes` of *section*. The ceiling caps</span>
+<span class="sd">    an allowed verdict&#39;s ``position`` and refuses nothing itself; the tier and</span>
+<span class="sd">    rung terms of :func:`write_verdict` do that. *tree_bound* answers for a</span>
+<span class="sd">    process other than this one (``None``: :func:`_tree_is_bound`). Never raises.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">_tree_is_bound</span><span class="p">()</span> <span class="k">if</span> <span class="n">tree_bound</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">tree_bound</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">tier_writes</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
+    <span class="n">rung</span> <span class="o">=</span> <span class="n">owner_tier_term</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">owner</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">&quot;unknown&quot;</span> <span class="k">if</span> <span class="n">rung</span> <span class="o">==</span> <span class="s2">&quot;skip&quot;</span> <span class="k">else</span> <span class="n">rung</span></div>
+
+
+
+<span class="c1"># -- the write verdict ------------------------------------------------------</span>
+
+<span class="c1">#: The environment variable naming the web terminal&#39;s session, the hold&#39;s key.</span>
+<span class="n">_SESSION_KEY_ENV_VAR</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_SESSION_ID&quot;</span>
+
+
+<div class="viewcode-block" id="WriteVerdict">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.WriteVerdict">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">WriteVerdict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether one write may go ahead, and the one reason when it may not.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        allowed: ``True`` only when every term of :func:`write_verdict` passed.</span>
+<span class="sd">        reason: ``None`` when allowed; otherwise a member of</span>
+<span class="sd">            :data:`~osprey_connectors.refusals.REASONS`, the first term that</span>
+<span class="sd">            refused. :func:`~osprey_connectors.refusals.refusal_phrase` turns it,</span>
+<span class="sd">            with *kind*, into the words an operator reads.</span>
+<span class="sd">        target: The control target the caller asked about, verbatim when it was</span>
+<span class="sd">            a string, else ``None``.</span>
+<span class="sd">        kind: The kind of machine *target* names here — ``real``, ``rehearsal``</span>
+<span class="sd">            or ``simulator`` — or ``None`` when the target does not resolve.</span>
+<span class="sd">        position: The effective switch position when *allowed* — ``asked`` or</span>
+<span class="sd">            ``allowed``, the stored position capped by the environment&#39;s</span>
+<span class="sd">            ceiling — and ``None`` on every refusal and from</span>
+<span class="sd">            :func:`backstop_verdict`.</span>
+<span class="sd">        detail: Words the refusal adds after its phrase, such as what raised a</span>
+<span class="sd">            session&#39;s hold. Not part of the decision, so verdicts compare without it.</span>
+<span class="sd">        authorization: The id of the program&#39;s write authorization the verdict</span>
+<span class="sd">            was decided by (:mod:`~osprey_connectors.write_authorization`), or</span>
+<span class="sd">            ``None`` for a verdict no authorization took part in. An authorized</span>
+<span class="sd">            write carries no ``position``: the switch did not decide it.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">allowed</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">kind</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">position</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">detail</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compare</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="write_verdict">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.write_verdict">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">write_verdict</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ignore_launch_pin</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict on one write to *target*: one total order, first refusal wins.</span>
+
+<span class="sd">    The terms, in order — the order is shared with the hook&#39;s stdlib twin, so a</span>
+<span class="sd">    write is refused for the same reason on both sides:</span>
+
+<span class="sd">    1. ``readonly_run`` — the run is read-only (``OSPREY_EXECUTION_MODE``).</span>
+<span class="sd">    2. ``tier_never`` — the section&#39;s tier does not allow writes</span>
+<span class="sd">       (:func:`~osprey_connectors.types.tier_allows`).</span>
+<span class="sd">    3. ``target_unknown`` — *target* does not resolve in this deployment.</span>
+<span class="sd">    4. ``owner_unknown`` — the owner ladder (:func:`current_owner`) yields</span>
+<span class="sd">       :data:`NO_OWNER` or anything that is not a non-empty name. A write with</span>
+<span class="sd">       no owner is refused; nothing is governed by the ceiling alone here.</span>
+<span class="sd">       ``owner_unscheduled`` in its place for a dispatch run</span>
+<span class="sd">       (:data:`DISPATCH_RUN_ENV_VAR`), whether the caller passed</span>
+<span class="sd">       :data:`NO_OWNER` or the ladder resolved it: a scheduled or triggered</span>
+<span class="sd">       job that runs for no login has no switch to follow.</span>
+<span class="sd">       ``owner_foreign`` — with no tree bound, an owner that is not</span>
+<span class="sd">       :func:`~osprey_connectors.identity.acting_identity`: a host holds only</span>
+<span class="sd">       its own login&#39;s switch and never lends it to another owner.</span>
+<span class="sd">    5. The owner rung (:func:`owner_tier_term`): a login the map does not name,</span>
+<span class="sd">       or a map that cannot be read where the rung applies, is</span>
+<span class="sd">       ``owner_unknown``; a login mapped ``never`` is ``tier_never``.</span>
+<span class="sd">    6. ``record_unavailable`` — the record governing the write could not be</span>
+<span class="sd">       read. Under a bound tree that is the owner&#39;s record, through the</span>
+<span class="sd">       no-follow, fail-closed tree reader; a bind that is set but unusable</span>
+<span class="sd">       refuses rather than falls back to the host. Otherwise it is this</span>
+<span class="sd">       host&#39;s own record, through the status reader, which fails closed too: a</span>
+<span class="sd">       corrupt file, a foreign schema or an unresolvable root refuses. A record</span>
+<span class="sd">       that is simply absent is not unavailable — it is every switch off.</span>
+<span class="sd">    7. ``switch_off`` — the record&#39;s stored position for *target*</span>
+<span class="sd">       (:func:`~osprey_connectors.control_context.switch_position`) is ``off``.</span>
+<span class="sd">       The record&#39;s ``posture`` field is not read: it mirrors the switch, and</span>
+<span class="sd">       an old ``sandbox`` value left in a file does not refuse.</span>
+<span class="sd">    8. ``launch_pinned`` — the launch pin (:func:`_launch_pin_term`) is</span>
+<span class="sd">       ``pinned`` or ``unreadable`` for *target*; skipped when</span>
+<span class="sd">       *ignore_launch_pin*, for a caller that reports the pin on its own.</span>
+
+<span class="sd">    An allowed verdict&#39;s ``position`` is the lower of the stored position and</span>
+<span class="sd">    :func:`write_ceiling`: :func:`~osprey_connectors.types.tier_writes` of</span>
+<span class="sd">    *section* on a host (term 2), the owner&#39;s rung under a bound tree (term 5).</span>
+<span class="sd">    The ceiling adds no refusal.</span>
+
+<span class="sd">    Tier and owner rung come before the record, so a demoted login&#39;s position</span>
+<span class="sd">    stays on disk, inert, and arms again if the tier is restored. This function</span>
+<span class="sd">    reads and never writes. It never answers ``switching`` or ``stopped_since``:</span>
+<span class="sd">    those belong to the callers that hold the record&#39;s lock.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        section: The ``control_system`` section of the resolved config.</span>
+<span class="sd">        target: The control target the write lands on.</span>
+<span class="sd">        owner: Whose record governs the write; ``None`` asks</span>
+<span class="sd">            :func:`current_owner`.</span>
+<span class="sd">        ignore_launch_pin: Skip the last term.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A :class:`WriteVerdict`. Never raises: an exception anywhere in the</span>
+<span class="sd">        terms refuses rather than allows.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_write_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">ignore_launch_pin</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_RecordSeen</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The record one verdict read, for a caller that judges more on that same read.</span>
+
+<span class="sd">    Filled by :func:`_write_refusal` once the record governing the write has</span>
+<span class="sd">    been read and found usable: ``read`` is then ``True`` and ``record`` the</span>
+<span class="sd">    record, or ``None`` for one that is absent (every switch off). A verdict</span>
+<span class="sd">    refused before the record was reached leaves ``read`` ``False``. The write</span>
+<span class="sd">    authorization&#39;s verdict takes it so one authorized write is judged on one</span>
+<span class="sd">    read of the record rather than two that a person&#39;s gesture could fall</span>
+<span class="sd">    between.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="vm">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="s2">&quot;record&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">read</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">record</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_write_verdict</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ignore_launch_pin</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">seen</span><span class="p">:</span> <span class="n">_RecordSeen</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;:func:`write_verdict`, recording the record it read into *seen* when given.&quot;&quot;&quot;</span>
+    <span class="n">named</span> <span class="o">=</span> <span class="n">target</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">kind</span> <span class="o">=</span> <span class="n">_verdict_kind</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+    <span class="n">position</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reason</span><span class="p">,</span> <span class="n">position</span> <span class="o">=</span> <span class="n">_write_refusal</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">ignore_launch_pin</span><span class="p">,</span> <span class="n">seen</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># a verdict that cannot be reached refuses; it never raises</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Write verdict for </span><span class="si">%r</span><span class="s2"> could not be reached; refusing&quot;</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">reason</span> <span class="o">=</span> <span class="s2">&quot;record_unavailable&quot;</span>
+        <span class="k">if</span> <span class="n">seen</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">seen</span><span class="o">.</span><span class="n">read</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="n">WriteVerdict</span><span class="p">(</span>
+        <span class="n">allowed</span><span class="o">=</span><span class="n">reason</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="n">reason</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="n">named</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">,</span> <span class="n">position</span><span class="o">=</span><span class="n">position</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_verdict_kind</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The machine kind a verdict on *target* names, or ``None``. Never raises.</span>
+
+<span class="sd">    The name decides whether the target resolves at all; the published report</span>
+<span class="sd">    decides what it is (C-KIND), so a stand-in the controls server has not</span>
+<span class="sd">    vouched for is the real machine in the refusal&#39;s words.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">machine_kind</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">published_machine_kind</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># the kind is a word in a refusal; it must not decide one</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Could not name the machine kind of </span><span class="si">%r</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="backstop_verdict">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.backstop_verdict">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">backstop_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict for a write no target or owner can be named for.</span>
+
+<span class="sd">    The floor under every write path that cannot be traced to one machine: it</span>
+<span class="sd">    refuses ``readonly_run`` (``OSPREY_EXECUTION_MODE``), then ``tier_never``</span>
+<span class="sd">    (:func:`~osprey_connectors.types.tier_allows`), in the same order as the</span>
+<span class="sd">    first two terms of :func:`write_verdict`, and otherwise allows. It is blind</span>
+<span class="sd">    by design — it resolves no target, asks no owner and opens no record, so a</span>
+<span class="sd">    switch position never changes its answer and it reports none.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        section: The ``control_system`` section of the resolved config.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A :class:`WriteVerdict` whose ``target``, ``kind`` and ``position`` are</span>
+<span class="sd">        always ``None``. Never raises: a tier that cannot be read refuses as</span>
+<span class="sd">        ``tier_never``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">is_readonly_run</span><span class="p">():</span>
+        <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">&quot;readonly_run&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">reason</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">tier_allows</span><span class="p">(</span><span class="n">section</span><span class="p">)</span> <span class="k">else</span> <span class="s2">&quot;tier_never&quot;</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># tier_allows never raises by contract; refuse if it does</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Backstop tier could not be read; refusing&quot;</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">reason</span> <span class="o">=</span> <span class="s2">&quot;tier_never&quot;</span>
+    <span class="k">return</span> <span class="n">WriteVerdict</span><span class="p">(</span><span class="n">allowed</span><span class="o">=</span><span class="n">reason</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="n">reason</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="session_hold_refusal">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.session_hold_refusal">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">session_hold_refusal</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span> <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">session_keys</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``session_held`` refusal for this process&#39;s session, or ``None``.</span>
+
+<span class="sd">    The session is :data:`_SESSION_KEY_ENV_VAR`; a process without one belongs to</span>
+<span class="sd">    no session and is never held. A process that serves several sessions at</span>
+<span class="sd">    once — a panel&#39;s data process, which starts before any conversation exists</span>
+<span class="sd">    and answers a terminal&#39;s every session — names them in *session_keys*</span>
+<span class="sd">    instead, and is held while any one of them is. The store is *root*, else</span>
+<span class="sd">    the stamped :data:`~osprey_connectors.session_hold.HOLD_DIR_ENV_VAR`;</span>
+<span class="sd">    without either nothing is held. Under a store, a record that cannot be</span>
+<span class="sd">    read refuses.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        root: The hold root, for a caller that resolved it itself.</span>
+<span class="sd">        session_keys: The sessions to ask about, in place of the environment&#39;s</span>
+<span class="sd">            one key. An empty sequence belongs to no session; an empty key in it</span>
+<span class="sd">            names none. ``None`` reads the environment.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``None`` when no named session is held; otherwise the first held</span>
+<span class="sd">        session&#39;s refusal, in the order given: ``target`` and ``kind`` are</span>
+<span class="sd">        ``None`` and ``detail`` names that session&#39;s open flags&#39; sources, each</span>
+<span class="sd">        once in the order opened. An unsafe session key has no flags to name.</span>
+<span class="sd">        Never raises.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">_session_keys</span><span class="p">(</span><span class="n">session_keys</span><span class="p">):</span>
+        <span class="n">refusal</span> <span class="o">=</span> <span class="n">_hold_refusal</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">root</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">refusal</span>
+    <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_session_keys</span><span class="p">(</span><span class="n">session_keys</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The session keys a hold is asked about: *session_keys* as given, else the environment&#39;s.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">session_keys</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_SESSION_KEY_ENV_VAR</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="k">if</span> <span class="n">key</span> <span class="k">else</span> <span class="p">[]</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">session_keys</span> <span class="k">if</span> <span class="n">key</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_hold_refusal</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``session_held`` refusal for one session *key*, or ``None`` (see :func:`session_hold_refusal`).&quot;&quot;&quot;</span>
+    <span class="n">detail</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># One read: the decision and the words it is refused in come from one answer.</span>
+        <span class="n">flags</span> <span class="o">=</span> <span class="n">session_hold</span><span class="o">.</span><span class="n">open_flags</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">root</span><span class="o">=</span><span class="n">root</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">flags</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">sources</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">(</span><span class="n">flag</span><span class="o">.</span><span class="n">source</span> <span class="k">for</span> <span class="n">flag</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">))</span>
+        <span class="n">detail</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Raised by: </span><span class="si">{</span><span class="n">sources</span><span class="si">}</span><span class="s2">.&quot;</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>  <span class="c1"># the key is not a safe file name, which holds</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Session key </span><span class="si">%r</span><span class="s2"> is unsafe; held&quot;</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># a hold that cannot be read refuses; it never raises</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Session hold for </span><span class="si">%r</span><span class="s2"> could not be read; held&quot;</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">WriteVerdict</span><span class="p">(</span><span class="n">allowed</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;session_held&quot;</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">detail</span><span class="o">=</span><span class="n">detail</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="execution_verdict">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.execution_verdict">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">execution_verdict</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ignore_launch_pin</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">session_keys</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict on one write about to execute: :func:`write_verdict` plus the hold.</span>
+
+<span class="sd">    The terms are ``readonly_run``, ``tier_never``, ``session_held``</span>
+<span class="sd">    (:func:`session_hold_refusal`), then the rest of :func:`write_verdict` in its</span>
+<span class="sd">    order, so a held session with its switch off refuses ``session_held``. Its</span>
+<span class="sd">    order is shared with the hook&#39;s stdlib twin.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        section: The ``control_system`` section of the resolved config.</span>
+<span class="sd">        target: The control target the write lands on.</span>
+<span class="sd">        owner: As for :func:`write_verdict`.</span>
+<span class="sd">        ignore_launch_pin: As for :func:`write_verdict`.</span>
+<span class="sd">        session_keys: As for :func:`session_hold_refusal`: the sessions the</span>
+<span class="sd">            write belongs to, held while any one is; ``None`` is the</span>
+<span class="sd">            environment&#39;s session.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A :class:`WriteVerdict` with the ``target`` and ``kind`` of</span>
+<span class="sd">        :func:`write_verdict`. Never raises.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">verdict</span> <span class="o">=</span> <span class="n">write_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">owner</span><span class="o">=</span><span class="n">owner</span><span class="p">,</span> <span class="n">ignore_launch_pin</span><span class="o">=</span><span class="n">ignore_launch_pin</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_with_hold</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">verdict</span><span class="p">,</span> <span class="n">session_keys</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_with_hold</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">verdict</span><span class="p">:</span> <span class="n">WriteVerdict</span><span class="p">,</span> <span class="n">session_keys</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;*verdict* as :func:`execution_verdict` answers it: the hold after the backstop.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">backstop_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">)</span><span class="o">.</span><span class="n">allowed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">verdict</span>
+    <span class="n">held</span> <span class="o">=</span> <span class="n">session_hold_refusal</span><span class="p">(</span><span class="n">session_keys</span><span class="o">=</span><span class="n">session_keys</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">verdict</span>
+    <span class="k">return</span> <span class="n">replace</span><span class="p">(</span><span class="n">held</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="n">verdict</span><span class="o">.</span><span class="n">target</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">verdict</span><span class="o">.</span><span class="n">kind</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_write_refusal</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ignore_launch_pin</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">seen</span><span class="p">:</span> <span class="n">_RecordSeen</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The first term of :func:`write_verdict` that refuses, else the position.</span>
+
+<span class="sd">    Answers ``(reason, None)`` or ``(None, position)``. May raise. The usable</span>
+<span class="sd">    record it read, if it got that far, is left in *seen*.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Imported here, not at module scope: ``control_context`` imports this module.</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">control_context</span>
+
+    <span class="k">if</span> <span class="n">is_readonly_run</span><span class="p">():</span>
+        <span class="k">return</span> <span class="s2">&quot;readonly_run&quot;</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">tier_allows</span><span class="p">(</span><span class="n">section</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;tier_never&quot;</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">resolve_target</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># ValueError by contract; anything else is no resolution either</span>
+        <span class="k">return</span> <span class="s2">&quot;target_unknown&quot;</span><span class="p">,</span> <span class="kc">None</span>
+
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">current_owner</span><span class="p">(</span><span class="n">owner</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="n">NO_OWNER</span> <span class="ow">and</span> <span class="n">_is_dispatch_run</span><span class="p">():</span>
+        <span class="k">return</span> <span class="s2">&quot;owner_unscheduled&quot;</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="n">NO_OWNER</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">resolved</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="k">return</span> <span class="s2">&quot;owner_unknown&quot;</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="c1"># A host holds one login&#39;s switch: an owner other than that login is refused</span>
+    <span class="c1"># before its tier or any record is read (a tree bind reads each owner&#39;s own).</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_tree_is_bound</span><span class="p">()</span> <span class="ow">and</span> <span class="n">resolved</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">!=</span> <span class="n">acting_identity</span><span class="p">():</span>
+        <span class="k">return</span> <span class="s2">&quot;owner_foreign&quot;</span><span class="p">,</span> <span class="kc">None</span>
+
+    <span class="n">rung</span> <span class="o">=</span> <span class="n">owner_tier_term</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">resolved</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">rung</span> <span class="o">==</span> <span class="s2">&quot;unknown&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;owner_unknown&quot;</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">rung</span> <span class="o">==</span> <span class="s2">&quot;never&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;tier_never&quot;</span><span class="p">,</span> <span class="kc">None</span>
+
+    <span class="k">if</span> <span class="n">_tree_is_bound</span><span class="p">():</span>
+        <span class="n">tree</span> <span class="o">=</span> <span class="n">_control_context_tree</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">tree</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Write record unreadable for </span><span class="si">%r</span><span class="s2">: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">resolved</span><span class="p">,</span> <span class="n">_tree_bind_unusable</span><span class="p">())</span>
+            <span class="k">return</span> <span class="s2">&quot;record_unavailable&quot;</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="n">read</span> <span class="o">=</span> <span class="n">_read_tree_context</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="n">resolved</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">read</span><span class="o">.</span><span class="n">unavailable</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Write record unreadable for </span><span class="si">%r</span><span class="s2">: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">resolved</span><span class="p">,</span> <span class="n">read</span><span class="o">.</span><span class="n">unavailable</span><span class="p">)</span>
+            <span class="k">return</span> <span class="s2">&quot;record_unavailable&quot;</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="n">record</span> <span class="o">=</span> <span class="n">read</span><span class="o">.</span><span class="n">record</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">record</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">control_context</span><span class="o">.</span><span class="n">read_record_status</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;unreadable&quot;</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Write record unreadable on this host; refusing&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="s2">&quot;record_unavailable&quot;</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">status</span> <span class="o">!=</span> <span class="s2">&quot;ok&quot;</span><span class="p">:</span>
+            <span class="n">record</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">seen</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">seen</span><span class="o">.</span><span class="n">read</span><span class="p">,</span> <span class="n">seen</span><span class="o">.</span><span class="n">record</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">record</span>
+
+    <span class="n">stored</span> <span class="o">=</span> <span class="n">control_context</span><span class="o">.</span><span class="n">switch_position</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">stored</span> <span class="o">==</span> <span class="s2">&quot;off&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;switch_off&quot;</span><span class="p">,</span> <span class="kc">None</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">ignore_launch_pin</span> <span class="ow">and</span> <span class="n">_launch_pin_term</span><span class="p">(</span><span class="n">target</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">&quot;none&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;launch_pinned&quot;</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="n">ceiling</span> <span class="o">=</span> <span class="n">write_ceiling</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">resolved</span><span class="p">)</span>
+    <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;Literal[&#39;asked&#39;, &#39;allowed&#39;]&quot;</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">stored</span><span class="p">,</span> <span class="n">ceiling</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">_LOGIN_TIERS</span><span class="o">.</span><span class="n">index</span><span class="p">))</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

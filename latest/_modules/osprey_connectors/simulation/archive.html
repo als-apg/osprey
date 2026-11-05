@@ -1,0 +1,1754 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.simulation.archive &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/simulation/archive';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/simulation/archive.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="../simulation.html" class="nav-link">osprey_connectors.simulation</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.simulation.archive</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.simulation.archive</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Materializing a deployment&#39;s archive: the base seed and its fingerprint.</span>
+
+<span class="sd">A deployment that serves simulated channels needs history for them, and the</span>
+<span class="sd">honest way to have history is to *store* it. This module computes that stored</span>
+<span class="sd">history and writes it: one document per timestamp carrying every channel, over</span>
+<span class="sd">a two-tier grid reaching back the configured retention, in the schema</span>
+<span class="sd">``MongoDBArchiverConnector`` already reads.</span>
+
+<span class="sd">The values are not this module&#39;s invention. Every channel is read from the</span>
+<span class="sd">archive composite (:func:`build`), the simulator view&#39;s composite at the start</span>
+<span class="sd">state of the active scenario set, evaluated at each document&#39;s own absolute</span>
+<span class="sd">timestamp. Every sample is a pure function of ``(channel, epoch seconds)``</span>
+<span class="sd">under that set, so a document written here at time T holds exactly what the</span>
+<span class="sd">composite serves at T: seeded history and the served machine are one world</span>
+<span class="sd">rather than two plausible ones.</span>
+
+<span class="sd">Three pieces of the design are worth stating outright:</span>
+
+<span class="sd">* **Two tiers, one grid.** The coarse tier spans the full retention window; the</span>
+<span class="sd">  dense tier adds samples *between* its points over the recent span. They are</span>
+<span class="sd">  built from one epoch-aligned grid and the dense tier skips timestamps the</span>
+<span class="sd">  coarse tier already owns, so no timestamp is written twice — the schema is one</span>
+<span class="sd">  document per timestamp and a duplicate would be a second, competing sample.</span>
+
+<span class="sd">* **Retention is per document, not per collection.** Each document carries an</span>
+<span class="sd">  ``expireAt`` that a TTL index acts on, stamped by the tier that produced it.</span>
+<span class="sd">  A coarse sample lives for the retention span, a dense one until it ages out</span>
+<span class="sd">  of the dense span, and a document with no stamp at all never expires — which</span>
+<span class="sd">  is what lets a later scenario rewrite protect the windows it touches by</span>
+<span class="sd">  simply removing the field.</span>
+
+<span class="sd">* **Reseeding is a decision, not a default.** A seed manifest records the knobs</span>
+<span class="sd">  the store was built with, and :func:`compare_fingerprint` reports match,</span>
+<span class="sd">  mismatch or absence. The seed instant is stored but deliberately excluded from</span>
+<span class="sd">  the comparison — it differs on every deploy, and including it would make every</span>
+<span class="sd">  deploy a reseed.</span>
+
+<span class="sd">This module never imports ``pymongo``: the functions that talk to a store take</span>
+<span class="sd">a collection handle their caller opened. That keeps an optional dependency</span>
+<span class="sd">optional, and leaves the grid, the fingerprint and the synthesis — the parts</span>
+<span class="sd">worth reasoning about — pure and testable with no store at all.</span>
+
+<span class="sd">**The archive composite.** :func:`build` reads a simulator view&#39;s history</span>
+<span class="sd">through a composite of its own, built at the start state of one active</span>
+<span class="sd">scenario set: the set&#39;s active writes, never a session write. The composite is</span>
+<span class="sd">read once, one solve per physics model, and :class:`ArchiveComposite` then</span>
+<span class="sd">computes every timestamp from those held values: the active scenarios&#39;</span>
+<span class="sd">archiver events, then the texture&#39;s drift, couplings and keyed noise, the</span>
+<span class="sd">physics engine&#39;s readout and the clamp, as the composite serves them. Samples</span>
+<span class="sd">are in the wire representation, so a ``bool`` or ``enum`` channel archives its</span>
+<span class="sd">option index. ``lume`` is imported inside :func:`build` only.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Iterator</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">concurrent.futures</span><span class="w"> </span><span class="kn">import</span> <span class="n">Future</span><span class="p">,</span> <span class="n">ThreadPoolExecutor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">UTC</span><span class="p">,</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.archiver._field_names</span><span class="w"> </span><span class="kn">import</span> <span class="n">field_name</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelNotFoundError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation</span><span class="w"> </span><span class="kn">import</span> <span class="n">pulse</span><span class="p">,</span> <span class="n">topoff</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation</span><span class="w"> </span><span class="kn">import</span> <span class="n">values</span> <span class="k">as</span> <span class="n">channel_values</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.series</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">apply_events</span><span class="p">,</span>
+    <span class="n">epoch_seconds_array</span><span class="p">,</span>
+    <span class="n">event_positions</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.state</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ACTIVE_SCENARIOS_FILENAME</span><span class="p">,</span>
+    <span class="n">resolve_active_scenarios</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.view</span><span class="w"> </span><span class="kn">import</span> <span class="n">VARIABLES_FILE</span><span class="p">,</span> <span class="n">SimulatorView</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - typing only</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">zoneinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZoneInfo</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">pymongo.collection</span><span class="w"> </span><span class="kn">import</span> <span class="n">Collection</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.composite</span><span class="w"> </span><span class="kn">import</span> <span class="n">Composite</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;archive&quot;</span><span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;DATE_FIELD&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;EXPIRE_FIELD&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;MANIFEST_ID&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ArchiveComposite&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;FingerprintComparison&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SeedKnobs&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SeedReport&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SeedState&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;build&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;compare_fingerprint&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;oldest_sample&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;scenario_events&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;seed_base&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;seed_fingerprint&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;tier_expiry&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;waveform_collection&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;waveform_document&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1">#: ``_id`` of the seed-manifest document. A fixed id makes writing it an upsert</span>
+<span class="c1">#: and reading it a primary-key lookup, and makes a second manifest impossible.</span>
+<span class="n">MANIFEST_ID</span> <span class="o">=</span> <span class="s2">&quot;osprey:seed_manifest&quot;</span>
+
+<span class="c1">#: Bumped when the meaning of a stored document changes in a way that makes an</span>
+<span class="c1">#: existing store wrong rather than merely differently configured. It is part of</span>
+<span class="c1">#: the fingerprint, so a bump reseeds every deployment on upgrade.</span>
+<span class="n">_SEED_SCHEMA_VERSION</span> <span class="o">=</span> <span class="mi">2</span>
+
+<span class="c1">#: Field naming the instant a document&#39;s sample was taken. The connector queries</span>
+<span class="c1">#: and sorts on it; the manifest document deliberately has none, which is what</span>
+<span class="c1">#: keeps it out of every archiver read without needing a filter.</span>
+<span class="n">DATE_FIELD</span> <span class="o">=</span> <span class="s2">&quot;date&quot;</span>
+
+<span class="c1">#: Field the TTL index acts on. A document without it never expires.</span>
+<span class="n">EXPIRE_FIELD</span> <span class="o">=</span> <span class="s2">&quot;expireAt&quot;</span>
+
+<span class="c1">#: Timestamps synthesized in one pass. Sized so the value matrix of a full</span>
+<span class="c1">#: channel set stays in the tens of megabytes: the whole point of chunking is</span>
+<span class="c1">#: that a month of history for three thousand channels does not fit in memory</span>
+<span class="c1">#: at once.</span>
+<span class="n">_DEFAULT_CHUNK_SIZE</span> <span class="o">=</span> <span class="mi">2000</span>
+
+<span class="c1">#: Concurrent insert workers. The synthesis runs on the calling thread and the</span>
+<span class="c1">#: inserts overlap it, which is the parallelism that matters here — the round</span>
+<span class="c1">#: trip to the store, not the arithmetic.</span>
+<span class="n">_DEFAULT_WORKERS</span> <span class="o">=</span> <span class="mi">4</span>
+
+
+<div class="viewcode-block" id="SeedState">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.SeedState">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">SeedState</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What a store&#39;s manifest says about the seed it holds.&quot;&quot;&quot;</span>
+
+    <span class="n">ABSENT</span> <span class="o">=</span> <span class="s2">&quot;absent&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;No manifest document: the store has never been seeded (or was wiped).&quot;&quot;&quot;</span>
+
+    <span class="n">MATCH</span> <span class="o">=</span> <span class="s2">&quot;match&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The store was built with the knobs now in force. Nothing to do.&quot;&quot;&quot;</span>
+
+    <span class="n">MISMATCH</span> <span class="o">=</span> <span class="s2">&quot;mismatch&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The store was built with different knobs, so its coverage no longer</span>
+<span class="sd">    describes what the profile asks for. The store has to be rebuilt.&quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="FingerprintComparison">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.FingerprintComparison">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FingerprintComparison</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The outcome of comparing a store&#39;s manifest against current knobs.&quot;&quot;&quot;</span>
+
+    <span class="n">state</span><span class="p">:</span> <span class="n">SeedState</span>
+    <span class="n">differences</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``(key, stored, expected)`` for each field that moved. Empty unless the</span>
+<span class="sd">    state is :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report*</span>
+<span class="sd">    what changed rather than announcing an unexplained reseed.&quot;&quot;&quot;</span>
+
+    <span class="n">seeded_at</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The instant the stored seed was anchored at, when there is one. Metadata:</span>
+<span class="sd">    it is never compared (see the module docstring).&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="FingerprintComparison.describe">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.FingerprintComparison.describe">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">describe</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;One line per changed knob, for a deploy-time report.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">stored</span><span class="si">!r}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">expected</span><span class="si">!r}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">stored</span><span class="p">,</span> <span class="n">expected</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">differences</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="SeedKnobs">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.SeedKnobs">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SeedKnobs</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The shape of the archive, as the profile&#39;s ``va_archiver:`` block sets it.</span>
+
+<span class="sd">    Defaults mirror :class:`~osprey.cli.build_profile_archiver.VAArchiverConfig`</span>
+<span class="sd">    so a caller holding no config still gets the shipped archive rather than an</span>
+<span class="sd">    arbitrary one. The block validates ranges and the cadence-divisibility rule</span>
+<span class="sd">    at build time; :meth:`validate` repeats the ones this module&#39;s arithmetic</span>
+<span class="sd">    depends on, because a store can also be seeded from a hand-written config</span>
+<span class="sd">    that never went through a profile.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">retention_days</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
+    <span class="n">hot_span_hours</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">48</span>
+    <span class="n">hot_cadence_sec</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>
+    <span class="n">tail_cadence_sec</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span>
+
+<div class="viewcode-block" id="SeedKnobs.from_config">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.SeedKnobs.from_config">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">SeedKnobs</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read the knobs out of a rendered project config.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            config: The loaded ``config.yml`` as a mapping. Its ``va_archiver``</span>
+<span class="sd">                subtree supplies the knobs; any absent one keeps its default,</span>
+<span class="sd">                so a config predating a knob still seeds.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The parsed knobs.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If a knob is present but not a positive integer, or the</span>
+<span class="sd">                set is internally inconsistent (see :meth:`validate`).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">block</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;va_archiver&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;config &#39;va_archiver&#39; must be a mapping (got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">block</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+        <span class="n">values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;retention_days&quot;</span><span class="p">,</span> <span class="s2">&quot;hot_span_hours&quot;</span><span class="p">,</span> <span class="s2">&quot;hot_cadence_sec&quot;</span><span class="p">,</span> <span class="s2">&quot;tail_cadence_sec&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">block</span><span class="p">:</span>
+                <span class="n">raw</span> <span class="o">=</span> <span class="n">block</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;va_archiver.</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must be an integer (got </span><span class="si">{</span><span class="n">raw</span><span class="si">!r}</span><span class="s2">)&quot;</span><span class="p">)</span>
+                <span class="n">values</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw</span>
+
+        <span class="n">knobs</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span><span class="o">**</span><span class="n">values</span><span class="p">)</span>
+        <span class="n">knobs</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">knobs</span></div>
+
+
+<div class="viewcode-block" id="SeedKnobs.validate">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.SeedKnobs.validate">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">validate</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Refuse knobs this module&#39;s grid arithmetic cannot honor.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If any knob is below one, the dense span reaches past</span>
+<span class="sd">                retention, or the coarse cadence is not a whole multiple of the</span>
+<span class="sd">                dense one — that last is what makes the coarse grid a subset of</span>
+<span class="sd">                the dense one rather than a second grid interleaved with it.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;retention_days&quot;</span><span class="p">,</span> <span class="s2">&quot;hot_span_hours&quot;</span><span class="p">,</span> <span class="s2">&quot;hot_cadence_sec&quot;</span><span class="p">,</span> <span class="s2">&quot;tail_cadence_sec&quot;</span><span class="p">):</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;va_archiver.</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must be &gt;= 1 (got </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hot_span_hours</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">retention_days</span> <span class="o">*</span> <span class="mi">24</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;va_archiver.hot_span_hours (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">hot_span_hours</span><span class="si">}</span><span class="s2">) exceeds &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;retention_days (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">retention_days</span><span class="si">}</span><span class="s2"> days)&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">tail_cadence_sec</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">hot_cadence_sec</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;va_archiver.tail_cadence_sec (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tail_cadence_sec</span><span class="si">}</span><span class="s2">) must be a whole &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;multiple of hot_cadence_sec (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">hot_cadence_sec</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="p">)</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">retention_s</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Retention span in seconds.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">retention_days</span> <span class="o">*</span> <span class="mi">86400</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">hot_span_s</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Dense-tier span in seconds.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">hot_span_hours</span> <span class="o">*</span> <span class="mi">3600</span></div>
+
+
+
+<div class="viewcode-block" id="SeedReport">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.SeedReport">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SeedReport</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What one seeding run wrote.&quot;&quot;&quot;</span>
+
+    <span class="n">documents</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">channels</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">end</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">elapsed_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">chunks</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+
+<div class="viewcode-block" id="SeedReport.describe">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.SeedReport.describe">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">describe</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A one-line summary for a deploy-time progress report.&quot;&quot;&quot;</span>
+        <span class="n">span</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">start</span><span class="si">:</span><span class="s2">%Y-%m-%d %H:%M</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">end</span><span class="si">:</span><span class="s2">%Y-%m-%d %H:%M</span><span class="si">}</span><span class="s2"> UTC&quot;</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">start</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">end</span>
+            <span class="k">else</span> <span class="s2">&quot;empty window&quot;</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;seeded </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">documents</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> documents x </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channels</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> channels &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">span</span><span class="si">}</span><span class="s2">) in </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">elapsed_s</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s&quot;</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># The archive composite</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+<span class="c1">#: The serving instance the archive composite&#39;s log lines name.</span>
+<span class="n">_ARCHIVE_INSTANCE</span> <span class="o">=</span> <span class="s2">&quot;virtual_accelerator&quot;</span>
+
+<span class="n">_STEP</span> <span class="o">=</span> <span class="s2">&quot;step&quot;</span>
+
+
+<div class="viewcode-block" id="ArchiveComposite">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ArchiveComposite</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A simulator view&#39;s history for one active scenario set.</span>
+
+<span class="sd">    Every sample is a pure function of the channel, its held value at the</span>
+<span class="sd">    start state, the active scenarios and the epoch time, so two windows that</span>
+<span class="sd">    share a timestamp agree on it.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        channels: Each channel&#39;s record in ``variables.json``, by address.</span>
+<span class="sd">        held: Each channel&#39;s held value at the start state, in its stored</span>
+<span class="sd">            representation; a ``gate`` channel&#39;s is its gated value while an</span>
+<span class="sd">            input blocks, as the live read serves it.</span>
+<span class="sd">        events: The active scenarios&#39; archiver events, by address.</span>
+<span class="sd">        composite: The composite at the start state, whose readings every</span>
+<span class="sd">            float channel carries.</span>
+<span class="sd">        anchor_s: The epoch seconds an ``at_offset`` event is placed from.</span>
+<span class="sd">        tz: The zone a daily ``at_time`` event is placed in.</span>
+<span class="sd">        state: The directory holding ``composite``&#39;s active set, removed by</span>
+<span class="sd">            ``close``.</span>
+<span class="sd">        pulses: Each pulsed waveform channel&#39;s ``pulse`` seed, by address: the</span>
+<span class="sd">            ``driver`` and ``enable`` channels its trace is computed from.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: A ``pulse`` seed names a driver or enable that is not a</span>
+<span class="sd">            channel of the view.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ArchiveComposite.__init__">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channels</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">held</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">events</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]],</span>
+        <span class="n">composite</span><span class="p">:</span> <span class="n">Composite</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">anchor_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">pulses</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">channels</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pulses</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">address</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;driver&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">seed</span><span class="p">[</span><span class="s2">&quot;driver&quot;</span><span class="p">]),</span> <span class="s2">&quot;enable&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">seed</span><span class="p">[</span><span class="s2">&quot;enable&quot;</span><span class="p">])}</span>
+            <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">seed</span> <span class="ow">in</span> <span class="p">(</span><span class="n">pulses</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="p">}</span>
+        <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">seed</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pulses</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">role</span><span class="p">,</span> <span class="n">source</span> <span class="ow">in</span> <span class="n">seed</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">source</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;the pulse seed of </span><span class="si">{</span><span class="n">address</span><span class="si">}</span><span class="s2"> names </span><span class="si">{</span><span class="n">role</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2">, &quot;</span>
+                        <span class="s2">&quot;which is not a channel of the simulator view&quot;</span>
+                    <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_held</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">held</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_events</span> <span class="o">=</span> <span class="p">{</span><span class="n">address</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">scripts</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">scripts</span> <span class="ow">in</span> <span class="n">events</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_composite</span> <span class="o">=</span> <span class="n">composite</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">state</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_anchor_s</span> <span class="o">=</span> <span class="n">anchor_s</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tz</span> <span class="o">=</span> <span class="n">tz</span></div>
+
+
+<div class="viewcode-block" id="ArchiveComposite.close">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.close">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Remove the state directory, when the composite holds one; a second call does nothing.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">cleanup</span><span class="p">()</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiveComposite</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">exc_info</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">addresses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The archived channel addresses, sorted.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">waveform_addresses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The archived ``waveform`` channel addresses, sorted.</span>
+
+<span class="sd">        Their traces are stored one document per channel and instant in the</span>
+<span class="sd">        :func:`waveform_collection` beside the snapshot documents.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">address</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">addresses</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_waveform</span><span class="p">(</span><span class="n">address</span><span class="p">)]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">scalar_addresses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The archived addresses the snapshot documents carry: every non-waveform channel.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">address</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">addresses</span> <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_waveform</span><span class="p">(</span><span class="n">address</span><span class="p">)]</span>
+
+<div class="viewcode-block" id="ArchiveComposite.traces">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.traces">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">traces</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">t_s</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;One waveform channel&#39;s traces at absolute epoch seconds.</span>
+
+<span class="sd">        A pulsed channel&#39;s trace is :func:`~osprey_connectors.simulation.pulse.trace`</span>
+<span class="sd">        at each instant, at its driver&#39;s and its enable&#39;s levels there: each</span>
+<span class="sd">        one&#39;s start-state value moved by the active scenarios&#39; archiver events,</span>
+<span class="sd">        with no texture motion. An enable is on where its wire value is not</span>
+<span class="sd">        zero, so a ``bool`` or ``enum`` enable is off at its first option. A</span>
+<span class="sd">        waveform channel without a ``pulse`` seed holds its start-state trace.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            address: A ``waveform`` channel address of the view.</span>
+<span class="sd">            t_s: Epoch seconds, ascending.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            One flat float64 trace per timestamp.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ChannelNotFoundError: ``address`` is not a channel of the facility.</span>
+<span class="sd">            ValueError: ``address`` is not a ``waveform`` channel.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">address</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ChannelNotFoundError</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_waveform</span><span class="p">(</span><span class="n">address</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">address</span><span class="si">}</span><span class="s2"> is not a waveform channel&quot;</span><span class="p">)</span>
+        <span class="n">times</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">t_s</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">seed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pulses</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">seed</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">held</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">[</span><span class="n">address</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">held</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">times</span><span class="p">]</span>
+        <span class="n">drive</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_drive</span><span class="p">(</span><span class="n">seed</span><span class="p">[</span><span class="s2">&quot;driver&quot;</span><span class="p">],</span> <span class="n">times</span><span class="p">)</span>
+        <span class="n">enabled</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_drive</span><span class="p">(</span><span class="n">seed</span><span class="p">[</span><span class="s2">&quot;enable&quot;</span><span class="p">],</span> <span class="n">times</span><span class="p">)</span> <span class="o">!=</span> <span class="mf">0.0</span>
+        <span class="k">return</span> <span class="p">[</span>
+            <span class="n">pulse</span><span class="o">.</span><span class="n">trace</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">moment</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">level</span><span class="p">),</span> <span class="nb">bool</span><span class="p">(</span><span class="n">on</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">moment</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">on</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">times</span><span class="p">,</span> <span class="n">drive</span><span class="p">,</span> <span class="n">enabled</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="ArchiveComposite.held">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.held">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">held</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A channel&#39;s held value at the start state, in its stored representation.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            KeyError: ``address`` is not a channel of the view.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_require</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">[</span><span class="n">address</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="ArchiveComposite.series">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.series">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">series</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">t_s</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;One channel&#39;s samples at absolute epoch seconds, in the wire representation.</span>
+
+<span class="sd">        A ``float`` channel holds its start-state value, moved by the active</span>
+<span class="sd">        scenarios&#39; archiver events, and reads that level as the composite</span>
+<span class="sd">        serves it: a moving channel with its motion, its engine&#39;s readout and</span>
+<span class="sd">        its clamp, a physics setpoint as it is. Any other channel holds its</span>
+<span class="sd">        start-state value, moved only by ``step`` events; a ``bool`` or</span>
+<span class="sd">        ``enum`` sample is its option index. A ``waveform`` sample is its</span>
+<span class="sd">        trace (:meth:`traces`) as a ``list[float]``.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            address: A channel address of the view.</span>
+<span class="sd">            t_s: Epoch seconds, ascending.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            One sample per timestamp.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            KeyError: ``address`` is not a channel of the view.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">samples</span><span class="p">([</span><span class="n">address</span><span class="p">],</span> <span class="n">t_s</span><span class="p">)[</span><span class="n">address</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="ArchiveComposite.samples">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.samples">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">samples</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">addresses</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">t_s</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Several channels&#39; samples at absolute epoch seconds, as :meth:`series` gives each.</span>
+
+<span class="sd">        The float channels are read together, so a physics model&#39;s readout</span>
+<span class="sd">        runs once per timestamp for all of them rather than once per channel.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            addresses: Channel addresses of the view.</span>
+<span class="sd">            t_s: Epoch seconds, ascending.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            One sample per timestamp, by address.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            KeyError: An address is not a channel of the view.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">addresses</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_require</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="n">times</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">t_s</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">times</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">{</span><span class="n">address</span><span class="p">:</span> <span class="p">[]</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">addresses</span><span class="p">}</span>
+        <span class="n">floats</span> <span class="o">=</span> <span class="p">[</span><span class="n">address</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">addresses</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_float</span><span class="p">(</span><span class="n">address</span><span class="p">)]</span>
+        <span class="n">levels</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">name</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">times</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">floats</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_composite</span><span class="o">.</span><span class="n">readout_group</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="p">}</span>
+        <span class="n">read</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_composite</span><span class="o">.</span><span class="n">readings</span><span class="p">(</span><span class="n">levels</span><span class="p">,</span> <span class="n">times</span><span class="p">)</span> <span class="k">if</span> <span class="n">levels</span> <span class="k">else</span> <span class="p">{}</span>
+        <span class="n">out</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">addresses</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">read</span><span class="p">:</span>
+                <span class="n">out</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">read</span><span class="p">[</span><span class="n">address</span><span class="p">]]</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_waveform</span><span class="p">(</span><span class="n">address</span><span class="p">):</span>
+                <span class="n">out</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">trace</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="k">for</span> <span class="n">trace</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">traces</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">times</span><span class="p">)]</span>
+                <span class="k">continue</span>
+            <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
+            <span class="n">stored</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stepped</span><span class="p">(</span>
+                <span class="n">channel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">[</span><span class="n">address</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_events</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="p">[]),</span> <span class="n">times</span>
+            <span class="p">)</span>
+            <span class="n">out</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_wire</span><span class="p">(</span><span class="n">channel</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">stored</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">out</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_is_float</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">channel_values</span><span class="o">.</span><span class="n">DEFAULT_VALUE_TYPE</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;float&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_is_waveform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">channel_values</span><span class="o">.</span><span class="n">is_waveform</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_drive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">times</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A pulse source&#39;s level: held, moved by its archiver events, as a number.</span>
+
+<span class="sd">        A float channel is moved by every archiver event, any other only by</span>
+<span class="sd">        ``step`` events; a ``bool`` or ``enum`` level is its option index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_float</span><span class="p">(</span><span class="n">address</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">times</span><span class="p">)</span>
+        <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
+        <span class="n">stored</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stepped</span><span class="p">(</span><span class="n">channel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">[</span><span class="n">address</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_events</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="p">[]),</span> <span class="n">times</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">([</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_wire</span><span class="p">(</span><span class="n">channel</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">stored</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_require</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">address</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">address</span><span class="si">}</span><span class="s2"> is not a channel of the simulator view&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_level</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">times</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A float channel&#39;s start-state value moved by its archiver events.&quot;&quot;&quot;</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">times</span><span class="p">)</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">[</span><span class="n">address</span><span class="p">]),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+        <span class="n">events</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_events</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">return</span> <span class="n">apply_events</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">times</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_anchor_s</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tz</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_stepped</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">held</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">events</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">times</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A non-float channel&#39;s stored values: its held value, then each ``step`` event&#39;s ``to``.&quot;&quot;&quot;</span>
+        <span class="n">stored</span> <span class="o">=</span> <span class="p">[</span><span class="n">held</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">times</span><span class="p">)</span>
+        <span class="n">fractions</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">times</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">events</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;shape&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">_STEP</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">target</span> <span class="o">=</span> <span class="n">channel_values</span><span class="o">.</span><span class="n">coerce</span><span class="p">(</span>
+                <span class="n">event</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">],</span> <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">),</span> <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;options&quot;</span><span class="p">),</span> <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;shape&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">axis</span><span class="p">,</span> <span class="n">at</span> <span class="ow">in</span> <span class="n">event_positions</span><span class="p">(</span>
+                <span class="nb">dict</span><span class="p">(</span><span class="n">event</span><span class="p">),</span> <span class="n">fractions</span><span class="p">,</span> <span class="n">times</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_anchor_s</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tz</span>
+            <span class="p">):</span>
+                <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">flatnonzero</span><span class="p">(</span><span class="n">axis</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">):</span>
+                    <span class="n">stored</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">index</span><span class="p">)]</span> <span class="o">=</span> <span class="n">target</span>
+        <span class="k">return</span> <span class="n">stored</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_wire</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A stored value as the wire carries it: a label as its option index.&quot;&quot;&quot;</span>
+        <span class="n">value_type</span> <span class="o">=</span> <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value_type</span> <span class="ow">in</span> <span class="n">channel_values</span><span class="o">.</span><span class="n">LABELLED_TYPES</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">channel_values</span><span class="o">.</span><span class="n">channel_labels</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">value</span></div>
+
+
+
+<div class="viewcode-block" id="scenario_events">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.scenario_events">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">scenario_events</span><span class="p">(</span>
+    <span class="n">scenarios</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The archiver events a scenario set writes, by channel.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        scenarios: The simulator view&#39;s scenarios, by name.</span>
+<span class="sd">        names: The scenario names of the set, in set order; a name</span>
+<span class="sd">            ``scenarios`` does not list contributes nothing.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Each channel&#39;s events in set order; a channel an ``archiver`` entry</span>
+<span class="sd">        names with no events maps to an empty list.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">events</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]:</span>
+            <span class="n">events</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;channel&quot;</span><span class="p">]),</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;events&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[])</span>
+    <span class="k">return</span> <span class="n">events</span></div>
+
+
+
+<div class="viewcode-block" id="build">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.build">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span>
+    <span class="n">view</span><span class="p">:</span> <span class="n">SimulatorView</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">active_set</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">anchor_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiveComposite</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build the archive composite of a simulator view at one active set&#39;s start state.</span>
+
+<span class="sd">    The view&#39;s composite is built once at the set&#39;s start state and read once,</span>
+<span class="sd">    one solve per physics model; no session write and no writes journal is</span>
+<span class="sd">    read. A set whose scenarios write one target twice is archived without its</span>
+<span class="sd">    scenarios, as the composite serves it.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        view: The simulator view, ``&lt;render&gt;/data/simulator``, opened or as</span>
+<span class="sd">            its directory, which is opened with :meth:`SimulatorView.open`.</span>
+<span class="sd">        active_set: The active scenario names; ``nominal`` is always active.</span>
+<span class="sd">        anchor_s: The epoch seconds the set was applied at, from which an</span>
+<span class="sd">            ``at_offset`` event is placed; ``None`` is the time of the build.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The archive composite.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        RuntimeError: A physics model fails to build or read at the start</span>
+<span class="sd">            state; the message names it and its engine&#39;s error.</span>
+<span class="sd">        ValueError: A ``pulse`` seed names a channel the view does not hold.</span>
+<span class="sd">        NoSimulatorView: The directory holds no simulator view.</span>
+<span class="sd">        ViewSchemaError: A view file is not the schema this OSPREY reads.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_facility_timezone</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.composite</span><span class="w"> </span><span class="kn">import</span> <span class="n">STATUS_OK</span><span class="p">,</span> <span class="n">Composite</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">view</span><span class="p">,</span> <span class="n">SimulatorView</span><span class="p">):</span>
+        <span class="n">view</span> <span class="o">=</span> <span class="n">SimulatorView</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+    <span class="n">scenarios</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">scenario</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]):</span> <span class="n">scenario</span> <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">scenarios</span><span class="p">()}</span>
+    <span class="n">records</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="nb">str</span><span class="p">(</span><span class="n">channel</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]):</span> <span class="n">channel</span> <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
+    <span class="p">}</span>
+    <span class="n">archived</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">view</span><span class="o">.</span><span class="n">channels</span><span class="p">())</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="n">resolve_active_scenarios</span><span class="p">([</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">active_set</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">])</span>
+
+    <span class="n">state</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;osprey-archive-&quot;</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">name</span><span class="p">)</span> <span class="o">/</span> <span class="n">ACTIVE_SCENARIOS_FILENAME</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span>
+            <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">),</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span>
+        <span class="p">)</span>
+        <span class="n">composite</span> <span class="o">=</span> <span class="n">Composite</span><span class="p">(</span>
+            <span class="n">view</span><span class="p">,</span> <span class="n">state_dir</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">instance</span><span class="o">=</span><span class="n">_ARCHIVE_INSTANCE</span><span class="p">,</span> <span class="n">model_log</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
+        <span class="n">held</span> <span class="o">=</span> <span class="n">composite</span><span class="o">.</span><span class="n">held</span><span class="p">(</span><span class="n">archived</span><span class="p">)</span>
+        <span class="n">failed</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">model</span><span class="p">:</span> <span class="n">status</span>
+            <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">composite</span><span class="o">.</span><span class="n">models</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">status</span> <span class="o">:=</span> <span class="n">composite</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="n">model</span><span class="p">))</span> <span class="o">!=</span> <span class="n">STATUS_OK</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">failed</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="s2">&quot;; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">model</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">status</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">model</span><span class="p">,</span> <span class="n">status</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">failed</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
+            <span class="p">)</span>
+
+        <span class="n">events</span> <span class="o">=</span> <span class="n">scenario_events</span><span class="p">(</span><span class="n">scenarios</span><span class="p">,</span> <span class="n">composite</span><span class="o">.</span><span class="n">active</span><span class="p">)</span>
+        <span class="n">pulses</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">address</span><span class="p">:</span> <span class="n">seed</span><span class="p">[</span><span class="s2">&quot;pulse&quot;</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">archived</span>
+            <span class="k">if</span> <span class="n">channel_values</span><span class="o">.</span><span class="n">is_waveform</span><span class="p">(</span><span class="n">records</span><span class="p">[</span><span class="n">address</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">))</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">seed</span> <span class="o">:=</span> <span class="n">view</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">address</span><span class="p">))</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">seed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pulse&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="p">}</span>
+
+        <span class="k">return</span> <span class="n">ArchiveComposite</span><span class="p">(</span>
+            <span class="p">{</span><span class="n">address</span><span class="p">:</span> <span class="n">records</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">archived</span><span class="p">},</span>
+            <span class="n">held</span><span class="p">,</span>
+            <span class="p">{</span><span class="n">address</span><span class="p">:</span> <span class="n">scripts</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">scripts</span> <span class="ow">in</span> <span class="n">events</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">records</span><span class="p">},</span>
+            <span class="n">composite</span><span class="p">,</span>
+            <span class="n">anchor_s</span><span class="o">=</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">anchor_s</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="n">anchor_s</span><span class="p">),</span>
+            <span class="n">tz</span><span class="o">=</span><span class="n">get_facility_timezone</span><span class="p">(),</span>
+            <span class="n">state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span>
+            <span class="n">pulses</span><span class="o">=</span><span class="n">pulses</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">BaseException</span><span class="p">:</span>
+        <span class="n">state</span><span class="o">.</span><span class="n">cleanup</span><span class="p">()</span>
+        <span class="k">raise</span></div>
+
+
+
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># The grid</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_seed_grid</span><span class="p">(</span><span class="n">knobs</span><span class="p">:</span> <span class="n">SeedKnobs</span><span class="p">,</span> <span class="n">t0</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The timestamps to seed and the instant each one expires.</span>
+
+<span class="sd">    The grid is epoch-aligned rather than anchored on ``t0``: both tiers land on</span>
+<span class="sd">    whole multiples of their cadence since the epoch, which is the only way the</span>
+<span class="sd">    coarse tier can be a subset of the dense one no matter what second ``t0``</span>
+<span class="sd">    happens to fall on. The dense tier contributes only the timestamps the</span>
+<span class="sd">    coarse tier does not already cover, so every timestamp appears exactly once.</span>
+
+<span class="sd">    Expiry is stamped by the tier that produced a timestamp: a coarse sample</span>
+<span class="sd">    lives out the retention span, a dense one lives until it ages out of the</span>
+<span class="sd">    dense span. Both are measured from the sample&#39;s own time, so the oldest</span>
+<span class="sd">    seeded documents are already at the end of their life when they are written</span>
+<span class="sd">    — which is what makes a seeded archive age like a recorded one instead of</span>
+<span class="sd">    surviving intact and then vanishing all at once.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        knobs: The archive&#39;s shape.</span>
+<span class="sd">        t0: The instant the window ends — the seed anchor. Naive values are read</span>
+<span class="sd">            as UTC, matching the store&#39;s own convention.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``(epoch_seconds, expire_epoch_seconds)``, both float64, ascending by</span>
+<span class="sd">        time. Empty only if the window is degenerate.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">knobs</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+    <span class="n">end</span> <span class="o">=</span> <span class="n">_epoch_seconds</span><span class="p">(</span><span class="n">t0</span><span class="p">)</span>
+
+    <span class="n">tail_start</span> <span class="o">=</span> <span class="n">end</span> <span class="o">-</span> <span class="n">knobs</span><span class="o">.</span><span class="n">retention_s</span>
+    <span class="n">hot_start</span> <span class="o">=</span> <span class="n">end</span> <span class="o">-</span> <span class="n">knobs</span><span class="o">.</span><span class="n">hot_span_s</span>
+
+    <span class="n">tail</span> <span class="o">=</span> <span class="n">_aligned_range</span><span class="p">(</span><span class="n">tail_start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">knobs</span><span class="o">.</span><span class="n">tail_cadence_sec</span><span class="p">)</span>
+    <span class="n">hot</span> <span class="o">=</span> <span class="n">_aligned_range</span><span class="p">(</span><span class="n">hot_start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">knobs</span><span class="o">.</span><span class="n">hot_cadence_sec</span><span class="p">)</span>
+    <span class="c1"># The coarse cadence is a whole multiple of the dense one, so a dense point</span>
+    <span class="c1"># belongs to the coarse tier exactly when it is a multiple of the coarse</span>
+    <span class="c1"># cadence. Testing that is cheaper and exact, where a set difference over</span>
+    <span class="c1"># floats would be a float-equality comparison.</span>
+    <span class="n">hot_only</span> <span class="o">=</span> <span class="n">hot</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">mod</span><span class="p">(</span><span class="n">hot</span><span class="p">,</span> <span class="n">knobs</span><span class="o">.</span><span class="n">tail_cadence_sec</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">]</span>
+
+    <span class="n">times</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">tail</span><span class="p">,</span> <span class="n">hot_only</span><span class="p">])</span>
+    <span class="n">order</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">times</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;stable&quot;</span><span class="p">)</span>
+    <span class="n">times</span> <span class="o">=</span> <span class="n">times</span><span class="p">[</span><span class="n">order</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">times</span><span class="p">,</span> <span class="n">tier_expiry</span><span class="p">(</span><span class="n">knobs</span><span class="p">,</span> <span class="n">times</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="tier_expiry">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.tier_expiry">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">tier_expiry</span><span class="p">(</span><span class="n">knobs</span><span class="p">:</span> <span class="n">SeedKnobs</span><span class="p">,</span> <span class="n">epoch_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;When each of these samples expires, by the tier its timestamp belongs to.</span>
+
+<span class="sd">    A timestamp on the coarse cadence belongs to the coarse tier and lives out</span>
+<span class="sd">    the retention span; anything else is a dense-tier sample and lives until it</span>
+<span class="sd">    ages out of the dense span. Membership is read off the timestamp rather than</span>
+<span class="sd">    tracked alongside it, which is what lets a *later* writer — a scenario</span>
+<span class="sd">    rewrite restoring a window it once protected — re-stamp a document correctly</span>
+<span class="sd">    without knowing how it was originally produced.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">dense</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mod</span><span class="p">(</span><span class="n">epoch_s</span><span class="p">,</span> <span class="n">knobs</span><span class="o">.</span><span class="n">tail_cadence_sec</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span>
+    <span class="n">lifetime</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">dense</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">knobs</span><span class="o">.</span><span class="n">hot_span_s</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">knobs</span><span class="o">.</span><span class="n">retention_s</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">epoch_s</span> <span class="o">+</span> <span class="n">lifetime</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_aligned_range</span><span class="p">(</span><span class="n">start_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">end_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">cadence_s</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Epoch-aligned timestamps in ``[start_s, end_s]`` at ``cadence_s``.&quot;&quot;&quot;</span>
+    <span class="n">first</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">start_s</span> <span class="o">/</span> <span class="n">cadence_s</span><span class="p">)</span> <span class="o">*</span> <span class="n">cadence_s</span>
+    <span class="n">last</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">end_s</span> <span class="o">/</span> <span class="n">cadence_s</span><span class="p">)</span> <span class="o">*</span> <span class="n">cadence_s</span>
+    <span class="k">if</span> <span class="n">last</span> <span class="o">&lt;</span> <span class="n">first</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+    <span class="n">count</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">last</span> <span class="o">-</span> <span class="n">first</span><span class="p">)</span> <span class="o">/</span> <span class="n">cadence_s</span><span class="p">))</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">first</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span> <span class="o">*</span> <span class="n">cadence_s</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_epoch_seconds</span><span class="p">(</span><span class="n">moment</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Epoch seconds for one datetime, reading a naive value as UTC.&quot;&quot;&quot;</span>
+    <span class="n">aware</span> <span class="o">=</span> <span class="n">moment</span> <span class="k">if</span> <span class="n">moment</span><span class="o">.</span><span class="n">tzinfo</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">moment</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">aware</span><span class="o">.</span><span class="n">timestamp</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_as_utc_datetimes</span><span class="p">(</span><span class="n">epoch_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">datetime</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Epoch seconds back to the timezone-aware datetimes the store stores.</span>
+
+<span class="sd">    pymongo reads a naive datetime as UTC, so writing aware ones costs nothing</span>
+<span class="sd">    and removes the question entirely.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">),</span> <span class="n">UTC</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">epoch_s</span><span class="p">]</span>
+
+
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># Synthesis</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_synthesize_documents</span><span class="p">(</span><span class="n">archive</span><span class="p">:</span> <span class="n">ArchiveComposite</span><span class="p">,</span> <span class="n">epoch_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One document per timestamp, carrying every archived scalar channel&#39;s value at it.</span>
+
+<span class="sd">    This is the single definition of &quot;what the archive holds at time T&quot;, and it</span>
+<span class="sd">    is deliberately exported: the base seed writes it and an equivalence test</span>
+<span class="sd">    compares a served read against it. Every value is the archive composite&#39;s</span>
+<span class="sd">    sample (:meth:`ArchiveComposite.samples`), in the wire representation. A</span>
+<span class="sd">    ``waveform`` channel is not among them: its traces are stored in the</span>
+<span class="sd">    :func:`waveform_collection`, one document per channel and instant.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        archive: The archive composite of the active set.</span>
+<span class="sd">        epoch_s: Absolute epoch seconds, one per document.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A list of ``{date: datetime, &lt;field_name(address)&gt;: value}`` documents, ascending in</span>
+<span class="sd">        time. No ``expireAt`` — stamping is the caller&#39;s, because the tier a</span>
+<span class="sd">        timestamp belongs to is a property of the grid, not of the values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">stamps</span> <span class="o">=</span> <span class="n">_as_utc_datetimes</span><span class="p">(</span><span class="n">epoch_s</span><span class="p">)</span>
+    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[{</span><span class="n">DATE_FIELD</span><span class="p">:</span> <span class="n">stamp</span><span class="p">}</span> <span class="k">for</span> <span class="n">stamp</span> <span class="ow">in</span> <span class="n">stamps</span><span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">documents</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">documents</span>
+
+    <span class="c1"># Sampled at the epoch seconds a *reader* of these documents derives from</span>
+    <span class="c1"># their stored dates, not at the ones the grid was built from. Datetimes</span>
+    <span class="c1"># carry microseconds, so a grid time with finer resolution than that would</span>
+    <span class="c1"># otherwise be stored as one instant and valued as another.</span>
+    <span class="n">reader_epoch_s</span> <span class="o">=</span> <span class="n">epoch_seconds_array</span><span class="p">(</span><span class="n">stamps</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">reader_epoch_s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># datetimes always convert</span>
+
+    <span class="n">addresses</span> <span class="o">=</span> <span class="n">archive</span><span class="o">.</span><span class="n">scalar_addresses</span>
+    <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">archive</span><span class="o">.</span><span class="n">samples</span><span class="p">(</span><span class="n">addresses</span><span class="p">,</span> <span class="n">reader_epoch_s</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">field</span> <span class="o">=</span> <span class="n">field_name</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">document</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">documents</span><span class="p">,</span> <span class="n">values</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+            <span class="n">document</span><span class="p">[</span><span class="n">field</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+
+    <span class="k">return</span> <span class="n">documents</span>
+
+
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># The manifest</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="seed_fingerprint">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.seed_fingerprint">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">seed_fingerprint</span><span class="p">(</span>
+    <span class="n">knobs</span><span class="p">:</span> <span class="n">SeedKnobs</span><span class="p">,</span>
+    <span class="n">channel_addresses</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">compression</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The knobs a store&#39;s coverage depends on, as a comparable dict.</span>
+
+<span class="sd">    Everything here changes what the store *contains*: the window&#39;s depth and</span>
+<span class="sd">    density, which channels are in it, how it is compressed on disk, the</span>
+<span class="sd">    document schema itself, the pulse shape every stored trace is drawn</span>
+<span class="sd">    from (:data:`~osprey_connectors.simulation.pulse.SHAPE_VERSION`), and the</span>
+<span class="sd">    top-off sawtooth every stored decaying current is drawn from</span>
+<span class="sd">    (:data:`~osprey_connectors.simulation.topoff.SHAPE_VERSION`). Nothing here is an instant or a count — those move</span>
+<span class="sd">    on every deploy and would make the comparison a coin flip.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        knobs: The archive&#39;s shape.</span>
+<span class="sd">        channel_addresses: The seeded channel set. Order does not matter; the</span>
+<span class="sd">            hash is taken over the sorted, deduplicated names.</span>
+<span class="sd">        compression: The collection&#39;s block compressor.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The fingerprint, JSON-serializable and safe to store verbatim.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">channel_addresses</span><span class="p">))</span>
+    <span class="n">digest</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">names</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;schema_version&quot;</span><span class="p">:</span> <span class="n">_SEED_SCHEMA_VERSION</span><span class="p">,</span>
+        <span class="s2">&quot;retention_days&quot;</span><span class="p">:</span> <span class="n">knobs</span><span class="o">.</span><span class="n">retention_days</span><span class="p">,</span>
+        <span class="s2">&quot;hot_span_hours&quot;</span><span class="p">:</span> <span class="n">knobs</span><span class="o">.</span><span class="n">hot_span_hours</span><span class="p">,</span>
+        <span class="s2">&quot;hot_cadence_sec&quot;</span><span class="p">:</span> <span class="n">knobs</span><span class="o">.</span><span class="n">hot_cadence_sec</span><span class="p">,</span>
+        <span class="s2">&quot;tail_cadence_sec&quot;</span><span class="p">:</span> <span class="n">knobs</span><span class="o">.</span><span class="n">tail_cadence_sec</span><span class="p">,</span>
+        <span class="s2">&quot;compression&quot;</span><span class="p">:</span> <span class="n">compression</span><span class="p">,</span>
+        <span class="s2">&quot;shape_version&quot;</span><span class="p">:</span> <span class="n">pulse</span><span class="o">.</span><span class="n">SHAPE_VERSION</span><span class="p">,</span>
+        <span class="s2">&quot;topoff_shape_version&quot;</span><span class="p">:</span> <span class="n">topoff</span><span class="o">.</span><span class="n">SHAPE_VERSION</span><span class="p">,</span>
+        <span class="s2">&quot;channel_count&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">),</span>
+        <span class="s2">&quot;channel_set_sha256&quot;</span><span class="p">:</span> <span class="n">digest</span><span class="p">,</span>
+    <span class="p">}</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_write_manifest</span><span class="p">(</span>
+    <span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span>
+    <span class="n">fingerprint</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">seeded_at</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span>
+    <span class="n">report</span><span class="p">:</span> <span class="n">SeedReport</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Record what this store was built with, replacing any previous manifest.</span>
+
+<span class="sd">    The manifest lives in the sample collection under a fixed ``_id`` and</span>
+<span class="sd">    carries no ``date`` field, so no archiver query can ever match it — the</span>
+<span class="sd">    connector&#39;s window filter requires one. Keeping it here rather than in a</span>
+<span class="sd">    sidecar collection is what makes &quot;the store&quot; one thing to create, wipe and</span>
+<span class="sd">    reason about.</span>
+
+<span class="sd">    The touched-window ledger starts empty. It belongs to the scenario rewrite,</span>
+<span class="sd">    which needs to know which windows it has to restore before applying a new</span>
+<span class="sd">    set; a fresh base has none, and a reseed clears it precisely because the</span>
+<span class="sd">    windows it named no longer exist.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">document</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;_id&quot;</span><span class="p">:</span> <span class="n">MANIFEST_ID</span><span class="p">,</span>
+        <span class="s2">&quot;fingerprint&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="n">fingerprint</span><span class="p">),</span>
+        <span class="s2">&quot;seeded_at&quot;</span><span class="p">:</span> <span class="n">seeded_at</span><span class="p">,</span>
+        <span class="s2">&quot;touched_windows&quot;</span><span class="p">:</span> <span class="p">[],</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="n">report</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">document</span><span class="p">[</span><span class="s2">&quot;coverage&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;documents&quot;</span><span class="p">:</span> <span class="n">report</span><span class="o">.</span><span class="n">documents</span><span class="p">,</span>
+            <span class="s2">&quot;channels&quot;</span><span class="p">:</span> <span class="n">report</span><span class="o">.</span><span class="n">channels</span><span class="p">,</span>
+            <span class="s2">&quot;start&quot;</span><span class="p">:</span> <span class="n">report</span><span class="o">.</span><span class="n">start</span><span class="p">,</span>
+            <span class="s2">&quot;end&quot;</span><span class="p">:</span> <span class="n">report</span><span class="o">.</span><span class="n">end</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="n">collection</span><span class="o">.</span><span class="n">replace_one</span><span class="p">({</span><span class="s2">&quot;_id&quot;</span><span class="p">:</span> <span class="n">MANIFEST_ID</span><span class="p">},</span> <span class="n">document</span><span class="p">,</span> <span class="n">upsert</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="compare_fingerprint">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.compare_fingerprint">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">compare_fingerprint</span><span class="p">(</span>
+    <span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span> <span class="n">fingerprint</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FingerprintComparison</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the store in front of us was built with the knobs now in force.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        collection: The sample collection.</span>
+<span class="sd">        fingerprint: What :func:`seed_fingerprint` says the knobs are now.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The comparison. ``MISMATCH`` carries every field that moved, including</span>
+<span class="sd">        ones the stored manifest lacks entirely (reported as ``None``), so a</span>
+<span class="sd">        store seeded by an older version reseeds with a readable reason rather</span>
+<span class="sd">        than silently.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">stored</span> <span class="o">=</span> <span class="n">collection</span><span class="o">.</span><span class="n">find_one</span><span class="p">({</span><span class="s2">&quot;_id&quot;</span><span class="p">:</span> <span class="n">MANIFEST_ID</span><span class="p">})</span>
+    <span class="k">if</span> <span class="n">stored</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FingerprintComparison</span><span class="p">(</span><span class="n">SeedState</span><span class="o">.</span><span class="n">ABSENT</span><span class="p">)</span>
+
+    <span class="n">seeded_at</span> <span class="o">=</span> <span class="n">stored</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;seeded_at&quot;</span><span class="p">)</span>
+    <span class="n">held</span> <span class="o">=</span> <span class="n">stored</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;fingerprint&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">differences</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+        <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">held</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">expected</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">fingerprint</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">held</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="o">!=</span> <span class="n">expected</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">differences</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FingerprintComparison</span><span class="p">(</span><span class="n">SeedState</span><span class="o">.</span><span class="n">MISMATCH</span><span class="p">,</span> <span class="n">differences</span><span class="p">,</span> <span class="n">seeded_at</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">FingerprintComparison</span><span class="p">(</span><span class="n">SeedState</span><span class="o">.</span><span class="n">MATCH</span><span class="p">,</span> <span class="p">(),</span> <span class="n">seeded_at</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># Writing</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="waveform_collection">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.waveform_collection">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">waveform_collection</span><span class="p">(</span><span class="n">collection</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The name of the collection holding ``collection``&#39;s archived waveforms.</span>
+
+<span class="sd">    A trace is hundreds of samples, so it is stored as its own document beside</span>
+<span class="sd">    the per-timestamp snapshot documents rather than inside them. Every party to</span>
+<span class="sd">    the store — preparation, the reseed drop, the seeder, the live recorder and</span>
+<span class="sd">    the reader — derives the sibling&#39;s name here, and nowhere else spells it,</span>
+<span class="sd">    so the writers and the reader cannot drift apart.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">collection</span><span class="si">}</span><span class="s2">_waveforms&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="waveform_document">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.waveform_document">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">waveform_document</span><span class="p">(</span>
+    <span class="n">channel</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">date</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span>
+    <span class="n">values</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">expire_at</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One archived trace: one document per (channel, instant).</span>
+
+<span class="sd">    The keys mirror a scalar snapshot document, so the same field naming and the</span>
+<span class="sd">    same TTL index serve both: ``date`` is the sample instant, the channel&#39;s</span>
+<span class="sd">    :func:`~osprey_connectors.archiver.field_name` holds the trace,</span>
+<span class="sd">    and ``expireAt`` is the document&#39;s own deadline.</span>
+
+<span class="sd">    The trace is stored as plain doubles: a ``list[float]`` with one entry per</span>
+<span class="sd">    element of the channel&#39;s shape, which BSON keeps as an array of doubles and</span>
+<span class="sd">    every reader gets back unchanged.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: when ``values`` is not a non-empty one-dimensional array.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">trace</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">trace</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">trace</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;A waveform trace for </span><span class="si">{</span><span class="n">channel</span><span class="si">!r}</span><span class="s2"> must be a non-empty 1-D array, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;got shape </span><span class="si">{</span><span class="n">trace</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="n">DATE_FIELD</span><span class="p">:</span> <span class="n">date</span><span class="p">,</span>
+        <span class="n">field_name</span><span class="p">(</span><span class="n">channel</span><span class="p">):</span> <span class="n">trace</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+        <span class="n">EXPIRE_FIELD</span><span class="p">:</span> <span class="n">expire_at</span><span class="p">,</span>
+    <span class="p">}</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_prepare_collection</span><span class="p">(</span><span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">waveforms</span><span class="p">:</span> <span class="n">Collection</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create the two indexes the store cannot work without.</span>
+
+<span class="sd">    ``{date: 1}`` is not an optimization: every archiver read sorts on ``date``,</span>
+<span class="sd">    and an unindexed sort is capped at 32 MB of documents in memory — a limit a</span>
+<span class="sd">    real window crosses long before a real deployment notices it in testing.</span>
+
+<span class="sd">    The TTL index is declared with ``expireAfterSeconds=0`` so each document&#39;s</span>
+<span class="sd">    own ``expireAt`` *is* its deadline, which is what gives the two tiers</span>
+<span class="sd">    different lifetimes from one index. Documents without the field — the</span>
+<span class="sd">    manifest, and any window a scenario rewrite has protected — are ignored by</span>
+<span class="sd">    it entirely.</span>
+
+<span class="sd">    Both are idempotent: re-creating an identical index is a no-op, so this is</span>
+<span class="sd">    safe on every deploy rather than only on the first.</span>
+
+<span class="sd">    ``waveforms``, the handle of :func:`waveform_collection` beside</span>
+<span class="sd">    ``collection``, gets the same two indexes: its documents are read by date</span>
+<span class="sd">    and age out by their own ``expireAt`` exactly as the snapshot documents do.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">handle</span> <span class="ow">in</span> <span class="p">(</span><span class="n">collection</span><span class="p">,)</span> <span class="k">if</span> <span class="n">waveforms</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">(</span><span class="n">collection</span><span class="p">,</span> <span class="n">waveforms</span><span class="p">):</span>
+        <span class="n">handle</span><span class="o">.</span><span class="n">create_index</span><span class="p">(</span><span class="n">DATE_FIELD</span><span class="p">)</span>
+        <span class="n">handle</span><span class="o">.</span><span class="n">create_index</span><span class="p">(</span><span class="n">EXPIRE_FIELD</span><span class="p">,</span> <span class="n">expireAfterSeconds</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="seed_base">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.seed_base">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">seed_base</span><span class="p">(</span>
+    <span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span>
+    <span class="n">archive</span><span class="p">:</span> <span class="n">ArchiveComposite</span><span class="p">,</span>
+    <span class="n">knobs</span><span class="p">:</span> <span class="n">SeedKnobs</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">t0</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span>
+    <span class="n">compression</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;zstd&quot;</span><span class="p">,</span>
+    <span class="n">workers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">_DEFAULT_WORKERS</span><span class="p">,</span>
+    <span class="n">chunk_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">_DEFAULT_CHUNK_SIZE</span><span class="p">,</span>
+    <span class="n">progress</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">SeedReport</span><span class="p">],</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">waveforms</span><span class="p">:</span> <span class="n">Collection</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SeedReport</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build the store: indexes, the whole base series, then the manifest.</span>
+
+<span class="sd">    The order is the contract. Indexes come first so the documents land into an</span>
+<span class="sd">    indexed collection instead of being indexed afterwards; the manifest comes</span>
+<span class="sd">    *last*, so a run that dies halfway leaves a store with no manifest — which</span>
+<span class="sd">    the next deploy reads as ``ABSENT`` and rebuilds. A manifest written first</span>
+<span class="sd">    would make a half-seeded store indistinguishable from a complete one.</span>
+
+<span class="sd">    Synthesis runs on the calling thread and inserts overlap it on a small pool.</span>
+<span class="sd">    That split is deliberate: the composite is not contractually thread-safe,</span>
+<span class="sd">    while the round trip to the store is the part worth overlapping. Submission blocks once the pool is saturated, so memory</span>
+<span class="sd">    stays bounded at a few chunks rather than the whole window.</span>
+
+<span class="sd">    A ``waveform`` channel&#39;s traces go to the :func:`waveform_collection` beside</span>
+<span class="sd">    ``collection``, one document per channel per coarse-cadence instant over the</span>
+<span class="sd">    whole retention window (:func:`waveform_document`), written in the same</span>
+<span class="sd">    chunk loop and so also before the manifest.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        collection: The sample collection. Existing samples are not removed —</span>
+<span class="sd">            a caller reseeding is expected to drop first, and one that is</span>
+<span class="sd">            extending a store deliberately is not second-guessed here.</span>
+<span class="sd">        archive: The archive composite of the active set; every one of its</span>
+<span class="sd">            channels is seeded.</span>
+<span class="sd">        knobs: The archive&#39;s shape.</span>
+<span class="sd">        t0: The seed anchor; the window ends here.</span>
+<span class="sd">        compression: The collection&#39;s block compressor, recorded in the</span>
+<span class="sd">            manifest because changing it changes the store&#39;s size on disk.</span>
+<span class="sd">        workers: Concurrent insert workers.</span>
+<span class="sd">        chunk_size: Timestamps synthesized and inserted per batch.</span>
+<span class="sd">        progress: Called after each chunk with the running report, for a</span>
+<span class="sd">            deploy-time progress line.</span>
+<span class="sd">        waveforms: The :func:`waveform_collection` beside ``collection``;</span>
+<span class="sd">            ``None`` opens it from ``collection``&#39;s database. Only a view with</span>
+<span class="sd">            ``waveform`` channels needs it.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The completed report; ``documents`` counts the snapshot documents.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If ``chunk_size`` or ``workers`` is below one, or the knobs</span>
+<span class="sd">            are inconsistent.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">chunk_size</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;chunk_size must be &gt;= 1 (got </span><span class="si">{</span><span class="n">chunk_size</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">workers</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;workers must be &gt;= 1 (got </span><span class="si">{</span><span class="n">workers</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+    <span class="n">times</span><span class="p">,</span> <span class="n">expiry</span> <span class="o">=</span> <span class="n">_seed_grid</span><span class="p">(</span><span class="n">knobs</span><span class="p">,</span> <span class="n">t0</span><span class="p">)</span>
+    <span class="n">addresses</span> <span class="o">=</span> <span class="n">archive</span><span class="o">.</span><span class="n">addresses</span>
+    <span class="n">started</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+
+    <span class="n">report</span> <span class="o">=</span> <span class="n">SeedReport</span><span class="p">(</span><span class="n">channels</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">addresses</span><span class="p">))</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">times</span><span class="p">):</span>
+        <span class="n">report</span><span class="o">.</span><span class="n">start</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">times</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="n">UTC</span><span class="p">)</span>
+        <span class="n">report</span><span class="o">.</span><span class="n">end</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">times</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span> <span class="n">UTC</span><span class="p">)</span>
+
+    <span class="n">traced</span> <span class="o">=</span> <span class="n">archive</span><span class="o">.</span><span class="n">waveform_addresses</span>
+    <span class="k">if</span> <span class="n">traced</span> <span class="ow">and</span> <span class="n">waveforms</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">waveforms</span> <span class="o">=</span> <span class="n">collection</span><span class="o">.</span><span class="n">database</span><span class="p">[</span><span class="n">waveform_collection</span><span class="p">(</span><span class="n">collection</span><span class="o">.</span><span class="n">name</span><span class="p">)]</span>
+    <span class="n">_prepare_collection</span><span class="p">(</span><span class="n">collection</span><span class="p">,</span> <span class="n">waveforms</span><span class="o">=</span><span class="n">waveforms</span> <span class="k">if</span> <span class="n">traced</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+
+    <span class="k">with</span> <span class="n">ThreadPoolExecutor</span><span class="p">(</span><span class="n">max_workers</span><span class="o">=</span><span class="n">workers</span><span class="p">,</span> <span class="n">thread_name_prefix</span><span class="o">=</span><span class="s2">&quot;archiver-seed&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
+        <span class="n">pending</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="n">Future</span><span class="p">[</span><span class="kc">None</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">chunk_times</span><span class="p">,</span> <span class="n">chunk_expiry</span> <span class="ow">in</span> <span class="n">_chunks</span><span class="p">(</span><span class="n">times</span><span class="p">,</span> <span class="n">expiry</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">):</span>
+            <span class="n">documents</span> <span class="o">=</span> <span class="n">_synthesize_documents</span><span class="p">(</span><span class="n">archive</span><span class="p">,</span> <span class="n">chunk_times</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">document</span><span class="p">,</span> <span class="n">expire_at</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">documents</span><span class="p">,</span> <span class="n">_as_utc_datetimes</span><span class="p">(</span><span class="n">chunk_expiry</span><span class="p">),</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+                <span class="n">document</span><span class="p">[</span><span class="n">EXPIRE_FIELD</span><span class="p">]</span> <span class="o">=</span> <span class="n">expire_at</span>
+
+            <span class="n">pending</span> <span class="o">=</span> <span class="n">_submit_bounded</span><span class="p">(</span><span class="n">pool</span><span class="p">,</span> <span class="n">pending</span><span class="p">,</span> <span class="n">collection</span><span class="p">,</span> <span class="n">documents</span><span class="p">,</span> <span class="n">workers</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">traced</span> <span class="ow">and</span> <span class="n">waveforms</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">coarse</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mod</span><span class="p">(</span><span class="n">chunk_times</span><span class="p">,</span> <span class="n">knobs</span><span class="o">.</span><span class="n">tail_cadence_sec</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+                <span class="n">traces</span> <span class="o">=</span> <span class="n">_waveform_documents</span><span class="p">(</span><span class="n">archive</span><span class="p">,</span> <span class="n">chunk_times</span><span class="p">[</span><span class="n">coarse</span><span class="p">],</span> <span class="n">chunk_expiry</span><span class="p">[</span><span class="n">coarse</span><span class="p">])</span>
+                <span class="n">pending</span> <span class="o">=</span> <span class="n">_submit_bounded</span><span class="p">(</span><span class="n">pool</span><span class="p">,</span> <span class="n">pending</span><span class="p">,</span> <span class="n">waveforms</span><span class="p">,</span> <span class="n">traces</span><span class="p">,</span> <span class="n">workers</span><span class="p">)</span>
+
+            <span class="n">report</span><span class="o">.</span><span class="n">documents</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">documents</span><span class="p">)</span>
+            <span class="n">report</span><span class="o">.</span><span class="n">chunks</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">report</span><span class="o">.</span><span class="n">elapsed_s</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">-</span> <span class="n">started</span>
+            <span class="k">if</span> <span class="n">progress</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">progress</span><span class="p">(</span><span class="n">report</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="n">pending</span><span class="p">:</span>
+            <span class="n">future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+
+    <span class="n">report</span><span class="o">.</span><span class="n">elapsed_s</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">-</span> <span class="n">started</span>
+    <span class="n">_write_manifest</span><span class="p">(</span>
+        <span class="n">collection</span><span class="p">,</span>
+        <span class="n">seed_fingerprint</span><span class="p">(</span><span class="n">knobs</span><span class="p">,</span> <span class="n">addresses</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="n">compression</span><span class="p">),</span>
+        <span class="n">seeded_at</span><span class="o">=</span><span class="n">t0</span><span class="p">,</span>
+        <span class="n">report</span><span class="o">=</span><span class="n">report</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">describe</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">report</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_waveform_documents</span><span class="p">(</span>
+    <span class="n">archive</span><span class="p">:</span> <span class="n">ArchiveComposite</span><span class="p">,</span> <span class="n">epoch_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">expire_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The trace documents of every waveform channel at these instants.</span>
+
+<span class="sd">    Valued at the epoch seconds a reader derives from the stored dates, as the</span>
+<span class="sd">    snapshot documents are (:func:`_synthesize_documents`).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">stamps</span> <span class="o">=</span> <span class="n">_as_utc_datetimes</span><span class="p">(</span><span class="n">epoch_s</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">stamps</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+    <span class="n">expiry</span> <span class="o">=</span> <span class="n">_as_utc_datetimes</span><span class="p">(</span><span class="n">expire_s</span><span class="p">)</span>
+    <span class="n">reader_epoch_s</span> <span class="o">=</span> <span class="n">epoch_seconds_array</span><span class="p">(</span><span class="n">stamps</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">reader_epoch_s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># datetimes always convert</span>
+    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">archive</span><span class="o">.</span><span class="n">waveform_addresses</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">stamp</span><span class="p">,</span> <span class="n">expire_at</span><span class="p">,</span> <span class="n">trace</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
+            <span class="n">stamps</span><span class="p">,</span> <span class="n">expiry</span><span class="p">,</span> <span class="n">archive</span><span class="o">.</span><span class="n">traces</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">reader_epoch_s</span><span class="p">),</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">):</span>
+            <span class="n">documents</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">waveform_document</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">stamp</span><span class="p">,</span> <span class="n">trace</span><span class="p">,</span> <span class="n">expire_at</span><span class="o">=</span><span class="n">expire_at</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">documents</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_submit_bounded</span><span class="p">(</span>
+    <span class="n">pool</span><span class="p">:</span> <span class="n">ThreadPoolExecutor</span><span class="p">,</span>
+    <span class="n">pending</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="n">Future</span><span class="p">[</span><span class="kc">None</span><span class="p">]],</span>
+    <span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span>
+    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="n">Future</span><span class="p">[</span><span class="kc">None</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Queue one insert, first draining until fewer than ``limit`` are in flight.</span>
+
+<span class="sd">    Draining is what bounds memory: an unbounded submit would let synthesis run</span>
+<span class="sd">    ahead of the store and hold the entire window&#39;s documents at once. Results</span>
+<span class="sd">    are collected as part of draining so an insert failure surfaces here rather</span>
+<span class="sd">    than being swallowed by a future nobody reads.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">pending</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">limit</span><span class="p">:</span>
+        <span class="n">done</span> <span class="o">=</span> <span class="p">{</span><span class="n">future</span> <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="n">pending</span> <span class="k">if</span> <span class="n">future</span><span class="o">.</span><span class="n">done</span><span class="p">()}</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">done</span><span class="p">:</span>
+            <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">pending</span><span class="p">))</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+            <span class="k">continue</span>
+        <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="n">done</span><span class="p">:</span>
+            <span class="n">future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+        <span class="n">pending</span> <span class="o">-=</span> <span class="n">done</span>
+
+    <span class="n">pending</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">_insert_chunk</span><span class="p">,</span> <span class="n">collection</span><span class="p">,</span> <span class="n">documents</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">pending</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_insert_chunk</span><span class="p">(</span><span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span> <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Insert one batch, unordered so the server may parallelize it internally.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">documents</span><span class="p">:</span>
+        <span class="n">collection</span><span class="o">.</span><span class="n">insert_many</span><span class="p">(</span><span class="n">documents</span><span class="p">,</span> <span class="n">ordered</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_chunks</span><span class="p">(</span>
+    <span class="n">times</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">expiry</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="nb">int</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Split the grid into contiguous batches of at most ``size`` timestamps.&quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">times</span><span class="p">),</span> <span class="n">size</span><span class="p">):</span>
+        <span class="n">stop</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">size</span>
+        <span class="k">yield</span> <span class="n">times</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">stop</span><span class="p">],</span> <span class="n">expiry</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">stop</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="oldest_sample">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.oldest_sample">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">oldest_sample</span><span class="p">(</span><span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The instant of the oldest stored sample, or ``None`` for an empty store.</span>
+
+<span class="sd">    This is what honest archiver metadata reports as the start of coverage. The</span>
+<span class="sd">    filter on ``date`` skips the manifest, which has none — and skipping it is</span>
+<span class="sd">    the reason the manifest was given no ``date`` in the first place.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">document</span> <span class="o">=</span> <span class="n">collection</span><span class="o">.</span><span class="n">find_one</span><span class="p">({</span><span class="n">DATE_FIELD</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$exists&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}},</span> <span class="n">sort</span><span class="o">=</span><span class="p">[(</span><span class="n">DATE_FIELD</span><span class="p">,</span> <span class="mi">1</span><span class="p">)])</span>
+    <span class="k">if</span> <span class="n">document</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">stamp</span> <span class="o">=</span> <span class="n">document</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">DATE_FIELD</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">stamp</span><span class="p">,</span> <span class="n">datetime</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">stamp</span> <span class="k">if</span> <span class="n">stamp</span><span class="o">.</span><span class="n">tzinfo</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">stamp</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

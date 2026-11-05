@@ -1,0 +1,1958 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.control_system._base &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/control_system/_base';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/control_system/_base.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.control_system._base</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.control_system._base</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Abstract base class for control system connectors.</span>
+
+<span class="sd">Provides protocol-agnostic interfaces for reading/writing process variables,</span>
+<span class="sd">subscribing to changes, and retrieving metadata from various control systems.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">inspect</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numbers</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">StrEnum</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">posture_store</span><span class="p">,</span> <span class="n">write_authorization</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system.write_door</span><span class="w"> </span><span class="kn">import</span> <span class="n">open_door</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">RefusalReason</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_readonly_run</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_store</span><span class="w"> </span><span class="kn">import</span> <span class="n">WriteVerdict</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.control_system&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ChannelMetadata">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelMetadata">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelMetadata</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Metadata a control system reports about one of its channels.</span>
+
+<span class="sd">    ``display_low`` / ``display_high`` are the range the control system suggests</span>
+<span class="sd">    for DISPLAYING this channel (EPICS LOPR/HOPR and their equivalents). They are</span>
+<span class="sd">    deliberately NOT named ``min_value`` / ``max_value``: those belong to</span>
+<span class="sd">    :class:`~osprey_connectors.control_system.ChannelLimitsConfig`</span>
+<span class="sd">    and are the bounds OSPREY refuses to write past. Only the latter is enforced —</span>
+<span class="sd">    a value inside the display range can still be refused, and a connector that</span>
+<span class="sd">    reports no display range constrains nothing.</span>
+
+<span class="sd">    ``enum_labels`` / ``enum_label`` are present only for enum-typed records</span>
+<span class="sd">    (EPICS ``mbbi``/``mbbo``/``bi``/``bo``, PVAccess ``NTEnum``, and their</span>
+<span class="sd">    equivalents elsewhere) and are ``None`` on every other channel. They are the</span>
+<span class="sd">    *readable* half of an enum reading: ``ChannelValue.value`` stays the integer</span>
+<span class="sd">    index — one machine-readable type across every protocol — and the label for</span>
+<span class="sd">    that index rides here, resolved at read time. Either may be ``None`` even on</span>
+<span class="sd">    an enum channel: a control system reports the label list only when it has</span>
+<span class="sd">    one, and an index outside it resolves to nothing.</span>
+
+<span class="sd">    ``enum_labels`` is a ``list`` rather than a tuple because that is what</span>
+<span class="sd">    survives the connector-host IPC seam: :mod:`osprey_connectors.ipc._frames`</span>
+<span class="sd">    encodes sequences as JSON arrays and decodes them as lists, so a tuple set</span>
+<span class="sd">    here would compare unequal to the same field read through a proxy.</span>
+
+<span class="sd">    ``control_low`` / ``control_high`` (EPICS DRVL/DRVH), ``warning_low`` /</span>
+<span class="sd">    ``warning_high`` (LOW/HIGH) and ``alarm_low`` / ``alarm_high`` (LOLO/HIHI)</span>
+<span class="sd">    are the remaining limit pairs a control system reports. Like the display</span>
+<span class="sd">    range they describe the channel; none of them is a write bound OSPREY</span>
+<span class="sd">    enforces. ``writable`` is this client&#39;s access right on the channel (EPICS</span>
+<span class="sd">    CA write access) — not the user&#39;s tier — and ``None`` where the control</span>
+<span class="sd">    system does not report one.</span>
+
+<span class="sd">    Every limit pair, the display range included, passes through</span>
+<span class="sd">    :func:`normalise_limit_pair` on construction: a missing, non-numeric or</span>
+<span class="sd">    non-finite bound becomes ``None``, and a pair whose low is not below its high</span>
+<span class="sd">    (EPICS reports an unset range as ``0``/``0``) becomes ``None`` on both sides.</span>
+<span class="sd">    The normalisation is idempotent, so a value decoded on the far side of the</span>
+<span class="sd">    connector-host IPC seam — which re-runs ``__post_init__`` — is unchanged.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">precision</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1">#: Alarm name reported for the reading, e.g. &quot;NO_ALARM&quot;/&quot;HIHI&quot;; None if not reported.</span>
+    <span class="n">alarm_status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1">#: Alarm severity: 0 healthy, higher is worse; ``None`` means &quot;not reported&quot;,</span>
+    <span class="c1">#: which stays distinct from a reported healthy value (``alarm_severity=0``) —</span>
+    <span class="c1">#: the same convention as :attr:`ChannelWriteResult.alarm_severity`.</span>
+    <span class="n">alarm_severity</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">display_low</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">display_high</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1">#: Every state this enum-typed channel can report, in index order; None off enums.</span>
+    <span class="n">enum_labels</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1">#: The label for the value of THIS reading; None off enums and when unresolvable.</span>
+    <span class="n">enum_label</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">raw_metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="c1">#: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.</span>
+    <span class="n">control_low</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">control_high</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1">#: Minor-alarm range (EPICS LOW/HIGH); None when unreported or not a valid range.</span>
+    <span class="n">warning_low</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">warning_high</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1">#: Major-alarm range (EPICS LOLO/HIHI); None when unreported or not a valid range.</span>
+    <span class="n">alarm_low</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">alarm_high</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1">#: This client&#39;s write access to the channel; None when the control system does not say.</span>
+    <span class="n">writable</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="ChannelMetadata.__post_init__">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelMetadata.__post_init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Ensure raw_metadata is a dict and normalise the limits and ``writable``.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">raw_metadata</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">raw_metadata</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">low_name</span><span class="p">,</span> <span class="n">high_name</span> <span class="ow">in</span> <span class="n">_LIMIT_PAIRS</span><span class="p">:</span>
+            <span class="n">low</span><span class="p">,</span> <span class="n">high</span> <span class="o">=</span> <span class="n">normalise_limit_pair</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">low_name</span><span class="p">),</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">high_name</span><span class="p">))</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">low_name</span><span class="p">,</span> <span class="n">low</span><span class="p">)</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">high_name</span><span class="p">,</span> <span class="n">high</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">writable</span> <span class="o">=</span> <span class="n">_writable_flag</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">writable</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="c1">#: The limit pairs of :class:`ChannelMetadata`, each normalised as one pair.</span>
+<span class="n">_LIMIT_PAIRS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="p">(</span><span class="s2">&quot;display_low&quot;</span><span class="p">,</span> <span class="s2">&quot;display_high&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;control_low&quot;</span><span class="p">,</span> <span class="s2">&quot;control_high&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;warning_low&quot;</span><span class="p">,</span> <span class="s2">&quot;warning_high&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;alarm_low&quot;</span><span class="p">,</span> <span class="s2">&quot;alarm_high&quot;</span><span class="p">),</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_limit_bound</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One limit as a finite ``float``, or ``None`` for anything else.</span>
+
+<span class="sd">    Bools are excluded (``True`` is not a limit), as is every non-numeric value —</span>
+<span class="sd">    including a ``MagicMock`` standing in for a PV in tests — so a connector may</span>
+<span class="sd">    hand over whatever its transport reported without checking it first.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">bound</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">OverflowError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">bound</span> <span class="k">if</span> <span class="n">math</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">bound</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">normalise_limit_pair</span><span class="p">(</span><span class="n">low</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">high</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Normalise one ``(low, high)`` limit pair the way :class:`ChannelMetadata` stores it.</span>
+
+<span class="sd">    Each bound that is missing, non-numeric or non-finite becomes ``None``. When</span>
+<span class="sd">    both survive and ``low &gt;= high`` the pair describes no range — EPICS reports</span>
+<span class="sd">    an unset range as ``0``/``0`` — so both become ``None``. A pair with only one</span>
+<span class="sd">    valid bound keeps it. Idempotent.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">low_bound</span><span class="p">,</span> <span class="n">high_bound</span> <span class="o">=</span> <span class="n">_limit_bound</span><span class="p">(</span><span class="n">low</span><span class="p">),</span> <span class="n">_limit_bound</span><span class="p">(</span><span class="n">high</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">low_bound</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">high_bound</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">low_bound</span> <span class="o">&gt;=</span> <span class="n">high_bound</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">low_bound</span><span class="p">,</span> <span class="n">high_bound</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_writable_flag</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A reported write-access right as ``bool``, or ``None`` when not reported.</span>
+
+<span class="sd">    A client may report access rights as ``bool`` or ``0``/``1``; anything that</span>
+<span class="sd">    is not an integer (a ``MagicMock`` attribute, say) is &quot;not reported&quot;.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">value</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Integral</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="ChannelValue">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelValue">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelValue</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Value of a control system channel with metadata.&quot;&quot;&quot;</span>
+
+    <span class="n">value</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="n">datetime</span>
+    <span class="n">metadata</span><span class="p">:</span> <span class="n">ChannelMetadata</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">ChannelMetadata</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="WriteOutcome">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.WriteOutcome">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">WriteOutcome</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What became of one channel write — the single owned verdict.</span>
+
+<span class="sd">    The connector that performed the write is the only producer of this value;</span>
+<span class="sd">    every consumer (MCP tool, ``osprey.runtime``, the Bluesky bridge, the</span>
+<span class="sd">    connector-host IPC) reads it and none re-derives a verdict of its own.</span>
+
+<span class="sd">    * ``REFUSED`` — nothing was written; ``refusal_reason`` says why.</span>
+<span class="sd">    * ``FAILED`` — the value was sent and the control system did not take it.</span>
+<span class="sd">    * ``CONFIRMED`` — a re-read of the channel holds the value sent, in any</span>
+<span class="sd">      alarm state. Alarm state is reported, never raised on.</span>
+<span class="sd">    * ``MISMATCH`` — the re-read holds a different value (a clamped or rounded</span>
+<span class="sd">      setpoint is reported here, not tolerated).</span>
+<span class="sd">    * ``UNCONFIRMED`` — the value was sent, but not acknowledged in time or</span>
+<span class="sd">      the re-read itself failed, so what the channel holds is unknown.</span>
+<span class="sd">    * ``UNREQUESTED`` — ``confirm=False``: nothing was checked.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">REFUSED</span> <span class="o">=</span> <span class="s2">&quot;refused&quot;</span>
+    <span class="n">FAILED</span> <span class="o">=</span> <span class="s2">&quot;failed&quot;</span>
+    <span class="n">CONFIRMED</span> <span class="o">=</span> <span class="s2">&quot;confirmed&quot;</span>
+    <span class="n">MISMATCH</span> <span class="o">=</span> <span class="s2">&quot;mismatch&quot;</span>
+    <span class="n">UNCONFIRMED</span> <span class="o">=</span> <span class="s2">&quot;unconfirmed&quot;</span>
+    <span class="n">UNREQUESTED</span> <span class="o">=</span> <span class="s2">&quot;unrequested&quot;</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_sequence</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;True when ``value`` is a vector rather than a scalar, for comparison.</span>
+
+<span class="sd">    Admits list, tuple and ndarray. Excluded, in order:</span>
+
+<span class="sd">    * str/bytes, which have a length but read back as one value;</span>
+<span class="sd">    * mappings and anything else without ``__getitem__``, because a vector is</span>
+<span class="sd">      compared by zipping the two sides positionally and a mapping iterates its</span>
+<span class="sd">      *keys* — two dicts with the same keys and different values would zip to a</span>
+<span class="sd">      match. Left as scalars, they compare by ``==``, which is what a mapping&#39;s</span>
+<span class="sd">      equality already means;</span>
+<span class="sd">    * 0-d numpy arrays (``ndim == 0``), which hold a single value and must</span>
+<span class="sd">      compare like the scalar they wrap.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="n">Mapping</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s2">&quot;__len__&quot;</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s2">&quot;__getitem__&quot;</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s2">&quot;ndim&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_unwrap_length_one</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A length-1 sequence reduced to its element; anything else unchanged.</span>
+
+<span class="sd">    ``[5.0]`` and ``5.0`` name the same reading: control systems differ on</span>
+<span class="sd">    whether a single-element channel reads back boxed, and that difference must</span>
+<span class="sd">    not decide an outcome.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">_is_sequence</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">value</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_scalars_match</span><span class="p">(</span><span class="n">sent</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">observed</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Compare two scalars: floats by relative closeness, everything else by ``==``.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="p">(</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">observed</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">observed</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span>
+    <span class="p">):</span>
+        <span class="k">return</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">sent</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">observed</span><span class="p">),</span> <span class="n">rel_tol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="n">sent</span> <span class="o">==</span> <span class="n">observed</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">result</span>
+    <span class="c1"># A numpy (or other array-like) elementwise comparison reduces to one verdict.</span>
+    <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">all</span><span class="p">())</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="s2">&quot;all&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="nb">bool</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="values_match">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.values_match">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">values_match</span><span class="p">(</span><span class="n">sent</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">observed</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">enum_label</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;True when ``observed`` is the value ``sent`` — the one comparison rule.</span>
+
+<span class="sd">    Applied in order, and symmetric: swapping the arguments cannot change the</span>
+<span class="sd">    answer.</span>
+
+<span class="sd">    1. A string against a reported ``enum_label`` compares as text: an enum</span>
+<span class="sd">       channel written as ``&quot;Open&quot;`` reads back as its integer index, and the</span>
+<span class="sd">       label the connector resolved for that reading is what the text is</span>
+<span class="sd">       compared with. A connector that reports no ``enum_label`` (DOOCS) falls</span>
+<span class="sd">       through to the ordinary comparison.</span>
+<span class="sd">    2. A length-1 sequence is unwrapped to its element, on both sides.</span>
+<span class="sd">    3. After unwrapping, exactly one side a sequence is ``False``: a scalar is</span>
+<span class="sd">       not a vector. This is what stops a numpy broadcast</span>
+<span class="sd">       (``np.array([5.0, 5.0]) == 5.0`` reduced by ``.all()``) from</span>
+<span class="sd">       manufacturing a match.</span>
+<span class="sd">    4. Two sequences of unequal length are ``False``; equal lengths compare</span>
+<span class="sd">       elementwise.</span>
+<span class="sd">    5. Two real numbers (bools excluded) compare by ``math.isclose`` with</span>
+<span class="sd">       ``rel_tol=1e-6`` — roughly eight float32 epsilons, so a legitimate</span>
+<span class="sd">       float32 store still matches — and ``abs_tol=0.0``, so nothing is close</span>
+<span class="sd">       to zero but zero. There is no configurable tolerance anywhere.</span>
+<span class="sd">    6. Anything else compares by ``==``.</span>
+<span class="sd">    7. Any exception means the two cannot be compared, which is not a match.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">enum_label</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">sent</span> <span class="o">==</span> <span class="n">enum_label</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">observed</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">observed</span> <span class="o">==</span> <span class="n">enum_label</span>
+
+        <span class="n">sent</span> <span class="o">=</span> <span class="n">_unwrap_length_one</span><span class="p">(</span><span class="n">sent</span><span class="p">)</span>
+        <span class="n">observed</span> <span class="o">=</span> <span class="n">_unwrap_length_one</span><span class="p">(</span><span class="n">observed</span><span class="p">)</span>
+
+        <span class="n">sent_is_seq</span> <span class="o">=</span> <span class="n">_is_sequence</span><span class="p">(</span><span class="n">sent</span><span class="p">)</span>
+        <span class="n">observed_is_seq</span> <span class="o">=</span> <span class="n">_is_sequence</span><span class="p">(</span><span class="n">observed</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">sent_is_seq</span> <span class="o">!=</span> <span class="n">observed_is_seq</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+        <span class="k">if</span> <span class="n">sent_is_seq</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sent</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">observed</span><span class="p">):</span>
+                <span class="k">return</span> <span class="kc">False</span>
+            <span class="k">return</span> <span class="nb">all</span><span class="p">(</span><span class="n">_scalars_match</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="n">observed</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="n">_scalars_match</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="n">observed</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">as_number</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``value`` as a float, or ``None`` when it is not a number.</span>
+
+<span class="sd">    A reading that is not a number — a string, an enum label, a waveform — has</span>
+<span class="sd">    no numeric form and is reported as ``None`` (&quot;no numeric value&quot;), never</span>
+<span class="sd">    coerced into one. A string that happens to parse as a number is still a</span>
+<span class="sd">    string here: what the channel holds is text, and inventing a number for it</span>
+<span class="sd">    is the fabrication this helper exists to prevent.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+
+<span class="c1">#: The outcomes whose result carries an ``error_message``: each has something</span>
+<span class="c1">#: the operator has to be told.</span>
+<span class="n">_MESSAGE_OUTCOMES</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">FAILED</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">UNCONFIRMED</span><span class="p">})</span>
+
+
+<div class="viewcode-block" id="ChannelWriteResult">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelWriteResult">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What became of one channel write, and what the channel was seen to hold.</span>
+
+<span class="sd">    The control-system-agnostic result type returned by every connector.</span>
+<span class="sd">    :attr:`outcome` is the single owned verdict (see :class:`WriteOutcome`),</span>
+<span class="sd">    set by the connector that performed the write; no consumer re-derives one.</span>
+
+<span class="sd">    ``error_message`` is set **if and only if** ``outcome`` is one of</span>
+<span class="sd">    ``refused``, ``failed`` or ``unconfirmed`` — the three words that carry</span>
+<span class="sd">    something the operator has to be told. A ``mismatch`` needs no message:</span>
+<span class="sd">    both numbers are on the result already, in ``value_written`` and</span>
+<span class="sd">    ``observed_value``. Construction enforces it: a result that breaks it</span>
+<span class="sd">    raises ``ValueError``.</span>
+
+<span class="sd">    ``notes`` is display-only text (&quot;observed 2.4, sent 2.5&quot;, &quot;cannot be</span>
+<span class="sd">    compared&quot;). No consumer reads it, and nothing classifies a write by</span>
+<span class="sd">    parsing it.</span>
+
+<span class="sd">    ``refusal_reason`` is the :class:`~osprey_connectors.errors.RefusalReason`</span>
+<span class="sd">    that says why, and who, refused; it is set **if and only if** the outcome</span>
+<span class="sd">    is ``refused``. Construction enforces it too: a refused result with no</span>
+<span class="sd">    reason or an unknown one, or a reason on any other outcome, raises</span>
+<span class="sd">    ``ValueError``. ``verdict_reason`` narrows a ``WRITES_DISABLED`` refusal</span>
+<span class="sd">    to the reason the write verdict gave, a member of</span>
+<span class="sd">    :data:`osprey_connectors.refusals.REASONS` — ``switch_off``,</span>
+<span class="sd">    ``auth_exhausted``, ``auth_range`` and the rest — so a program can tell</span>
+<span class="sd">    them apart without parsing ``error_message``; it is ``None`` on every</span>
+<span class="sd">    other result. ``observed_value`` is whatever the confirming</span>
+<span class="sd">    re-read returned, in the type the channel holds — a number, a string, an</span>
+<span class="sd">    enum label, a waveform; :attr:`observed_number` narrows it to a float</span>
+<span class="sd">    where that makes sense.</span>
+
+<span class="sd">    Alarm state (``alarm_status``, ``alarm_severity``) is carried</span>
+<span class="sd">    protocol-agnostically — the alarm *name* as a string, the severity as an</span>
+<span class="sd">    int — and is information reported with the write, never a reason to raise.</span>
+<span class="sd">    ``None`` means &quot;not reported&quot;, which stays distinct from a reported</span>
+<span class="sd">    healthy value (``alarm_severity=0``). Mapping a protocol&#39;s raw codes to</span>
+<span class="sd">    those names is the connector&#39;s job, so this shared module imports no</span>
+<span class="sd">    control-system constants.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Channel that was written</span>
+    <span class="n">value_written</span><span class="p">:</span> <span class="n">Any</span>  <span class="c1"># Value that was sent</span>
+    <span class="n">outcome</span><span class="p">:</span> <span class="n">WriteOutcome</span>  <span class="c1"># The one verdict, set by the connector</span>
+    <span class="c1"># Set iff refused, enforced at construction</span>
+    <span class="n">refusal_reason</span><span class="p">:</span> <span class="n">RefusalReason</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1"># Set iff refused, failed or unconfirmed, enforced at construction</span>
+    <span class="n">error_message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">observed_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># What the confirming re-read returned</span>
+    <span class="c1"># Alarm name reported for the reading, e.g. &quot;NO_ALARM&quot;/&quot;HIHI&quot;; None if not reported</span>
+    <span class="n">alarm_status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1"># Alarm severity: 0 healthy, higher is worse; None if not reported</span>
+    <span class="n">alarm_severity</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">notes</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Display-only detail</span>
+    <span class="c1"># The write verdict&#39;s reason, for a WRITES_DISABLED refusal that has one</span>
+    <span class="n">verdict_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="ChannelWriteResult.__post_init__">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelWriteResult.__post_init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Coerce ``outcome`` and ``refusal_reason`` to members, then check the shape.</span>
+
+<span class="sd">        A ``StrEnum`` crosses the connector-host IPC as the plain string JSON</span>
+<span class="sd">        encodes it to, and the codec rebuilds the dataclass by calling it with</span>
+<span class="sd">        the decoded fields — so what arrives here on the parent side is a</span>
+<span class="sd">        ``str``. Coercing once, on construction, is what lets every consumer</span>
+<span class="sd">        compare against the members whichever side of the process boundary it</span>
+<span class="sd">        runs on.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: ``refusal_reason`` is not a known reason, is missing on</span>
+<span class="sd">                a ``refused`` result or set on any other, or ``error_message``</span>
+<span class="sd">                is missing on a ``refused``, ``failed`` or ``unconfirmed``</span>
+<span class="sd">                result or set on any other.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">outcome</span> <span class="o">=</span> <span class="n">WriteOutcome</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span><span class="p">,</span> <span class="n">RefusalReason</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span> <span class="o">=</span> <span class="n">RefusalReason</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Write result for &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; (outcome </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="si">}</span><span class="s2">): &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;refusal_reason </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span><span class="si">!r}</span><span class="s2"> is not a known refusal reason&quot;</span>
+                <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+        <span class="n">refused</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">outcome</span> <span class="ow">is</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span>
+        <span class="k">if</span> <span class="n">refused</span> <span class="o">!=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">):</span>
+            <span class="n">expected</span> <span class="o">=</span> <span class="s2">&quot;a known refusal reason&quot;</span> <span class="k">if</span> <span class="n">refused</span> <span class="k">else</span> <span class="s2">&quot;None&quot;</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Write result for &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; (outcome </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="si">}</span><span class="s2">): &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;refusal_reason must be </span><span class="si">{</span><span class="n">expected</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">refusal_reason</span><span class="si">!r}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">bool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">error_message</span><span class="p">)</span> <span class="o">!=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span> <span class="ow">in</span> <span class="n">_MESSAGE_OUTCOMES</span><span class="p">):</span>
+            <span class="n">expected</span> <span class="o">=</span> <span class="s2">&quot;a message&quot;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">outcome</span> <span class="ow">in</span> <span class="n">_MESSAGE_OUTCOMES</span> <span class="k">else</span> <span class="s2">&quot;None&quot;</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Write result for &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; (outcome </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">outcome</span><span class="si">}</span><span class="s2">): &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;error_message must be </span><span class="si">{</span><span class="n">expected</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">error_message</span><span class="si">!r}</span><span class="s2">&quot;</span>
+            <span class="p">)</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">observed_number</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;:attr:`observed_value` as a float, or ``None`` when it is not a number.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">as_number</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">observed_value</span><span class="p">)</span></div>
+
+
+
+<span class="c1">#: Package path of the OSPREY MCP servers, as consecutive parts of the file</span>
+<span class="c1">#: they are launched with (``python -m osprey.mcp_server.&lt;server&gt;`` sets</span>
+<span class="c1">#: ``sys.argv[0]`` to that package&#39;s ``__main__.py``).</span>
+<span class="n">_MCP_SERVER_PACKAGE_PARTS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;osprey&quot;</span><span class="p">,</span> <span class="s2">&quot;mcp_server&quot;</span><span class="p">)</span>
+
+<span class="c1">#: Set once by :func:`mark_long_lived_session`. A long-lived control session —</span>
+<span class="c1">#: a panel backend that holds one connector for hours — runs no script either,</span>
+<span class="c1">#: so a readonly refusal there is the deployment&#39;s, exactly as in an MCP server.</span>
+<span class="c1">#: Process-global by design: the mark describes the process, not one connector.</span>
+<span class="n">_long_lived_session</span> <span class="o">=</span> <span class="kc">False</span>
+
+
+<div class="viewcode-block" id="mark_long_lived_session">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.mark_long_lived_session">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">mark_long_lived_session</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Record that this process holds a long-lived control session.</span>
+
+<span class="sd">    Called by :meth:`osprey.runtime.session.ControlSession.open`. From then on a</span>
+<span class="sd">    readonly refusal in this process uses the deployment-wide wording: the</span>
+<span class="sd">    process was started by the deployment, not submitted as one readonly</span>
+<span class="sd">    script, so &quot;resubmit it with execution_mode=&#39;readwrite&#39;&quot; would send the</span>
+<span class="sd">    operator to a script that does not exist. Irreversible for the process.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_long_lived_session</span>
+    <span class="n">_long_lived_session</span> <span class="o">=</span> <span class="kc">True</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_reset_long_lived_session_for_tests</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Clear the :func:`mark_long_lived_session` mark. Tests only.</span>
+
+<span class="sd">    A test process opens many sessions; each test starts from an unmarked</span>
+<span class="sd">    process so the readonly wording does not depend on test order.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_long_lived_session</span>
+    <span class="n">_long_lived_session</span> <span class="o">=</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_readonly_is_deployment_wide</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a readonly refusal here is the deployment&#39;s rather than one script&#39;s.</span>
+
+<span class="sd">    True in an OSPREY MCP server (:func:`_in_mcp_server_process`) and in a</span>
+<span class="sd">    process that holds a long-lived control session</span>
+<span class="sd">    (:func:`mark_long_lived_session`); everything else keeps the script wording.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_long_lived_session</span> <span class="ow">or</span> <span class="n">_in_mcp_server_process</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_in_mcp_server_process</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;True when this process is an OSPREY MCP server, not a script it ran.</span>
+
+<span class="sd">    This is the discriminator between the two remaining readonly stories, and</span>
+<span class="sd">    it deliberately does not look at the environment: it *cannot*. Both stories</span>
+<span class="sd">    speak through the same variable at the same value — the deployment-wide</span>
+<span class="sd">    read-only run stamps ``OSPREY_EXECUTION_MODE=readonly`` on the whole</span>
+<span class="sd">    deployment, and the python executor stamps the very same string on the</span>
+<span class="sd">    sandbox subprocess it builds for one readonly submission. So the value says</span>
+<span class="sd">    nothing about which one this is. What does differ is the process: an MCP</span>
+<span class="sd">    server runs the server package&#39;s ``__main__``, while the executor&#39;s sandbox</span>
+<span class="sd">    runs a script file it wrote for one submission. Answering True therefore</span>
+<span class="sd">    means &quot;the deployment is read-only&quot;, and answering False means &quot;this one</span>
+<span class="sd">    run was submitted readonly&quot;.</span>
+
+<span class="sd">    Answering **False** is the safe way to be wrong. It yields the older,</span>
+<span class="sd">    script-shaped message, which is what every readonly refusal said before</span>
+<span class="sd">    the deployment-wide run had its own wording; a launch shape this check does</span>
+<span class="sd">    not recognise therefore degrades to that text rather than to a message</span>
+<span class="sd">    telling an operator their whole deployment is read-only when it is not. The</span>
+<span class="sd">    refusal itself is identical either way — only the sentence telling the</span>
+<span class="sd">    operator where to go changes.</span>
+
+<span class="sd">    Neither story is the narrowing an operator makes from the</span>
+<span class="sd">    control-target chip in the header: that never lived in the environment at</span>
+<span class="sd">    all, and is read from the posture store further down this function&#39;s</span>
+<span class="sd">    caller.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">argv</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">sys</span><span class="p">,</span> <span class="s2">&quot;argv&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">argv</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">parts</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="n">span</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">_MCP_SERVER_PACKAGE_PARTS</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">any</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="n">i</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">span</span><span class="p">]</span> <span class="o">==</span> <span class="n">_MCP_SERVER_PACKAGE_PARTS</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)))</span>
+
+
+<span class="c1">#: What a refusal says in place of a phrase when the verdict itself allowed the</span>
+<span class="c1">#: write and something else refused it: a subclass that overrides</span>
+<span class="c1">#: :attr:`ControlSystemConnector._writes_enabled` and answers no. No reason of</span>
+<span class="c1">#: the refusals contract applies, so none is claimed.</span>
+<span class="n">_OVERRIDE_REFUSAL</span> <span class="o">=</span> <span class="s2">&quot;Writes are refused by this connector&#39;s own write check.&quot;</span>
+
+<span class="c1">#: The words a read-only run&#39;s refusal carries beside its phrase:</span>
+<span class="c1">#: ``wrapper.READONLY_REFUSAL_MARKER``, which the executor&#39;s stderr matcher</span>
+<span class="c1">#: looks for to name the runtime guard as the layer that refused. Kept out of</span>
+<span class="c1">#: the phrase, which is a closed contract shared with the hooks.</span>
+<span class="n">_READONLY_MARKER</span> <span class="o">=</span> <span class="s2">&quot;readonly execution mode&quot;</span>
+
+<span class="c1">#: What a read-only refusal adds when the process is a script the executor ran</span>
+<span class="c1">#: for one readonly submission rather than an MCP server of a read-only</span>
+<span class="c1">#: deployment or a long-lived control session</span>
+<span class="c1">#: (:func:`_readonly_is_deployment_wide`): that run alone can be resubmitted.</span>
+<span class="n">_READONLY_SCRIPT_REMEDY</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;This script was submitted readonly; resubmit it with execution_mode=&#39;readwrite&#39; &quot;</span>
+    <span class="s2">&quot;(human approval required) if the write is intended.&quot;</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_monitor_section</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``control_system`` section the reference monitor judges by.</span>
+
+<span class="sd">    Empty for a read-only run, which is answered before any config is read: it</span>
+<span class="sd">    refuses whatever the config says. A config that cannot be read arms</span>
+<span class="sd">    nothing — the section is then empty, which the tier answers ``never``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">is_readonly_run</span><span class="p">():</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+
+        <span class="k">return</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_monitor_verdict</span><span class="p">(</span><span class="n">control_target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;WriteVerdict&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict the reference monitor decides one write (or batch) by.</span>
+
+<span class="sd">    :func:`osprey_connectors.posture_store.write_verdict` over this deployment&#39;s</span>
+<span class="sd">    ``control_system`` section for *control_target*, the owner taken from the</span>
+<span class="sd">    ladder. An unstamped connector (*control_target* ``None``) resolves no</span>
+<span class="sd">    machine and is refused ``target_unknown`` unless an earlier term refuses</span>
+<span class="sd">    first. A read-only run is answered before any config is read: it refuses</span>
+<span class="sd">    whatever the config says. A config that cannot be read arms nothing — the</span>
+<span class="sd">    section is then empty, which the tier answers ``never``.</span>
+
+<span class="sd">    A process that names a program&#39;s write authorization</span>
+<span class="sd">    (:func:`~osprey_connectors.write_authorization.named_authorization`) is</span>
+<span class="sd">    answered by</span>
+<span class="sd">    :func:`~osprey_connectors.write_authorization.authorized_write_verdict`</span>
+<span class="sd">    instead: whether the authorization would let it write at all, channels</span>
+<span class="sd">    aside. That is the answer the gateway is chosen on; each write is judged</span>
+<span class="sd">    on its own channels and values by the write guard.</span>
+
+<span class="sd">    Never raises; reads the record at most once.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">authorized_write_verdict</span><span class="p">(</span>
+        <span class="n">_monitor_section</span><span class="p">(),</span>
+        <span class="n">control_target</span><span class="p">,</span>
+        <span class="n">authorization</span><span class="o">=</span><span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">(),</span>
+        <span class="n">owner</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_verdict_refusal</span><span class="p">(</span>
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">verdict</span><span class="p">:</span> <span class="s2">&quot;WriteVerdict&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The REFUSED result the monitor returns for a write *verdict* refused.</span>
+
+<span class="sd">    The operator&#39;s words are :func:`~osprey_connectors.refusals.refusal_text`</span>
+<span class="sd">    for the verdict&#39;s reason and machine kind — the same phrase the hooks</span>
+<span class="sd">    speak, ending with the ``[osprey-refusal: &lt;reason&gt;]`` trailer — after the</span>
+<span class="sd">    channel it concerns, with the verdict&#39;s own detail after the phrase. A</span>
+<span class="sd">    read-only run&#39;s refusal also carries :data:`_READONLY_MARKER`, and in a script</span>
+<span class="sd">    the executor ran for one readonly submission :data:`_READONLY_SCRIPT_REMEDY`</span>
+<span class="sd">    as well. A verdict that</span>
+<span class="sd">    allowed (an overriding subclass refused on its own) names no contract reason.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.refusals</span><span class="w"> </span><span class="kn">import</span> <span class="n">refusal_text</span>
+
+    <span class="n">marker</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">remedy</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">verdict</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">&quot;readonly_run&quot;</span><span class="p">:</span>
+        <span class="n">marker</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot; (</span><span class="si">{</span><span class="n">_READONLY_MARKER</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">_readonly_is_deployment_wide</span><span class="p">():</span>
+            <span class="c1"># One script submitted readonly, not the deployment: the same</span>
+            <span class="c1"># refusal, and the one remedy that applies to it alone.</span>
+            <span class="n">remedy</span> <span class="o">=</span> <span class="n">_READONLY_SCRIPT_REMEDY</span>
+    <span class="k">if</span> <span class="n">verdict</span><span class="o">.</span><span class="n">allowed</span> <span class="ow">or</span> <span class="n">verdict</span><span class="o">.</span><span class="n">reason</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">spoken</span> <span class="o">=</span> <span class="n">_OVERRIDE_REFUSAL</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">spoken</span> <span class="o">=</span> <span class="n">refusal_text</span><span class="p">(</span><span class="n">verdict</span><span class="o">.</span><span class="n">reason</span><span class="p">,</span> <span class="n">verdict</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">detail</span><span class="o">=</span><span class="n">remedy</span> <span class="ow">or</span> <span class="n">verdict</span><span class="o">.</span><span class="n">detail</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="n">spoken</span> <span class="o">=</span> <span class="n">_OVERRIDE_REFUSAL</span>
+    <span class="k">return</span> <span class="n">ChannelWriteResult</span><span class="p">(</span>
+        <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+        <span class="n">value_written</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">outcome</span><span class="o">=</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span><span class="p">,</span>
+        <span class="n">refusal_reason</span><span class="o">=</span><span class="n">RefusalReason</span><span class="o">.</span><span class="n">WRITES_DISABLED</span><span class="p">,</span>
+        <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; blocked</span><span class="si">{</span><span class="n">marker</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">spoken</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="n">verdict_reason</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">verdict</span><span class="o">.</span><span class="n">allowed</span> <span class="k">else</span> <span class="n">verdict</span><span class="o">.</span><span class="n">reason</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_authorized_refusal</span><span class="p">(</span>
+    <span class="n">connector</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span> <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;WriteVerdict | None&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict refusing one write call of a process that names an authorization.</span>
+
+<span class="sd">    ``None`` means the call may go ahead and its step is spent. Otherwise the</span>
+<span class="sd">    refusing verdict, which :func:`_verdict_refusal` words; an allowed verdict</span>
+<span class="sd">    returned here is a subclass&#39;s own ``_writes_enabled`` answering no.</span>
+
+<span class="sd">    The order: a subclass that overrides ``_writes_enabled`` and answers no</span>
+<span class="sd">    refuses as it does for every process. A connector that cannot carry a</span>
+<span class="sd">    write over the gateway it selected (:meth:`ControlSystemConnector.</span>
+<span class="sd">    _write_route_open`) refuses ``switching`` when the authorization would</span>
+<span class="sd">    allow the call, its own reason when not, and spends nothing either way.</span>
+<span class="sd">    Otherwise :func:`~osprey_connectors.write_authorization.authorized_execution_verdict`</span>
+<span class="sd">    judges the whole call and, when it allows, spends its one step before</span>
+<span class="sd">    anything is put: a write the limits then refuse has still spent it.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">connector</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">_overrides_writes_enabled</span><span class="p">(</span><span class="n">connector</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">connector</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">connector</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="n">connector</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">_monitor_section</span><span class="p">()</span>
+    <span class="n">target</span> <span class="o">=</span> <span class="n">connector</span><span class="o">.</span><span class="n">_control_target</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">connector</span><span class="o">.</span><span class="n">_write_route_open</span><span class="p">():</span>
+        <span class="n">judged</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">authorized_execution_verdict</span><span class="p">(</span>
+            <span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="n">authorization</span><span class="o">=</span><span class="n">authorization</span>
+        <span class="p">)</span>
+        <span class="n">connector</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="n">judged</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">judged</span><span class="o">.</span><span class="n">allowed</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">judged</span>
+        <span class="k">return</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">WriteVerdict</span><span class="p">(</span>
+            <span class="n">allowed</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;switching&quot;</span><span class="p">,</span>
+            <span class="n">target</span><span class="o">=</span><span class="n">judged</span><span class="o">.</span><span class="n">target</span><span class="p">,</span>
+            <span class="n">kind</span><span class="o">=</span><span class="n">judged</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span>
+            <span class="n">authorization</span><span class="o">=</span><span class="n">authorization</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="n">verdict</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">authorized_execution_verdict</span><span class="p">(</span>
+        <span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="n">authorization</span><span class="o">=</span><span class="n">authorization</span><span class="p">,</span> <span class="n">spend</span><span class="o">=</span><span class="kc">True</span>
+    <span class="p">)</span>
+    <span class="n">connector</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="n">verdict</span>
+    <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">verdict</span><span class="o">.</span><span class="n">allowed</span> <span class="k">else</span> <span class="n">verdict</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_overrides_writes_enabled</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *connector*&#39;s class answers ``_writes_enabled`` with its own rule.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">connector</span><span class="p">),</span> <span class="s2">&quot;_writes_enabled&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_BASE_WRITES_ENABLED</span>
+
+
+<span class="c1">#: The outcomes a caller may proceed on: the channel was confirmed to hold the</span>
+<span class="c1">#: value sent, or no confirmation was asked for. Deliberately an allowlist and</span>
+<span class="c1">#: not a denylist — a :class:`WriteOutcome` member added after this line was</span>
+<span class="c1">#: written raises rather than silently becoming proceed-able.</span>
+<span class="n">_PROCEEDABLE_OUTCOMES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="n">WriteOutcome</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+    <span class="p">{</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">CONFIRMED</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">UNREQUESTED</span><span class="p">}</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="raise_for_write_result">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.raise_for_write_result">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">raise_for_write_result</span><span class="p">(</span><span class="n">result</span><span class="p">:</span> <span class="n">ChannelWriteResult</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Enforce the reference monitor&#39;s denial contract on one write result.</span>
+
+<span class="sd">    The single place that decides whether a ``ChannelWriteResult`` counts as a</span>
+<span class="sd">    write the caller may proceed on. Every caller that must not proceed on an</span>
+<span class="sd">    unconfirmed write routes through here, so the refusal/failure distinction</span>
+<span class="sd">    cannot drift between the single-channel and multi-channel paths.</span>
+
+<span class="sd">    The verdict is read off :attr:`ChannelWriteResult.outcome` and nothing else.</span>
+<span class="sd">    The connector that performed the write already decided; re-deriving a verdict</span>
+<span class="sd">    here from a second field is what let a write to an unreadable channel report</span>
+<span class="sd">    itself as a success.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        result: The result returned by a connector&#39;s ``write_channel``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The result unchanged, when the outcome is ``confirmed`` — whatever the</span>
+<span class="sd">        alarm severity, since alarm state is reported and never raised on — or</span>
+<span class="sd">        ``unrequested``, where no confirmation was asked for.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ChannelWriteBlockedError: The outcome is ``refused``: no value was</span>
+<span class="sd">            written. ``refusal_reason`` names why;</span>
+<span class="sd">            :meth:`ChannelWriteBlockedError.refuser` says who refused.</span>
+<span class="sd">        ChannelWriteFailedError: The value was sent and the write did not come</span>
+<span class="sd">            back confirmed — ``failed``, ``mismatch`` or ``unconfirmed``, each</span>
+<span class="sd">            raising under its own word. The exception carries the outcome, the</span>
+<span class="sd">            value sent and the value observed, so a ``mismatch`` message names</span>
+<span class="sd">            both numbers.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelWriteBlockedError</span><span class="p">,</span> <span class="n">ChannelWriteFailedError</span>
+
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">outcome</span> <span class="ow">is</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">ChannelWriteBlockedError</span><span class="p">(</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">refusal_reason</span><span class="p">,</span>
+            <span class="n">message</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">error_message</span><span class="p">,</span>
+            <span class="n">verdict_reason</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">verdict_reason</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">outcome</span> <span class="ow">in</span> <span class="n">_PROCEEDABLE_OUTCOMES</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">result</span>
+    <span class="c1"># Everything else is a write the caller must not proceed on. The reason code</span>
+    <span class="c1"># is the outcome word uppercased, so the reason a caller branches on and the</span>
+    <span class="c1"># outcome a consumer reads stay one vocabulary by construction rather than by</span>
+    <span class="c1"># a table that a new outcome could be left out of.</span>
+    <span class="k">raise</span> <span class="n">ChannelWriteFailedError</span><span class="p">(</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">outcome</span><span class="o">.</span><span class="n">upper</span><span class="p">(),</span>
+        <span class="n">message</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">error_message</span><span class="p">,</span>
+        <span class="n">outcome</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">outcome</span><span class="p">,</span>
+        <span class="n">value_written</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">value_written</span><span class="p">,</span>
+        <span class="n">observed_value</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">observed_value</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_accepts_on_connection</span><span class="p">(</span><span class="n">subscribe</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``.&quot;&quot;&quot;</span>
+    <span class="n">parameters</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">subscribe</span><span class="p">)</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+    <span class="k">return</span> <span class="nb">any</span><span class="p">(</span>
+        <span class="n">parameter</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;on_connection&quot;</span> <span class="ow">or</span> <span class="n">parameter</span><span class="o">.</span><span class="n">kind</span> <span class="ow">is</span> <span class="n">inspect</span><span class="o">.</span><span class="n">Parameter</span><span class="o">.</span><span class="n">VAR_KEYWORD</span>
+        <span class="k">for</span> <span class="n">parameter</span> <span class="ow">in</span> <span class="n">parameters</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_compat_subscribe_without_on_connection</span><span class="p">(</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">type</span><span class="p">,</span> <span class="n">subscribe</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Give a ``subscribe()`` that predates ``on_connection`` the keyword. Deprecated.</span>
+
+<span class="sd">    A connector that reports no connection state of its own still shows one</span>
+<span class="sd">    fact about it: a value arrived, so the channel is up. The wrapper tells</span>
+<span class="sd">    ``on_connection`` ``True`` before the first value and nothing after —</span>
+<span class="sd">    never ``False``, because such a connector never says a channel dropped.</span>
+<span class="sd">    Without ``on_connection`` the original runs untouched.</span>
+
+<span class="sd">    Wrapping ``owner`` emits one :class:`DeprecationWarning` naming it. This</span>
+<span class="sd">    compatibility wrapper is removed in osprey-connectors 2027.3.0; a connector&#39;s</span>
+<span class="sd">    ``subscribe`` should take ``on_connection`` itself.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">owner</span><span class="o">.</span><span class="vm">__module__</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">owner</span><span class="o">.</span><span class="vm">__qualname__</span><span class="si">}</span><span class="s2">.subscribe does not take on_connection; &quot;</span>
+        <span class="s2">&quot;the base class wraps it for now, but the wrapper is deprecated and is removed &quot;</span>
+        <span class="s2">&quot;in osprey-connectors 2027.3.0. Add the on_connection keyword to subscribe().&quot;</span><span class="p">,</span>
+        <span class="ne">DeprecationWarning</span><span class="p">,</span>
+        <span class="c1"># this function, __init_subclass__, ABCMeta.__new__, the class statement</span>
+        <span class="n">stacklevel</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">subscribe</span><span class="p">)</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_subscribe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">on_connection</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">on_connection</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">subscribe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">connected</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">_deliver</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="s2">&quot;ChannelValue&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">nonlocal</span> <span class="n">connected</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">connected</span><span class="p">:</span>
+                <span class="n">connected</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="n">on_connection</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">callback</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="k">await</span> <span class="n">subscribe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">_deliver</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+    <span class="c1"># inspect.signature() reads __signature__ before following __wrapped__, so</span>
+    <span class="c1"># the wrapper reports the keyword it takes; mypy knows no such attribute.</span>
+    <span class="n">signature</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">subscribe</span><span class="p">)</span>
+    <span class="n">_subscribe</span><span class="o">.</span><span class="n">__signature__</span> <span class="o">=</span> <span class="n">signature</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="n">parameters</span><span class="o">=</span><span class="p">[</span>
+            <span class="o">*</span><span class="n">signature</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span>
+            <span class="n">inspect</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="s2">&quot;on_connection&quot;</span><span class="p">,</span> <span class="n">inspect</span><span class="o">.</span><span class="n">Parameter</span><span class="o">.</span><span class="n">KEYWORD_ONLY</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_subscribe</span>
+
+
+<div class="viewcode-block" id="ControlSystemConnector">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ControlSystemConnector</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Abstract base class for control system connectors.</span>
+
+<span class="sd">    Implementations provide interfaces to different control systems</span>
+<span class="sd">    (EPICS, LabVIEW, Tango, the simulator, etc.) using a unified API.</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; connector = await ConnectorFactory.create_control_system_connector()</span>
+<span class="sd">        &gt;&gt;&gt; try:</span>
+<span class="sd">        &gt;&gt;&gt;     channel_value = await connector.read_channel(&#39;BEAM:CURRENT&#39;)</span>
+<span class="sd">        &gt;&gt;&gt;     print(f&quot;Beam current: {channel_value.value} {channel_value.metadata.units}&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; finally:</span>
+<span class="sd">        &gt;&gt;&gt;     await connector.disconnect()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">_limits_validator</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Initialized by subclasses in connect()</span>
+    <span class="c1"># The connector type this instance was built as. Stamped by</span>
+    <span class="c1"># ConnectorFactory.build_control_system_connector() between construction and</span>
+    <span class="c1"># connect(), so connect() can already read the posture</span>
+    <span class="c1"># (create_control_system_connector() is that build plus connect()). Stays</span>
+    <span class="c1"># None on an instance nobody built through the factory: no type, so no</span>
+    <span class="c1"># per-type block.</span>
+    <span class="n">_connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1"># The control target this instance was built for. Stamped by the same</span>
+    <span class="c1"># factory seam as _connector_type, from the target the *caller* named — the</span>
+    <span class="c1"># init payload&#39;s target, the sandbox&#39;s stamp, the deployment baseline, the</span>
+    <span class="c1"># bridge lane&#39;s own target. Stays None on an instance nobody built through</span>
+    <span class="c1"># the factory, and on a caller that has no target to name.</span>
+    <span class="n">_control_target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1"># The wire this instance speaks, stamped by the same factory seam from the</span>
+    <span class="c1"># type and the serving leaf. Stays None on an instance nobody built through</span>
+    <span class="c1"># the factory.</span>
+    <span class="n">_transport</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">transport</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The factory-stamped wire this instance speaks (``None`` off the factory).&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span>
+
+    <span class="c1"># The verdict the last :attr:`_writes_enabled` evaluation reached, so the</span>
+    <span class="c1"># refusal it leads to is worded from the same answer without reading the</span>
+    <span class="c1"># record a second time — a switch flipped between two reads would otherwise</span>
+    <span class="c1"># produce a refusal for a cause the decision never saw. The write guard</span>
+    <span class="c1"># clears it before each evaluation, so a subclass that OVERRIDES</span>
+    <span class="c1"># ``_writes_enabled`` (and therefore never sets it) leaves it None and the</span>
+    <span class="c1"># refusal asks for a verdict itself.</span>
+    <span class="n">_last_verdict</span><span class="p">:</span> <span class="s2">&quot;WriteVerdict | None&quot;</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># A subclass&#39;s own ``write_channel`` before the guard wrapped it, set by</span>
+    <span class="c1"># ``__init_subclass__``: what an authorized batch writes each operation</span>
+    <span class="c1"># through once the whole call was judged and its step spent.</span>
+    <span class="n">_unguarded_write_channel</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_writes_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether the write verdict allows a write to this connector&#39;s machine.</span>
+
+<span class="sd">        Decided by :func:`osprey_connectors.posture_store.write_verdict` for</span>
+<span class="sd">        :attr:`_control_target` (see :func:`_monitor_verdict`), re-read on every</span>
+<span class="sd">        call: a read-only run, the login&#39;s write tier, the target, the owner,</span>
+<span class="sd">        the login&#39;s switch for that machine and the launch pin, first refusal</span>
+<span class="sd">        wins. The switch is the live half: turning a machine on or off from the</span>
+<span class="sd">        chip lands on the very next write of a session already running, with no</span>
+<span class="sd">        respawn and no config edit.</span>
+
+<span class="sd">        An unstamped connector — one nobody built through the factory — names</span>
+<span class="sd">        no machine and is refused ``target_unknown``. Returns False rather than</span>
+<span class="sd">        raising on any failure.</span>
+
+<span class="sd">        The verdict is memoised on :attr:`_last_verdict` for the refusal the</span>
+<span class="sd">        write guard is about to build, so one write reads the record once; a</span>
+<span class="sd">        subclass overriding this property never sets it, and the refusal asks</span>
+<span class="sd">        for a verdict itself.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">verdict</span> <span class="o">=</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="n">verdict</span>
+        <span class="k">return</span> <span class="n">verdict</span><span class="o">.</span><span class="n">allowed</span>
+
+<div class="viewcode-block" id="ControlSystemConnector.current_value_reader">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.current_value_reader">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">current_value_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;This connector&#39;s own way to read a channel&#39;s present value.</span>
+
+<span class="sd">        Handed to :meth:`LimitsValidator.validate` so the ``max_step`` check</span>
+<span class="sd">        measures the step over the client and the target the write itself is</span>
+<span class="sd">        bound for. The validator is shared by every connector and owns no</span>
+<span class="sd">        client; a connector that cannot read synchronously answers ``None``</span>
+<span class="sd">        here, and a ``max_step`` channel on it fails closed rather than being</span>
+<span class="sd">        measured over somebody else&#39;s protocol.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validation_refusal</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">error</span><span class="p">:</span> <span class="ne">BaseException</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The REFUSED result a non-limits validation error owes the caller.</span>
+
+<span class="sd">        Limits validation answers a write in one of two ways: a</span>
+<span class="sd">        :class:`ChannelLimitsViolationError`, which carries its own semantics</span>
+<span class="sd">        and propagates to the caller unchanged, or any other error — which</span>
+<span class="sd">        says the check could not be MADE. A check that could not be made is</span>
+<span class="sd">        not permission to write: a validator that never answered has not said</span>
+<span class="sd">        yes. So every connector turns that second case into this one REFUSED</span>
+<span class="sd">        result and sends nothing.</span>
+
+<span class="sd">        Spelled once, here, because the six-outcome contract is a promise</span>
+<span class="sd">        every connector makes with the same words</span>
+<span class="sd">        (``tests/connectors/test_cross_connector_parity.py``); four private</span>
+<span class="sd">        copies of it would be four chances to drift.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Validation error - refusing write (fail-closed): </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">ChannelWriteResult</span><span class="p">(</span>
+            <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+            <span class="n">value_written</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+            <span class="n">outcome</span><span class="o">=</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span><span class="p">,</span>
+            <span class="n">refusal_reason</span><span class="o">=</span><span class="n">RefusalReason</span><span class="o">.</span><span class="n">VALIDATION_ERROR</span><span class="p">,</span>
+            <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; refused: validation error: </span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="ControlSystemConnector.__init_subclass__">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.__init_subclass__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__init_subclass__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Auto-wrap write methods with the write-verdict pre-check.</span>
+
+<span class="sd">        Any subclass that defines ``write_channel()`` or</span>
+<span class="sd">        ``write_multiple_channels()`` gets them transparently wrapped.</span>
+<span class="sd">        The wrapper checks ``_writes_enabled`` before calling the original</span>
+<span class="sd">        method.  When the verdict refuses, returns ``REFUSED`` results worded</span>
+<span class="sd">        by :func:`_verdict_refusal` — no exception is raised.</span>
+
+<span class="sd">        This fires before limits validation (intentional: fast-reject when</span>
+<span class="sd">        writes are disabled, avoiding unnecessary validation work).</span>
+
+<span class="sd">        Past that check the wrapper asks</span>
+<span class="sd">        :func:`~osprey_connectors.posture_store.session_hold_refusal`, kept out of</span>
+<span class="sd">        ``_writes_enabled`` because that property also chooses the gateway: a held</span>
+<span class="sd">        session&#39;s write is refused here while its connection stays as it is.</span>
+
+<span class="sd">        A process that names a program&#39;s write authorization</span>
+<span class="sd">        (:func:`~osprey_connectors.write_authorization.named_authorization`) is</span>
+<span class="sd">        judged instead by</span>
+<span class="sd">        :func:`~osprey_connectors.write_authorization.authorized_execution_verdict`</span>
+<span class="sd">        on the call&#39;s channels and values, which spends the call&#39;s one step</span>
+<span class="sd">        before anything is put (:func:`_authorized_refusal`). A batch is the</span>
+<span class="sd">        base class&#39;s :meth:`write_multiple_channels` under an authorization,</span>
+<span class="sd">        a subclass&#39;s own batch included: judged whole and spent once, then each</span>
+<span class="sd">        operation written past the guard. A process naming none is judged</span>
+<span class="sd">        exactly as before.</span>
+
+<span class="sd">        Past both checks the original method runs inside</span>
+<span class="sd">        :func:`~osprey_connectors.control_system.write_door.open_door`, so the</span>
+<span class="sd">        raw-client guard attributes its put to a connector. A connector whose</span>
+<span class="sd">        writes are disabled never opens the door.</span>
+
+<span class="sd">        A ``subscribe()`` written before ``on_connection`` existed is wrapped</span>
+<span class="sd">        too (:func:`_compat_subscribe_without_on_connection`, deprecated), so every connector</span>
+<span class="sd">        takes the keyword and a facility&#39;s own connector keeps working.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init_subclass__</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="n">original_subscribe</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;subscribe&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">original_subscribe</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">_accepts_on_connection</span><span class="p">(</span><span class="n">original_subscribe</span><span class="p">):</span>
+            <span class="bp">cls</span><span class="o">.</span><span class="n">subscribe</span> <span class="o">=</span> <span class="n">_compat_subscribe_without_on_connection</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">original_subscribe</span><span class="p">)</span>  <span class="c1"># type: ignore[method-assign]  # wraps the subclass&#39;s own method</span>
+
+        <span class="n">original_write</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_channel&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">original_write</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+
+            <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">original_write</span><span class="p">)</span>
+            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_guarded_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+                <span class="n">authorization</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">refused</span> <span class="o">=</span> <span class="n">_authorized_refusal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">[(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">)],</span> <span class="n">authorization</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">refused</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="k">return</span> <span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">refused</span><span class="p">)</span>
+                    <span class="k">with</span> <span class="n">open_door</span><span class="p">():</span>
+                        <span class="k">return</span> <span class="k">await</span> <span class="n">original_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
+                    <span class="n">verdict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">verdict</span><span class="p">)</span>
+                <span class="n">held</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">session_hold_refusal</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">held</span><span class="p">)</span>
+                <span class="k">with</span> <span class="n">open_door</span><span class="p">():</span>
+                    <span class="k">return</span> <span class="k">await</span> <span class="n">original_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+            <span class="bp">cls</span><span class="o">.</span><span class="n">write_channel</span> <span class="o">=</span> <span class="n">_guarded_write</span>  <span class="c1"># type: ignore[method-assign]  # wraps the subclass&#39;s own method</span>
+            <span class="c1"># The write past the guard, for an authorized batch that was judged</span>
+            <span class="c1"># and spent whole (:meth:`write_multiple_channels`).</span>
+            <span class="bp">cls</span><span class="o">.</span><span class="n">_unguarded_write_channel</span> <span class="o">=</span> <span class="n">original_write</span>
+
+        <span class="n">original_multi</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">original_multi</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+
+            <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">original_multi</span><span class="p">)</span>
+            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_guarded_multi</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="c1"># Under an authorization a batch is the base class&#39;s: one</span>
+                    <span class="c1"># step for the call, then each operation past the guard.</span>
+                    <span class="k">return</span> <span class="k">await</span> <span class="n">ControlSystemConnector</span><span class="o">.</span><span class="n">write_multiple_channels</span><span class="p">(</span>
+                        <span class="bp">self</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
+                    <span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
+                    <span class="c1"># One verdict for the batch, not one per operation: the</span>
+                    <span class="c1"># whole batch was refused by one answer, and every result</span>
+                    <span class="c1"># must tell the same story about why.</span>
+                    <span class="n">verdict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="p">[</span><span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">addr</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">verdict</span><span class="p">)</span> <span class="k">for</span> <span class="n">addr</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">operations</span><span class="p">]</span>
+                <span class="n">held</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">session_hold_refusal</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="p">[</span><span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">addr</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">held</span><span class="p">)</span> <span class="k">for</span> <span class="n">addr</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">operations</span><span class="p">]</span>
+                <span class="k">with</span> <span class="n">open_door</span><span class="p">():</span>
+                    <span class="k">return</span> <span class="k">await</span> <span class="n">original_multi</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+            <span class="bp">cls</span><span class="o">.</span><span class="n">write_multiple_channels</span> <span class="o">=</span> <span class="n">_guarded_multi</span>  <span class="c1"># type: ignore[method-assign]  # wraps the subclass&#39;s own method</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_write_route_open</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether the route this connector selected at ``connect()`` can carry a write.</span>
+
+<span class="sd">        ``True`` here; a connector that selects a gateway by the verdict at</span>
+<span class="sd">        connect time and refuses a write on the read gateway ``switching``</span>
+<span class="sd">        (EPICS) answers for itself. The write guard asks it before an</span>
+<span class="sd">        authorized write spends its step, so a write that could not go out</span>
+<span class="sd">        costs nothing.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="kc">True</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_resolve_confirm</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether a write to this channel must be confirmed by re-reading it.</span>
+
+<span class="sd">        The limits database is the single home of write policy: the channel&#39;s</span>
+<span class="sd">        own ``confirm``, else ``True``. A connector with no validator has limits</span>
+<span class="sd">        checking disabled and no policy to read, so it takes the fleet default</span>
+<span class="sd">        and confirms.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_limits_validator</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_limits_validator</span><span class="o">.</span><span class="n">resolve_confirm</span><span class="p">(</span><span class="n">channel_address</span><span class="p">))</span>
+
+<div class="viewcode-block" id="ControlSystemConnector.connect">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.connect">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Establish connection to control system.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            config: Control system-specific configuration</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ConnectorUnavailableError: If connection cannot be established</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.disconnect">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.disconnect">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">disconnect</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Close connection to control system and cleanup resources.&quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.read_channel">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.read_channel">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">read_channel</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelValue</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Read current value of a channel.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_address: Address/name of the channel</span>
+<span class="sd">            timeout: Optional timeout in seconds</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ChannelValue with current value, timestamp, and metadata</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ChannelUnreachableError: This channel cannot be reached or did not</span>
+<span class="sd">                answer in time; the connector stays in place</span>
+<span class="sd">            ConnectorUnavailableError: The connector&#39;s own transport is gone</span>
+<span class="sd">            TimeoutError: If operation times out</span>
+<span class="sd">            ValueError: If channel address is invalid</span>
+<span class="sd">            ChannelNotFoundError: The address is not a channel of the facility</span>
+<span class="sd">                (a connector that holds the facility&#39;s address set)</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.write_channel">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.write_channel">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_channel</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Write a value to a channel, confirming it unless asked not to.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_address: Address/name of the channel</span>
+<span class="sd">            value: Value to write</span>
+<span class="sd">            timeout: Optional timeout in seconds</span>
+<span class="sd">            confirm: Whether to re-read the channel and compare, or ``None`` to</span>
+<span class="sd">                let the connector resolve the policy for this channel</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ChannelWriteResult carrying the outcome and what the channel was</span>
+<span class="sd">            seen to hold</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ChannelUnreachableError: This channel cannot be reached or did not</span>
+<span class="sd">                answer in time; the connector stays in place</span>
+<span class="sd">            ConnectorUnavailableError: The connector&#39;s own transport is gone</span>
+<span class="sd">            TimeoutError: If operation times out</span>
+<span class="sd">            ValueError: If value is invalid for this channel</span>
+<span class="sd">            PermissionError: If write access is not allowed</span>
+
+<span class="sd">        Outcomes:</span>
+<span class="sd">            The connector sets exactly one :class:`WriteOutcome` on the result,</span>
+<span class="sd">            and no consumer re-derives a verdict of its own:</span>
+
+<span class="sd">            - ``refused`` — nothing was written; ``refusal_reason`` says why.</span>
+<span class="sd">            - ``failed`` — the value was sent and the control system did not</span>
+<span class="sd">              take it.</span>
+<span class="sd">            - ``confirmed`` — a fresh re-read holds the value sent, in any alarm</span>
+<span class="sd">              state. Alarm state is reported with the write, never raised on.</span>
+<span class="sd">            - ``mismatch`` — the re-read holds a different value. A clamped or</span>
+<span class="sd">              rounded setpoint is reported here, not tolerated.</span>
+<span class="sd">            - ``unconfirmed`` — the value was sent, but not acknowledged in</span>
+<span class="sd">              time or the re-read itself failed, so what the channel holds is</span>
+<span class="sd">              unknown.</span>
+<span class="sd">            - ``unrequested`` — ``confirm=False``: nothing was checked.</span>
+
+<span class="sd">            The comparison is :func:`values_match`, one rule shared by every</span>
+<span class="sd">            connector; there is no configurable tolerance anywhere.</span>
+
+<span class="sd">        Omission sentinel:</span>
+<span class="sd">            ``confirm=None`` means &quot;no opinion&quot; — it is NOT ``False``. A caller</span>
+<span class="sd">            with no opinion leaves the keyword off entirely; the connector then</span>
+<span class="sd">            resolves the policy for this specific channel through</span>
+<span class="sd">            :meth:`_resolve_confirm`: the channel&#39;s own ``confirm`` entry in the</span>
+<span class="sd">            limits database, else ``True``. The limits database is the single</span>
+<span class="sd">            home of write policy.</span>
+
+<span class="sd">            An explicit ``confirm=False`` is an answer and must travel as one, so</span>
+<span class="sd">            every guard on the omission is ``if confirm is not None`` and never</span>
+<span class="sd">            ``if confirm:`` — the truth test would silently turn a declined</span>
+<span class="sd">            confirmation back into &quot;resolve it&quot; and confirm anyway.</span>
+
+<span class="sd">        Two-layer safety model:</span>
+<span class="sd">            **Per-write mechanical safety** lives INSIDE the connector and is applied</span>
+<span class="sd">            per individual channel write: the ``writes_enabled`` gate, limits</span>
+<span class="sd">            validation (min/max/step/writable), and the fail-closed validation path.</span>
+<span class="sd">            This is complete mediation at the write primitive — every write passes</span>
+<span class="sd">            through it.</span>
+
+<span class="sd">            **Per-intent human authorization** is a SEPARATE layer at the tool</span>
+<span class="sd">            boundary: the PreToolUse approval hook (and, for scans, the promote token)</span>
+<span class="sd">            gate the *intent* to write, once per intent — not once per channel write.</span>
+
+<span class="sd">            The two are orthogonal and complementary: the connector cannot be talked</span>
+<span class="sd">            out of a mechanical refusal, and the approval layer cannot substitute for</span>
+<span class="sd">            that refusal.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.write_channel_checked">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.write_channel_checked">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_channel_checked</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Await write_channel and enforce the reference monitor&#39;s denial contract.</span>
+
+<span class="sd">        ``refused`` (policy/limits/validation) -&gt; raises ChannelWriteBlockedError.</span>
+<span class="sd">        ``failed`` / ``mismatch`` / ``unconfirmed`` -&gt; raises ChannelWriteFailedError.</span>
+<span class="sd">        Connection failures and timeouts propagate unchanged.</span>
+<span class="sd">        ``confirmed`` or ``unrequested`` -&gt; returns the ChannelWriteResult.</span>
+
+<span class="sd">        A scan device setter wraps this so any raise aborts the RunEngine, while a</span>
+<span class="sd">        confirmed write returns and the scan proceeds; ``osprey.runtime.write_channel``</span>
+<span class="sd">        routes through it for the same reason. Extra keyword arguments (``confirm``,</span>
+<span class="sd">        ``timeout``) pass straight through to write_channel. The result inspection</span>
+<span class="sd">        itself lives in :func:`raise_for_write_result`, which the multi-channel paths</span>
+<span class="sd">        share.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+            <span class="n">ChannelLimitsViolationError</span><span class="p">,</span>
+            <span class="n">ChannelWriteBlockedError</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ChannelLimitsViolationError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="c1"># A limits refusal is a REFUSAL — normalize it into the unified denial type</span>
+            <span class="c1"># so consumers key on one refusal signal. Connection failures and</span>
+            <span class="c1"># timeouts are not caught here, so they propagate unchanged.</span>
+            <span class="k">raise</span> <span class="n">ChannelWriteBlockedError</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="s2">&quot;LIMITS&quot;</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">))</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+        <span class="k">return</span> <span class="n">raise_for_write_result</span><span class="p">(</span><span class="n">result</span><span class="p">)</span></div>
+
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_read_concurrently</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_addresses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelValue</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read channels concurrently, omitting failed reads and re-raising cancellations.&quot;&quot;&quot;</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span>
+            <span class="o">*</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">timeout</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">channel_addresses</span><span class="p">),</span>
+            <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelValue</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">channel_addresses</span><span class="p">,</span> <span class="n">results</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">result</span>
+            <span class="n">values</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span>
+        <span class="k">return</span> <span class="n">values</span>
+
+<div class="viewcode-block" id="ControlSystemConnector.read_multiple_channels">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.read_multiple_channels">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">read_multiple_channels</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_addresses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelValue</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Read multiple channels efficiently (can be optimized per control system).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_addresses: List of channel addresses to read</span>
+<span class="sd">            timeout: Optional timeout in seconds</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Dictionary mapping channel address to ChannelValue</span>
+<span class="sd">            (May exclude channels that failed to read)</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.write_multiple_channels">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.write_multiple_channels">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_multiple_channels</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Write multiple channels. Override for atomic/batched behavior.</span>
+
+<span class="sd">        Default implementation writes sequentially via write_channel().</span>
+<span class="sd">        Subclasses can override to provide transactional semantics (e.g.,</span>
+<span class="sd">        disabling lattice recalculation between writes in a simulator).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            operations: List of (channel_address, value) tuples</span>
+<span class="sd">            timeout: Optional timeout in seconds</span>
+<span class="sd">            confirm: Whether every channel in the batch is confirmed, or ``None``</span>
+<span class="sd">                to let each channel resolve its own policy</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of ChannelWriteResult in the same order as operations</span>
+
+<span class="sd">        Note:</span>
+<span class="sd">            A batch carries one ``confirm`` for every channel in it, so an omitted</span>
+<span class="sd">            ``confirm`` is *not* resolved here — the keyword is simply left off</span>
+<span class="sd">            each per-channel ``write_channel()`` call, and each channel then</span>
+<span class="sd">            resolves its own policy from the limits database as documented on</span>
+<span class="sd">            :meth:`write_channel`. That is what makes a batch write behave like a</span>
+<span class="sd">            sequence of single writes.</span>
+
+<span class="sd">            An explicit ``confirm`` — ``False`` every bit as much as ``True`` — is</span>
+<span class="sd">            forwarded unchanged to every channel, which is why the guard below</span>
+<span class="sd">            tests ``is not None`` rather than the value&#39;s truth.</span>
+
+<span class="sd">            In a process that names a program&#39;s write authorization this is</span>
+<span class="sd">            every batch, a subclass&#39;s own batch included: the whole call is</span>
+<span class="sd">            judged and its one step spent first, and each operation is then</span>
+<span class="sd">            written past the guard.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="n">timeout</span><span class="p">}</span>
+        <span class="k">if</span> <span class="n">confirm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;confirm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">confirm</span>
+        <span class="n">authorization</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">operations</span>
+            <span class="p">]</span>
+        <span class="c1"># One write call under a program&#39;s authorization: judged whole and its</span>
+        <span class="c1"># one step spent before any put; a refusal writes nothing. Each</span>
+        <span class="c1"># operation then meets the connector&#39;s own checks, limits included,</span>
+        <span class="c1"># without being judged or spent again.</span>
+        <span class="n">batch</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">operations</span><span class="p">)</span>
+        <span class="n">refused</span> <span class="o">=</span> <span class="n">_authorized_refusal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">authorization</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">refused</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">refused</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">]</span>
+        <span class="n">write</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">_unguarded_write_channel</span>
+        <span class="k">with</span> <span class="n">open_door</span><span class="p">():</span>
+            <span class="k">return</span> <span class="p">[</span><span class="k">await</span> <span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.subscribe">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.subscribe">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">subscribe</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">callback</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">ChannelValue</span><span class="p">],</span> <span class="kc">None</span><span class="p">],</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">on_connection</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">bool</span><span class="p">],</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Subscribe to channel changes.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_address: Address/name of the channel</span>
+<span class="sd">            callback: Function called when value changes (receives ChannelValue)</span>
+<span class="sd">            on_connection: Optional function told the channel&#39;s connection state:</span>
+<span class="sd">                ``True`` when it connects (before the first value of that</span>
+<span class="sd">                connection), ``False`` when it drops. A channel that never</span>
+<span class="sd">                connects reports nothing. Called on the event loop, like</span>
+<span class="sd">                ``callback``. Connectors whose control system reports no</span>
+<span class="sd">                connection state (DOOCS, Tango) accept and ignore it. A</span>
+<span class="sd">                subclass whose ``subscribe`` does not take it is told ``True``</span>
+<span class="sd">                before its first value by the base class instead.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Subscription ID for later unsubscribe</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.unsubscribe">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.unsubscribe">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">unsubscribe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">subscription_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Cancel subscription to channel changes.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            subscription_id: Subscription ID returned by subscribe()</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.wait_stale">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.wait_stale">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">wait_stale</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Raise :class:`~osprey_connectors.errors.ConnectorUnavailableError` once this connector&#39;s transport has gone stale.</span>
+
+<span class="sd">        Stale means the control system serves a channel again while this</span>
+<span class="sd">        process&#39;s client library still holds it down and will not notice on its</span>
+<span class="sd">        own; only a new connector in a new process cures it. That is a lost</span>
+<span class="sd">        connector, so it is raised as the lost-connector root, and the</span>
+<span class="sd">        supervisor that owns the connector&#39;s lifetime replaces it as it would</span>
+<span class="sd">        after any :class:`~osprey_connectors.errors.ConnectorUnavailableError`</span>
+<span class="sd">        (:mod:`osprey_connectors.recovery`). It never returns normally. A</span>
+<span class="sd">        connector that can tell (EPICS with a name server) overrides this</span>
+<span class="sd">        method.</span>
+
+<span class="sd">        This default serves every connector where staleness cannot occur or</span>
+<span class="sd">        cannot be told (DOOCS, Tango, ...): it waits for ever. A caller that is</span>
+<span class="sd">        shutting down cancels it.</span>
+
+<span class="sd">        An overriding connector counts only channels that connected in this</span>
+<span class="sd">        process, so in the successor of a stale process a channel that never</span>
+<span class="sd">        comes back cannot drive a respawn loop.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span><span class="o">.</span><span class="n">create_future</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.channel_key">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.channel_key">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">channel_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The one name every spelling of a channel&#39;s address shares on this control system.</span>
+
+<span class="sd">        A caller that must treat two addresses as one channel (a session</span>
+<span class="sd">        admitting one write per channel at a time) compares these keys; the</span>
+<span class="sd">        read or write itself still goes to the address as given. Pure and</span>
+<span class="sd">        synchronous. This default strips surrounding whitespace; a connector</span>
+<span class="sd">        whose protocol spells one channel several ways (EPICS: ``ca://X``,</span>
+<span class="sd">        ``X.VAL`` and ``X``) overrides it.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">address</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.get_metadata">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.get_metadata">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelMetadata</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get metadata about a channel.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_address: Address/name of the channel</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ChannelMetadata with units, alarm status, description, and (where the</span>
+<span class="sd">            control system reports one) a display range</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ChannelUnreachableError: This channel cannot be reached; the</span>
+<span class="sd">                connector stays in place</span>
+<span class="sd">            ConnectorUnavailableError: The connector&#39;s own transport is gone</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ControlSystemConnector.validate_channel">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.validate_channel">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">validate_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check if channel exists and is accessible.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_address: Address/name of the channel</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True if channel is valid and accessible</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+</div>
+
+
+
+<span class="c1">#: The base class&#39;s own ``_writes_enabled``, which a subclass may override.</span>
+<span class="n">_BASE_WRITES_ENABLED</span> <span class="o">=</span> <span class="n">ControlSystemConnector</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">[</span><span class="s2">&quot;_writes_enabled&quot;</span><span class="p">]</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

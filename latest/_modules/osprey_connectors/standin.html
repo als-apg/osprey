@@ -1,0 +1,705 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.standin &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/standin';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/standin.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.standin</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.standin</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;The deployment&#39;s stand-in, decided in one place.</span>
+
+<span class="sd">``virtual_accelerator.live_standin: &lt;port&gt;`` stands a *second* virtual</span>
+<span class="sd">accelerator up — its own physics state, its own deterministic readout</span>
+<span class="sd">perturbation — and wires it in as the deployment&#39;s own ``standin`` control</span>
+<span class="sd">target, dialled through its own ``control_system.connector.live_standin``</span>
+<span class="sd">block. It is not a relabelled ``live``: ``live`` always means the facility&#39;s</span>
+<span class="sd">authored ``epics`` block, and an operator who selects ``standin`` has already</span>
+<span class="sd">said which machine they mean. Nothing about the stand-in pretends to be a</span>
+<span class="sd">simulation — the gateways really do dial it, ``real_machine`` stays true, and</span>
+<span class="sd">every warning, approval prompt and write refusal an operator meets is the one</span>
+<span class="sd">hardware shows.</span>
+
+<span class="sd">One predicate lives here. :func:`live_standin_active` asks about **an</span>
+<span class="sd">endpoint, right now** — is the stand-in container actually up where a</span>
+<span class="sd">``standin`` session would dial? It may not be re-derived by a caller. **A</span>
+<span class="sd">guard that re-implements what the reader resolves can disagree, and the</span>
+<span class="sd">disagreement is a bypass** — the same reason :mod:`osprey_connectors.types`</span>
+<span class="sd">owns the target resolvers and :mod:`osprey_connectors.honesty` owns the</span>
+<span class="sd">archiver pairing.</span>
+
+<span class="sd">Nothing here is about the archive. The stand-in has no store of its own: it</span>
+<span class="sd">rehearses the facility&#39;s real machine and is shown that machine&#39;s past, while</span>
+<span class="sd">the deployment&#39;s own store is the virtual accelerator&#39;s — see</span>
+<span class="sd">:mod:`osprey_connectors.archive_targets`, which decides whose history an</span>
+<span class="sd">``archiver:`` block holds, and reads no stand-in key to do so.</span>
+
+<span class="sd">:func:`archive_belongs_to_standin`, :data:`ARCHIVER_RECORDER_SERVICE` and</span>
+<span class="sd">:data:`DEPLOYED_SERVICES_KEY` are the predicate that attribution replaces,</span>
+<span class="sd">kept while the framework releases that import them are supported and removed</span>
+<span class="sd">in a later connectors release. Nothing new reads them.</span>
+
+<span class="sd">``live_standin_active`` — the ``standin`` target&#39;s deployed-container gate</span>
+<span class="sd">----------------------------------------------------------------------------</span>
+
+<span class="sd">Since the stand-in is its own target, nothing here has to rename anything: the</span>
+<span class="sd">target carries its own name, and an operator on ``standin`` is told</span>
+<span class="sd">``standin``. What still has to be established is that the endpoint that target</span>
+<span class="sd">resolves to really is *this deployment&#39;s* stand-in container, and not some</span>
+<span class="sd">other listener that happens to sit on this host. That is the question this</span>
+<span class="sd">predicate answers, and its three conjuncts must all hold:</span>
+
+<span class="sd">1. **The deployment built a stand-in.** ``services.live_standin.port`` is set</span>
+<span class="sd">   and names a port. The build writes that block only when a profile asked for</span>
+<span class="sd">   a stand-in, so its presence is the deployment saying it stood a second</span>
+<span class="sd">   virtual accelerator up.</span>
+<span class="sd">2. **The selected endpoint is that port.** The endpoint a session would</span>
+<span class="sd">   actually dial equals it. A config whose gateways were later moved to the</span>
+<span class="sd">   real machine&#39;s port is dialling a real machine, whatever a leftover</span>
+<span class="sd">   ``services:`` block still says — the verdict follows the endpoint, never the</span>
+<span class="sd">   leftover.</span>
+<span class="sd">3. **The selected endpoint is loopback.** ``127.0.0.1``, ``::1``, or the</span>
+<span class="sd">   literal ``localhost``. A container on this host is reached over the loopback</span>
+<span class="sd">   interface; anything routed off the host is a different machine.</span>
+
+<span class="sd">Deliberately **no** ``deployed_services`` conjunct. Attached projects and</span>
+<span class="sd">tier renders carry ``services: {}`` except for the keys their reach contract</span>
+<span class="sd">projects, so a conjunct on the deployed-services list would resolve to &quot;not the</span>
+<span class="sd">stand-in&quot; on exactly the renders a multi-user deployment hands its operators —</span>
+<span class="sd">the target offered to a single-user session and withheld from the same machine</span>
+<span class="sd">seen through a tier render. The projected port is the whole evidence, and it is</span>
+<span class="sd">enough.</span>
+
+<span class="sd">An SSH tunnel is the case this predicate must *not* claim. Forwarding a real</span>
+<span class="sd">gateway to ``localhost:5064`` satisfies loopback and nothing else: either the</span>
+<span class="sd">deployment stood no stand-in up (no ``services.live_standin`` block at all), or</span>
+<span class="sd">it stood one up on another port. Conjunct 1 or 2 fails, the endpoint is treated</span>
+<span class="sd">as a real machine, and that is the truth — the operator is one hop from</span>
+<span class="sd">hardware.</span>
+
+<span class="sd">An empty or unparseable host answers ``False`` for the reason every honesty</span>
+<span class="sd">predicate in this package fails closed: the expensive mistake is telling</span>
+<span class="sd">someone that the machine in front of them is only a stand-in when it is not.</span>
+
+<span class="sd">The config is read as nested sections only, because that is how the rendered</span>
+<span class="sd">``config.yml`` is read by everything that acts on it. A top-level</span>
+<span class="sd">``services.live_standin.port:`` line in that file configures nothing, and</span>
+<span class="sd">reading one here would let an inert line vouch for a machine.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._config_read</span><span class="w"> </span><span class="kn">import</span> <span class="n">LOOPBACK_HOSTNAME</span><span class="p">,</span> <span class="n">coerce_port</span><span class="p">,</span> <span class="n">is_loopback</span><span class="p">,</span> <span class="n">nested_value</span>
+
+<span class="c1">#: Where a rendered ``config.yml`` states the stand-in&#39;s Channel Access port,</span>
+<span class="c1">#: dotted as the build&#39;s service injector projects it and as this module walks</span>
+<span class="c1">#: it. One key, because one key is the whole evidence that a stand-in exists.</span>
+<span class="n">LIVE_STANDIN_PORT_KEY</span> <span class="o">=</span> <span class="s2">&quot;services.live_standin.port&quot;</span>
+
+<span class="c1">#: The top-level list of services a rendered ``config.yml`` deploys. Empty or</span>
+<span class="c1">#: absent on an attached render, which deploys none. Read only by</span>
+<span class="c1">#: :func:`archive_belongs_to_standin`; goes with it.</span>
+<span class="n">DEPLOYED_SERVICES_KEY</span> <span class="o">=</span> <span class="s2">&quot;deployed_services&quot;</span>
+
+<span class="c1">#: The ``deployed_services`` entry naming the host-side writer that samples this</span>
+<span class="c1">#: deployment&#39;s machine into its archive. Goes with :func:`archive_belongs_to_standin`.</span>
+<span class="n">ARCHIVER_RECORDER_SERVICE</span> <span class="o">=</span> <span class="s2">&quot;archiver_recorder&quot;</span>
+
+<span class="c1">#: Where a rendered ``config.yml`` carries the recorder&#39;s own block, written by</span>
+<span class="c1">#: the build&#39;s service injector on a deploying render and projected into an</span>
+<span class="c1">#: attached render from its host&#39;s. Goes with :func:`archive_belongs_to_standin`.</span>
+<span class="n">_ARCHIVER_RECORDER_BLOCK_KEY</span> <span class="o">=</span> <span class="s2">&quot;services.archiver_recorder&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;ARCHIVER_RECORDER_SERVICE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;DEPLOYED_SERVICES_KEY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LIVE_STANDIN_PORT_KEY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LOOPBACK_HOSTNAME&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;archive_belongs_to_standin&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;live_standin_active&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;live_standin_port&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="live_standin_port">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.standin.live_standin_port">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">live_standin_port</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The Channel Access port the deployment&#39;s stand-in serves, if it built one.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The full config mapping, as loaded from ``config.yml`` — not the</span>
+<span class="sd">            ``services:`` section, since the whole point of the dotted key is</span>
+<span class="sd">            that one walk answers for every reader.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The port, or ``None`` when the deployment named no stand-in. ``None``</span>
+<span class="sd">        also covers a value that names no port — blank, a mapping, a bare</span>
+<span class="sd">        ``true`` — because a key that cannot be dialled is not a deployment</span>
+<span class="sd">        saying where its stand-in is.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">coerce_port</span><span class="p">(</span><span class="n">nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">LIVE_STANDIN_PORT_KEY</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="live_standin_active">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.standin.live_standin_active">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">live_standin_active</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">endpoint_host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">endpoint_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *endpoint* is this deployment&#39;s stand-in rather than a real machine.</span>
+
+<span class="sd">    The ``standin`` target&#39;s deployed-container gate: all three conjuncts</span>
+<span class="sd">    described in the module docstring must hold. Anything less — no stand-in</span>
+<span class="sd">    built, a port that no longer matches, a host that is not loopback or cannot</span>
+<span class="sd">    be read at all — answers ``False``, which is the honest default: the</span>
+<span class="sd">    endpoint is treated as a real machine until the config proves otherwise.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The full config mapping, as loaded from ``config.yml``.</span>
+<span class="sd">        endpoint_host: The host a session on the ``standin`` target would dial.</span>
+<span class="sd">        endpoint_port: The port it would dial, or ``None`` when the deployment</span>
+<span class="sd">            has not resolved one — in which case there is no endpoint to match</span>
+<span class="sd">            and no stand-in to claim.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``True`` only for an endpoint that is the deployment&#39;s own stand-in.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">endpoint_port</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="n">port</span> <span class="o">=</span> <span class="n">live_standin_port</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">port</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">port</span> <span class="o">!=</span> <span class="n">endpoint_port</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="n">is_loopback</span><span class="p">(</span><span class="n">endpoint_host</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="archive_belongs_to_standin">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.standin.archive_belongs_to_standin">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">archive_belongs_to_standin</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the deployment built a stand-in and runs the archive recorder.</span>
+
+<span class="sd">    The predicate :mod:`osprey_connectors.archive_targets` replaces: under</span>
+<span class="sd">    attribution the deployment&#39;s store is the virtual accelerator&#39;s and no</span>
+<span class="sd">    store belongs to the stand-in, so nothing in this package reads this. It</span>
+<span class="sd">    is kept, unchanged, for the framework releases that still import it — the</span>
+<span class="sd">    ``live`` switch gate, the recorder&#39;s enablement gate and the reach contract</span>
+<span class="sd">    — and is removed in a later connectors release once none does.</span>
+
+<span class="sd">    True exactly when :func:`live_standin_port` names a port *and* the render</span>
+<span class="sd">    says the deployment runs the recorder: ``archiver_recorder`` in</span>
+<span class="sd">    ``deployed_services``, or a non-empty recorder block under</span>
+<span class="sd">    :data:`_ARCHIVER_RECORDER_BLOCK_KEY` (the spelling an attached render is</span>
+<span class="sd">    told). No endpoint is consulted.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The full config mapping, as loaded from ``config.yml``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``True`` only for a render whose deployment records beside its stand-in.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">live_standin_port</span><span class="p">(</span><span class="n">config</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="n">deployed</span> <span class="o">=</span> <span class="n">nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">DEPLOYED_SERVICES_KEY</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">deployed</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">and</span> <span class="n">ARCHIVER_RECORDER_SERVICE</span> <span class="ow">in</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">deployed</span><span class="p">}:</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="n">block</span> <span class="o">=</span> <span class="n">nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">_ARCHIVER_RECORDER_BLOCK_KEY</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">bool</span><span class="p">(</span><span class="n">block</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

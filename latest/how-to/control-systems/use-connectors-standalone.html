@@ -1,0 +1,877 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Use the Connectors Without the Framework &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/control-systems/use-connectors-standalone';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/control-systems/use-connectors-standalone.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Use the Virtual Accelerator" href="use-virtual-accelerator.html" />
+    <link rel="prev" title="Use Connectors" href="use-connectors.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Use the Connectors Without the Framework</a></li>
+<li class="toctree-l2"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="code-review.html">Review the Agent’s Code</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Control Systems</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Use the Connectors Without the Framework</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="use-the-connectors-without-the-framework">
+<span id="how-to-use-connectors-standalone"></span><h1>Use the Connectors Without the Framework<a class="headerlink" href="#use-the-connectors-without-the-framework" title="Link to this heading">#</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> installs on its own, without the agent, the web terminal
+or a built deployment. A script, a notebook or a service of your own can read a
+control system and its archiver through the same connectors OSPREY uses, and
+gets their error taxonomy and their write safety with them.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>osprey-connectors
+</pre></div>
+</div>
+<p>This page covers reading. A connector built in a script refuses every write
+before anything is sent; <a class="reference internal" href="#when-a-write-is-refused">When a write is refused</a> says why and where writing
+is decided.</p>
+<p>Every script and output on this page is a file the test suite runs, so what is
+shown is what the package does.</p>
+<section id="read-channels">
+<h2>Read channels<a class="headerlink" href="#read-channels" title="Link to this heading">#</a></h2>
+<p>A connector is built from a configuration dict by its type name. The dict has
+the shape of a deployment’s <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> section:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">read_channels.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Read channels from an EPICS control system, with no OSPREY deployment.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
+
+<span class="n">CONFIG</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;epics&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;connector&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;epics&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;gateways&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;read_only&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;address&quot;</span><span class="p">:</span> <span class="s2">&quot;cagw.facility.edu&quot;</span><span class="p">,</span> <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="mi">5064</span><span class="p">}},</span>
+            <span class="s2">&quot;timeout_s&quot;</span><span class="p">:</span> <span class="mf">5.0</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="p">},</span>
+<span class="p">}</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">register_builtin_connectors</span><span class="p">()</span>  <span class="c1"># registers the built-in type names; idempotent</span>
+    <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">(</span><span class="n">CONFIG</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reading</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s2">&quot;DEMO:READBACK&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">reading</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">reading</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">units</span><span class="p">)</span>
+
+        <span class="n">values</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_multiple_channels</span><span class="p">([</span><span class="s2">&quot;DEMO:SETPOINT&quot;</span><span class="p">,</span> <span class="s2">&quot;DEMO:MODE&quot;</span><span class="p">])</span>
+        <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">values</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">channel</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">channel</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">enum_label</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+</div>
+</div>
+<p>Against an IOC serving those three records, it prints:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>1.5 A
+DEMO:SETPOINT 1.5 None
+DEMO:MODE 1 STANDBY
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">create_control_system_connector</span></code> connects before it returns. A state channel
+reads as its integer index, with the state’s name in <code class="docutils literal notranslate"><span class="pre">metadata.enum_label</span></code>.
+<code class="docutils literal notranslate"><span class="pre">read_multiple_channels</span></code> leaves out a channel that failed to read rather than
+raising, so check the keys of what it returns.</p>
+<p>Every connector answers the same methods. To read a DOOCS or Tango control
+system, change <code class="docutils literal notranslate"><span class="pre">type</span></code> and its <code class="docutils literal notranslate"><span class="pre">connector</span></code> block;
+<a class="reference internal" href="use-connectors.html"><span class="doc">Use Connectors</span></a> has the block for each, and the client library the DOOCS
+and Tango connectors need, which this package does not install.</p>
+</section>
+<section id="read-history">
+<h2>Read history<a class="headerlink" href="#read-history" title="Link to this heading">#</a></h2>
+<p>An archiver connector is built the same way, from the shape of a deployment’s
+<code class="docutils literal notranslate"><span class="pre">archiver:</span></code> section, and returns history as a pandas <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code>:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">read_history.py</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Read archived history from the EPICS Archiver Appliance, with no OSPREY deployment.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">UTC</span><span class="p">,</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
+
+<span class="n">ARCHIVER</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;epics_archiver&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;settings&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://archiver.facility.edu:8443&quot;</span><span class="p">,</span> <span class="s2">&quot;timeout_s&quot;</span><span class="p">:</span> <span class="mi">30</span><span class="p">},</span>
+<span class="p">}</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">register_builtin_connectors</span><span class="p">()</span>
+    <span class="n">archiver</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_archiver_connector</span><span class="p">(</span><span class="n">ARCHIVER</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">UTC</span><span class="p">)</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="k">await</span> <span class="n">archiver</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span>
+            <span class="n">channels</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;DEMO:READBACK&quot;</span><span class="p">,</span> <span class="s2">&quot;DEMO:SETPOINT&quot;</span><span class="p">],</span>
+            <span class="n">start_date</span><span class="o">=</span><span class="n">end</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+            <span class="n">end_date</span><span class="o">=</span><span class="n">end</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">archiver</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+</div>
+</div>
+<p>The frame is long: one row per sample, with <code class="docutils literal notranslate"><span class="pre">timestamp</span></code> (UTC), <code class="docutils literal notranslate"><span class="pre">channel</span></code>
+and <code class="docutils literal notranslate"><span class="pre">value</span></code> columns:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>                  timestamp        channel  value
+0 2026-11-04 23:33:24+00:00  DEMO:READBACK    1.5
+1 2026-11-04 23:34:24+00:00  DEMO:READBACK    1.6
+2 2026-11-04 23:35:24+00:00  DEMO:READBACK    1.7
+3 2026-11-04 23:33:24+00:00  DEMO:SETPOINT    1.5
+4 2026-11-04 23:34:24+00:00  DEMO:SETPOINT    1.6
+5 2026-11-04 23:35:24+00:00  DEMO:SETPOINT    1.7
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">get_data</span></code> also takes <code class="docutils literal notranslate"><span class="pre">precision_ms</span></code>, a bin width, and <code class="docutils literal notranslate"><span class="pre">processing</span></code>, how
+each bin is reduced; the archiver section of
+<a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a> says what each mode returns.</p>
+</section>
+<section id="what-needs-a-deployment">
+<h2>What needs a deployment<a class="headerlink" href="#what-needs-a-deployment" title="Link to this heading">#</a></h2>
+<p>Three things on the connector side are a deployment’s, and a script without one
+does without them:</p>
+<dl>
+<dt>The simulator</dt><dd><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> and <code class="docutils literal notranslate"><span class="pre">mock_archiver</span></code> serve the simulated machine of
+a built facility, and refuse to connect without the simulator view
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes. Every other connector talks to a real system.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">config.yml</span></code></dt><dd><p>A few facts are deployment-wide and read from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> rather than
+from the dict a connector is built from: the facility’s timezone, the write
+tier and the channel limits. A script that has none reads them at their
+defaults and logs a warning that it fell back to UTC. To set the timezone,
+name a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> that states <code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">config.yml</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/Los_Angeles</span>
+</pre></div>
+</div>
+</div>
+</dd>
+<dt>Writes</dt><dd><p>Every write passes the verdict in <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>: the write tier,
+the machine the connector writes to, the login it writes for, and that
+login’s switch for that machine, the first refusal winning. A connector built
+in a script names no machine and has no switch to read, so every write is
+refused before anything is sent.</p>
+</dd>
+</dl>
+</section>
+<section id="when-a-write-is-refused">
+<h2>When a write is refused<a class="headerlink" href="#when-a-write-is-refused" title="Link to this heading">#</a></h2>
+<p>The refusal is the package’s ordinary one.
+<a class="reference internal" href="../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.write_channel" title="osprey_connectors.control_system.ControlSystemConnector.write_channel"><code class="xref py py-meth docutils literal notranslate"><span class="pre">write_channel()</span></code></a>
+returns a result whose <code class="docutils literal notranslate"><span class="pre">outcome</span></code> is <code class="docutils literal notranslate"><span class="pre">refused</span></code>;
+<code class="docutils literal notranslate"><span class="pre">write_channel_checked</span></code> raises
+<a class="reference internal" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelWriteBlockedError" title="osprey_connectors.errors.ChannelWriteBlockedError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code></a>, whose message ends
+with the reason. Built from the same <code class="docutils literal notranslate"><span class="pre">CONFIG</span></code> as above:</p>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">write_refused.py</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">register_builtin_connectors</span><span class="p">()</span>
+    <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">(</span><span class="n">CONFIG</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_channel_checked</span><span class="p">(</span><span class="s2">&quot;DEMO:SETPOINT&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">ChannelWriteBlockedError</span> <span class="k">as</span> <span class="n">refused</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">refused</span><span class="o">.</span><span class="n">reason</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">refused</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<p>prints</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>WRITES_DISABLED
+Write to &#39;DEMO:SETPOINT&#39; blocked: Writes are refused because this login&#39;s write tier does not allow them; ask the deployment admin.
+[osprey-refusal: tier_never]
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">tier_never</span></code> is the answer with no <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>; with the tier armed in one,
+the next term answers <code class="docutils literal notranslate"><span class="pre">target_unknown</span></code>. Writing is decided by a deployment, so
+a program that has to write runs in one and is let write by a person: from the
+switch, or, for a program with nobody at a prompt, through a bounded
+<a class="reference internal" href="use-connectors.html#how-to-write-from-a-program"><span class="std std-ref">write authorization</span></a>.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../reference/connectors-api/index.html"><span class="doc">osprey-connectors API</span></a></dt><dd><p>Every public name of the package.</p>
+</dd>
+<dt><a class="reference internal" href="use-connectors.html"><span class="doc">Use Connectors</span></a></dt><dd><p>The configuration block of every connector.</p>
+</dd>
+<dt><a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a></dt><dd><p>What every connector must do: large values, write confirmation, who may
+write, and the archiver contract.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="use-connectors.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Use Connectors</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="use-virtual-accelerator.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Use the Virtual Accelerator</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-channels">Read channels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-history">Read history</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-needs-a-deployment">What needs a deployment</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-write-is-refused">When a write is refused</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/control-systems/use-connectors-standalone.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

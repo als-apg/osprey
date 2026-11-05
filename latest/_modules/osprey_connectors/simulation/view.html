@@ -1,0 +1,1147 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.simulation.view &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/simulation/view';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/simulation/view.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="../simulation.html" class="nav-link">osprey_connectors.simulation</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.simulation.view</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.simulation.view</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;The simulator view a build writes, and the one reader of it.</span>
+
+<span class="sd">``osprey build`` writes each render&#39;s simulator view into</span>
+<span class="sd">``&lt;render&gt;/data/simulator/``; this module names its files and their schemas</span>
+<span class="sd">and opens it. Every reader of a view opens it through :class:`SimulatorView`,</span>
+<span class="sd">which refuses a file whose ``schema`` is not the one this OSPREY reads, so a</span>
+<span class="sd">render from an older OSPREY is rebuilt rather than misread.</span>
+
+<span class="sd">A wiring record of a physics model carries what its engine&#39;s ``describe()``</span>
+<span class="sd">stated at build time: its ``role`` (``setpoint``, ``readback``, ``monitor``</span>
+<span class="sd">or ``output``), the transverse ``plane`` it steers or reads (``x``, ``y`` or</span>
+<span class="sd">``None``) and its ``refresh`` (``pass`` or ``periodic``). A ``readback`` is</span>
+<span class="sd">any read of an element&#39;s setting, paired with a setpoint or not; a reader</span>
+<span class="sd">wanting the readback of a setpoint reads that setpoint channel&#39;s ``pair``.</span>
+
+<span class="sd">The module imports only the standard library and ``osprey_connectors``, so a</span>
+<span class="sd">reader that must not load a model can open a view.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Iterator</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span><span class="p">,</span> <span class="n">PurePosixPath</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">types</span><span class="w"> </span><span class="kn">import</span> <span class="n">MappingProxyType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;ADDRESSES_FILE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ADDRESSES_SCHEMA&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;DECKS_DIR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;NO_VIEW_MESSAGE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;PLANES&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;REFRESH&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ROLES&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SCENARIOS_DIR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SCENARIOS_FILE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SCENARIOS_SCHEMA&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SCHEMAS&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SEEDS_FILE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SEEDS_SCHEMA&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SERVED_MODELS_FILE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SERVED_MODELS_SCHEMA&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;TEXTURE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;VARIABLES_FILE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;VARIABLES_SCHEMA&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;VIEW_RELPATH&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Binding&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Channel&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Model&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;NoSimulatorView&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SimulatorView&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ViewSchemaError&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1">#: The view&#39;s directory under a render.</span>
+<span class="n">VIEW_RELPATH</span> <span class="o">=</span> <span class="n">PurePosixPath</span><span class="p">(</span><span class="s2">&quot;data/simulator&quot;</span><span class="p">)</span>
+
+<span class="n">SERVED_MODELS_FILE</span> <span class="o">=</span> <span class="s2">&quot;served_models.json&quot;</span>
+<span class="n">SERVED_MODELS_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.served_models/1&quot;</span>
+<span class="n">ADDRESSES_FILE</span> <span class="o">=</span> <span class="s2">&quot;addresses.json&quot;</span>
+<span class="n">ADDRESSES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.addresses/1&quot;</span>
+<span class="n">VARIABLES_FILE</span> <span class="o">=</span> <span class="s2">&quot;variables.json&quot;</span>
+<span class="n">VARIABLES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.simulator/2&quot;</span>
+<span class="n">SEEDS_FILE</span> <span class="o">=</span> <span class="s2">&quot;seeds.json&quot;</span>
+<span class="n">SEEDS_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.seeds/2&quot;</span>
+<span class="n">SCENARIOS_FILE</span> <span class="o">=</span> <span class="s2">&quot;scenarios.json&quot;</span>
+<span class="n">SCENARIOS_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.scenarios/3&quot;</span>
+<span class="c1">#: The directory holding a byte copy of each deck-bearing model&#39;s deck.</span>
+<span class="n">DECKS_DIR</span> <span class="o">=</span> <span class="s2">&quot;decks&quot;</span>
+<span class="c1">#: The directory holding each scenario&#39;s attached files, ``scenarios/&lt;name&gt;/``,</span>
+<span class="c1">#: under the facility tree and under the view alike.</span>
+<span class="n">SCENARIOS_DIR</span> <span class="o">=</span> <span class="s2">&quot;scenarios&quot;</span>
+
+<span class="c1">#: Each view file and the schema it carries.</span>
+<span class="n">SCHEMAS</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="n">SERVED_MODELS_FILE</span><span class="p">:</span> <span class="n">SERVED_MODELS_SCHEMA</span><span class="p">,</span>
+        <span class="n">ADDRESSES_FILE</span><span class="p">:</span> <span class="n">ADDRESSES_SCHEMA</span><span class="p">,</span>
+        <span class="n">VARIABLES_FILE</span><span class="p">:</span> <span class="n">VARIABLES_SCHEMA</span><span class="p">,</span>
+        <span class="n">SEEDS_FILE</span><span class="p">:</span> <span class="n">SEEDS_SCHEMA</span><span class="p">,</span>
+        <span class="n">SCENARIOS_FILE</span><span class="p">:</span> <span class="n">SCENARIOS_SCHEMA</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+
+<span class="c1">#: The engine of the model that serves every channel no physics model wires.</span>
+<span class="n">TEXTURE</span> <span class="o">=</span> <span class="s2">&quot;texture&quot;</span>
+
+<span class="c1">#: The roles a wiring record&#39;s description names.</span>
+<span class="n">ROLES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;setpoint&quot;</span><span class="p">,</span> <span class="s2">&quot;readback&quot;</span><span class="p">,</span> <span class="s2">&quot;monitor&quot;</span><span class="p">,</span> <span class="s2">&quot;output&quot;</span><span class="p">)</span>
+<span class="c1">#: The planes a wiring record&#39;s description names; ``None`` is no plane.</span>
+<span class="n">PLANES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">)</span>
+<span class="c1">#: The refresh a wiring record&#39;s description names: ``pass`` with each</span>
+<span class="c1">#: write&#39;s solve, ``periodic`` with the periodic solve alone.</span>
+<span class="n">REFRESH</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;pass&quot;</span><span class="p">,</span> <span class="s2">&quot;periodic&quot;</span><span class="p">)</span>
+
+<span class="c1">#: The text a missing view reports.</span>
+<span class="n">NO_VIEW_MESSAGE</span> <span class="o">=</span> <span class="s2">&quot;no simulator view at </span><span class="si">{path}</span><span class="s2">: run osprey build&quot;</span>
+
+<span class="c1">#: The keys a wiring record&#39;s description adds.</span>
+<span class="n">_DESCRIPTION_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;role&quot;</span><span class="p">,</span> <span class="s2">&quot;plane&quot;</span><span class="p">,</span> <span class="s2">&quot;refresh&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="NoSimulatorView">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.NoSimulatorView">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">NoSimulatorView</span><span class="p">(</span><span class="ne">LookupError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The place holds no simulator view: it has no ``addresses.json``.&quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="ViewSchemaError">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.ViewSchemaError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ViewSchemaError</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A view file&#39;s ``schema`` is not the one this OSPREY reads, or its shape breaks that schema.&quot;&quot;&quot;</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_freeze</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A read-only copy of a JSON value: mappings as proxies, lists as tuples.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">MappingProxyType</span><span class="p">({</span><span class="n">key</span><span class="p">:</span> <span class="n">_freeze</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">items</span><span class="p">()})</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">_freeze</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">value</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">value</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">found</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">expected</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ViewSchemaError</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2"> is schema </span><span class="si">{</span><span class="n">found</span><span class="si">!r}</span><span class="s2">; this OSPREY reads </span><span class="si">{</span><span class="n">expected</span><span class="si">!r}</span><span class="s2">: rebuild with osprey build&quot;</span>
+    <span class="p">)</span>
+
+
+<div class="viewcode-block" id="Channel">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.Channel">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Channel</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One channel of the view, as ``variables.json`` states it.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        address: The channel&#39;s address.</span>
+<span class="sd">        role: The facility file&#39;s role, ``readback`` when it states none.</span>
+<span class="sd">        pair: A setpoint&#39;s readback, itself when it names none; ``None`` on</span>
+<span class="sd">            any other role.</span>
+<span class="sd">        value_type: The channel&#39;s value type.</span>
+<span class="sd">        unit: The channel&#39;s unit, or ``None``.</span>
+<span class="sd">        description: The channel&#39;s description, or ``None``.</span>
+<span class="sd">        writable: Whether a write to the channel is allowed.</span>
+<span class="sd">        value_range: ``(min, max)`` from the channel&#39;s limits record, or</span>
+<span class="sd">            ``None``.</span>
+<span class="sd">        owner: The model wiring the address, else ``texture``.</span>
+<span class="sd">        on: The node the channel is on, ``{device: id}`` or ``{place: id}``,</span>
+<span class="sd">            or ``None``.</span>
+<span class="sd">        options: An enum channel&#39;s options, or ``None``.</span>
+<span class="sd">        shape: A waveform channel&#39;s shape, or ``None``.</span>
+<span class="sd">        precision: A float channel&#39;s display precision, or ``None``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">address</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">role</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">pair</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">value_type</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">writable</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">value_range</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">on</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">options</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">shape</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">precision</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="Channel.from_entry">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.Channel.from_entry">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_entry</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">entry</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Channel</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read one channel entry of ``variables.json``.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ViewSchemaError: the entry lacks a key every channel carries.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+                <span class="n">address</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]),</span>
+                <span class="n">role</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;role&quot;</span><span class="p">],</span>
+                <span class="n">pair</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;pair&quot;</span><span class="p">],</span>
+                <span class="n">value_type</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;value_type&quot;</span><span class="p">],</span>
+                <span class="n">unit</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;unit&quot;</span><span class="p">],</span>
+                <span class="n">description</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;description&quot;</span><span class="p">],</span>
+                <span class="n">writable</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;writable&quot;</span><span class="p">]),</span>
+                <span class="n">value_range</span><span class="o">=</span><span class="n">_freeze</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;value_range&quot;</span><span class="p">]),</span>
+                <span class="n">owner</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;owner&quot;</span><span class="p">],</span>
+                <span class="n">on</span><span class="o">=</span><span class="n">_freeze</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;on&quot;</span><span class="p">]),</span>
+                <span class="n">options</span><span class="o">=</span><span class="n">_freeze</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;options&quot;</span><span class="p">)),</span>
+                <span class="n">shape</span><span class="o">=</span><span class="n">_freeze</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;shape&quot;</span><span class="p">)),</span>
+                <span class="n">precision</span><span class="o">=</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;precision&quot;</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">KeyError</span> <span class="k">as</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;channel </span><span class="si">{</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;address&#39;</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> lacks </span><span class="si">{</span><span class="n">missing</span><span class="si">}</span><span class="s2">: rebuild with osprey build&quot;</span>
+            <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="Binding">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.Binding">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Binding</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One wiring record of a physics model: the address it serves and what it is.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        id: The wiring record&#39;s id.</span>
+<span class="sd">        model: The model the record belongs to.</span>
+<span class="sd">        address: The channel address the record serves.</span>
+<span class="sd">        direction: ``write`` or ``read``.</span>
+<span class="sd">        role: ``setpoint``, ``readback``, ``monitor`` or ``output``. A</span>
+<span class="sd">            ``readback`` reads an element&#39;s setting, paired with a setpoint</span>
+<span class="sd">            or not; the setpoint channel&#39;s ``pair`` names its readback.</span>
+<span class="sd">        plane: ``x`` or ``y`` for a record steering or reading one transverse</span>
+<span class="sd">            plane, else ``None``.</span>
+<span class="sd">        refresh: ``pass`` or ``periodic``.</span>
+<span class="sd">        element: The element the record names, or ``None`` (a record naming</span>
+<span class="sd">            slices, or none).</span>
+<span class="sd">        record: The wiring record as the view states it, read-only; the</span>
+<span class="sd">            engine&#39;s ``build`` takes it verbatim.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">address</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">direction</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">role</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">plane</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">refresh</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">element</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+
+<div class="viewcode-block" id="Binding.from_record">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.Binding.from_record">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_record</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Binding</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read one wiring record of ``variables.json``.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ViewSchemaError: the record lacks ``role``, ``plane`` or</span>
+<span class="sd">                ``refresh``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="p">[</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">_DESCRIPTION_KEYS</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">record</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;wiring record </span><span class="si">{</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;address&#39;</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> of model </span><span class="si">{</span><span class="n">model</span><span class="si">!r}</span><span class="s2"> lacks &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">missing</span><span class="p">)</span><span class="si">}</span><span class="s2">: rebuild with osprey build&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="nb">id</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)),</span>
+            <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+            <span class="n">address</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]),</span>
+            <span class="n">direction</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direction&quot;</span><span class="p">)),</span>
+            <span class="n">role</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;role&quot;</span><span class="p">],</span>
+            <span class="n">plane</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;plane&quot;</span><span class="p">],</span>
+            <span class="n">refresh</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;refresh&quot;</span><span class="p">],</span>
+            <span class="n">element</span><span class="o">=</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;element&quot;</span><span class="p">),</span>
+            <span class="n">record</span><span class="o">=</span><span class="n">MappingProxyType</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">record</span><span class="p">))),</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="Model">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.Model">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Model</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One model of the view.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        name: The model&#39;s name.</span>
+<span class="sd">        engine: The engine the model names.</span>
+<span class="sd">        served: Whether the render serves the model.</span>
+<span class="sd">        settings: The model&#39;s settings, read-only.</span>
+<span class="sd">        deck: The path of the view&#39;s copy of the model&#39;s deck, or ``None``.</span>
+<span class="sd">        bindings: The model&#39;s wiring records, in wiring order; empty for a</span>
+<span class="sd">            ``texture`` model or one without wiring.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">engine</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">served</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">settings</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="n">deck</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">bindings</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Binding</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span></div>
+
+
+
+<div class="viewcode-block" id="SimulatorView">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">SimulatorView</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A render&#39;s simulator view, opened from its directory.</span>
+
+<span class="sd">    ``addresses.json`` is read when the view opens; every other file is read</span>
+<span class="sd">    once, on first use, and each is refused when its ``schema`` is not the</span>
+<span class="sd">    one this OSPREY reads.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        path: The view&#39;s directory.</span>
+<span class="sd">        render_root: The render the view sits in, when the view is at</span>
+<span class="sd">            ``&lt;render&gt;/data/simulator``; else ``None``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="SimulatorView.__init__">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="n">PurePosixPath</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">parts</span><span class="p">[</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">VIEW_RELPATH</span><span class="o">.</span><span class="n">parts</span><span class="p">)</span> <span class="p">:])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">render_root</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">parents</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">if</span> <span class="n">parts</span> <span class="o">==</span> <span class="n">VIEW_RELPATH</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_models</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Model</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Channel</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">ADDRESSES_FILE</span><span class="p">)</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="n">NoSimulatorView</span><span class="p">(</span><span class="n">NO_VIEW_MESSAGE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.open">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.open">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">view_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SimulatorView</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Open the view in ``view_dir``.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            NoSimulatorView: ``view_dir`` has no ``addresses.json``.</span>
+<span class="sd">            ViewSchemaError: its ``addresses.json`` is not schema</span>
+<span class="sd">                :data:`ADDRESSES_SCHEMA`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">view_dir</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.of_render">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.of_render">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">of_render</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">render_root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SimulatorView</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Open the view of the render rooted at ``render_root``.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">render_root</span><span class="p">)</span> <span class="o">/</span> <span class="n">VIEW_RELPATH</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.path_for_project">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.path_for_project">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">path_for_project</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">project_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Where the view of ``project_dir``&#39;s render is, read or not.</span>
+
+<span class="sd">        A deployment repo keeps its render under ``build/``, beside the</span>
+<span class="sd">        rendered ``config.yml``; a container&#39;s project directory is the</span>
+<span class="sd">        render itself.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">rendered_config_path</span>
+
+        <span class="n">project</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">project_dir</span><span class="p">)</span>
+        <span class="n">rendered</span> <span class="o">=</span> <span class="n">rendered_config_path</span><span class="p">(</span><span class="n">project</span><span class="p">)</span>
+        <span class="n">render</span> <span class="o">=</span> <span class="n">rendered</span><span class="o">.</span><span class="n">parent</span> <span class="k">if</span> <span class="n">rendered</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span> <span class="k">else</span> <span class="n">project</span>
+        <span class="k">return</span> <span class="n">render</span> <span class="o">/</span> <span class="n">VIEW_RELPATH</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.of_project">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.of_project">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">of_project</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">project_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SimulatorView</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Open the view of ``project_dir``&#39;s render (:meth:`path_for_project`).&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">path_for_project</span><span class="p">(</span><span class="n">project_dir</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.find">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.find">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">find</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">project_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SimulatorView</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Open the view of ``project_dir``&#39;s render, or ``None`` when it has none.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ViewSchemaError: the view is there but from another schema.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">of_project</span><span class="p">(</span><span class="n">project_dir</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">NoSimulatorView</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.document">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.document">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;One view file, parsed once and read-only.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            name: The file&#39;s name, one of :data:`SCHEMAS`.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ViewSchemaError: the file&#39;s ``schema`` is absent or not</span>
+<span class="sd">                ``SCHEMAS[name]``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_freeze</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_parsed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">:</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">name</span>
+            <span class="n">parsed</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
+            <span class="n">expected</span> <span class="o">=</span> <span class="n">SCHEMAS</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+            <span class="n">found</span> <span class="o">=</span> <span class="n">parsed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parsed</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="n">found</span> <span class="o">!=</span> <span class="n">expected</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">found</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">parsed</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The facility&#39;s identity code.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;code&quot;</span><span class="p">])</span>
+
+<div class="viewcode-block" id="SimulatorView.models">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.models">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">models</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Model</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every model of the facility file, sorted by name.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_models</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_models</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;models&quot;</span><span class="p">]</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_models</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">entry</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Model</span><span class="p">:</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">])</span>
+        <span class="n">engine</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;engine&quot;</span><span class="p">)</span>
+        <span class="n">deck</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;deck&quot;</span><span class="p">)</span>
+        <span class="n">wiring</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;wiring&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()</span>
+        <span class="k">return</span> <span class="n">Model</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
+            <span class="n">engine</span><span class="o">=</span><span class="n">engine</span><span class="p">,</span>
+            <span class="n">served</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;served&quot;</span><span class="p">)),</span>
+            <span class="n">settings</span><span class="o">=</span><span class="n">MappingProxyType</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;settings&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})),</span>
+            <span class="n">deck</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">deck</span> <span class="k">if</span> <span class="n">deck</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="n">bindings</span><span class="o">=</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">engine</span> <span class="o">==</span> <span class="n">TEXTURE</span>
+            <span class="k">else</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">Binding</span><span class="o">.</span><span class="n">from_record</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">record</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">wiring</span><span class="p">),</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="SimulatorView.model">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.model">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Model</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The model named ``name``.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            KeyError: the view has no such model.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">model</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">model</span>
+        <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the simulator view has no model </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.served">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.served">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">served</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The names of the models the render serves, in ``served_models.json`` order.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SERVED_MODELS_FILE</span><span class="p">)[</span><span class="s2">&quot;models&quot;</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.physics_models">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.physics_models">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">physics_models</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Model</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The served models whose engine is not ``texture``, sorted by name.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">model</span> <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="p">()</span> <span class="k">if</span> <span class="n">model</span><span class="o">.</span><span class="n">served</span> <span class="ow">and</span> <span class="n">model</span><span class="o">.</span><span class="n">engine</span> <span class="o">!=</span> <span class="n">TEXTURE</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.channels">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.channels">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every channel address of the facility file, sorted.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.status_addresses">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.status_addresses">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">status_addresses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Each served physics model&#39;s status address, ``&lt;code&gt;:SIM:&lt;model&gt;:STATUS``.&quot;&quot;&quot;</span>
+        <span class="n">listed</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)[</span><span class="s2">&quot;status&quot;</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">MappingProxyType</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="n">model</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">address</span>
+                <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">physics_models</span><span class="p">()</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">address</span> <span class="o">:=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="si">}</span><span class="s2">:SIM:</span><span class="si">{</span><span class="n">model</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">:STATUS&quot;</span><span class="p">)</span> <span class="ow">in</span> <span class="n">listed</span>
+            <span class="p">}</span>
+        <span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Channel</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="n">channel</span><span class="o">.</span><span class="n">address</span><span class="p">:</span> <span class="n">channel</span>
+                    <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="p">(</span>
+                        <span class="n">Channel</span><span class="o">.</span><span class="n">from_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+                        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
+                    <span class="p">)</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span>
+
+<div class="viewcode-block" id="SimulatorView.channel">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.channel">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">channel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Channel</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The channel at ``address``.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            KeyError: the view has no channel at ``address``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">()[</span><span class="n">address</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.bindings">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.bindings">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">bindings</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">role</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">plane</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">node</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">served_only</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Binding</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The physics models&#39; wiring records, model by name, then in wiring order.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            model: Only this model&#39;s records.</span>
+<span class="sd">            role: Only records of this role.</span>
+<span class="sd">            plane: Only records of this plane.</span>
+<span class="sd">            node: Only records whose channel is on this node (a value of the</span>
+<span class="sd">                channel&#39;s ``on``).</span>
+<span class="sd">            served_only: Only the served models&#39; records.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">channels</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">()</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span>
+            <span class="n">binding</span>
+            <span class="k">for</span> <span class="n">binding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_all_bindings</span><span class="p">(</span><span class="n">served_only</span><span class="p">)</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">binding</span><span class="o">.</span><span class="n">model</span> <span class="o">==</span> <span class="n">model</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">role</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">binding</span><span class="o">.</span><span class="n">role</span> <span class="o">==</span> <span class="n">role</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">plane</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">binding</span><span class="o">.</span><span class="n">plane</span> <span class="o">==</span> <span class="n">plane</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">node</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">_on_nodes</span><span class="p">(</span><span class="n">channels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">binding</span><span class="o">.</span><span class="n">address</span><span class="p">)))</span>
+        <span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_all_bindings</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">served_only</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Binding</span><span class="p">]:</span>
+        <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">model</span><span class="o">.</span><span class="n">engine</span> <span class="o">==</span> <span class="n">TEXTURE</span> <span class="ow">or</span> <span class="p">(</span><span class="n">served_only</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">model</span><span class="o">.</span><span class="n">served</span><span class="p">):</span>
+                <span class="k">continue</span>
+            <span class="k">yield from</span> <span class="n">model</span><span class="o">.</span><span class="n">bindings</span>
+
+<div class="viewcode-block" id="SimulatorView.binding">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.binding">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">binding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Binding</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The served physics model&#39;s wiring record of ``address``, or ``None``.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">binding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_all_bindings</span><span class="p">(</span><span class="n">served_only</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">binding</span><span class="o">.</span><span class="n">address</span> <span class="o">==</span> <span class="n">address</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">binding</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.seed">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.seed">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">seed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The seed record of the channel at ``address``, or ``None``.&quot;&quot;&quot;</span>
+        <span class="n">seed</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SEEDS_FILE</span><span class="p">)[</span><span class="s2">&quot;seeds&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">seed</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.scenarios">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.scenarios">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">scenarios</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every scenario of ``scenarios.json``, sorted by name.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ViewSchemaError: A scenario&#39;s ``still`` is not a list of addresses.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">scenarios</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SCENARIOS_FILE</span><span class="p">)[</span><span class="s2">&quot;scenarios&quot;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">:</span>
+            <span class="n">still</span> <span class="o">=</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;still&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">still</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span>
+                <span class="nb">isinstance</span><span class="p">(</span><span class="n">still</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">still</span><span class="p">)</span>
+            <span class="p">):</span>
+                <span class="k">raise</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">SCENARIOS_FILE</span><span class="si">}</span><span class="s2">: scenario </span><span class="si">{</span><span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> states &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;`still` as </span><span class="si">{</span><span class="n">still</span><span class="si">!r}</span><span class="s2">, not a list of addresses: run osprey build&quot;</span>
+                <span class="p">)</span>
+        <span class="k">return</span> <span class="n">scenarios</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.motion_envelope">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.motion_envelope">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">motion_envelope</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">active</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The band ``address``&#39;s served motion keeps it within around its held value.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            address: A channel address.</span>
+<span class="sd">            active: The active scenario names, in order; ``nominal`` always</span>
+<span class="sd">                counts, as the composite counts it.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The channel&#39;s envelope under ``active``</span>
+<span class="sd">            (:func:`osprey_connectors.simulation.envelope.active_envelopes`);</span>
+<span class="sd">            0.0 for a channel that declares no motion.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.envelope</span><span class="w"> </span><span class="kn">import</span> <span class="n">active_envelopes</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_active_scenarios</span>
+
+        <span class="n">key</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">resolve_active_scenarios</span><span class="p">(</span><span class="n">active</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">active_envelopes</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SEEDS_FILE</span><span class="p">)[</span><span class="s2">&quot;seeds&quot;</span><span class="p">],</span>
+                <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">scenario</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]):</span> <span class="n">scenario</span> <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">scenarios</span><span class="p">()},</span>
+                <span class="n">key</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SimulatorView.scenario_dir">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.scenario_dir">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">scenario_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The view&#39;s copy of a scenario&#39;s attached files, ``scenarios/&lt;name&gt;/``.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">SCENARIOS_DIR</span> <span class="o">/</span> <span class="n">name</span></div>
+</div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_on_nodes</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Channel</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+    <span class="k">if</span> <span class="n">channel</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">channel</span><span class="o">.</span><span class="n">on</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">()</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">node</span><span class="p">)</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">channel</span><span class="o">.</span><span class="n">on</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

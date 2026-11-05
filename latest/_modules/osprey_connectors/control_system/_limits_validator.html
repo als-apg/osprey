@@ -1,0 +1,1679 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.control_system._limits_validator &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/control_system/_limits_validator';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/control_system/_limits_validator.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.control_system._limits_validator</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.control_system._limits_validator</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Runtime channel limits validation engine - simplified single-layer design.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numbers</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">field</span> <span class="k">as</span> <span class="n">dataclass_field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">LIMITS_MODE_OPTIONAL</span><span class="p">,</span>
+    <span class="n">LimitsPosture</span><span class="p">,</span>
+    <span class="n">limits_database_required</span><span class="p">,</span>
+    <span class="n">most_restrictive_limits_posture</span><span class="p">,</span>
+    <span class="n">target_limits_posture</span><span class="p">,</span>
+    <span class="n">type_limits_posture</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;limits_validator&quot;</span><span class="p">)</span>
+
+
+<span class="c1"># Reserved metadata fields (underscore prefix)</span>
+<span class="c1"># These are for documentation only and don&#39;t affect validation</span>
+<span class="n">METADATA_FIELDS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;_comment&quot;</span><span class="p">,</span> <span class="s2">&quot;_version&quot;</span><span class="p">,</span> <span class="s2">&quot;_last_updated&quot;</span><span class="p">,</span> <span class="s2">&quot;_description&quot;</span><span class="p">}</span>
+
+<span class="c1">#: The one config key naming the channel-limits database. One value, one file,</span>
+<span class="c1">#: everywhere it is spoken about: the connector&#39;s own lookup, the compose bind</span>
+<span class="c1">#: mount, the build&#39;s parse, the bridge&#39;s startup gate, the roster&#39;s direction</span>
+<span class="c1">#: source, the knowledge graph&#39;s direction assignment, and every refusal that</span>
+<span class="c1">#: names the key back to the operator. Spelled here and imported everywhere</span>
+<span class="c1">#: else, because a key spelled six times is a key that drifts.</span>
+<span class="n">LIMITS_DATABASE_CONFIG_KEY</span> <span class="o">=</span> <span class="s2">&quot;control_system.limits_checking.database_path&quot;</span>
+
+<span class="c1">#: The config key the last-resort path anchor is read from.</span>
+<span class="n">_PROJECT_ROOT_CONFIG_KEY</span> <span class="o">=</span> <span class="s2">&quot;project_root&quot;</span>
+
+<span class="c1">#: The signature every ``config_lookup`` here has: that of</span>
+<span class="c1">#: :func:`osprey_connectors.config.get_config_value`.</span>
+<span class="n">ConfigLookup</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">Any</span><span class="p">]</span>
+
+<span class="c1">#: The signature of the fresh-read primitive :meth:`LimitsValidator.validate`</span>
+<span class="c1">#: takes for the ``max_step`` check: one channel address in, that channel&#39;s</span>
+<span class="c1">#: present value out. Every control system can read a channel; none of them</span>
+<span class="c1">#: agree on how, so the caller that is about to write supplies its own.</span>
+<span class="n">CurrentValueReader</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Any</span><span class="p">]</span>
+
+<span class="c1">#: Ceiling on the fresh read a ``max_step`` check makes, in seconds, when the</span>
+<span class="c1">#: deployment names none. The check sits in front of a write an operator is</span>
+<span class="c1">#: waiting on, so a channel that does not answer must fail closed quickly</span>
+<span class="c1">#: rather than hold the write open: running out of budget answers ``None``,</span>
+<span class="c1">#: which refuses the write.</span>
+<span class="c1">#:</span>
+<span class="c1">#: How long that read takes is a property of the facility&#39;s control network,</span>
+<span class="c1">#: exactly like the connector&#39;s own ``timeout_s`` — a gateway two hops away</span>
+<span class="c1">#: answers slower than a soft IOC on the same host — so a deployment overrides</span>
+<span class="c1">#: it with ``control_system.connector.&lt;type&gt;.step_read_timeout_s``.</span>
+<span class="n">DEFAULT_STEP_READ_TIMEOUT_SECONDS</span> <span class="o">=</span> <span class="mf">2.0</span>
+
+<span class="c1">#: The per-connector key that overrides it, spelled once so the connector and</span>
+<span class="c1">#: the python-executor sandbox cannot read two different names.</span>
+<span class="n">STEP_READ_TIMEOUT_KEY</span> <span class="o">=</span> <span class="s2">&quot;step_read_timeout_s&quot;</span>
+
+<span class="c1">#: The ``violation_type`` of a write refused because its value is not a finite</span>
+<span class="c1">#: real number while the channel has a numeric limit to hold it to.</span>
+<span class="n">INVALID_NUMERIC_VALUE</span> <span class="o">=</span> <span class="s2">&quot;INVALID_NUMERIC_VALUE&quot;</span>
+
+
+<span class="c1">#: C&#39;s ``isspace`` set: what EPICS&#39;s C conversion skips around a numeral.</span>
+<span class="n">_C_WHITESPACE</span> <span class="o">=</span> <span class="s2">&quot; </span><span class="se">\t\n\v\f\r</span><span class="s2">&quot;</span>
+
+<span class="c1">#: The numerals EPICS&#39;s C conversion parses into an integer field: ``strtol`` with base 0,</span>
+<span class="c1">#: so ``0x`` is hex and a leading ``0`` is octal.</span>
+<span class="n">_C_INTEGER</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;[+-]?(?:0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)&quot;</span><span class="p">)</span>
+
+<span class="c1">#: The decimal numerals EPICS&#39;s C conversion parses into a floating-point field (``strtod``).</span>
+<span class="n">_C_DECIMAL_FLOAT</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?&quot;</span><span class="p">)</span>
+
+<span class="c1">#: The hexadecimal numerals ``strtod`` also takes: ``0x10``, ``0x1.8p3``.</span>
+<span class="n">_C_HEX_FLOAT</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+    <span class="sa">r</span><span class="s2">&quot;[+-]?0[xX](?:[0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)(?:[pP][+-]?[0-9]+)?&quot;</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_c_integer</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``text`` as C reads it into an integer field, or ``None`` if it errors there.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_C_INTEGER</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">sign</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span> <span class="k">if</span> <span class="n">text</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;-&quot;</span> <span class="k">else</span> <span class="mi">1</span>
+    <span class="n">digits</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;+-&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">digits</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;0x&quot;</span><span class="p">,</span> <span class="s2">&quot;0X&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">sign</span> <span class="o">*</span> <span class="nb">int</span><span class="p">(</span><span class="n">digits</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">digits</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">digits</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;0&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">sign</span> <span class="o">*</span> <span class="nb">int</span><span class="p">(</span><span class="n">digits</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">sign</span> <span class="o">*</span> <span class="nb">int</span><span class="p">(</span><span class="n">digits</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_c_float</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``text`` as C reads it into a floating-point field, or ``None`` if it errors there.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">_C_DECIMAL_FLOAT</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">_C_HEX_FLOAT</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">float</span><span class="o">.</span><span class="n">fromhex</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">OverflowError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">c_numeral</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">integer_field</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``text`` as the IOC&#39;s C conversion reads it into one field type, or ``None``.</span>
+
+<span class="sd">    An integer field reads ``strtol`` numerals only; a floating-point field</span>
+<span class="sd">    reads ``strtod``&#39;s. Surrounding C whitespace is skipped, as C skips it.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="n">_C_WHITESPACE</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_c_integer</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="k">if</span> <span class="n">integer_field</span> <span class="k">else</span> <span class="n">_c_float</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_numeral_or_reason</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The number a string write delivers, read the way the EPICS client reads it.</span>
+
+<span class="sd">    A string written to a numeric channel is converted into the channel&#39;s own</span>
+<span class="sd">    type by C code, not by Python, and C&#39;s reading of a numeral is not</span>
+<span class="sd">    ``float()``&#39;s. An integer field takes ``strtol`` with base 0, so ``&quot;0x10&quot;``</span>
+<span class="sd">    is 16 and ``&quot;010&quot;`` is 8; a floating-point field takes ``strtod``, so</span>
+<span class="sd">    ``&quot;0x10&quot;`` is 16 there too but ``&quot;010&quot;`` is 10, and ``&quot;1e3&quot;`` is 1000. ``&quot;1_000&quot;``, ``&quot;1,000&quot;`` and ``&quot;0b11&quot;`` are errors in</span>
+<span class="sd">    both. Measured against a soft IOC.</span>
+
+<span class="sd">    The validator does not know the channel&#39;s type, so a string is accepted</span>
+<span class="sd">    only when every reading that succeeds gives the same number; ``&quot;010&quot;`` is</span>
+<span class="sd">    refused as ambiguous. That makes it exactly as permissive as the C rules</span>
+<span class="sd">    or stricter, never looser. The EPICS connector does not leave the</span>
+<span class="sd">    conversion to the IOC, which would stop at the first character it cannot</span>
+<span class="sd">    read and store ``&quot;1e3&quot;`` in an integer field as 1: it reads the text by the</span>
+<span class="sd">    rule for the channel&#39;s own field type (:func:`c_numeral`) and refuses text</span>
+<span class="sd">    that rule cannot read, so every string accepted here and written lands as</span>
+<span class="sd">    the number it was checked as.</span>
+
+<span class="sd">    ``nan``, ``inf`` and ``infinity`` (which ``strtod`` takes) are not numerals</span>
+<span class="sd">    here and are refused, like their float counterparts.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="n">_C_WHITESPACE</span><span class="p">)</span>
+    <span class="n">integer</span> <span class="o">=</span> <span class="n">_c_integer</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+    <span class="n">floating</span> <span class="o">=</span> <span class="n">_c_float</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+    <span class="n">readings</span> <span class="o">=</span> <span class="p">{</span><span class="nb">float</span><span class="p">(</span><span class="n">r</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="p">(</span><span class="n">integer</span><span class="p">,</span> <span class="n">floating</span><span class="p">)</span> <span class="k">if</span> <span class="n">r</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">readings</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;String value </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2"> is not a finite decimal or hexadecimal numeral, so &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;it cannot be checked against this channel&#39;s numeric limits. Write a number &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;instead&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">readings</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;String value </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2"> is ambiguous: the control system reads it as &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">integer</span><span class="si">}</span><span class="s2"> into an integer channel and </span><span class="si">{</span><span class="n">floating</span><span class="si">}</span><span class="s2"> into a floating-point &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;one. Write a number instead&quot;</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">readings</span><span class="o">.</span><span class="n">pop</span><span class="p">(),</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_finite_real_or_reason</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The value as a finite ``float``, or why it cannot be held to a numeric limit.</span>
+
+<span class="sd">    A real number is accepted as is: ``int``, ``float``, ``bool`` and anything</span>
+<span class="sd">    registered as :class:`numbers.Real` (numpy scalars included). A ``str`` is</span>
+<span class="sd">    accepted when it is a numeral the EPICS client would turn into one number</span>
+<span class="sd">    whatever the channel&#39;s type -- see :func:`_numeral_or_reason` -- and is</span>
+<span class="sd">    checked as that number. Everything else (``bytes``, lists, ``None``,</span>
+<span class="sd">    complex) is refused.</span>
+
+<span class="sd">    NaN and infinity are refused too: NaN fails every comparison, so it would</span>
+<span class="sd">    pass any ``min_value``/``max_value``/``max_step``, and an infinity is not a</span>
+<span class="sd">    setpoint any limit was written to admit.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``(number, None)`` for an acceptable value, ``(None, reason)`` otherwise.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="n">number</span><span class="p">,</span> <span class="n">reason</span> <span class="o">=</span> <span class="n">_numeral_or_reason</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">number</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="n">reason</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">):</span>
+        <span class="n">number</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Value of type </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> is not a real number, so it cannot &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;be checked against this channel&#39;s numeric limits&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">math</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">number</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Value </span><span class="si">{</span><span class="n">number</span><span class="si">}</span><span class="s2"> is not finite, so it cannot be checked against this &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;channel&#39;s numeric limits&quot;</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">number</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="step_read_timeout_seconds">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.step_read_timeout_seconds">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">step_read_timeout_seconds</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``max_step`` fresh-read budget one connector block declares.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: A connector&#39;s own config section — the mapping</span>
+<span class="sd">            ``control_system.connector.&lt;type&gt;`` resolves to.</span>
+<span class="sd">        connector_type: The type that block belongs to, so a warning names the</span>
+<span class="sd">            key an operator has to go and fix. ``None`` leaves the type a</span>
+<span class="sd">            placeholder in that message.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The declared budget, or :data:`DEFAULT_STEP_READ_TIMEOUT_SECONDS` when</span>
+<span class="sd">        the block declares none or declares something that is not a positive</span>
+<span class="sd">        number. A value that cannot be used is warned about, naming the key and</span>
+<span class="sd">        what was found, and then falls back rather than raising: this resolves</span>
+<span class="sd">        on the write path, and a typo in a tuning key must not be the thing</span>
+<span class="sd">        that takes writes down.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">DEFAULT_STEP_READ_TIMEOUT_SECONDS</span>
+    <span class="n">declared</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">STEP_READ_TIMEOUT_KEY</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">declared</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">DEFAULT_STEP_READ_TIMEOUT_SECONDS</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">declared</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">declared</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">)</span> <span class="ow">or</span> <span class="n">declared</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+            <span class="s2">&quot;control_system.connector.</span><span class="si">%s</span><span class="s2">.</span><span class="si">%s</span><span class="s2"> must be a positive number of seconds, &quot;</span>
+            <span class="s2">&quot;got </span><span class="si">%r</span><span class="s2"> — falling back to </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">connector_type</span> <span class="ow">or</span> <span class="s2">&quot;&lt;type&gt;&quot;</span><span class="p">,</span>
+            <span class="n">STEP_READ_TIMEOUT_KEY</span><span class="p">,</span>
+            <span class="n">declared</span><span class="p">,</span>
+            <span class="n">DEFAULT_STEP_READ_TIMEOUT_SECONDS</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">DEFAULT_STEP_READ_TIMEOUT_SECONDS</span>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">declared</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="mapping_config_lookup">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.mapping_config_lookup">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">mapping_config_lookup</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">ConfigLookup</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A ``get_config_value``-shaped lookup over an already-loaded config.</span>
+
+<span class="sd">    For the callers that hold the config as a dict rather than through the</span>
+<span class="sd">    live configurable -- the build reading a render&#39;s ``config.yml``, the</span>
+<span class="sd">    roster reading the project config it was handed -- so they resolve the</span>
+<span class="sd">    limits database through the same path as the runtime instead of walking</span>
+<span class="sd">    the segments themselves.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The loaded configuration mapping.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A callable ``(dotted_key, default) -&gt; value`` that walks nested</span>
+<span class="sd">        mappings and answers *default* for any segment that is not there.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">lookup</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">or</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">default</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">value</span>
+
+    <span class="k">return</span> <span class="n">lookup</span></div>
+
+
+
+<div class="viewcode-block" id="ChannelLimitsConfig">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelLimitsConfig">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelLimitsConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for a single channel&#39;s limits.&quot;&quot;&quot;</span>
+
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">min_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">max_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">max_step</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Optional: requires channel read (I/O overhead)</span>
+    <span class="n">writable</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">dataclass_field</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="LimitsValidator">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">LimitsValidator</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Core limits validation engine.</span>
+
+<span class="sd">    Performs synchronous validation - no async I/O to keep it simple.</span>
+<span class="sd">    Raises exceptions directly instead of returning result objects.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="LimitsValidator.__init__">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">limits_database</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">],</span>
+        <span class="n">policy_config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+        <span class="n">raw_db</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">failsafe_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">limits</span> <span class="o">=</span> <span class="n">limits_database</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">policy</span> <span class="o">=</span> <span class="n">policy_config</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_raw_db</span> <span class="o">=</span> <span class="n">raw_db</span>  <span class="c1"># Keep raw database for confirm-policy access</span>
+        <span class="c1"># Set only by the empty-DB failsafe paths in from_config: the database</span>
+        <span class="c1"># could not be loaded, so every write is blocked. validate() uses it to</span>
+        <span class="c1"># refuse with a load-failure message instead of the unlisted-channel</span>
+        <span class="c1"># one — the two conditions need different operator responses.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">failsafe_reason</span> <span class="o">=</span> <span class="n">failsafe_reason</span></div>
+
+
+<div class="viewcode-block" id="LimitsValidator.resolve_database_path">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.resolve_database_path">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">resolve_database_path</span><span class="p">(</span>
+        <span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_root</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve a relative ``database_path`` the same way for every caller.</span>
+
+<span class="sd">        A relative ``database_path`` is written alongside the config it appears</span>
+<span class="sd">        in, so the anchor is the directory of the config that is actually in</span>
+<span class="sd">        use: *config_path*, when the caller can name the file it loaded (see</span>
+<span class="sd">        :func:`osprey_connectors.config.default_config_path`). This is what</span>
+<span class="sd">        makes the resolution independent of how the process was launched — a</span>
+<span class="sd">        Claude Code hook, an MCP server, and a host verb anchored via</span>
+<span class="sd">        ``config_anchored_at`` all load the render&#39;s config and find the</span>
+<span class="sd">        ``data/`` tree the build copied next to it.</span>
+
+<span class="sd">        Fallbacks, for callers that cannot name the loaded config:</span>
+<span class="sd">        ``Path(CONFIG_FILE).parent`` when that variable is set (a container</span>
+<span class="sd">        deploy names the config mounted inside the container while</span>
+<span class="sd">        ``project_root`` may record a host path the container does not have),</span>
+<span class="sd">        else the config&#39;s own ``project_root`` key. Note that under the</span>
+<span class="sd">        four-zone repo layout the render lives at ``&lt;repo&gt;/build/config.yml``</span>
+<span class="sd">        while ``project_root`` names ``&lt;repo&gt;`` — the project_root branch is a</span>
+<span class="sd">        last resort, not an equivalent spelling.</span>
+
+<span class="sd">        Returns ``db_path`` unchanged if it is already absolute, or if no base</span>
+<span class="sd">        is available.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">db_path_obj</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">db_path</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">db_path_obj</span><span class="o">.</span><span class="n">is_absolute</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">db_path</span>
+        <span class="k">if</span> <span class="n">config_path</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="n">db_path</span><span class="p">)</span>
+        <span class="n">config_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">config_file</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="n">db_path</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">project_root</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">project_root</span><span class="p">)</span> <span class="o">/</span> <span class="n">db_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">db_path</span></div>
+
+
+<div class="viewcode-block" id="LimitsValidator.configured_database_path">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.configured_database_path">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">configured_database_path</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">config_lookup</span><span class="p">:</span> <span class="n">ConfigLookup</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The file :data:`LIMITS_DATABASE_CONFIG_KEY` names, resolved; or ``None``.</span>
+
+<span class="sd">        The one reading of that key. Every caller that used to walk the config</span>
+<span class="sd">        segments and call :meth:`resolve_database_path` itself asks here, so</span>
+<span class="sd">        the build, the bridge, the roster and the knowledge graph cannot resolve</span>
+<span class="sd">        the same relative path to different files.</span>
+
+<span class="sd">        ``None`` covers every way of naming nothing: key absent, not a string,</span>
+<span class="sd">        blank. Existence is not probed -- a configured file that is not there</span>
+<span class="sd">        is the loader&#39;s finding, with the loader&#39;s message.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            config_lookup: Where the key is read from, with the signature of</span>
+<span class="sd">                :func:`osprey_connectors.config.get_config_value`. Defaults to</span>
+<span class="sd">                that function, which reads the live configurable; pass</span>
+<span class="sd">                :func:`mapping_config_lookup` for a config held as a dict.</span>
+<span class="sd">            config_path: The config file the lookup answers from, which is the</span>
+<span class="sd">                anchor a relative path resolves against (see</span>
+<span class="sd">                :meth:`resolve_database_path`). Defaults to</span>
+<span class="sd">                :func:`osprey_connectors.config.default_config_path` when the</span>
+<span class="sd">                lookup is the live one; a caller supplying its own lookup</span>
+<span class="sd">                names its own anchor, or leaves it to the fallbacks.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The resolved path as a string, or ``None``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">config_lookup</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">default_config_path</span><span class="p">,</span> <span class="n">get_config_value</span>
+
+            <span class="n">config_lookup</span> <span class="o">=</span> <span class="n">get_config_value</span>
+            <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">config_path</span> <span class="o">=</span> <span class="n">default_config_path</span><span class="p">()</span>
+
+        <span class="n">raw</span> <span class="o">=</span> <span class="n">config_lookup</span><span class="p">(</span><span class="n">LIMITS_DATABASE_CONFIG_KEY</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">raw</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="n">project_root</span> <span class="o">=</span> <span class="n">config_lookup</span><span class="p">(</span><span class="n">_PROJECT_ROOT_CONFIG_KEY</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">resolve_database_path</span><span class="p">(</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()),</span>
+            <span class="n">project_root</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">project_root</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="n">config_path</span><span class="o">=</span><span class="n">config_path</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="LimitsValidator.load_configured_database">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.load_configured_database">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">load_configured_database</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">config_lookup</span><span class="p">:</span> <span class="n">ConfigLookup</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">],</span> <span class="nb">dict</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve and load the deployment-wide limits database.</span>
+
+<span class="sd">        The database path is deployment-wide even where the posture is not: a</span>
+<span class="sd">        deployment mounts one limits file (``compose_generator.py`` binds a</span>
+<span class="sd">        single path), so a per-type block changes policy and never the data.</span>
+<span class="sd">        This is the half of validator construction that is the same for every</span>
+<span class="sd">        posture, and the same read the build&#39;s pre-deploy parse and the bridge&#39;s</span>
+<span class="sd">        startup gate make -- kept in one place so that none of them can drift</span>
+<span class="sd">        in how they resolve a relative path or in which load failures they</span>
+<span class="sd">        report.</span>
+
+<span class="sd">        Failure is reported rather than raised because every caller answers it</span>
+<span class="sd">        its own way: the connector with a fail-safe validator that blocks every</span>
+<span class="sd">        write, the build with a refusal line, the bridge with a startup</span>
+<span class="sd">        refusal. Returning ``None`` alone would leave a connector&#39;s writes</span>
+<span class="sd">        unchecked, and raising would crash one on a deployment that never</span>
+<span class="sd">        writes at all.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            config_lookup: As for :meth:`configured_database_path`.</span>
+<span class="sd">            config_path: As for :meth:`configured_database_path`.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A ``(loaded, reason)`` pair with exactly one half set: either the</span>
+<span class="sd">            ``(limits_database, raw_database)`` tuple, or a sentence naming</span>
+<span class="sd">            what could not be read, complete enough to be quoted by any caller.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">db_path</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">configured_database_path</span><span class="p">(</span><span class="n">config_lookup</span><span class="o">=</span><span class="n">config_lookup</span><span class="p">,</span> <span class="n">config_path</span><span class="o">=</span><span class="n">config_path</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">db_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">LIMITS_DATABASE_CONFIG_KEY</span><span class="si">}</span><span class="s2"> is not configured&quot;</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">limits_db</span><span class="p">,</span> <span class="n">raw_db</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_load_limits_database</span><span class="p">(</span><span class="n">db_path</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;the limits database at </span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">LIMITS_DATABASE_CONFIG_KEY</span><span class="si">}</span><span class="s2">) could not &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;be read or parsed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded limits database with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">limits_db</span><span class="p">)</span><span class="si">}</span><span class="s2"> channels from </span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">limits_db</span><span class="p">,</span> <span class="n">raw_db</span><span class="p">),</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="LimitsValidator.writable_addresses">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.writable_addresses">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">writable_addresses</span><span class="p">(</span><span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The addresses a limits database declares writable.</span>
+
+<span class="sd">        Read through :meth:`_load_limits_database` rather than from the raw</span>
+<span class="sd">        JSON, so the metadata keys and the per-entry validation are applied by</span>
+<span class="sd">        the same code the write path applies them with: ``writable`` is read</span>
+<span class="sd">        from each entry, an entry that does not state it fails the load, and a</span>
+<span class="sd">        top-level ``defaults`` key fails the load.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            db_path: Path to a ``channel_limits.json``-shaped file.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The writable addresses.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If the file is missing, is not JSON, is not a JSON</span>
+<span class="sd">                object, or carries an entry the validator refuses.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">limits_db</span><span class="p">,</span> <span class="n">_raw</span> <span class="o">=</span> <span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_load_limits_database</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">db_path</span><span class="p">))</span>
+        <span class="k">return</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">address</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">limits_db</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">writable</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="LimitsValidator.from_config">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.from_config">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;LimitsValidator | None&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Load a validator for the limits posture the caller acts under.</span>
+
+<span class="sd">        Three call shapes, one per identity a caller can hold:</span>
+
+<span class="sd">        - **Neither argument** asks the deployment-wide question,</span>
+<span class="sd">          ``control_system.limits_checking``, and never resolves a target. It is</span>
+<span class="sd">          what a caller holding no machine of its own asks — the connector</span>
+<span class="sd">          registry&#39;s log line, the executor&#39;s config helper — and it is the</span>
+<span class="sd">          shape every caller had before per-type blocks existed, so a deployment</span>
+<span class="sd">          that wrote none behaves as it did — except that a deployment-wide</span>
+<span class="sd">          leaf written as something other than a literal boolean now blocks</span>
+<span class="sd">          every write instead of being read as truthy.</span>
+<span class="sd">        - **connector_type** is what a connector, factory or IPC child asks:</span>
+<span class="sd">          they know which connector type they are and never which target</span>
+<span class="sd">          selected it.</span>
+<span class="sd">        - **target** is what a tool, hook, roster or the executor asks: they</span>
+<span class="sd">          follow the deployment&#39;s control target, which is resolved to its</span>
+<span class="sd">          connector type here so both shapes read one posture.</span>
+
+<span class="sd">        A present ``control_system.connector.&lt;type&gt;.limits_checking`` block</span>
+<span class="sd">        overrides the deployment-wide pair whole; absent, the deployment-wide</span>
+<span class="sd">        block answers. The key that answered travels into ``policy`` so a later</span>
+<span class="sd">        refusal names the config line an operator can edit.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            connector_type: The connector type to resolve the posture for, as</span>
+<span class="sd">                the config&#39;s ``control_system.connector`` table keys it.</span>
+<span class="sd">            target: The session control target to resolve the posture for, one</span>
+<span class="sd">                of :data:`osprey_connectors.types.CONTROL_TARGETS`. A target</span>
+<span class="sd">                that does not resolve to a type gets the deployment-wide block,</span>
+<span class="sd">                as the write posture does.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            An enforcing validator; a fail-safe validator that blocks every</span>
+<span class="sd">            write when the resolved block is incomplete or the limits database</span>
+<span class="sd">            is unavailable; or ``None`` when limits checking is off for this</span>
+<span class="sd">            posture or the config could not be read at all.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            TypeError: If both *connector_type* and *target* are given. A target</span>
+<span class="sd">                already names a type, so stating both states the posture twice</span>
+<span class="sd">                and leaves it undefined which one the caller meant. Raised</span>
+<span class="sd">                before any config is read, so it surfaces as the caller bug it</span>
+<span class="sd">                is rather than as a missing-config ``None``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">connector_type</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">target</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="s2">&quot;LimitsValidator.from_config() takes connector_type or target, not both: &quot;</span>
+                <span class="s2">&quot;a target resolves to a connector type, so passing both states the &quot;</span>
+                <span class="s2">&quot;posture twice&quot;</span>
+            <span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+
+            <span class="n">section</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c1"># Config not available (test environment, etc.) - limits checking disabled</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Limits validator not initialized (config unavailable): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">target</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">posture</span> <span class="o">=</span> <span class="n">target_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">posture</span> <span class="o">=</span> <span class="n">type_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_from_posture</span><span class="p">(</span><span class="n">posture</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="LimitsValidator.from_config_most_restrictive">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.from_config_most_restrictive">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_config_most_restrictive</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;LimitsValidator | None&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Load a validator for the posture that holds across every reachable target.</span>
+
+<span class="sd">        What a caller with no target of its own has to assume. The stdlib limits</span>
+<span class="sd">        hook is the one that needs it: when the deployment&#39;s control target cannot</span>
+<span class="sd">        be read — none written yet, an unreadable state directory, a target that</span>
+<span class="sd">        resolves to nothing — it still has to decide about a write, and the</span>
+<span class="sd">        machine it is deciding about is any of the ones a session here can</span>
+<span class="sd">        select.</span>
+
+<span class="sd">        The fold is :func:`osprey_connectors.types.most_restrictive_limits_posture`&#39;s:</span>
+<span class="sd">        limits checking is on when any reachable target has it on, and the mode</span>
+<span class="sd">        is ``optional`` only where every reachable target is ``optional``. The</span>
+<span class="sd">        result names the deployment-wide keys, because no per-type line decides</span>
+<span class="sd">        a union and naming one would send an operator to edit a single machine</span>
+<span class="sd">        rather than the answer.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            An enforcing validator, a fail-safe one, or ``None`` — the same</span>
+<span class="sd">            envelope :meth:`from_config` returns, for the same reasons.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+
+            <span class="n">section</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c1"># Config not available (test environment, etc.) - limits checking disabled</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Limits validator not initialized (config unavailable): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_from_posture</span><span class="p">(</span><span class="n">most_restrictive_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">))</span></div>
+
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_from_posture</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">posture</span><span class="p">:</span> <span class="n">LimitsPosture</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;LimitsValidator | None&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a validator for an already-resolved limits posture.</span>
+
+<span class="sd">        The caller resolves the posture for the thing it is acting on — a</span>
+<span class="sd">        connector for its own type, a tool or hook for the recorded control target —</span>
+<span class="sd">        and this turns that answer into an enforcing validator. The posture&#39;s</span>
+<span class="sd">        answering key travels into ``policy`` so that a later refusal names the</span>
+<span class="sd">        config line an operator can edit: on a deployment that runs its simulator</span>
+<span class="sd">        alone ``optional``, quoting the deployment-wide key would</span>
+<span class="sd">        send them to flip a line the per-type block overrides.</span>
+
+<span class="sd">        An incomplete block is checked before ``enabled``, and on purpose. Such</span>
+<span class="sd">        a block answered neither leaf, so ``enabled`` is ``None`` and the</span>
+<span class="sd">        disabled branch would wave every write through on exactly the config</span>
+<span class="sd">        nobody has finished writing. Blocking instead is the same choice the</span>
+<span class="sd">        missing-database-path branch makes.</span>
+
+<span class="sd">        A block is incomplete two ways, and the second is why this branch comes</span>
+<span class="sd">        first. A per-type block may omit a leaf. Either block may write one as</span>
+<span class="sd">        something no reader can use — a quoted ``&#39;true&#39;``, a ``1``, an</span>
+<span class="sd">        unexpanded ``&#39;${LIMITS_ON}&#39;``, which is the shape environment</span>
+<span class="sd">        expansion leaves behind when nothing set the variable. That second one</span>
+<span class="sd">        is a deployment trying to switch limits checking *on*; reading it as an</span>
+<span class="sd">        unset ``enabled`` would take the disabled branch and check nothing.</span>
+
+<span class="sd">        Whether the database must exist is</span>
+<span class="sd">        :func:`~osprey_connectors.types.limits_database_required`, asked of the</span>
+<span class="sd">        live config&#39;s path. ``optional`` with no path configured needs none:</span>
+<span class="sd">        the validator enforces over an empty database, so every channel is</span>
+<span class="sd">        unlisted and written with no limits. A configured path that fails to</span>
+<span class="sd">        load stays fail-safe whatever the mode.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            posture: The resolved posture, from the ``types`` resolver family.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            An enforcing validator (over an empty database for ``optional``</span>
+<span class="sd">            with no path configured); a fail-safe validator that blocks every</span>
+<span class="sd">            write when the block is incomplete or a required database is</span>
+<span class="sd">            unavailable; or ``None`` when limits checking is off for this</span>
+<span class="sd">            posture or the config could not be read at all.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">posture</span><span class="o">.</span><span class="n">incomplete</span><span class="p">:</span>
+                <span class="n">reason</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">posture</span><span class="o">.</span><span class="n">block_key</span><span class="si">}</span><span class="s2"> does not state &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">posture</span><span class="o">.</span><span class="n">incomplete</span><span class="p">)</span><span class="si">}</span><span class="s2"> as a readable value&quot;</span>
+                <span class="p">)</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Incomplete limits block - blocking all writes: </span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="bp">cls</span><span class="p">({},</span> <span class="p">{},</span> <span class="p">{},</span> <span class="n">failsafe_reason</span><span class="o">=</span><span class="n">reason</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">posture</span><span class="o">.</span><span class="n">enabled</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">True</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">None</span>
+
+            <span class="c1"># Both entries are JSON-serialisable: the python executor embeds</span>
+            <span class="c1"># this dict verbatim into the sandbox (wrapper.py), so the</span>
+            <span class="c1"># tri-state rides as null rather than as anything richer.</span>
+            <span class="n">policy</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="n">posture</span><span class="o">.</span><span class="n">mode</span><span class="p">,</span>
+                <span class="s2">&quot;mode_key&quot;</span><span class="p">:</span> <span class="n">posture</span><span class="o">.</span><span class="n">key</span><span class="p">(</span><span class="s2">&quot;mode&quot;</span><span class="p">),</span>
+            <span class="p">}</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">limits_database_required</span><span class="p">(</span>
+                <span class="n">posture</span><span class="p">,</span> <span class="n">path_configured</span><span class="o">=</span><span class="bp">cls</span><span class="o">.</span><span class="n">configured_database_path</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="p">):</span>
+                <span class="k">return</span> <span class="bp">cls</span><span class="p">({},</span> <span class="n">policy</span><span class="p">,</span> <span class="p">{})</span>
+
+            <span class="n">loaded</span><span class="p">,</span> <span class="n">load_reason</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">load_configured_database</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">loaded</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="c1"># Same failsafe as the incomplete-block case above: a missing</span>
+                <span class="c1"># or unparseable database must never crash the connector (a</span>
+                <span class="c1"># read-only deployment needs no limits) nor silently disable</span>
+                <span class="c1"># checking (returning None would leave writes unchecked) -- an</span>
+                <span class="c1"># empty DB blocks every write with a clear refusal instead.</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Limits checking enabled but </span><span class="si">{</span><span class="n">load_reason</span><span class="si">}</span><span class="s2"> - blocking all writes&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+                    <span class="p">{},</span> <span class="p">{},</span> <span class="p">{},</span> <span class="n">failsafe_reason</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;limits checking is enabled but </span><span class="si">{</span><span class="n">load_reason</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+            <span class="n">limits_db</span><span class="p">,</span> <span class="n">raw_db</span> <span class="o">=</span> <span class="n">loaded</span>
+            <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">limits_db</span><span class="p">,</span> <span class="n">policy</span><span class="p">,</span> <span class="n">raw_db</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c1"># Config not available (test environment, etc.) - limits checking disabled</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Limits validator not initialized (config unavailable): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="LimitsValidator.resolve_confirm">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.resolve_confirm">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">resolve_confirm</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether a write to this channel must be confirmed by re-reading it.</span>
+
+<span class="sd">        Resolution: the channel&#39;s own ``confirm``, else ``True``. Read off the</span>
+<span class="sd">        raw database, which is where ``confirm`` lives: it is write policy, not</span>
+<span class="sd">        a limit, so it never enters :class:`ChannelLimitsConfig`.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_address: Channel address being written</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True when the write must be confirmed (the fleet default).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">raw_db</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_raw_db&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw_db</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">return</span> <span class="kc">True</span>
+
+        <span class="n">channel_config</span> <span class="o">=</span> <span class="n">raw_db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">channel_address</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">channel_config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;confirm&quot;</span> <span class="ow">in</span> <span class="n">channel_config</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">channel_config</span><span class="p">[</span><span class="s2">&quot;confirm&quot;</span><span class="p">])</span>
+
+        <span class="k">return</span> <span class="kc">True</span></div>
+
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_channel_config</span><span class="p">(</span><span class="n">channel_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config_dict</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Validate a single channel configuration structure.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_name: Channel address being validated</span>
+<span class="sd">            config_dict: Configuration dictionary for the channel</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If configuration is invalid with descriptive error message</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">valid_fields</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;min_value&quot;</span><span class="p">,</span> <span class="s2">&quot;max_value&quot;</span><span class="p">,</span> <span class="s2">&quot;max_step&quot;</span><span class="p">,</span> <span class="s2">&quot;writable&quot;</span><span class="p">,</span> <span class="s2">&quot;confirm&quot;</span><span class="p">}</span>
+        <span class="c1"># Any &#39;_&#39;-prefixed key is documentation metadata and stays legal, whatever</span>
+        <span class="c1"># it is called. Every other unrecognised key fails the load: a limits file</span>
+        <span class="c1"># is a safety artifact, and a key the loader does not understand is a key</span>
+        <span class="c1"># whose intent was never applied.</span>
+        <span class="n">unknown_fields</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">config_dict</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)}</span> <span class="o">-</span> <span class="n">valid_fields</span>
+
+        <span class="k">if</span> <span class="n">unknown_fields</span><span class="p">:</span>
+            <span class="n">detail</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Channel &#39;</span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&#39; has unknown fields: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">unknown_fields</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Valid fields are: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">valid_fields</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="s2">&quot;verification&quot;</span> <span class="ow">in</span> <span class="n">unknown_fields</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Channel &#39;</span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&#39;: &#39;verification&#39; was replaced by &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;&#39;confirm: true|false&#39;. </span><span class="si">{</span><span class="n">detail</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">detail</span><span class="p">)</span>
+
+        <span class="c1"># Validate numeric fields</span>
+        <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;min_value&quot;</span><span class="p">,</span> <span class="s2">&quot;max_value&quot;</span><span class="p">,</span> <span class="s2">&quot;max_step&quot;</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">config_dict</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">config_dict</span><span class="p">[</span><span class="n">field</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">)):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field</span><span class="si">}</span><span class="s2">&#39; must be numeric, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+
+        <span class="c1"># Validate boolean fields</span>
+        <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;writable&quot;</span><span class="p">,</span> <span class="s2">&quot;confirm&quot;</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">config_dict</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">config_dict</span><span class="p">[</span><span class="n">field</span><span class="p">]</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field</span><span class="si">}</span><span class="s2">&#39; must be boolean, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_load_limits_database</span><span class="p">(</span><span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">],</span> <span class="nb">dict</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Load and validate limits database from JSON file.</span>
+
+<span class="sd">        The database holds:</span>
+<span class="sd">        - One entry per channel, each stating its own ``writable``; an entry</span>
+<span class="sd">          without it fails the load</span>
+<span class="sd">        - Metadata fields with underscore prefix (_comment, _version, etc.)</span>
+<span class="sd">        - Per-channel confirm policy (stored in raw DB)</span>
+
+<span class="sd">        Every other top-level key is a channel address, except ``defaults``,</span>
+<span class="sd">        which fails the load: no block of shared values applies to an entry.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            db_path: Path to JSON database file</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Tuple of (parsed_limits_db, raw_db):</span>
+<span class="sd">            - parsed_limits_db: Dict mapping channel addresses to ChannelLimitsConfig</span>
+<span class="sd">            - raw_db: Raw dict from JSON file (for confirm-policy access)</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If database structure is invalid</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">db_path</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Limits database not found: </span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel limits database not found: </span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">raw_db</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw_db</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Limits database must be a JSON object/dict, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">raw_db</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+
+            <span class="c1"># Every entry states its own write policy; a shared block would</span>
+            <span class="c1"># hand writability to entries that never asked for it.</span>
+            <span class="k">if</span> <span class="s2">&quot;defaults&quot;</span> <span class="ow">in</span> <span class="n">raw_db</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="s2">&quot;Top-level key &#39;defaults&#39; is not allowed: each channel entry &quot;</span>
+                    <span class="s2">&quot;states its own &#39;writable&#39; and &#39;confirm&#39;&quot;</span>
+                <span class="p">)</span>
+
+            <span class="c1"># Load channel configurations</span>
+            <span class="n">limits_db</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">channel_name</span><span class="p">,</span> <span class="n">config_dict</span> <span class="ow">in</span> <span class="n">raw_db</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="c1"># Skip metadata fields (underscore prefix)</span>
+                <span class="k">if</span> <span class="n">channel_name</span> <span class="ow">in</span> <span class="n">METADATA_FIELDS</span> <span class="ow">or</span> <span class="n">channel_name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">):</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Skipping metadata field: </span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="k">continue</span>
+
+                <span class="c1"># Validate it&#39;s a dict</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Invalid config for channel &#39;</span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&#39;: &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;must be a dictionary, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">config_dict</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="c1"># Validate configuration structure</span>
+                    <span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_validate_channel_config</span><span class="p">(</span><span class="n">channel_name</span><span class="p">,</span> <span class="n">config_dict</span><span class="p">)</span>
+
+                    <span class="c1"># Writability is never assumed: an entry that does not</span>
+                    <span class="c1"># state it fails the load.</span>
+                    <span class="k">if</span> <span class="s2">&quot;writable&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">config_dict</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel &#39;</span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&#39; does not state &#39;writable&#39;&quot;</span><span class="p">)</span>
+
+                    <span class="n">config</span> <span class="o">=</span> <span class="n">ChannelLimitsConfig</span><span class="p">(</span>
+                        <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_name</span><span class="p">,</span>
+                        <span class="n">min_value</span><span class="o">=</span><span class="n">config_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;min_value&quot;</span><span class="p">),</span>
+                        <span class="n">max_value</span><span class="o">=</span><span class="n">config_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;max_value&quot;</span><span class="p">),</span>
+                        <span class="n">max_step</span><span class="o">=</span><span class="n">config_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;max_step&quot;</span><span class="p">),</span>
+                        <span class="n">writable</span><span class="o">=</span><span class="n">config_dict</span><span class="p">[</span><span class="s2">&quot;writable&quot;</span><span class="p">],</span>
+                    <span class="p">)</span>
+
+                    <span class="c1"># Log performance warning for max_step</span>
+                    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">max_step</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;Channel &#39;</span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&#39; has max_step=</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">max_step</span><span class="si">}</span><span class="s2"> configured &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;(will require channel read, adds ~50-100ms latency)&quot;</span>
+                        <span class="p">)</span>
+
+                    <span class="n">limits_db</span><span class="p">[</span><span class="n">channel_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">config</span>
+
+                <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="c1"># One malformed entry fails the whole load. Skipping it used</span>
+                    <span class="c1"># to drop the channel from the database, which - under</span>
+                    <span class="c1"># the optional mode - silently removed its limits.</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid config for channel &#39;</span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Successfully loaded </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">limits_db</span><span class="p">)</span><span class="si">}</span><span class="s2"> channel configurations&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel limits database: </span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">limits_db</span><span class="p">,</span> <span class="n">raw_db</span>
+
+        <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">80</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;CRITICAL: CHANNEL LIMITS DATABASE HAS INVALID JSON&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;   File: </span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;   Error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;   Impact: ALL channel writes will be BLOCKED (fail-safe mode)&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;   Fix: Correct the JSON syntax in your limits database file&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">80</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid JSON in channel limits database: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to load limits database: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to load channel limits database: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+<div class="viewcode-block" id="LimitsValidator.validate">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.validate">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">validate</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">read_current</span><span class="p">:</span> <span class="n">CurrentValueReader</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Validate a channel write operation (synchronous, optional I/O for max_step).</span>
+
+<span class="sd">        Raises ChannelLimitsViolationError if validation fails.</span>
+<span class="sd">        Returns None if validation passes.</span>
+
+<span class="sd">        Note: If max_step is configured for the channel, this performs one synchronous</span>
+<span class="sd">        read to get the current value. This adds ~50-100ms latency but</span>
+<span class="sd">        provides important step-size safety checking. This validator owns no</span>
+<span class="sd">        control-system client of its own -- it is shared by every connector --</span>
+<span class="sd">        so the caller that is about to write supplies the read.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_address: Channel address to validate</span>
+<span class="sd">            value: Value to write</span>
+<span class="sd">            read_current: The caller&#39;s own way to read *channel_address*&#39;s</span>
+<span class="sd">                present value, used only when the channel configures</span>
+<span class="sd">                ``max_step``. Omitting it on such a channel fails the write</span>
+<span class="sd">                closed: a step that cannot be measured cannot be approved.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ChannelLimitsViolationError: If any validation check fails</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelLimitsViolationError</span>
+
+        <span class="n">channel_config</span><span class="p">,</span> <span class="n">numeric_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validate_without_step</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">channel_config</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">numeric_value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># A channel with no record under the optional mode, or a channel with no numeric limit:</span>
+            <span class="c1"># neither one has a step size to measure.</span>
+            <span class="k">return</span>
+
+        <span class="c1"># Check 4: Step size limit (OPTIONAL - only if configured, requires I/O)</span>
+        <span class="k">if</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">read_current</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="c1"># FAILSAFE: no reader, no measurement, no write. This used to</span>
+                <span class="c1"># be a direct pyepics caget, which measured the step over</span>
+                <span class="c1"># Channel Access whatever control system the write was bound</span>
+                <span class="c1"># for -- so max_step blocked every write on a non-CA</span>
+                <span class="c1"># deployment, and on a CA one it followed the process-wide</span>
+                <span class="c1"># EPICS_CA_* environment rather than the client the write</span>
+                <span class="c1"># itself goes through.</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Cannot verify step size for </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> - &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;the caller supplied no way to read the channel&quot;</span>
+                <span class="p">)</span>
+                <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                    <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                    <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;STEP_CHECK_FAILED&quot;</span><span class="p">,</span>
+                    <span class="n">violation_reason</span><span class="o">=</span><span class="p">(</span>
+                        <span class="s2">&quot;No way to read the current channel value was supplied, &quot;</span>
+                        <span class="s2">&quot;so the step size cannot be verified&quot;</span>
+                    <span class="p">),</span>
+                <span class="p">)</span>
+
+            <span class="k">try</span><span class="p">:</span>
+                <span class="c1"># Read current value (I/O operation)</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Reading current value for step check: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="n">current_value</span> <span class="o">=</span> <span class="n">read_current</span><span class="p">(</span><span class="n">channel_address</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">current_value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="c1"># FAILSAFE: Can&#39;t read current value → block write</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Cannot verify step size for </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> - &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;channel read returned None&quot;</span>
+                    <span class="p">)</span>
+                    <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                        <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                        <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;STEP_CHECK_FAILED&quot;</span><span class="p">,</span>
+                        <span class="n">violation_reason</span><span class="o">=</span><span class="s2">&quot;Cannot read current channel value to verify step size&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+
+                <span class="c1"># FAILSAFE: a present value that is not a finite real number</span>
+                <span class="c1"># (NaN from a disconnected record, a label, a waveform) gives</span>
+                <span class="c1"># no step to measure, and a step that cannot be measured</span>
+                <span class="c1"># cannot be approved. NaN in particular would pass the</span>
+                <span class="c1"># comparison below whatever the requested value.</span>
+                <span class="n">numeric_current</span><span class="p">,</span> <span class="n">current_reason</span> <span class="o">=</span> <span class="n">_finite_real_or_reason</span><span class="p">(</span><span class="n">current_value</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">numeric_current</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Cannot verify step size for </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> - &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;current value </span><span class="si">{</span><span class="n">current_value</span><span class="si">!r}</span><span class="s2"> is not a finite number&quot;</span>
+                    <span class="p">)</span>
+                    <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                        <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                        <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;STEP_CHECK_FAILED&quot;</span><span class="p">,</span>
+                        <span class="n">violation_reason</span><span class="o">=</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;Cannot verify step size: current channel value &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">current_value</span><span class="si">!r}</span><span class="s2"> is not a finite real number (</span><span class="si">{</span><span class="n">current_reason</span><span class="si">}</span><span class="s2">)&quot;</span>
+                        <span class="p">),</span>
+                        <span class="n">current_value</span><span class="o">=</span><span class="n">current_value</span><span class="p">,</span>
+                        <span class="n">max_step</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span><span class="p">,</span>
+                        <span class="n">min_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span><span class="p">,</span>
+                        <span class="n">max_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span><span class="p">,</span>
+                    <span class="p">)</span>
+
+                <span class="n">step_size</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">numeric_value</span> <span class="o">-</span> <span class="n">numeric_current</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">step_size</span> <span class="o">&gt;</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Blocked write exceeding max step: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;step=</span><span class="si">{</span><span class="n">step_size</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> &gt; max=</span><span class="si">{</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+                    <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                        <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                        <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                        <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;MAX_STEP_EXCEEDED&quot;</span><span class="p">,</span>
+                        <span class="n">violation_reason</span><span class="o">=</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;Step size </span><span class="si">{</span><span class="n">step_size</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> exceeds maximum &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span><span class="si">}</span><span class="s2"> (current=</span><span class="si">{</span><span class="n">numeric_current</span><span class="si">}</span><span class="s2">, &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;requested=</span><span class="si">{</span><span class="n">numeric_value</span><span class="si">}</span><span class="s2">)&quot;</span>
+                        <span class="p">),</span>
+                        <span class="n">current_value</span><span class="o">=</span><span class="n">current_value</span><span class="p">,</span>
+                        <span class="n">max_step</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span><span class="p">,</span>
+                        <span class="n">min_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span><span class="p">,</span>
+                        <span class="n">max_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span><span class="p">,</span>
+                    <span class="p">)</span>
+
+            <span class="k">except</span> <span class="n">ChannelLimitsViolationError</span><span class="p">:</span>
+                <span class="c1"># Re-raise limits violations (from max_step check)</span>
+                <span class="k">raise</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="c1"># FAILSAFE: Any error during read → block write</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Failed to read current value for step check: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                    <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                    <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;STEP_CHECK_FAILED&quot;</span><span class="p">,</span>
+                    <span class="n">violation_reason</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Channel read failed: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+        <span class="c1"># All checks passed!</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Validated write: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="LimitsValidator.validate_without_step_check">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.validate_without_step_check">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">validate_without_step_check</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every limits check that can be made without reading the machine.</span>
+
+<span class="sd">        For a caller that is *not* the one performing the write, and so has no</span>
+<span class="sd">        client to measure a step over: the PreToolUse limits hook, which gates</span>
+<span class="sd">        the write request before it reaches a connector at all. It applies the</span>
+<span class="sd">        database, the writable flag and the min/max bounds, and leaves</span>
+<span class="sd">        ``max_step`` to the writer -- which owns the client the write goes</span>
+<span class="sd">        through and checks it moments later in :meth:`validate`. Refusing here</span>
+<span class="sd">        for want of a reader would take ``max_step`` off the mediated write</span>
+<span class="sd">        path entirely rather than enforcing it.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            channel_address: Channel address to validate</span>
+<span class="sd">            value: Value to write</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ChannelLimitsViolationError: If any of those checks fails</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_validate_without_step</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_without_step</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ChannelLimitsConfig</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Checks 1-3, shared by both entry points.</span>
+
+<span class="sd">        Returns the channel&#39;s config and the value as a number, so the caller</span>
+<span class="sd">        can go on to the step check without repeating the lookup. A ``None``</span>
+<span class="sd">        config means a channel with no record under the optional mode and a ``None`` number means a</span>
+<span class="sd">        channel with no numeric limit -- in either case there is nothing further to check. A channel</span>
+<span class="sd">        that has a numeric limit never answers ``None``: a value it cannot hold to that limit is</span>
+<span class="sd">        refused here.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelLimitsViolationError</span>
+
+        <span class="c1"># Check 1: Channel exists in database?</span>
+        <span class="n">channel_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">limits</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">channel_address</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">channel_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># A database that failed to load blocks everything — say so, rather</span>
+            <span class="c1"># than refusing with the unlisted-channel message: &quot;not in limits</span>
+            <span class="c1"># database&quot; sends the operator chasing a data problem when the</span>
+            <span class="c1"># actual failure is that no database was loaded at all.</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">failsafe_reason</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Blocked write (limits database unavailable): </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                    <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                    <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;LIMITS_DATABASE_UNAVAILABLE&quot;</span><span class="p">,</span>
+                    <span class="n">violation_reason</span><span class="o">=</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Limits database unavailable — all writes are blocked as a &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;failsafe (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">failsafe_reason</span><span class="si">}</span><span class="s2">). This is not a statement &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;about channel &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39;.&quot;</span>
+                    <span class="p">),</span>
+                <span class="p">)</span>
+            <span class="c1"># No record - the mode decides. Only an explicit `optional` is</span>
+            <span class="c1"># permission: the policy carries the posture&#39;s mode verbatim so</span>
+            <span class="c1"># that `channel_limits` can report an unstated answer as `null`,</span>
+            <span class="c1"># and unstated is nobody&#39;s permission to write a channel with no</span>
+            <span class="c1"># record.</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;mode&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">LIMITS_MODE_OPTIONAL</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>  <span class="c1"># Written with no limits</span>
+            <span class="c1"># FAILSAFE: refuse a channel with no record. Name the key that</span>
+            <span class="c1"># actually answered — a deployment may set this per connector</span>
+            <span class="c1"># type, and quoting the deployment-wide key there would send an</span>
+            <span class="c1"># operator to flip a line the per-type block overrides. A</span>
+            <span class="c1"># validator built from a bare policy dict carries no key; the</span>
+            <span class="c1"># deployment-wide one is the honest answer for it.</span>
+            <span class="n">answering_key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;mode_key&quot;</span><span class="p">,</span> <span class="s2">&quot;control_system.limits_checking.mode&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Blocked write to unlisted channel: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;UNLISTED_CHANNEL&quot;</span><span class="p">,</span>
+                <span class="n">violation_reason</span><span class="o">=</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Channel &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; not in limits database &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;(&#39;</span><span class="si">{</span><span class="n">answering_key</span><span class="si">}</span><span class="s2">&#39; is not &#39;</span><span class="si">{</span><span class="n">LIMITS_MODE_OPTIONAL</span><span class="si">}</span><span class="s2">&#39;)&quot;</span>
+                <span class="p">),</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Check 2: Channel is writable?</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">writable</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Blocked write to read-only channel: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;READ_ONLY_CHANNEL&quot;</span><span class="p">,</span>
+                <span class="n">violation_reason</span><span class="o">=</span><span class="s2">&quot;Channel is marked as read-only&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Check 3: Min/Max bounds.</span>
+        <span class="c1">#</span>
+        <span class="c1"># The rule: a channel with ANY numeric limit (min_value, max_value or</span>
+        <span class="c1"># max_step) accepts only a finite real number, or a string the EPICS</span>
+        <span class="c1"># client parses to one unambiguously. Anything else -- a string it</span>
+        <span class="c1"># would read differently by channel type, NaN, an infinity, a list,</span>
+        <span class="c1"># None -- is refused rather than waved past the numeric checks, because</span>
+        <span class="c1"># a value the validator cannot compare is a value it has not checked.</span>
+        <span class="c1"># See `_numeral_or_reason` for how strings are read.</span>
+        <span class="c1">#</span>
+        <span class="c1"># A channel with no numeric limit (a writable-only entry, e.g. an enum</span>
+        <span class="c1"># or string record written by label) has nothing numeric to hold the</span>
+        <span class="c1"># value to, so it passes as it always has.</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span> <span class="ow">is</span> <span class="kc">None</span>
+        <span class="p">):</span>
+            <span class="k">return</span> <span class="n">channel_config</span><span class="p">,</span> <span class="kc">None</span>
+
+        <span class="n">numeric_value</span><span class="p">,</span> <span class="n">reason</span> <span class="o">=</span> <span class="n">_finite_real_or_reason</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">numeric_value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Blocked non-numeric write: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">violation_type</span><span class="o">=</span><span class="n">INVALID_NUMERIC_VALUE</span><span class="p">,</span>
+                <span class="n">violation_reason</span><span class="o">=</span><span class="n">reason</span> <span class="ow">or</span> <span class="s2">&quot;Value is not a finite real number&quot;</span><span class="p">,</span>
+                <span class="n">min_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span><span class="p">,</span>
+                <span class="n">max_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span><span class="p">,</span>
+                <span class="n">max_step</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">numeric_value</span> <span class="o">&lt;</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Blocked write below minimum: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">numeric_value</span><span class="si">}</span><span class="s2"> &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(min=</span><span class="si">{</span><span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="p">)</span>
+            <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;MIN_EXCEEDED&quot;</span><span class="p">,</span>
+                <span class="n">violation_reason</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Value </span><span class="si">{</span><span class="n">numeric_value</span><span class="si">}</span><span class="s2"> below minimum </span><span class="si">{</span><span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">min_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span><span class="p">,</span>
+                <span class="n">max_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">numeric_value</span> <span class="o">&gt;</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Blocked write above maximum: </span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">numeric_value</span><span class="si">}</span><span class="s2"> &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(max=</span><span class="si">{</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="p">)</span>
+            <span class="k">raise</span> <span class="n">ChannelLimitsViolationError</span><span class="p">(</span>
+                <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+                <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">violation_type</span><span class="o">=</span><span class="s2">&quot;MAX_EXCEEDED&quot;</span><span class="p">,</span>
+                <span class="n">violation_reason</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Value </span><span class="si">{</span><span class="n">numeric_value</span><span class="si">}</span><span class="s2"> above maximum </span><span class="si">{</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">min_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">min_value</span><span class="p">,</span>
+                <span class="n">max_value</span><span class="o">=</span><span class="n">channel_config</span><span class="o">.</span><span class="n">max_value</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">channel_config</span><span class="p">,</span> <span class="n">numeric_value</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

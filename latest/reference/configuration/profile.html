@@ -405,6 +405,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/dock-engine.html">Dock Engine Contract</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../connectors-api/index.html">osprey-connectors API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/contracts.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/building.html">Building Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/errors-logging.html">Errors and Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/configuration.html">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/write-safety.html">Write Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/deployment.html">A Deployment’s Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/supervision.html">Supervising Connector Processes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
 </ul>
 </div>
@@ -749,16 +761,16 @@ rendering it. The tier key needs no change: it is target-blind
 <p><strong>Connector types whose name contains a dot</strong> are the one place the flat form
 does not work. A custom connector is named by its module path, and the build
 splits only the <em>first</em> key of each <code class="docutils literal notranslate"><span class="pre">config:</span></code> entry on dots — so
-<code class="docutils literal notranslate"><span class="pre">control_system.connector.mypkg.MoatConnector.limits_checking.enabled</span></code>
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.mypkg.SiteConnector.limits_checking.enabled</span></code>
 renders the type’s module path as two nested keys, <code class="docutils literal notranslate"><span class="pre">mypkg</span></code> and
-<code class="docutils literal notranslate"><span class="pre">MoatConnector</span></code>, instead of the one key the connector is actually called.
+<code class="docutils literal notranslate"><span class="pre">SiteConnector</span></code>, instead of the one key the connector is actually called.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuse that entry by name rather
 than letting it render somewhere nothing reads. Write such a type as its own
 map key under a dotted prefix, which is the one spelling that puts the block
 where the connector looks for it:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">control_system.connector</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">mypkg.MoatConnector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">mypkg.SiteConnector</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">limits_checking</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exclusive</span>

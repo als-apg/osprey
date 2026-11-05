@@ -1,0 +1,1439 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.ipc._host &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/ipc/_host';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/ipc/_host.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.ipc._host</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.ipc._host</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;The connector-host child: the process that owns the control-system client.</span>
+
+<span class="sd">One target, one child. The parent (the controls MCP server, or a</span>
+<span class="sd">:class:`~osprey_connectors.ipc.ConnectorHostPool`) holds no ``libca``</span>
+<span class="sd">and never sets an ``EPICS_CA_*`` variable of its own; it launches this module,</span>
+<span class="sd">which builds the real connector through the ordinary</span>
+<span class="sd">:class:`~osprey_connectors.factory.ConnectorFactory` and serves the proxy</span>
+<span class="sd">surface over the frame codec. Switching targets is therefore a process</span>
+<span class="sd">lifecycle operation rather than an in-process reconfiguration, which is the</span>
+<span class="sd">only way to change an EPICS environment that is read once, process-wide, by a</span>
+<span class="sd">library that has already loaded.</span>
+
+<span class="sd">Launch contract</span>
+<span class="sd">---------------</span>
+<span class="sd">The child is spawned as::</span>
+
+<span class="sd">    python -m osprey_connectors.ipc._host</span>
+
+<span class="sd">with **stdin** and **stdout** connected to pipes and **stderr** left free for</span>
+<span class="sd">diagnostics. There are no command-line arguments and no configuration in</span>
+<span class="sd">``argv``: everything arrives on the wire, so nothing about a deployment shows</span>
+<span class="sd">up in ``ps``.</span>
+
+<span class="sd">``stdout`` is the frame channel and carries nothing else. To make that true</span>
+<span class="sd">regardless of what a control-system library decides to print, the child</span>
+<span class="sd">duplicates its stdout to a private file descriptor at startup and then points</span>
+<span class="sd">file descriptor 1 at stderr. A stray ``print()`` — from this module, from</span>
+<span class="sd">libca, from anything imported below — lands on stderr and cannot desynchronise</span>
+<span class="sd">the stream. Frames are written to the private descriptor with :func:`os.write`.</span>
+
+<span class="sd">The init frame</span>
+<span class="sd">--------------</span>
+<span class="sd">The **first frame the parent sends** is a request whose method is ``init`` and</span>
+<span class="sd">whose kwargs are::</span>
+
+<span class="sd">    {</span>
+<span class="sd">      &quot;control_system&quot;: {...},          # the full control_system config section</span>
+<span class="sd">      &quot;target&quot;: &quot;live&quot; | &quot;va&quot;,          # the control target, never defaulted</span>
+<span class="sd">      &quot;config_file&quot;: &quot;/abs/config.yml&quot;, # optional: what CONFIG_FILE to read</span>
+<span class="sd">      &quot;execution_mode&quot;: &quot;readonly&quot;      # optional: restrict this child to reads</span>
+<span class="sd">    }</span>
+
+<span class="sd">``control_system`` is passed whole rather than re-read from disk, so the child</span>
+<span class="sd">builds from exactly the section the parent resolved against. ``target`` is</span>
+<span class="sd">resolved to a connector type by :func:`osprey_connectors.types.resolve_target`</span>
+<span class="sd">— the same shared resolver the parent and the executor sandbox use, so no</span>
+<span class="sd">holder can decide privately which machine ``live`` means.</span>
+
+<span class="sd">Writes are deliberately **not** grantable by launch payload. The connector&#39;s</span>
+<span class="sd">write guard decides every write by the write verdict</span>
+<span class="sd">(:func:`osprey_connectors.posture_store.write_verdict`): the write tier of the</span>
+<span class="sd">project config&#39;s ``control_system`` section — not the section in the init</span>
+<span class="sd">frame — and the login&#39;s switch for the machine, read from the record this</span>
+<span class="sd">child&#39;s environment names. ``execution_mode`` here can only *add* the</span>
+<span class="sd">``OSPREY_EXECUTION_MODE=readonly`` claim, never clear an inherited one. A child</span>
+<span class="sd">cannot be talked into writing by the way it was started.</span>
+
+<span class="sd">Environment scrub</span>
+<span class="sd">-----------------</span>
+<span class="sd">Before anything else — before the init frame is read, before the connectors</span>
+<span class="sd">package is imported — every inherited ``EPICS_CA_*`` and ``EPICS_PVA_*``</span>
+<span class="sd">variable is removed from ``os.environ``. Ambient environment must never</span>
+<span class="sd">contribute to what this child talks to: the endpoint is derived by</span>
+<span class="sd">``connect()`` from the config section alone, and the post-connect report below</span>
+<span class="sd">is only meaningful because anything left in the environment afterwards was put</span>
+<span class="sd">there by ``connect()`` itself.</span>
+
+<span class="sd">Start marks</span>
+<span class="sd">-----------</span>
+<span class="sd">A supervisor may hand the child the write end of a pipe and name its</span>
+<span class="sd">descriptor in :data:`START_MARKS_FD_ENV`. The child then writes one line per</span>
+<span class="sd">start phase it completes, ``&quot;&lt;name&gt; &lt;time.monotonic()&gt;\n&quot;``, in the order of</span>
+<span class="sd">:data:`START_PHASES`, and closes the descriptor before it serves:</span>
+
+<span class="sd">* ``main`` — the interpreter is up and this module, with everything it</span>
+<span class="sd">  imports, is loaded;</span>
+<span class="sd">* ``init`` — the init frame has been read;</span>
+<span class="sd">* ``imports`` — every built-in connector and archiver module is imported;</span>
+<span class="sd">* ``connected`` — the connector is built: its own module imported and its</span>
+<span class="sd">  ``connect()`` returned.</span>
+
+<span class="sd">The time between two marks is the time the later phase took. The marks are</span>
+<span class="sd">diagnostics beside the frame channel, never part of it: a child handed no</span>
+<span class="sd">descriptor writes none, and a supervisor that reads none learns nothing less</span>
+<span class="sd">from the frames.</span>
+
+<span class="sd">The post-connect report</span>
+<span class="sd">-----------------------</span>
+<span class="sd">The **first frame the child sends** is the result frame answering ``init``. It</span>
+<span class="sd">carries what ``connect()`` actually configured, which is what the parent</span>
+<span class="sd">asserts its own derivation against::</span>
+
+<span class="sd">    {</span>
+<span class="sd">      &quot;selected_role&quot;: &quot;read_only&quot; | &quot;write_access&quot; | None,</span>
+<span class="sd">      &quot;mode&quot;:          &quot;name_server&quot; | &quot;addr_list&quot; | None,</span>
+<span class="sd">      &quot;host&quot;:          str | None,</span>
+<span class="sd">      &quot;port&quot;:          int | str | None,</span>
+<span class="sd">      &quot;_epics_configured&quot;: bool,</span>
+<span class="sd">      # diagnostics, alongside the five verification fields above</span>
+<span class="sd">      &quot;connector_type&quot;: str,     # what `target` resolved to</span>
+<span class="sd">      &quot;transport&quot;:      str | None,  # the wire the built connector speaks</span>
+<span class="sd">      &quot;target&quot;:         str,</span>
+<span class="sd">      &quot;writes_enabled&quot;: bool,    # the posture the gateway selection was made</span>
+<span class="sd">      &quot;readonly_run&quot;:   bool,    # on, and the run mode (see below)</span>
+<span class="sd">      &quot;authorization&quot;:  str | None,  # the write authorization it names</span>
+<span class="sd">      &quot;epics_env&quot;:      {...},   # EPICS_CA_*/EPICS_PVA_* set by connect()</span>
+<span class="sd">      &quot;pid&quot;:            int,</span>
+<span class="sd">    }</span>
+
+<span class="sd">``mode``, ``host`` and ``port`` are read back out of the environment</span>
+<span class="sd">``connect()`` installed, not out of the config that was requested.</span>
+<span class="sd">``selected_role`` is the gateway role whose configured endpoint matches what</span>
+<span class="sd">was installed; where both roles name the same endpoint — which makes them</span>
+<span class="sd">operationally indistinguishable — the tie is broken by the rule ``connect()``</span>
+<span class="sd">applies (``write_access`` when writes are enabled, a write gateway exists, and</span>
+<span class="sd">the run is not readonly; otherwise ``read_only``, or ``write_access`` on a block</span>
+<span class="sd">that configures no ``read_only`` gateway).</span>
+
+<span class="sd">``writes_enabled`` is the connector instance&#39;s own posture — whether the write</span>
+<span class="sd">verdict allows a write to this child&#39;s target — because that is the value</span>
+<span class="sd">``connect()`` selected on, and the parent verifies the reported role against a</span>
+<span class="sd">derivation made with the same verdict. In a readonly run, where that verdict</span>
+<span class="sd">refuses for every type, the write tier is reported instead and ``readonly_run``</span>
+<span class="sd">names the reason. A child that names a program&#39;s write authorization</span>
+<span class="sd">(``OSPREY_WRITE_AUTHORIZATION``, which the pool sets for a key that names one)</span>
+<span class="sd">reports it in ``authorization``, and its ``writes_enabled`` is the</span>
+<span class="sd">authorization&#39;s verdict, channels aside: a child spawned under a live</span>
+<span class="sd">authorization selects the write gateway with the machine&#39;s switch off.</span>
+
+<span class="sd">**A connector that configures no CA environment reports all five as</span>
+<span class="sd">null/false**, and that is a well-formed report rather than a degraded one: the</span>
+<span class="sd">simulator served in process talks to no gateway, so ``selected_role``, ``mode``, ``host``</span>
+<span class="sd">and ``port`` are ``None`` and ``_epics_configured`` is ``False``. There is</span>
+<span class="sd">nothing for the parent to verify because there is no endpoint to get wrong.</span>
+
+<span class="sd">Served methods</span>
+<span class="sd">--------------</span>
+<span class="sd">``read_channel``, ``read_multiple_channels``, ``write_channel``,</span>
+<span class="sd">``write_multiple_channels``, ``validate_channel``, ``disconnect`` — forwarded</span>
+<span class="sd">to the connector with the kwargs the frame carried — plus ``spawn_probe`` and</span>
+<span class="sd">``ping``.</span>
+
+<span class="sd">``ping {}`` answers with this child&#39;s pid and touches nothing else. It is how a</span>
+<span class="sd">supervisor tells a child that is merely slow — a batched or confirmed write can</span>
+<span class="sd">legitimately take several of its call&#39;s timeouts — from one that is wedged:</span>
+<span class="sd">every request is served as its own task, so a ping is answered alongside any</span>
+<span class="sd">number of slow calls, and goes unanswered only when this process&#39;s event loop</span>
+<span class="sd">itself is stuck.</span>
+
+<span class="sd">A batched read is **one round trip**: ``read_multiple_channels`` fans out</span>
+<span class="sd">concurrently *inside* the child through the connector&#39;s own implementation, so</span>
+<span class="sd">N channels cost one request frame and one result frame rather than N of each.</span>
+<span class="sd">Requests are dispatched as tasks and may complete in any order; the parent</span>
+<span class="sd">matches replies by ``request_id``.</span>
+
+<span class="sd">``spawn_probe {channel, timeout}`` is the readiness check the parent runs</span>
+<span class="sd">against a freshly spawned child before it swaps traffic over: a real read of</span>
+<span class="sd">one named channel, bounded by ``timeout``, returning that channel&#39;s</span>
+<span class="sd">:class:`~osprey_connectors.control_system.ChannelValue`. It is a distinct</span>
+<span class="sd">method because a probe is allowed to fail without meaning anything is wrong</span>
+<span class="sd">with the child — a failed probe aborts a switch, and this child keeps serving.</span>
+
+<span class="sd">**A request-level failure never kills the child.** Every exception raised while</span>
+<span class="sd">serving a request is encoded into an error frame for that ``request_id`` by</span>
+<span class="sd">:mod:`osprey_connectors.ipc._exceptions`, and the serve loop continues.</span>
+
+<span class="sd">Lifecycle</span>
+<span class="sd">---------</span>
+<span class="sd">The child exits:</span>
+
+<span class="sd">- with 0 when stdin reaches **EOF** — the parent closed the pipe or died;</span>
+<span class="sd">- with 0 after a ``disconnect`` request, once outstanding work has finished and</span>
+<span class="sd">  the acknowledgement has been written;</span>
+<span class="sd">- with :data:`EXIT_ORPHANED` when the **watchdog** thread finds it</span>
+<span class="sd">  reparented: the parent PID differs from the one recorded at start (init or a</span>
+<span class="sd">  subreaper), because its parent died without closing the pipe. This holds</span>
+<span class="sd">  because the child is spawned directly by its supervisor, with no wrapper</span>
+<span class="sd">  process between them; the recorded parent is the supervisor itself. A</span>
+<span class="sd">  polling thread is used rather than a signal: ``PR_SET_PDEATHSIG`` does not</span>
+<span class="sd">  exist on macOS and there is no ``/proc`` to watch, and a thread polling</span>
+<span class="sd">  ``getppid()`` behaves identically on both platforms;</span>
+<span class="sd">- with :data:`EXIT_INIT_FAILED` when the first frame is not a usable ``init``</span>
+<span class="sd">  or the connector fails to connect. Either way a typed error frame naming the</span>
+<span class="sd">  failure is written first, so the parent learns why rather than seeing only a</span>
+<span class="sd">  dead process.</span>
+
+<span class="sd">Exit is abrupt (:func:`os._exit`) after the streams are flushed: this process</span>
+<span class="sd">holds a Channel Access context whose interpreter-shutdown handlers can block,</span>
+<span class="sd">and a child that will not die is worse for the parent than one that skips its</span>
+<span class="sd">atexit hooks.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">stat</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">deque</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorInternalError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc</span><span class="w"> </span><span class="kn">import</span> <span class="n">_frames</span> <span class="k">as</span> <span class="n">frames</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="n">decode_exception</span><span class="p">,</span> <span class="n">encode_exception</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">POSTURE_ENV_VAR</span><span class="p">,</span> <span class="n">SANDBOX_MODE</span><span class="p">,</span> <span class="n">is_readonly_run</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;EXIT_INIT_FAILED&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;EXIT_OK&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;EXIT_ORPHANED&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;INIT_METHOD&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;PROXY_METHODS&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;START_MARKS_FD_ENV&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;START_PHASES&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;main&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;scrub_epics_env&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1">#: Clean shutdown: pipe EOF, or an acknowledged ``disconnect``.</span>
+<span class="n">EXIT_OK</span> <span class="o">=</span> <span class="mi">0</span>
+
+<span class="c1">#: The init frame was unusable, or ``connect()`` failed. An error frame</span>
+<span class="c1">#: describing the failure is always written before exiting with this code.</span>
+<span class="n">EXIT_INIT_FAILED</span> <span class="o">=</span> <span class="mi">2</span>
+
+<span class="c1">#: The watchdog found the process reparented: the parent PID differs from the</span>
+<span class="c1">#: one recorded at start (init or a subreaper), so the parent is gone.</span>
+<span class="n">EXIT_ORPHANED</span> <span class="o">=</span> <span class="mi">3</span>
+
+<span class="c1">#: Method name of the configuration frame, which must arrive first.</span>
+<span class="n">INIT_METHOD</span> <span class="o">=</span> <span class="s2">&quot;init&quot;</span>
+
+<span class="c1">#: Names the inherited descriptor a child writes its start marks to.</span>
+<span class="n">START_MARKS_FD_ENV</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_CONNECTOR_HOST_START_MARKS_FD&quot;</span>
+
+<span class="c1">#: The start marks a child writes, in the order it reaches them.</span>
+<span class="n">START_PHASES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;main&quot;</span><span class="p">,</span> <span class="s2">&quot;init&quot;</span><span class="p">,</span> <span class="s2">&quot;imports&quot;</span><span class="p">,</span> <span class="s2">&quot;connected&quot;</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_StartMarks</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Writes this child&#39;s start marks to the descriptor its supervisor passed.</span>
+
+<span class="sd">    The variable naming the descriptor is removed from the environment as it</span>
+<span class="sd">    is read, so nothing this child starts inherits a number that means</span>
+<span class="sd">    something else there. A descriptor that is not a pipe is never written to.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fd</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">raw</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">START_MARKS_FD_ENV</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">raw</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">raw</span><span class="o">.</span><span class="n">isdigit</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">OSError</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">stat</span><span class="o">.</span><span class="n">S_ISFIFO</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">fstat</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">raw</span><span class="p">))</span><span class="o">.</span><span class="n">st_mode</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fd</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">mark</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">phase</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fd</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_fd</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">phase</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fd</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fd</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">OSError</span><span class="p">):</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fd</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<span class="c1">#: Connector methods forwarded verbatim. ``spawn_probe`` is served separately</span>
+<span class="c1">#: because it is this module&#39;s own method, not the connector&#39;s.</span>
+<span class="n">PROXY_METHODS</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;read_channel&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;read_multiple_channels&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;write_channel&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;validate_channel&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;disconnect&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1">#: Every inherited variable with one of these prefixes is dropped at startup.</span>
+<span class="n">EPICS_ENV_PREFIXES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;EPICS_CA_&quot;</span><span class="p">,</span> <span class="s2">&quot;EPICS_PVA_&quot;</span><span class="p">)</span>
+
+<span class="c1">#: How often the watchdog asks whether it still has a parent.</span>
+<span class="n">WATCHDOG_INTERVAL_S</span> <span class="o">=</span> <span class="mf">1.0</span>
+
+<span class="c1">#: Bound applied to ``spawn_probe`` when the caller names none.</span>
+<span class="n">DEFAULT_PROBE_TIMEOUT_S</span> <span class="o">=</span> <span class="mf">5.0</span>
+
+<span class="n">_READ_CHUNK_BYTES</span> <span class="o">=</span> <span class="mi">65536</span>
+
+<span class="c1"># Named for the public namespace, not this private module, so a logging config</span>
+<span class="c1"># keyed on the name keeps matching whatever the module is called.</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.ipc.host&quot;</span><span class="p">)</span>
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Startup: environment scrub and stdout protection</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="scrub_epics_env">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.scrub_epics_env">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">scrub_epics_env</span><span class="p">(</span><span class="n">environ</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Remove every inherited ``EPICS_CA_*``/``EPICS_PVA_*`` variable.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        environ: Mapping to scrub, defaulting to :data:`os.environ`.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The removed name/value pairs, for logging. Nothing is put back: an</span>
+<span class="sd">        endpoint this child was not configured with must not be reachable from</span>
+<span class="sd">        it, and a variable that survived the scrub would silently widen what</span>
+<span class="sd">        ``connect()`` decided.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">env</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span> <span class="k">if</span> <span class="n">environ</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">environ</span>
+    <span class="n">removed</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">[</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">env</span> <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">EPICS_ENV_PREFIXES</span><span class="p">)]:</span>
+        <span class="n">removed</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">removed</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_claim_frame_channel</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Take stdout for frames alone, and point stray writes at stderr.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A private duplicate of the original stdout, which is from here on the</span>
+<span class="sd">        only way to reach the parent&#39;s read pipe. File descriptor 1 becomes a</span>
+<span class="sd">        duplicate of stderr, so anything that prints — this module, libca,</span>
+<span class="sd">        rich, a library&#39;s import-time banner — is diagnostics rather than</span>
+<span class="sd">        stream corruption.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+    <span class="n">channel</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">dup</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">dup2</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">channel</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_write_frame</span><span class="p">(</span><span class="n">fd</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Write one whole frame, looping over short writes.&quot;&quot;&quot;</span>
+    <span class="n">view</span> <span class="o">=</span> <span class="nb">memoryview</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+    <span class="k">while</span> <span class="n">view</span><span class="p">:</span>
+        <span class="n">view</span> <span class="o">=</span> <span class="n">view</span><span class="p">[</span><span class="n">os</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">view</span><span class="p">)</span> <span class="p">:]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_parent_changed</span><span class="p">(</span><span class="n">parent_pid</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether this process&#39;s parent is no longer *parent_pid*.</span>
+
+<span class="sd">    A parent of init counts as changed even when it is the one recorded: a</span>
+<span class="sd">    supervisor that died before the record was taken has already handed the</span>
+<span class="sd">    child to init, and a supervisor is never init itself.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parent</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getppid</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">parent</span> <span class="o">!=</span> <span class="n">parent_pid</span> <span class="ow">or</span> <span class="n">parent</span> <span class="o">==</span> <span class="mi">1</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_start_watchdog</span><span class="p">(</span><span class="n">interval</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">WATCHDOG_INTERVAL_S</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">parent_pid</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Start the daemon thread that exits when this process is orphaned.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        interval: Seconds between polls.</span>
+<span class="sd">        parent_pid: The parent PID recorded at start.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_poll</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">_parent_changed</span><span class="p">(</span><span class="n">parent_pid</span><span class="p">):</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="s2">&quot;connector host: parent </span><span class="si">%s</span><span class="s2"> is gone (now reparented to </span><span class="si">%s</span><span class="s2">); exiting&quot;</span><span class="p">,</span>
+                    <span class="n">parent_pid</span><span class="p">,</span>
+                    <span class="n">os</span><span class="o">.</span><span class="n">getppid</span><span class="p">(),</span>
+                <span class="p">)</span>
+                <span class="n">_exit_now</span><span class="p">(</span><span class="n">EXIT_ORPHANED</span><span class="p">)</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">interval</span><span class="p">)</span>
+
+    <span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">_poll</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;connector-host-watchdog&quot;</span><span class="p">,</span> <span class="n">daemon</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">thread</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_exit_now</span><span class="p">(</span><span class="n">code</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Flush the diagnostics and leave, without running interpreter shutdown.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="n">_save_coverage</span><span class="p">()</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">_exit</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>  <span class="c1"># pragma: no cover - ends the process before the tracer records it</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_save_coverage</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Write coverage data a measured run collected in this child, if any.</span>
+
+<span class="sd">    ``os._exit`` skips the atexit hook coverage.py saves from, so without this a</span>
+<span class="sd">    test run that measures subprocesses sees none of the code a child ran. Only</span>
+<span class="sd">    a run that already imported coverage has anything to save; everywhere else</span>
+<span class="sd">    this is a dictionary lookup.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">coverage</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;coverage&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">coverage</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>  <span class="c1"># pragma: no cover - only true outside a measured run</span>
+        <span class="k">return</span>
+    <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="n">coverage</span><span class="o">.</span><span class="n">Coverage</span><span class="o">.</span><span class="n">current</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">current</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">current</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+            <span class="n">current</span><span class="o">.</span><span class="n">save</span><span class="p">()</span>
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Post-connect report</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_installed_endpoint</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The CA endpoint currently installed in the environment.</span>
+
+<span class="sd">    Read *after* ``connect()`` and after the startup scrub, so whatever is</span>
+<span class="sd">    found here was put there by ``connect()`` and by nothing else.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``(mode, host, port)``, all ``None`` when no CA gateway was configured.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">name_servers</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;EPICS_CA_NAME_SERVERS&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">name_servers</span><span class="p">:</span>
+        <span class="n">host</span><span class="p">,</span> <span class="n">separator</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="n">name_servers</span><span class="o">.</span><span class="n">rpartition</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">separator</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;name_server&quot;</span><span class="p">,</span> <span class="n">name_servers</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="k">return</span> <span class="s2">&quot;name_server&quot;</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">_as_port</span><span class="p">(</span><span class="n">port</span><span class="p">)</span>
+
+    <span class="n">addr_list</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;EPICS_CA_ADDR_LIST&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">addr_list</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;addr_list&quot;</span><span class="p">,</span> <span class="n">addr_list</span><span class="p">,</span> <span class="n">_as_port</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;EPICS_CA_SERVER_PORT&quot;</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_as_port</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A port as the int it usually is, or verbatim when it is not one.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">value</span> <span class="o">==</span> <span class="s2">&quot;&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="k">if</span> <span class="n">value</span><span class="o">.</span><span class="n">isdigit</span><span class="p">()</span> <span class="k">else</span> <span class="n">value</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_writes_enabled_input</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The DEPLOYMENT half of this child&#39;s write posture — the write tier alone.</span>
+
+<span class="sd">    :func:`osprey_connectors.types.tier_allows` over the project config&#39;s</span>
+<span class="sd">    ``control_system`` section: whether this deployment&#39;s write tier allows</span>
+<span class="sd">    writes at all, before the switch, the owner or the target are asked. The</span>
+<span class="sd">    tier is one per section, so the connector type this child serves does not</span>
+<span class="sd">    change the answer.</span>
+
+<span class="sd">    This is **not** the posture ``connect()`` selected its gateway on. The</span>
+<span class="sd">    connector&#39;s own ``_writes_enabled`` is the whole write verdict — run mode,</span>
+<span class="sd">    tier, target, owner, the login&#39;s switch for the machine and the launch pin —</span>
+<span class="sd">    and that property is what :func:`_selection_writes_enabled` reads for the</span>
+<span class="sd">    report.</span>
+
+<span class="sd">    What is left for this one is the readonly-run mirror. A readonly run</span>
+<span class="sd">    collapses the instance&#39;s verdict to ``False``, which would erase the</span>
+<span class="sd">    deployment&#39;s answer from the report; reported here instead, the pair</span>
+<span class="sd">    ``(writes_enabled, readonly_run)`` still says that a tier allowing writes</span>
+<span class="sd">    was held on the read gateway by the run mode. The reported role is</span>
+<span class="sd">    unaffected, because the gateway rule (:func:`_rule_role`) never selects</span>
+<span class="sd">    ``write_access`` for a readonly run.</span>
+
+<span class="sd">    The section is read from the project config rather than taken from the init</span>
+<span class="sd">    payload for the same reason the connector reads it there. A config that</span>
+<span class="sd">    cannot be read allows nothing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">tier_allows</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">section</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="n">tier_allows</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_selection_writes_enabled</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The write posture ``connect()`` actually selected this child&#39;s gateway on.</span>
+
+<span class="sd">    The connector instance&#39;s own property rather than a second derivation from</span>
+<span class="sd">    config: it is the whole rule — the deployment ceiling for its type, the run</span>
+<span class="sd">    mode, and the operator&#39;s narrowing for the target the factory stamped on it</span>
+<span class="sd">    — and it is the value ``connect()`` read to choose between the</span>
+<span class="sd">    ``write_access`` and ``read_only`` gateways. Reading it here is what keeps</span>
+<span class="sd">    the report and the connected role the same answer.</span>
+
+<span class="sd">    Fail-closed on the same exception set ``connect()`` catches around that</span>
+<span class="sd">    property, plus an instance that carries no such property at all: a</span>
+<span class="sd">    connector with no posture to read went through no write gateway.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">connector</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_named_authorization</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The program&#39;s write authorization this child names, for its report; ``None`` for none.</span>
+
+<span class="sd">    The child&#39;s ``writes_enabled`` and its gateway were decided on it</span>
+<span class="sd">    (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.write_authorization</span><span class="w"> </span><span class="kn">import</span> <span class="n">named_authorization</span>
+
+    <span class="k">return</span> <span class="n">named_authorization</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_rule_role</span><span class="p">(</span><span class="n">gateways</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">writes_enabled</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">readonly_run</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.</span>
+
+<span class="sd">    The rule itself is :func:`osprey_connectors.ipc._verification._selected_role`,</span>
+<span class="sd">    the one place it lives: this only adds that an empty table selects nothing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._verification</span><span class="w"> </span><span class="kn">import</span> <span class="n">_selected_role</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">gateways</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">_selected_role</span><span class="p">(</span><span class="n">gateways</span><span class="p">,</span> <span class="n">writes_enabled</span><span class="o">=</span><span class="n">writes_enabled</span><span class="p">,</span> <span class="n">readonly_run</span><span class="o">=</span><span class="n">readonly_run</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_endpoint_matches</span><span class="p">(</span><span class="n">gateway</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">host</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">port</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a gateway block describes the endpoint that was installed.</span>
+
+<span class="sd">    A block with no ``port`` matches on address and mode alone: an unset port</span>
+<span class="sd">    is default-filled at connect time (the virtual accelerator follows</span>
+<span class="sd">    ``services.virtual_accelerator.port``), so the config never carried the</span>
+<span class="sd">    number the environment now shows.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">gateway</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">gateway</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">gateway</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;address&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span> <span class="o">!=</span> <span class="nb">str</span><span class="p">(</span><span class="n">host</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="s2">&quot;port&quot;</span> <span class="ow">in</span> <span class="n">gateway</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">gateway</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">])</span> <span class="o">!=</span> <span class="nb">str</span><span class="p">(</span><span class="n">port</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config_flag</span>
+
+    <span class="n">name_server</span> <span class="o">=</span> <span class="n">config_flag</span><span class="p">(</span><span class="n">gateway</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;use_name_server&quot;</span><span class="p">),</span> <span class="n">key</span><span class="o">=</span><span class="s2">&quot;gateways.use_name_server&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span><span class="s2">&quot;name_server&quot;</span> <span class="k">if</span> <span class="n">name_server</span> <span class="k">else</span> <span class="s2">&quot;addr_list&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">mode</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_installed_role</span><span class="p">(</span>
+    <span class="n">gateways</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">host</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">port</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">writes_enabled</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">readonly_run</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Which gateway role the connector actually went through.</span>
+
+<span class="sd">    Evidence first: the role whose configured endpoint matches the environment</span>
+<span class="sd">    that was installed. The rule ``connect()`` applies is used only to break a</span>
+<span class="sd">    tie between blocks that name the same endpoint, and the answer is ``None``</span>
+<span class="sd">    when nothing was installed at all — a connector that configures no gateway</span>
+<span class="sd">    went through no role.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">mode</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">ruled</span> <span class="o">=</span> <span class="n">_rule_role</span><span class="p">(</span><span class="n">gateways</span><span class="p">,</span> <span class="n">writes_enabled</span><span class="p">,</span> <span class="n">readonly_run</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">ruled</span> <span class="ow">and</span> <span class="n">_endpoint_matches</span><span class="p">(</span><span class="n">gateways</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ruled</span><span class="p">),</span> <span class="n">mode</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ruled</span>
+    <span class="n">matched</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">name</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">gateway</span> <span class="ow">in</span> <span class="n">gateways</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">_endpoint_matches</span><span class="p">(</span><span class="n">gateway</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+    <span class="p">]</span>
+    <span class="k">return</span> <span class="n">matched</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">matched</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_post_connect_report</span><span class="p">(</span>
+    <span class="n">connector</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Describe what ``connect()`` configured, for the parent to verify.&quot;&quot;&quot;</span>
+    <span class="n">connector_block</span> <span class="o">=</span> <span class="p">(</span><span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">connector_type</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">gateways</span> <span class="o">=</span> <span class="n">connector_block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gateways&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">gateways</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">gateways</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="n">readonly_run</span> <span class="o">=</span> <span class="n">is_readonly_run</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">readonly_run</span><span class="p">:</span>
+        <span class="c1"># The instance&#39;s posture collapses to False for every type in a readonly</span>
+        <span class="c1"># run, which would erase the deployment&#39;s answer from the report. The</span>
+        <span class="c1"># deployment half is reported instead, so the (writes_enabled,</span>
+        <span class="c1"># readonly_run) pair still names the run mode as what held an armed</span>
+        <span class="c1"># target on the read gateway. The gateway rule never selects</span>
+        <span class="c1"># write_access for a readonly run, so the role this report names is the</span>
+        <span class="c1"># same either way.</span>
+        <span class="n">writes_enabled</span> <span class="o">=</span> <span class="n">_writes_enabled_input</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">writes_enabled</span> <span class="o">=</span> <span class="n">_selection_writes_enabled</span><span class="p">(</span><span class="n">connector</span><span class="p">)</span>
+    <span class="n">mode</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="n">_installed_endpoint</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;selected_role&quot;</span><span class="p">:</span> <span class="n">_installed_role</span><span class="p">(</span><span class="n">gateways</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">writes_enabled</span><span class="p">,</span> <span class="n">readonly_run</span><span class="p">),</span>
+        <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="n">mode</span><span class="p">,</span>
+        <span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="n">host</span><span class="p">,</span>
+        <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="n">port</span><span class="p">,</span>
+        <span class="s2">&quot;_epics_configured&quot;</span><span class="p">:</span> <span class="nb">bool</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="s2">&quot;_epics_configured&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)),</span>
+        <span class="s2">&quot;connector_type&quot;</span><span class="p">:</span> <span class="n">connector_type</span><span class="p">,</span>
+        <span class="s2">&quot;transport&quot;</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="s2">&quot;transport&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+        <span class="s2">&quot;target&quot;</span><span class="p">:</span> <span class="n">target</span><span class="p">,</span>
+        <span class="s2">&quot;writes_enabled&quot;</span><span class="p">:</span> <span class="n">writes_enabled</span><span class="p">,</span>
+        <span class="s2">&quot;readonly_run&quot;</span><span class="p">:</span> <span class="n">readonly_run</span><span class="p">,</span>
+        <span class="s2">&quot;authorization&quot;</span><span class="p">:</span> <span class="n">_named_authorization</span><span class="p">(),</span>
+        <span class="s2">&quot;epics_env&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="n">name</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">EPICS_ENV_PREFIXES</span><span class="p">)</span>
+        <span class="p">},</span>
+        <span class="s2">&quot;pid&quot;</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">(),</span>
+    <span class="p">}</span>
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Connector construction</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_build_connector</span><span class="p">(</span>
+    <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">marks</span><span class="p">:</span> <span class="n">_StartMarks</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply the init payload and bring up the connector it describes.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        payload: The ``init`` frame&#39;s kwargs, as documented in the module</span>
+<span class="sd">            docstring.</span>
+<span class="sd">        marks: Where the ``imports`` and ``connected`` start marks are written,</span>
+<span class="sd">            or ``None`` to write none.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The live connector and its post-connect report.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: The payload names no usable target, or the target cannot be</span>
+<span class="sd">            resolved on this deployment.</span>
+<span class="sd">        Exception: Whatever ``connect()`` raises. The caller turns it into an</span>
+<span class="sd">            error frame; this child does not start serving on a failed connect.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">target</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;target&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;connector host init: &#39;control_system&#39; must be the config section dict&quot;</span><span class="p">)</span>
+
+    <span class="n">config_file</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;config_file&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">config_file</span><span class="p">:</span>
+        <span class="c1"># The connector reads writes_enabled and the limits database — the home</span>
+        <span class="c1"># of the per-channel confirm policy — from the project config, so the</span>
+        <span class="c1"># child must be pointed at the same file the parent resolved against.</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_mode&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;readonly&quot;</span><span class="p">:</span>
+        <span class="c1"># Restriction only: an inherited readonly claim is never cleared here.</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="n">POSTURE_ENV_VAR</span><span class="p">]</span> <span class="o">=</span> <span class="n">SANDBOX_MODE</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">types</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
+
+    <span class="n">connector_type</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">resolve_target</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+    <span class="n">register_builtin_connectors</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">marks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">marks</span><span class="o">.</span><span class="n">mark</span><span class="p">(</span><span class="s2">&quot;imports&quot;</span><span class="p">)</span>
+
+    <span class="c1"># The section is passed whole: writes_enabled and the limits block,</span>
+    <span class="c1"># per-channel confirm included, travel with it, and the connector sub-block</span>
+    <span class="c1"># is already keyed by the resolved type. Its type is restated only when the</span>
+    <span class="c1"># target&#39;s type differs from the section&#39;s own resolved type, because the</span>
+    <span class="c1"># serving leaf is read under the section&#39;s own spelling (no stated type is</span>
+    <span class="c1"># the simulator in process; a stated virtual_accelerator without the leaf is</span>
+    <span class="c1"># the served one), so restating a type the section already resolves to</span>
+    <span class="c1"># would build the other venue.</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">section</span>
+        <span class="k">if</span> <span class="n">types</span><span class="o">.</span><span class="n">resolve_control_system_type</span><span class="p">(</span><span class="n">section</span><span class="p">)</span> <span class="o">==</span> <span class="n">connector_type</span>
+        <span class="k">else</span> <span class="p">{</span><span class="o">**</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">connector_type</span><span class="p">}</span>
+    <span class="p">)</span>
+    <span class="c1"># The target the parent pointed this child at — already validated by</span>
+    <span class="c1"># resolve_target above, which refuses anything that is not one of the three</span>
+    <span class="c1"># literals — is what indexes the per-target narrowing the reference monitor</span>
+    <span class="c1"># reads. This child serves exactly one target, so the stamp is the payload&#39;s.</span>
+    <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">(</span>
+        <span class="n">config</span><span class="p">,</span> <span class="n">control_target</span><span class="o">=</span><span class="n">target</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">marks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">marks</span><span class="o">.</span><span class="n">mark</span><span class="p">(</span><span class="s2">&quot;connected&quot;</span><span class="p">)</span>
+
+    <span class="n">report</span> <span class="o">=</span> <span class="n">_post_connect_report</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">target</span><span class="p">),</span> <span class="n">section</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+        <span class="s2">&quot;connector host: serving target </span><span class="si">%r</span><span class="s2"> as </span><span class="si">%r</span><span class="s2"> (role=</span><span class="si">%r</span><span class="s2"> mode=</span><span class="si">%r</span><span class="s2"> </span><span class="si">%s</span><span class="s2">:</span><span class="si">%s</span><span class="s2">)&quot;</span><span class="p">,</span>
+        <span class="n">target</span><span class="p">,</span>
+        <span class="n">connector_type</span><span class="p">,</span>
+        <span class="n">report</span><span class="p">[</span><span class="s2">&quot;selected_role&quot;</span><span class="p">],</span>
+        <span class="n">report</span><span class="p">[</span><span class="s2">&quot;mode&quot;</span><span class="p">],</span>
+        <span class="n">report</span><span class="p">[</span><span class="s2">&quot;host&quot;</span><span class="p">],</span>
+        <span class="n">report</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">],</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">connector</span><span class="p">,</span> <span class="n">report</span>
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Serving</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_FrameStream</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Frames arriving on stdin, one await at a time.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reader</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">StreamReader</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="o">=</span> <span class="n">reader</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span> <span class="o">=</span> <span class="n">frames</span><span class="o">.</span><span class="n">FrameReader</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ready</span><span class="p">:</span> <span class="n">deque</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">next</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The next frame, or ``None`` once the pipe reaches EOF.&quot;&quot;&quot;</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ready</span><span class="p">:</span>
+            <span class="n">chunk</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">_READ_CHUNK_BYTES</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">chunk</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_ready</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">feed</span><span class="p">(</span><span class="n">chunk</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ready</span><span class="o">.</span><span class="n">popleft</span><span class="p">()</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_FrameWriter</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Serialized writes to the private frame descriptor.</span>
+
+<span class="sd">    The lock keeps two concurrently completing requests from interleaving their</span>
+<span class="sd">    bytes, and the write itself runs in a thread so a parent that has stopped</span>
+<span class="sd">    reading stalls one reply rather than the whole event loop.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fd</span> <span class="o">=</span> <span class="n">fd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="n">loop</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span>
+            <span class="k">await</span> <span class="n">loop</span><span class="o">.</span><span class="n">run_in_executor</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">_write_frame</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fd</span><span class="p">,</span> <span class="n">payload</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_error_frame</span><span class="p">(</span><span class="n">request_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Encode a failure for one request, normalising unknown classes here.</span>
+
+<span class="sd">    :func:`~osprey_connectors.ipc.encode_exception` decides what</span>
+<span class="sd">    crosses typed; a class outside its registry is turned, at this edge, into</span>
+<span class="sd">    the nearest registered class it subclasses or else into a</span>
+<span class="sd">    ``ConnectorInternalError`` carrying the original ``repr``, so the parent is</span>
+<span class="sd">    never handed a tag it cannot rebuild. A value that defeats the codec itself</span>
+<span class="sd">    still produces a frame, as the same ``ConnectorInternalError`` — losing the</span>
+<span class="sd">    reply entirely would leave the parent waiting on a request that already</span>
+<span class="sd">    failed.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">body</span> <span class="o">=</span> <span class="n">encode_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">body</span><span class="p">[</span><span class="s2">&quot;class_tag&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">:</span>
+        <span class="n">exc</span> <span class="o">=</span> <span class="n">decode_exception</span><span class="p">(</span><span class="n">body</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">frames</span><span class="o">.</span><span class="n">encode_error</span><span class="p">(</span><span class="n">request_id</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">encode_failure</span><span class="p">:</span>  <span class="c1"># pragma: no cover - defensive</span>
+        <span class="k">return</span> <span class="n">frames</span><span class="o">.</span><span class="n">encode_error</span><span class="p">(</span>
+            <span class="n">request_id</span><span class="p">,</span>
+            <span class="n">ConnectorInternalError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;connector host could not encode its error (</span><span class="si">{</span><span class="n">encode_failure</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">class_tag</span><span class="o">=</span><span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_spawn_probe</span><span class="p">(</span>
+    <span class="n">connector</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">DEFAULT_PROBE_TIMEOUT_S</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read one named channel under a hard bound.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        connector: The live connector.</span>
+<span class="sd">        channel: Channel address to read.</span>
+<span class="sd">        timeout: Seconds to allow, defaulting to</span>
+<span class="sd">            :data:`DEFAULT_PROBE_TIMEOUT_S`. The bound is applied here as well</span>
+<span class="sd">            as being passed to the connector: a control-system client that</span>
+<span class="sd">            ignores its own timeout must not be able to hang the switch that is</span>
+<span class="sd">            waiting on this probe.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The channel&#39;s :class:`ChannelValue`.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: The bound is not a positive number.</span>
+<span class="sd">        TimeoutError: The read did not finish inside the bound. The message</span>
+<span class="sd">            always names the channel and the bound, because the two bounds race</span>
+<span class="sd">            and ``asyncio.wait_for`` usually wins with a *bare*</span>
+<span class="sd">            :class:`TimeoutError` — one whose empty message renders, several</span>
+<span class="sd">            layers up, as a switch refusal ending in &quot;: .&quot; that names nothing</span>
+<span class="sd">            the operator could act on.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">bound</span> <span class="o">=</span> <span class="n">DEFAULT_PROBE_TIMEOUT_S</span> <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">bound</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;spawn_probe timeout must be positive, got </span><span class="si">{</span><span class="n">timeout</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait_for</span><span class="p">(</span><span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="n">channel</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">bound</span><span class="p">),</span> <span class="n">timeout</span><span class="o">=</span><span class="n">bound</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">TimeoutError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="n">reason</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;probe read of </span><span class="si">{</span><span class="n">channel</span><span class="si">!r}</span><span class="s2"> timed out after </span><span class="si">{</span><span class="n">bound</span><span class="si">}</span><span class="s2">s&quot;</span>
+        <span class="c1"># A connector that reported its own timeout said something more</span>
+        <span class="c1"># specific; it is kept, behind the subject it did not name.</span>
+        <span class="k">raise</span> <span class="ne">TimeoutError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="k">else</span> <span class="n">reason</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_invoke</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run one request against the connector.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;ping&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;spawn_probe&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">_spawn_probe</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">method</span> <span class="ow">in</span> <span class="n">PROXY_METHODS</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">method</span><span class="p">)(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;connector host does not serve </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2">; it serves &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">((</span><span class="o">*</span><span class="n">PROXY_METHODS</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;spawn_probe&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;ping&#39;</span><span class="p">))</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_dispatch</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">frame</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">writer</span><span class="p">:</span> <span class="n">_FrameWriter</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Serve one request and write exactly one reply for it.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">payload</span> <span class="o">=</span> <span class="n">frames</span><span class="o">.</span><span class="n">encode_result</span><span class="p">(</span>
+            <span class="n">frame</span><span class="o">.</span><span class="n">request_id</span><span class="p">,</span> <span class="k">await</span> <span class="n">_invoke</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">method</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;connector host: </span><span class="si">%s</span><span class="s2"> failed: </span><span class="si">%r</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">method</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+        <span class="n">payload</span> <span class="o">=</span> <span class="n">_error_frame</span><span class="p">(</span><span class="n">frame</span><span class="o">.</span><span class="n">request_id</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+    <span class="k">await</span> <span class="n">writer</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_serve</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">stream</span><span class="p">:</span> <span class="n">_FrameStream</span><span class="p">,</span> <span class="n">writer</span><span class="p">:</span> <span class="n">_FrameWriter</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Dispatch requests until the pipe closes or a disconnect is served.&quot;&quot;&quot;</span>
+    <span class="n">inflight</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="n">asyncio</span><span class="o">.</span><span class="n">Task</span><span class="p">[</span><span class="kc">None</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stream</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">frame</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;connector host: stdin closed; exiting&quot;</span><span class="p">)</span>
+            <span class="k">break</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">frames</span><span class="o">.</span><span class="n">RequestFrame</span><span class="p">):</span>
+            <span class="c1"># Results and errors travel the other way; a parent that sends one</span>
+            <span class="c1"># is confused, and answering it would only confuse it further.</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;connector host: ignoring unexpected </span><span class="si">%s</span><span class="s2"> frame&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+            <span class="k">continue</span>
+        <span class="k">if</span> <span class="n">frame</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;disconnect&quot;</span><span class="p">:</span>
+            <span class="c1"># Finish what is already running before the connector is torn out</span>
+            <span class="c1"># from under it, then acknowledge and go.</span>
+            <span class="k">if</span> <span class="n">inflight</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">inflight</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">await</span> <span class="n">_dispatch</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">frame</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">EXIT_OK</span>
+
+        <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">_dispatch</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">frame</span><span class="p">,</span> <span class="n">writer</span><span class="p">))</span>
+        <span class="n">inflight</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+        <span class="n">task</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">inflight</span><span class="o">.</span><span class="n">discard</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">inflight</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">inflight</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">EXIT_OK</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_stdin_frames</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">_FrameStream</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Wrap stdin in a stream reader without spending a thread on it.&quot;&quot;&quot;</span>
+    <span class="n">loop</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span>
+    <span class="n">reader</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">StreamReader</span><span class="p">()</span>
+    <span class="k">await</span> <span class="n">loop</span><span class="o">.</span><span class="n">connect_read_pipe</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">StreamReaderProtocol</span><span class="p">(</span><span class="n">reader</span><span class="p">),</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_FrameStream</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_run</span><span class="p">(</span><span class="n">channel_fd</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">marks</span><span class="p">:</span> <span class="n">_StartMarks</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read the init frame, report, then serve until told otherwise.&quot;&quot;&quot;</span>
+    <span class="n">stream</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_stdin_frames</span><span class="p">()</span>
+    <span class="n">writer</span> <span class="o">=</span> <span class="n">_FrameWriter</span><span class="p">(</span><span class="n">channel_fd</span><span class="p">)</span>
+
+    <span class="n">init</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stream</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">init</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;connector host: stdin closed before the init frame; exiting&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">EXIT_OK</span>
+    <span class="n">marks</span><span class="o">.</span><span class="n">mark</span><span class="p">(</span><span class="s2">&quot;init&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">init</span><span class="p">,</span> <span class="n">frames</span><span class="o">.</span><span class="n">RequestFrame</span><span class="p">)</span> <span class="ow">or</span> <span class="n">init</span><span class="o">.</span><span class="n">method</span> <span class="o">!=</span> <span class="n">INIT_METHOD</span><span class="p">:</span>
+        <span class="n">request_id</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">init</span><span class="p">,</span> <span class="s2">&quot;request_id&quot;</span><span class="p">,</span> <span class="s2">&quot;init&quot;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">writer</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
+            <span class="n">_error_frame</span><span class="p">(</span>
+                <span class="n">request_id</span><span class="p">,</span>
+                <span class="ne">ConnectionError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;connector host expected a </span><span class="si">{</span><span class="n">INIT_METHOD</span><span class="si">!r}</span><span class="s2"> request as its first frame, &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">init</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;method&#39;</span><span class="p">,</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">init</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span><span class="si">!r}</span><span class="s2">&quot;</span>
+                <span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">EXIT_INIT_FAILED</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">connector</span><span class="p">,</span> <span class="n">report</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_build_connector</span><span class="p">(</span><span class="n">init</span><span class="o">.</span><span class="n">kwargs</span><span class="p">,</span> <span class="n">marks</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;connector host: connect failed: </span><span class="si">%r</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">writer</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">_error_frame</span><span class="p">(</span><span class="n">init</span><span class="o">.</span><span class="n">request_id</span><span class="p">,</span> <span class="n">exc</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">EXIT_INIT_FAILED</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="c1"># Nothing the child serves, and nothing it starts while serving, holds</span>
+        <span class="c1"># the supervisor&#39;s pipe open.</span>
+        <span class="n">marks</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">await</span> <span class="n">writer</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">frames</span><span class="o">.</span><span class="n">encode_result</span><span class="p">(</span><span class="n">init</span><span class="o">.</span><span class="n">request_id</span><span class="p">,</span> <span class="n">report</span><span class="p">))</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">_serve</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Entry point for ``python -m osprey_connectors.ipc._host``.&quot;&quot;&quot;</span>
+    <span class="n">parent</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getppid</span><span class="p">()</span>
+    <span class="n">marks</span> <span class="o">=</span> <span class="n">_StartMarks</span><span class="p">()</span>
+    <span class="n">marks</span><span class="o">.</span><span class="n">mark</span><span class="p">(</span><span class="s2">&quot;main&quot;</span><span class="p">)</span>
+    <span class="k">del</span> <span class="n">argv</span>  <span class="c1"># the launch contract carries no arguments; config arrives on the wire</span>
+    <span class="n">removed</span> <span class="o">=</span> <span class="n">scrub_epics_env</span><span class="p">()</span>
+    <span class="n">channel_fd</span> <span class="o">=</span> <span class="n">_claim_frame_channel</span><span class="p">()</span>
+    <span class="c1"># Handlers on stderr, explicitly: a record that reached stdout would sit in</span>
+    <span class="c1"># the middle of a frame. Nothing here calls the framework&#39;s</span>
+    <span class="c1"># configure_logging(), which is an entry-point concern.</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">stream</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">WARNING</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%(name)s</span><span class="s2">: </span><span class="si">%(message)s</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">removed</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;connector host: scrubbed inherited </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">removed</span><span class="p">)))</span>
+
+    <span class="n">_start_watchdog</span><span class="p">(</span><span class="n">WATCHDOG_INTERVAL_S</span><span class="p">,</span> <span class="n">parent_pid</span><span class="o">=</span><span class="n">parent</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">_run</span><span class="p">(</span><span class="n">channel_fd</span><span class="p">,</span> <span class="n">marks</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">KeyboardInterrupt</span><span class="p">:</span>  <span class="c1"># pragma: no cover - parent-initiated</span>
+        <span class="k">return</span> <span class="n">EXIT_OK</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">_exit_now</span><span class="p">(</span><span class="n">main</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:]))</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

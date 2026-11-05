@@ -1,0 +1,1109 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.ipc._proxy &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/ipc/_proxy';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/ipc/_proxy.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.ipc._proxy</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.ipc._proxy</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Parent-side proxy for a connector living in the connector-host child.</span>
+
+<span class="sd">A tool that reads or writes a channel does not care where the control-system</span>
+<span class="sd">client library lives. :class:`ConnectorHostProxy` is what makes that true: it</span>
+<span class="sd">offers the connector call surface tools actually use, and serves each call by</span>
+<span class="sd">writing a request frame down a pipe and awaiting the matching reply from the</span>
+<span class="sd">child that owns the real connector. The parent process therefore never imports</span>
+<span class="sd">``epics``/``p4p`` — which is the entire reason the child exists, since those</span>
+<span class="sd">libraries cannot be unloaded once loaded and pin the parent to one gateway for</span>
+<span class="sd">its lifetime. That property is pinned by a test which imports this module in a</span>
+<span class="sd">fresh interpreter and asserts none of them appeared in ``sys.modules``.</span>
+
+<span class="sd">Why this is not a ``ControlSystemConnector`` subclass</span>
+<span class="sd">----------------------------------------------------</span>
+<span class="sd">It is a duck type with *exactly* the base class&#39;s signatures, not a subclass,</span>
+<span class="sd">and deliberately so.</span>
+<span class="sd">:class:`~osprey_connectors.control_system.ControlSystemConnector` uses</span>
+<span class="sd">``__init_subclass__`` to wrap every subclass&#39;s ``write_channel`` /</span>
+<span class="sd">``write_multiple_channels`` in the ``writes_enabled`` pre-check. That guard</span>
+<span class="sd">belongs *at the connector*, and the connector is in the child: the child</span>
+<span class="sd">already applies it, in the process that will do the write, against the config</span>
+<span class="sd">that process was launched with. Inheriting it here would run the check a second</span>
+<span class="sd">time in the parent — turning a refusal into a fabricated failure result</span>
+<span class="sd">manufactured on this side of the boundary rather than the real one from the</span>
+<span class="sd">child, and silently coupling the answer to whichever config the parent happens</span>
+<span class="sd">to hold. Subclassing would also drag in ``connect()``, ``subscribe()``,</span>
+<span class="sd">``unsubscribe()`` and ``get_metadata()`` as abstract members the proxy has no</span>
+<span class="sd">wire method for. Mirroring the signatures gives tools</span>
+<span class="sd">substitutability; not inheriting keeps enforcement in exactly one place. A test</span>
+<span class="sd">compares the signatures parameter-by-parameter so the mirror cannot drift.</span>
+
+<span class="sd">``subscribe`` is absent on purpose: nothing in the codebase calls it, and a</span>
+<span class="sd">proxy method that could not deliver callbacks across the boundary would be a</span>
+<span class="sd">lie about the surface.</span>
+
+<span class="sd">``write_channel_checked`` is the one method that is not a wire method. It is</span>
+<span class="sd">the base class&#39;s own function, bound here unchanged: it only composes</span>
+<span class="sd">``write_channel`` — which crosses to the child, where the ``writes_enabled``</span>
+<span class="sd">guard and the limits checks run — with</span>
+<span class="sd">:func:`~osprey_connectors.control_system.raise_for_write_result`, which</span>
+<span class="sd">reads the result the child already decided. Running that composition in the</span>
+<span class="sd">parent keeps every refusal decision in the child.</span>
+
+<span class="sd">Concurrency</span>
+<span class="sd">-----------</span>
+<span class="sd">One background reader task owns the read side of the pipe and demultiplexes</span>
+<span class="sd">replies to per-request futures by ``request_id``, so several calls may be in</span>
+<span class="sd">flight at once and replies may arrive in any order. Nothing blocks the pipe</span>
+<span class="sd">while a call waits.</span>
+
+<span class="sd">Failure is fail-closed</span>
+<span class="sd">----------------------</span>
+<span class="sd">EOF on the pipe, a stream that will not decode, or the reader task dying for</span>
+<span class="sd">any other reason ends the proxy: every outstanding call completes with a</span>
+<span class="sd">:class:`ConnectionError` naming the connector-host child as the cause, and</span>
+<span class="sd">every later call raises the same. A dead proxy never revives — starting a</span>
+<span class="sd">fresh child and a fresh proxy is the supervisor&#39;s job, not this object&#39;s.</span>
+<span class="sd">:attr:`ConnectorHostProxy.dead_reason` says whether that has happened, which</span>
+<span class="sd">is how a supervisor tells a dead child from a connection failure the connector</span>
+<span class="sd">itself raised and the child relayed.</span>
+
+<span class="sd">A well-framed reply whose value cannot be rebuilt is not a broken stream: that</span>
+<span class="sd">one call fails with a :class:`~osprey_connectors.errors.ConnectorInternalError`</span>
+<span class="sd">and the proxy stays up.</span>
+
+<span class="sd">A call the child does not answer in time fails with</span>
+<span class="sd">:class:`ChildUnresponsiveError` — a :class:`TimeoutError`, because that is what</span>
+<span class="sd">it is, so a generic timeout handler such as the MCP tool error mapping treats it</span>
+<span class="sd">as one — and leaves the proxy usable. The deadline is the call&#39;s own</span>
+<span class="sd">``timeout`` plus ``timeout_grace_s``, or ``deadline_s`` for a call that named</span>
+<span class="sd">no timeout. That the child may be wedged is the supervisor&#39;s call to make.</span>
+
+<span class="sd">Draining, for the target switch</span>
+<span class="sd">-------------------------------</span>
+<span class="sd">:meth:`refuse_new_requests` closes the door to *new* calls while leaving the</span>
+<span class="sd">in-flight ones alone, and :meth:`drain` waits for those to finish with a</span>
+<span class="sd">deadline. Together they are the handoff surface the runtime target switch uses:</span>
+<span class="sd">refuse, drain, then disconnect the old child once the last call has landed (or</span>
+<span class="sd">once the deadline says it never will).</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">TypeVar</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._base</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ChannelValue</span><span class="p">,</span>
+    <span class="n">ChannelWriteResult</span><span class="p">,</span>
+    <span class="n">ControlSystemConnector</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc</span><span class="w"> </span><span class="kn">import</span> <span class="n">_frames</span> <span class="k">as</span> <span class="n">frames</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.recovery</span><span class="w"> </span><span class="kn">import</span> <span class="n">_RAISED_BY_CHILD</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;CHILD&quot;</span><span class="p">,</span> <span class="s2">&quot;ChildUnresponsiveError&quot;</span><span class="p">,</span> <span class="s2">&quot;ConnectorHostProxy&quot;</span><span class="p">,</span> <span class="s2">&quot;raised_by_child&quot;</span><span class="p">]</span>
+
+<span class="c1"># Named for the public namespace, not this private module, so a logging config</span>
+<span class="c1"># keyed on the name keeps matching whatever the module is called.</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.ipc.proxy&quot;</span><span class="p">)</span>
+
+<span class="c1">#: How the child is named in every failure message it causes. Operators read</span>
+<span class="c1">#: these; &quot;connection lost&quot; without a subject is not an actionable sentence.</span>
+<span class="n">CHILD</span> <span class="o">=</span> <span class="s2">&quot;connector-host child&quot;</span>
+
+<span class="c1">#: Read size for the pipe. A frame is reassembled by ``frames.FrameReader``, so</span>
+<span class="c1">#: this only trades syscalls against buffer size.</span>
+<span class="n">_READ_CHUNK</span> <span class="o">=</span> <span class="mi">65536</span>
+
+
+<span class="n">_T</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span><span class="s2">&quot;_T&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_unexpected</span><span class="p">(</span><span class="n">reply</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">frames</span><span class="o">.</span><span class="n">FrameDecodeError</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The decode error for a reply whose type does not match ``method``&#39;s result.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">frames</span><span class="o">.</span><span class="n">FrameDecodeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> answered </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2"> with a </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">reply</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_expect</span><span class="p">(</span><span class="n">reply</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">_T</span><span class="p">],</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_T</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return ``reply`` when it is a ``kind``; otherwise raise a decode error.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reply</span><span class="p">,</span> <span class="n">kind</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">_unexpected</span><span class="p">(</span><span class="n">reply</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">reply</span>
+
+
+<div class="viewcode-block" id="raised_by_child">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.raised_by_child">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">raised_by_child</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *exc* is an error the child sent, rather than one this proxy made.</span>
+
+<span class="sd">    A :class:`ConnectionError` can come from two places: the connector in a</span>
+<span class="sd">    child that answered says it lost its own transport, or the child itself is</span>
+<span class="sd">    gone. The first arrives in an error frame and is marked here as it is</span>
+<span class="sd">    decoded; the second is manufactured by this proxy when the pipe ends. A</span>
+<span class="sd">    supervisor classifies by this mark, never by whatever state the proxy is</span>
+<span class="sd">    in when the caller happens to resume. A failure about one channel is no</span>
+<span class="sd">    :class:`ConnectionError` at all.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">_RAISED_BY_CHILD</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_consume_exception</span><span class="p">(</span><span class="n">future</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Future</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Mark a finished future&#39;s exception as retrieved.</span>
+
+<span class="sd">    A reply future outlives its caller whenever the caller stopped waiting —</span>
+<span class="sd">    a local deadline, a disconnect that gave up on its acknowledgement — and a</span>
+<span class="sd">    later failure of that future is then an exception nobody will ever read.</span>
+<span class="sd">    asyncio logs those at ERROR; for a future the caller has already been</span>
+<span class="sd">    answered about, that log is noise, not news.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">future</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+        <span class="n">future</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="ChildUnresponsiveError">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ChildUnresponsiveError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChildUnresponsiveError</span><span class="p">(</span><span class="ne">TimeoutError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The child did not answer a request before the proxy&#39;s own deadline.</span>
+
+<span class="sd">    Distinct from a :class:`TimeoutError` the child reported — that one means</span>
+<span class="sd">    the control-system call timed out in a child that is still answering. This</span>
+<span class="sd">    one means the child itself said nothing in time, so it may be wedged.</span>
+<span class="sd">    &quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="ConnectorHostProxy">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ConnectorHostProxy</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A connector-shaped handle on the connector running in the child process.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        reader: Anything with ``await read(n) -&gt; bytes`` returning ``b&quot;&quot;`` at</span>
+<span class="sd">            EOF — an :class:`asyncio.StreamReader`, and therefore an</span>
+<span class="sd">            ``asyncio.subprocess.Process.stdout``.</span>
+<span class="sd">        writer: Anything with ``write(bytes)``, ``await drain()`` and</span>
+<span class="sd">            ``close()`` — an :class:`asyncio.StreamWriter`, and therefore an</span>
+<span class="sd">            ``asyncio.subprocess.Process.stdin``. ``wait_closed()`` is used</span>
+<span class="sd">            when present.</span>
+<span class="sd">        timeout_grace_s: Extra time the proxy waits beyond a call&#39;s own</span>
+<span class="sd">            ``timeout`` before giving up locally. The child applies the timeout</span>
+<span class="sd">            to the control-system call itself and reports its own</span>
+<span class="sd">            ``TimeoutError``, which is the more informative one; the local</span>
+<span class="sd">            deadline exists only so a wedged child cannot hang a caller</span>
+<span class="sd">            forever. Set it to ``0`` to make the local deadline the only one.</span>
+<span class="sd">        deadline_s: Local deadline for a call whose ``timeout`` is ``None``.</span>
+<span class="sd">            Never sent to the child — the connector keeps its own default — and</span>
+<span class="sd">            ``None`` (the default) means such a call waits as long as the child</span>
+<span class="sd">            takes.</span>
+
+<span class="sd">    The transport is duck-typed rather than a subprocess handle so tests can</span>
+<span class="sd">    drive the proxy over a socketpair, and so the supervisor can hand it a</span>
+<span class="sd">    process&#39;s pipes without this class knowing anything about process</span>
+<span class="sd">    lifetime. :meth:`from_process` is the convenience for the latter.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ConnectorHostProxy.__init__">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">reader</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">writer</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">timeout_grace_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">deadline_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="o">=</span> <span class="n">reader</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_writer</span> <span class="o">=</span> <span class="n">writer</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_timeout_grace_s</span> <span class="o">=</span> <span class="n">timeout_grace_s</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_deadline_s</span> <span class="o">=</span> <span class="n">deadline_s</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pending</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Future</span><span class="p">[</span><span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_reader_task</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Task</span><span class="p">[</span><span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1">#: Set once the pipe is gone; every later call repeats it.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_dead_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1">#: Set by refuse_new_requests()/disconnect(); in-flight calls continue.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_refusal</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_disconnected</span> <span class="o">=</span> <span class="kc">False</span></div>
+
+
+<div class="viewcode-block" id="ConnectorHostProxy.from_process">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.from_process">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_process</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">process</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConnectorHostProxy</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Wrap an ``asyncio.subprocess.Process``&#39;s stdin/stdout pipes.</span>
+
+<span class="sd">        The proxy does not own the process: it neither starts it nor reaps it.</span>
+<span class="sd">        Killing and restarting the child belongs to the supervisor.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">process</span><span class="o">.</span><span class="n">stdout</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">process</span><span class="o">.</span><span class="n">stdin</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> must be spawned with stdin and stdout pipes for the proxy to use&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">process</span><span class="o">.</span><span class="n">stdout</span><span class="p">,</span> <span class="n">process</span><span class="o">.</span><span class="n">stdin</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dead_reason</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Why the proxy is dead, or ``None`` while the child is still answering.</span>
+
+<span class="sd">        Set once the pipe to the child is gone for good — end of stream, an</span>
+<span class="sd">        unreadable stream, a failed write, or :meth:`disconnect` — and never</span>
+<span class="sd">        cleared. A refusal from :meth:`refuse_new_requests` is not death.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dead_reason</span>
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># Connector call surface (signatures mirror ControlSystemConnector)</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+<div class="viewcode-block" id="ConnectorHostProxy.read_channel">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.read_channel">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">read_channel</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelValue</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read one channel. Returns the ``ChannelValue`` the child produced.&quot;&quot;&quot;</span>
+        <span class="n">reply</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span>
+            <span class="s2">&quot;read_channel&quot;</span><span class="p">,</span>
+            <span class="p">{</span><span class="s2">&quot;channel_address&quot;</span><span class="p">:</span> <span class="n">channel_address</span><span class="p">,</span> <span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="n">timeout</span><span class="p">},</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">_expect</span><span class="p">(</span><span class="n">reply</span><span class="p">,</span> <span class="n">ChannelValue</span><span class="p">,</span> <span class="s2">&quot;read_channel&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ConnectorHostProxy.read_multiple_channels">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.read_multiple_channels">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">read_multiple_channels</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">channel_addresses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelValue</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read many channels in **one** request frame.</span>
+
+<span class="sd">        The batch crosses the boundary whole rather than as N round trips: the</span>
+<span class="sd">        child&#39;s connector decides how to fan it out, exactly as it would</span>
+<span class="sd">        in-process, and one pipe round trip covers the lot.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">reply</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span>
+            <span class="s2">&quot;read_multiple_channels&quot;</span><span class="p">,</span>
+            <span class="p">{</span><span class="s2">&quot;channel_addresses&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">channel_addresses</span><span class="p">),</span> <span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="n">timeout</span><span class="p">},</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reply</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">_unexpected</span><span class="p">(</span><span class="n">reply</span><span class="p">,</span> <span class="s2">&quot;read_multiple_channels&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="n">address</span><span class="p">:</span> <span class="n">_expect</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">ChannelValue</span><span class="p">,</span> <span class="s2">&quot;read_multiple_channels&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">reply</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="ConnectorHostProxy.write_channel">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.write_channel">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_channel</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write one channel. Returns the ``ChannelWriteResult`` from the child.</span>
+
+<span class="sd">        A refusal (limits, writes-disabled) arrives as a typed exception frame</span>
+<span class="sd">        and is re-raised here as the real exception class with its fields</span>
+<span class="sd">        intact, so a caller cannot tell the refusal came from another process.</span>
+
+<span class="sd">        ``confirm=None`` leaves the keyword off the request frame entirely, so</span>
+<span class="sd">        the child&#39;s connector resolves the policy for this channel; an explicit</span>
+<span class="sd">        ``confirm=False`` crosses the wire as the answer it is.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;channel_address&quot;</span><span class="p">:</span> <span class="n">channel_address</span><span class="p">,</span>
+            <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">value</span><span class="p">,</span>
+            <span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="n">timeout</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="n">reply</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span><span class="s2">&quot;write_channel&quot;</span><span class="p">,</span> <span class="n">_with_confirm</span><span class="p">(</span><span class="n">kwargs</span><span class="p">,</span> <span class="n">confirm</span><span class="p">),</span> <span class="n">timeout</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_expect</span><span class="p">(</span><span class="n">reply</span><span class="p">,</span> <span class="n">ChannelWriteResult</span><span class="p">,</span> <span class="s2">&quot;write_channel&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ConnectorHostProxy.write_multiple_channels">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.write_multiple_channels">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">write_multiple_channels</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write many channels in one request frame.</span>
+
+<span class="sd">        The whole batch goes over as a single request so the child&#39;s connector</span>
+<span class="sd">        keeps whatever transactional behaviour it implements — a simulator that</span>
+<span class="sd">        suppresses recalculation between writes, for instance, cannot do that</span>
+<span class="sd">        if the parent has already split the batch into separate calls.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;operations&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="n">operation</span><span class="p">)</span> <span class="k">for</span> <span class="n">operation</span> <span class="ow">in</span> <span class="n">operations</span><span class="p">],</span>
+            <span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="n">timeout</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="n">reply</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span><span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">,</span> <span class="n">_with_confirm</span><span class="p">(</span><span class="n">kwargs</span><span class="p">,</span> <span class="n">confirm</span><span class="p">),</span> <span class="n">timeout</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reply</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">_unexpected</span><span class="p">(</span><span class="n">reply</span><span class="p">,</span> <span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">_expect</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="n">ChannelWriteResult</span><span class="p">,</span> <span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">reply</span><span class="p">]</span></div>
+
+
+    <span class="c1">#: The base class&#39;s own function, not a copy: see the module docstring.</span>
+    <span class="n">write_channel_checked</span> <span class="o">=</span> <span class="n">ControlSystemConnector</span><span class="o">.</span><span class="n">write_channel_checked</span>
+
+<div class="viewcode-block" id="ConnectorHostProxy.validate_channel">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.validate_channel">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">validate_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether the channel exists and is reachable, as the child&#39;s connector sees it.&quot;&quot;&quot;</span>
+        <span class="n">valid</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span>
+            <span class="s2">&quot;validate_channel&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;channel_address&quot;</span><span class="p">:</span> <span class="n">channel_address</span><span class="p">},</span> <span class="n">timeout</span><span class="o">=</span><span class="kc">None</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">valid</span></div>
+
+
+<div class="viewcode-block" id="ConnectorHostProxy.disconnect">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.disconnect">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">disconnect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ack_timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">2.0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Ask the child to release its connector, then close the pipe.</span>
+
+<span class="sd">        Idempotent and never raises: it is called from teardown paths and from</span>
+<span class="sd">        the switch&#39;s failure branch, where a second exception would only bury</span>
+<span class="sd">        the first. The acknowledgement is best-effort — a child that has</span>
+<span class="sd">        already died, or that never answers, still leaves this method returning</span>
+<span class="sd">        with the pipe closed and every outstanding call failed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_disconnected</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_disconnected</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_refusal</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_refusal</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> has been disconnected&quot;</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dead_reason</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">request_id</span> <span class="o">=</span> <span class="n">frames</span><span class="o">.</span><span class="n">new_request_id</span><span class="p">()</span>
+            <span class="c1"># The acknowledgement is advisory: everything here is best-effort,</span>
+            <span class="c1"># and the pipe closes below whatever happened.</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="n">future</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register</span><span class="p">(</span><span class="n">request_id</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_reader_task</span><span class="p">()</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send</span><span class="p">(</span><span class="n">frames</span><span class="o">.</span><span class="n">encode_request</span><span class="p">(</span><span class="n">request_id</span><span class="p">,</span> <span class="s2">&quot;disconnect&quot;</span><span class="p">,</span> <span class="p">{}))</span>
+                <span class="c1"># asyncio.wait, not wait_for(shield(...)): it leaves the future</span>
+                <span class="c1"># alone on timeout, where a cancelled shield would log the</span>
+                <span class="c1"># failure the reader later sets on it as an unhandled error.</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait</span><span class="p">({</span><span class="n">future</span><span class="p">},</span> <span class="n">timeout</span><span class="o">=</span><span class="n">ack_timeout</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pending</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">request_id</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_shutdown</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> was disconnected before this request completed&quot;</span><span class="p">)</span></div>
+
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># Supervisor surface</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+<div class="viewcode-block" id="ConnectorHostProxy.supervisor_request">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.supervisor_request">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">supervisor_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Send one supervisor request (``init``, ``ping``) and await its reply.</span>
+
+<span class="sd">        Not part of the connector surface: a supervisor that brings a child up</span>
+<span class="sd">        over this proxy&#39;s pipes, or asks whether it is still alive, uses this,</span>
+<span class="sd">        so the reply is demultiplexed and its error decoded by the same</span>
+<span class="sd">        plumbing every other call uses. A typed error frame is raised as its</span>
+<span class="sd">        real class (and :func:`raised_by_child` says so); a child that dies</span>
+<span class="sd">        before answering fails the call with a ``ConnectionError`` this proxy</span>
+<span class="sd">        made; no answer within ``timeout`` plus the grace raises</span>
+<span class="sd">        :class:`ChildUnresponsiveError`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span></div>
+
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># Handoff surface consumed by the runtime target switch</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+<div class="viewcode-block" id="ConnectorHostProxy.refuse_new_requests">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.refuse_new_requests">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">refuse_new_requests</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Stop accepting new calls; let the in-flight ones finish.</span>
+
+<span class="sd">        ``reason`` is what a caller sees in the :class:`ConnectionError` raised</span>
+<span class="sd">        by any later call, so it should say what is happening (&quot;target switch</span>
+<span class="sd">        in progress&quot;), not merely that something is closed. Calling this twice</span>
+<span class="sd">        keeps the first reason — the first one explains the decision.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_refusal</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_refusal</span> <span class="o">=</span> <span class="n">reason</span></div>
+
+
+<div class="viewcode-block" id="ConnectorHostProxy.drain">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.drain">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">drain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Wait for outstanding requests to finish.</span>
+
+<span class="sd">        Returns ``True`` when nothing is left in flight, ``False`` when the</span>
+<span class="sd">        deadline expired with calls still pending. It never raises and never</span>
+<span class="sd">        cancels anything: a caller that gets ``False`` decides for itself</span>
+<span class="sd">        whether to wait longer or to abandon the child.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span>
+        <span class="n">deadline</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">+</span> <span class="nb">max</span><span class="p">(</span><span class="n">timeout</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+        <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="n">outstanding</span> <span class="o">=</span> <span class="p">[</span><span class="n">future</span> <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pending</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">future</span><span class="o">.</span><span class="n">done</span><span class="p">()]</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">outstanding</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">True</span>
+            <span class="n">remaining</span> <span class="o">=</span> <span class="n">deadline</span> <span class="o">-</span> <span class="n">loop</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">remaining</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">False</span>
+            <span class="n">_</span><span class="p">,</span> <span class="n">still_pending</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">outstanding</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">remaining</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">still_pending</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">False</span></div>
+
+
+    <span class="c1"># ------------------------------------------------------------------</span>
+    <span class="c1"># Request/response plumbing</span>
+    <span class="c1"># ------------------------------------------------------------------</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Send one request and await its reply.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_raise_if_unusable</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_reader_task</span><span class="p">()</span>
+
+        <span class="n">request_id</span> <span class="o">=</span> <span class="n">frames</span><span class="o">.</span><span class="n">new_request_id</span><span class="p">()</span>
+        <span class="n">future</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register</span><span class="p">(</span><span class="n">request_id</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send</span><span class="p">(</span><span class="n">frames</span><span class="o">.</span><span class="n">encode_request</span><span class="p">(</span><span class="n">request_id</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">))</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_await_reply</span><span class="p">(</span><span class="n">future</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">timeout</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pending</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">request_id</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_await_reply</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">future</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Future</span><span class="p">[</span><span class="n">Any</span><span class="p">],</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">deadline</span> <span class="o">=</span> <span class="n">timeout</span> <span class="o">+</span> <span class="nb">max</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_timeout_grace_s</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_deadline_s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">deadline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_deadline_s</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">future</span>
+        <span class="c1"># asyncio.wait never cancels or wraps the future, so a reply that lands</span>
+        <span class="c1"># at the deadline is still the answer — a result, or the child&#39;s own</span>
+        <span class="c1"># error, which is the better one — and a future abandoned here can be</span>
+        <span class="c1"># failed later without asyncio logging it as unhandled.</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait</span><span class="p">({</span><span class="n">future</span><span class="p">},</span> <span class="n">timeout</span><span class="o">=</span><span class="n">deadline</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">future</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+        <span class="k">raise</span> <span class="n">ChildUnresponsiveError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> did not answer </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2"> within </span><span class="si">{</span><span class="n">deadline</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_register</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Future</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
+        <span class="n">future</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Future</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span><span class="o">.</span><span class="n">create_future</span><span class="p">()</span>
+        <span class="n">future</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_consume_exception</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pending</span><span class="p">[</span><span class="n">request_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">future</span>
+        <span class="k">return</span> <span class="n">future</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_writer</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writer</span><span class="o">.</span><span class="n">drain</span><span class="p">()</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">ConnectionError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">reason</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;writing to the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_shutdown</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ConnectionError</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_raise_if_unusable</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dead_reason</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ConnectionError</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_dead_reason</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ConnectionError</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_refusal</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_ensure_reader_task</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader_task</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader_task</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_reader_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_read_loop</span><span class="p">())</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_read_loop</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Demultiplex replies until the pipe or the frame stream gives out.&quot;&quot;&quot;</span>
+        <span class="n">stream</span> <span class="o">=</span> <span class="n">frames</span><span class="o">.</span><span class="n">FrameReader</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                <span class="n">chunk</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">_READ_CHUNK</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">chunk</span><span class="p">:</span>
+                    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fail_all</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> closed its output stream&quot;</span><span class="p">)</span>
+                    <span class="k">return</span>
+                <span class="k">for</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">stream</span><span class="o">.</span><span class="n">feed</span><span class="p">(</span><span class="n">chunk</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_dispatch</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="ne">ConnectionError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="c1"># A transport that raises ConnectionError is telling this proxy why</span>
+            <span class="c1"># its stream ended — the supervisor&#39;s reader does exactly that when</span>
+            <span class="c1"># it kills a child for a target switch. That sentence is better than</span>
+            <span class="c1"># anything this layer could write about it, so it is passed through</span>
+            <span class="c1"># verbatim rather than wrapped in a description of the stream. An</span>
+            <span class="c1"># OS-level failure (errno set, e.g. ECONNRESET) names no one, so it</span>
+            <span class="c1"># is attributed to the child here.</span>
+            <span class="k">if</span> <span class="n">exc</span><span class="o">.</span><span class="n">errno</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">):</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fail_all</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fail_all</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2">&#39;s output stream failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fail_all</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> sent an unreadable reply stream: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_dispatch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">frames</span><span class="o">.</span><span class="n">RequestFrame</span><span class="p">):</span>
+            <span class="c1"># The parent issues requests; it never serves them. A request</span>
+            <span class="c1"># arriving here means the stream is not what it claims to be.</span>
+            <span class="k">raise</span> <span class="n">frames</span><span class="o">.</span><span class="n">FrameDecodeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;the </span><span class="si">{</span><span class="n">CHILD</span><span class="si">}</span><span class="s2"> sent a request frame for </span><span class="si">{</span><span class="n">frame</span><span class="o">.</span><span class="n">method</span><span class="si">!r}</span><span class="s2"> on the reply stream&quot;</span>
+            <span class="p">)</span>
+        <span class="n">future</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pending</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">frame</span><span class="o">.</span><span class="n">request_id</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">future</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">future</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="c1"># A reply to a call that already timed out or was abandoned. Dropping</span>
+            <span class="c1"># it is correct — there is no one left to hand it to.</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;discarding unmatched reply for request </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">request_id</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">frames</span><span class="o">.</span><span class="n">ErrorFrame</span><span class="p">):</span>
+            <span class="c1"># decode_frame already ran the typed-exception registry, so this is</span>
+            <span class="c1"># the real class with its fields, or a ConnectorInternalError</span>
+            <span class="c1"># standing in for a class this build does not know or a reply value</span>
+            <span class="c1"># it could not rebuild.</span>
+            <span class="n">exception</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">exception</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="n">exception</span><span class="p">,</span> <span class="n">_RAISED_BY_CHILD</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+            <span class="n">future</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exception</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">future</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">frame</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_fail_all</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;End the proxy: nobody waits forever, and nobody gets a fresh chance.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dead_reason</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_dead_reason</span> <span class="o">=</span> <span class="n">reason</span>
+        <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_pending</span><span class="o">.</span><span class="n">values</span><span class="p">()):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">future</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                <span class="n">future</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="ne">ConnectionError</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_dead_reason</span><span class="p">))</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fail_all</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
+        <span class="n">task</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader_task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader_task</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">task</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">task</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="n">task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">await</span> <span class="n">task</span>
+        <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_writer</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">wait_closed</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_writer</span><span class="p">,</span> <span class="s2">&quot;wait_closed&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">wait_closed</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">await</span> <span class="n">wait_closed</span><span class="p">()</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_with_confirm</span><span class="p">(</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Add the ``confirm`` keyword only when the caller actually supplied one.</span>
+
+<span class="sd">    ``None`` is the connector contract&#39;s *omission* sentinel, not a third</span>
+<span class="sd">    answer: a caller with no opinion leaves the keyword off so the connector</span>
+<span class="sd">    resolves the policy for that specific channel. Forwarding ``None`` over the</span>
+<span class="sd">    wire would hand the child an explicit ``confirm=None`` and override a</span>
+<span class="sd">    connector whose own default is something else, so the key is left out</span>
+<span class="sd">    instead.</span>
+
+<span class="sd">    The guard is ``is not None`` and never ``if confirm``: an explicit</span>
+<span class="sd">    ``confirm=False`` is an answer, and a truth test would strip it and let the</span>
+<span class="sd">    child confirm the write anyway.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">confirm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;confirm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">confirm</span>
+    <span class="k">return</span> <span class="n">kwargs</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

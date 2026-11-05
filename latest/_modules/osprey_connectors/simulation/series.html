@@ -1,0 +1,980 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.simulation.series &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/simulation/series';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/simulation/series.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="../simulation.html" class="nav-link">osprey_connectors.simulation</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.simulation.series</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.simulation.series</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Pure time-series synthesis primitives for the simulated archive and texture.</span>
+
+<span class="sd">These functions turn a baseline series plus a scenario&#39;s archiver events</span>
+<span class="sd">(step/ramp/spike, positioned by window fraction, wall-clock offset, or daily</span>
+<span class="sd">time-of-day) into a concrete value series, and supply the keyed draws and the</span>
+<span class="sd">band-limited texture the texture engine layers on a served value. They hold no</span>
+<span class="sd">state: the caller supplies the channel values and events and these functions</span>
+<span class="sd">do the math (see ``tests/simulation/test_series_primitives.py``).</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">time</span> <span class="k">as</span> <span class="n">dtime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">zoneinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZoneInfo</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.relative_time</span><span class="w"> </span><span class="kn">import</span> <span class="n">RelativeTimestamp</span><span class="p">,</span> <span class="n">resolve_relative_timestamp</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;anchored_instant&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;apply_events&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;channel_key_bytes&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;clamp&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;daily_occurrences&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;driver_key_bytes&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;epoch_seconds_array&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;event_positions&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;keyed_normals&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;step_end&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;wander&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;simulation_series&quot;</span><span class="p">)</span>
+
+<span class="c1"># splitmix64 mixing constants: an odd increment (the golden-ratio word) and the</span>
+<span class="c1"># two finalizer multipliers. The finalizer is a bijection on uint64, so distinct</span>
+<span class="c1"># counters can never collide onto the same word for a given key.</span>
+<span class="n">_GAMMA</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="mh">0x9E3779B97F4A7C15</span><span class="p">)</span>
+<span class="n">_MIX_A</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="mh">0xBF58476D1CE4E5B9</span><span class="p">)</span>
+<span class="n">_MIX_B</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="mh">0x94D049BB133111EB</span><span class="p">)</span>
+<span class="n">_SHIFT_30</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>
+<span class="n">_SHIFT_27</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="mi">27</span><span class="p">)</span>
+<span class="n">_SHIFT_31</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="mi">31</span><span class="p">)</span>
+<span class="n">_SHIFT_11</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="mi">11</span><span class="p">)</span>
+<span class="n">_ONE</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="c1"># 53 significand bits scaled into the unit interval.</span>
+<span class="n">_TWO_POW_M53</span> <span class="o">=</span> <span class="mf">2.0</span><span class="o">**-</span><span class="mi">53</span>
+<span class="n">_TWO_PI</span> <span class="o">=</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+
+<span class="c1"># Texture: a stack of sinusoids log-spaced downward from the declared slowest</span>
+<span class="c1"># period. The per-channel weight jitter is applied in log space and is narrower</span>
+<span class="c1"># than half the decay step, so the slowest component dominates for every</span>
+<span class="c1"># channel rather than only on average.</span>
+<span class="n">_WANDER_SUBKEY</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">&quot;:wander&quot;</span>
+<span class="n">_WANDER_COMPONENTS</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="n">_WANDER_OCTAVE_SPAN</span> <span class="o">=</span> <span class="mf">3.5</span>
+<span class="n">_WANDER_DECAY_PER_OCTAVE</span> <span class="o">=</span> <span class="mf">0.5</span>
+<span class="n">_WANDER_JITTER_OCTAVES</span> <span class="o">=</span> <span class="mf">0.15</span>
+
+
+<div class="viewcode-block" id="channel_key_bytes">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.channel_key_bytes">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">channel_key_bytes</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-channel key for the counter-based draw primitives.</span>
+
+<span class="sd">    The key is the SHA-256 digest of the UTF-8 channel name. The builtin</span>
+<span class="sd">    ``hash()`` is deliberately not used: it is salted per process, so draws</span>
+<span class="sd">    keyed on it would differ between runs of the same scenario.</span>
+
+<span class="sd">    Callers derive independent streams for the same channel by appending a</span>
+<span class="sd">    subkey (e.g. ``channel_key_bytes(channel) + b&quot;:noise_abs&quot;``).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        channel: Channel name.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A 32-byte digest suitable as the ``channel_key`` argument of</span>
+<span class="sd">        :func:`keyed_normals`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">channel</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="driver_key_bytes">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.driver_key_bytes">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">driver_key_bytes</span><span class="p">(</span><span class="n">driver</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Key for a scenario&#39;s shared latent driver, addressed by the driver&#39;s name.</span>
+
+<span class="sd">    A driver is the common cause behind several channels, so its draws must not</span>
+<span class="sd">    depend on which channel asks for them: every channel coupled to the driver</span>
+<span class="sd">    evaluates :func:`wander` under this one key and sees the identical value at</span>
+<span class="sd">    the same instant. The ``driver:`` namespace keeps a driver that happens to</span>
+<span class="sd">    share a channel&#39;s name from replaying that channel&#39;s own texture stream.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        driver: Driver name, as declared in a scenario&#39;s ``drivers`` block.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A 32-byte digest usable wherever a ``channel_key`` is expected.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;driver:&quot;</span> <span class="o">+</span> <span class="n">driver</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_key_words</span><span class="p">(</span><span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Two uint64 lane keys derived from an arbitrary-length key.&quot;&quot;&quot;</span>
+    <span class="n">digest</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">channel_key</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="nb">int</span><span class="o">.</span><span class="n">from_bytes</span><span class="p">(</span><span class="n">digest</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">8</span><span class="p">],</span> <span class="s2">&quot;big&quot;</span><span class="p">)),</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">(</span><span class="nb">int</span><span class="o">.</span><span class="n">from_bytes</span><span class="p">(</span><span class="n">digest</span><span class="p">[</span><span class="mi">8</span><span class="p">:</span><span class="mi">16</span><span class="p">],</span> <span class="s2">&quot;big&quot;</span><span class="p">)),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_mix64</span><span class="p">(</span><span class="n">z</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;splitmix64 avalanche finalizer over a uint64 array (wrapping arithmetic).&quot;&quot;&quot;</span>
+    <span class="n">z</span> <span class="o">=</span> <span class="p">(</span><span class="n">z</span> <span class="o">^</span> <span class="p">(</span><span class="n">z</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_30</span><span class="p">))</span> <span class="o">*</span> <span class="n">_MIX_A</span>
+    <span class="n">z</span> <span class="o">=</span> <span class="p">(</span><span class="n">z</span> <span class="o">^</span> <span class="p">(</span><span class="n">z</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_27</span><span class="p">))</span> <span class="o">*</span> <span class="n">_MIX_B</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">z</span> <span class="o">^</span> <span class="p">(</span><span class="n">z</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_31</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_as_counter_array</span><span class="p">(</span><span class="n">counters</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Normalize counters to uint64, rounding floats to the nearest integer.</span>
+
+<span class="sd">    Epoch-millisecond counters usually arrive as float64 (``epoch_s * 1000``);</span>
+<span class="sd">    signed integers (sample-index fallback, pre-epoch timestamps) wrap into</span>
+<span class="sd">    uint64 modularly, which keys deterministically like any other value.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">counters</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">array</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;f&quot;</span><span class="p">:</span>
+        <span class="n">array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">rint</span><span class="p">(</span><span class="n">array</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">array</span><span class="o">.</span><span class="n">dtype</span> <span class="o">!=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">:</span>
+        <span class="n">array</span> <span class="o">=</span> <span class="n">array</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">array</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_keyed_words</span><span class="p">(</span><span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">counters_ms</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;tuple[np.ndarray, np.ndarray]&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The two uint64 words each sample consumes, as a pair of arrays.</span>
+
+<span class="sd">    Exactly two words per sample, addressed by that sample&#39;s own counter — no</span>
+<span class="sd">    stream position is involved, which is what makes the draws pointwise</span>
+<span class="sd">    reproducible across differently-shaped windows.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">counters</span> <span class="o">=</span> <span class="n">_as_counter_array</span><span class="p">(</span><span class="n">counters_ms</span><span class="p">)</span>
+    <span class="n">k0</span><span class="p">,</span> <span class="n">k1</span> <span class="o">=</span> <span class="n">_key_words</span><span class="p">(</span><span class="n">channel_key</span><span class="p">)</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">counters</span> <span class="o">*</span> <span class="n">_GAMMA</span>
+    <span class="k">return</span> <span class="n">_mix64</span><span class="p">(</span><span class="n">base</span> <span class="o">^</span> <span class="n">k0</span><span class="p">),</span> <span class="n">_mix64</span><span class="p">(</span><span class="n">base</span> <span class="o">^</span> <span class="n">k1</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="keyed_normals">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.keyed_normals">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">keyed_normals</span><span class="p">(</span><span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">counters_ms</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Standard normal draws addressed by ``(channel key, counter)``.</span>
+
+<span class="sd">    Each sample&#39;s draw is a pure function of its own counter, so two windows</span>
+<span class="sd">    that share a timestamp get the same value, in any order, in any batch size,</span>
+<span class="sd">    from any process. This is the pinned construction for all synthesis noise:</span>
+
+<span class="sd">    1. a uint64 avalanche mix of the counter against two key-derived lane words</span>
+<span class="sd">       (exactly two words per sample, fixed consumption by construction);</span>
+<span class="sd">    2. an **open**-interval mapping of the log argument,</span>
+<span class="sd">       ``u1 = ((w &gt;&gt; 11) | 1) * 2**-53``, so ``u1 &gt; 0`` always and ``log(u1)``</span>
+<span class="sd">       can never be ``-inf`` — a frozen calendar timestamp that produced ``-inf``</span>
+<span class="sd">       would fail permanently rather than transiently;</span>
+<span class="sd">    3. the Box-Muller cosine branch.</span>
+
+<span class="sd">    The ziggurat rejection sampler behind numpy&#39;s batch normal draws consumes a</span>
+<span class="sd">    *variable* number of words per sample, so a batch drawn from a window-start</span>
+<span class="sd">    counter does not equal the corresponding per-sample draws — it is forbidden</span>
+<span class="sd">    on this path, and ``tests/simulation/test_series_primitives.py`` pins the</span>
+<span class="sd">    equivalence against a per-sample reference implementation.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        channel_key: Channel key, typically :func:`channel_key_bytes` output optionally</span>
+<span class="sd">            suffixed with a subkey to get an independent stream.</span>
+<span class="sd">        counters_ms: Per-sample counters, conventionally epoch milliseconds.</span>
+<span class="sd">            Floats are rounded to the nearest integer; any shape is accepted.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A float64 array of standard normal draws with the shape of</span>
+<span class="sd">        ``counters_ms``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">w0</span><span class="p">,</span> <span class="n">w1</span> <span class="o">=</span> <span class="n">_keyed_words</span><span class="p">(</span><span class="n">channel_key</span><span class="p">,</span> <span class="n">counters_ms</span><span class="p">)</span>
+    <span class="n">u1</span> <span class="o">=</span> <span class="p">((</span><span class="n">w0</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_11</span><span class="p">)</span> <span class="o">|</span> <span class="n">_ONE</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span> <span class="o">*</span> <span class="n">_TWO_POW_M53</span>
+    <span class="n">u2</span> <span class="o">=</span> <span class="p">(</span><span class="n">w1</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_11</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span> <span class="o">*</span> <span class="n">_TWO_POW_M53</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="o">-</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">u1</span><span class="p">))</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">_TWO_PI</span> <span class="o">*</span> <span class="n">u2</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_unit_interval</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Map uint64 words onto float64 in the half-open interval ``[0, 1)``.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">((</span><span class="n">words</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_11</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span> <span class="o">*</span> <span class="n">_TWO_POW_M53</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_wander_components</span><span class="p">(</span>
+    <span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">period_s</span><span class="p">:</span> <span class="nb">float</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;tuple[np.ndarray, np.ndarray, np.ndarray]&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Periods, phases and normalized weights of one channel&#39;s texture stack.</span>
+
+<span class="sd">    Periods are log-spaced downward from ``period_s`` (the slowest) across</span>
+<span class="sd">    :data:`_WANDER_OCTAVE_SPAN` octaves. Phases and weight jitter come from the</span>
+<span class="sd">    channel key, so the declared parameters can stay family-uniform while every</span>
+<span class="sd">    channel still gets its own apparent offset and motion.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        channel_key: Channel key, as for :func:`keyed_normals`.</span>
+<span class="sd">        period_s: Slowest period in seconds.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``(periods, phases, weights)``, each of length</span>
+<span class="sd">        :data:`_WANDER_COMPONENTS`, with ``weights`` summing to 1.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">index</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">_WANDER_COMPONENTS</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">)</span>
+    <span class="n">phase_words</span><span class="p">,</span> <span class="n">weight_words</span> <span class="o">=</span> <span class="n">_keyed_words</span><span class="p">(</span><span class="n">channel_key</span> <span class="o">+</span> <span class="n">_WANDER_SUBKEY</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span>
+    <span class="n">octaves</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">_WANDER_COMPONENTS</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span>
+        <span class="n">_WANDER_OCTAVE_SPAN</span> <span class="o">/</span> <span class="p">(</span><span class="n">_WANDER_COMPONENTS</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">periods</span> <span class="o">=</span> <span class="n">period_s</span> <span class="o">*</span> <span class="mf">2.0</span><span class="o">**-</span><span class="n">octaves</span>
+    <span class="n">phases</span> <span class="o">=</span> <span class="n">_unit_interval</span><span class="p">(</span><span class="n">phase_words</span><span class="p">)</span> <span class="o">*</span> <span class="n">_TWO_PI</span>
+    <span class="n">jitter</span> <span class="o">=</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">_unit_interval</span><span class="p">(</span><span class="n">weight_words</span><span class="p">)</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">_WANDER_JITTER_OCTAVES</span>
+    <span class="n">weights</span> <span class="o">=</span> <span class="mf">2.0</span> <span class="o">**</span> <span class="p">(</span><span class="o">-</span><span class="n">_WANDER_DECAY_PER_OCTAVE</span> <span class="o">*</span> <span class="n">octaves</span> <span class="o">+</span> <span class="n">jitter</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">periods</span><span class="p">,</span> <span class="n">phases</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">weights</span> <span class="o">/</span> <span class="n">weights</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+
+
+<div class="viewcode-block" id="wander">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.wander">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">wander</span><span class="p">(</span>
+    <span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">t_abs_s</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span> <span class="n">amplitude</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">period_s</span><span class="p">:</span> <span class="nb">float</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Band-limited quasi-random baseline texture, evaluated on absolute time.</span>
+
+<span class="sd">    A seeded sum of :data:`_WANDER_COMPONENTS` sinusoids whose periods are</span>
+<span class="sd">    log-spaced downward from ``period_s``. One declaration therefore covers two</span>
+<span class="sd">    timescales: with ``period_s`` of many hours the slowest terms read as a</span>
+<span class="sd">    distinct quasi-static offset inside any short query window, while the faster</span>
+<span class="sd">    octaves supply visible motion — which is what lets a whole channel family</span>
+<span class="sd">    share one set of declared parameters and still look individual.</span>
+
+<span class="sd">    The envelope is bounded structurally rather than by clipping: the weights</span>
+<span class="sd">    are positive and sum to 1, so ``|wander| &lt;= amplitude`` follows from the</span>
+<span class="sd">    triangle inequality and the output stays linear in ``amplitude``.</span>
+
+<span class="sd">    Being a pure function of absolute epoch seconds is what makes overlapping</span>
+<span class="sd">    archiver windows agree exactly on their shared timestamps.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        channel_key: Channel key, as for :func:`keyed_normals`.</span>
+<span class="sd">        t_abs_s: Absolute epoch seconds; any shape.</span>
+<span class="sd">        amplitude: Envelope bound, in the channel&#39;s declared units.</span>
+<span class="sd">        period_s: Slowest period in seconds; must be positive.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A float64 array of texture offsets with the shape of ``t_abs_s``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If ``period_s`` is not positive; the guard keeps a caller</span>
+<span class="sd">            from turning a division by zero into silent ``NaN`` in the series.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">period_s</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;wander period_s must be &gt; 0, got </span><span class="si">{</span><span class="n">period_s</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">times</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">t_abs_s</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+    <span class="n">periods</span><span class="p">,</span> <span class="n">phases</span><span class="p">,</span> <span class="n">weights</span> <span class="o">=</span> <span class="n">_wander_components</span><span class="p">(</span><span class="n">channel_key</span><span class="p">,</span> <span class="n">period_s</span><span class="p">)</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">times</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">period</span><span class="p">,</span> <span class="n">phase</span><span class="p">,</span> <span class="n">weight</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">periods</span><span class="p">,</span> <span class="n">phases</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+        <span class="n">total</span> <span class="o">+=</span> <span class="n">weight</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">_TWO_PI</span> <span class="o">*</span> <span class="n">times</span> <span class="o">/</span> <span class="n">period</span> <span class="o">+</span> <span class="n">phase</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">amplitude</span> <span class="o">*</span> <span class="n">total</span></div>
+
+
+
+<div class="viewcode-block" id="clamp">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.clamp">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">clamp</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">min_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">max_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Clamp a scalar into ``[min_value, max_value]`` (either bound optional).</span>
+
+<span class="sd">    The result is a float whichever side is hit, because ``clamp`` applies to</span>
+<span class="sd">    float channels only.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">min_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="n">min_value</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">min_value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">max_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&gt;</span> <span class="n">max_value</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">max_value</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">value</span></div>
+
+
+
+<div class="viewcode-block" id="epoch_seconds_array">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.epoch_seconds_array">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">epoch_seconds_array</span><span class="p">(</span><span class="n">timestamps</span><span class="p">:</span> <span class="s2">&quot;Sequence[Any]&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert timestamps to epoch seconds, or None when not convertible.&quot;&quot;&quot;</span>
+    <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">ts</span> <span class="ow">in</span> <span class="n">timestamps</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">ts</span><span class="p">,</span> <span class="s2">&quot;timestamp&quot;</span><span class="p">):</span>
+            <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">ts</span><span class="o">.</span><span class="n">timestamp</span><span class="p">()))</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ts</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">))</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ts</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+            <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">ts</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="anchored_instant">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.anchored_instant">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">anchored_instant</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Epoch seconds of an event placed relative to the activation anchor.</span>
+
+<span class="sd">    ``at_offset`` is seconds from the anchor. ``at_when`` is the logbook&#39;s own</span>
+<span class="sd">    ``{days_ago, time}``: the calendar day ``days_ago`` days before the anchor&#39;s</span>
+<span class="sd">    date, at ``time``, both read in ``tz`` (UTC when omitted) -- the same rule a</span>
+<span class="sd">    scenario&#39;s logbook entries resolve by, so an event and the entry narrating</span>
+<span class="sd">    it name one instant.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        event: An event carrying ``at_offset`` or ``at_when``.</span>
+<span class="sd">        anchor: The activation anchor T0, in epoch seconds.</span>
+<span class="sd">        tz: The facility timezone calendar days are counted in.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The event&#39;s instant in epoch seconds.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="s2">&quot;at_offset&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">anchor</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_offset&quot;</span><span class="p">])</span>
+    <span class="n">when</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_when&quot;</span><span class="p">]</span>
+    <span class="n">zone</span> <span class="o">=</span> <span class="n">tz</span> <span class="k">if</span> <span class="n">tz</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ZoneInfo</span><span class="p">(</span><span class="s2">&quot;UTC&quot;</span><span class="p">)</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">RelativeTimestamp</span><span class="p">(</span>
+        <span class="n">days_ago</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">when</span><span class="p">[</span><span class="s2">&quot;days_ago&quot;</span><span class="p">]),</span> <span class="n">time</span><span class="o">=</span><span class="n">dtime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">when</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]))</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">resolve_relative_timestamp</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="n">anchor</span><span class="p">,</span> <span class="n">zone</span><span class="p">))</span><span class="o">.</span><span class="n">timestamp</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="step_end">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.step_end">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">step_end</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Where a bounded ``step`` ends, on the same axis as its start; ``None`` when unbounded.</span>
+
+<span class="sd">    ``until`` is a window fraction (paired with ``at``), ``until_offset`` is</span>
+<span class="sd">    seconds from the anchor (paired with ``at_offset``) and ``until_when`` is a</span>
+<span class="sd">    ``{days_ago, time}`` placed exactly as ``at_when`` is (paired with it).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        event: A ``step`` event.</span>
+<span class="sd">        anchor: The activation anchor T0, in epoch seconds.</span>
+<span class="sd">        tz: The facility timezone ``until_when`` calendar days are counted in.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The end position, or ``None`` when the step states no end.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="s2">&quot;until_offset&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">anchor</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_offset&quot;</span><span class="p">])</span>
+    <span class="k">if</span> <span class="s2">&quot;until_when&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">anchored_instant</span><span class="p">({</span><span class="s2">&quot;at_when&quot;</span><span class="p">:</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_when&quot;</span><span class="p">]},</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;until&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until&quot;</span><span class="p">])</span>
+    <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="event_positions">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.event_positions">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">event_positions</span><span class="p">(</span>
+    <span class="n">event</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">t_frac</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
+    <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">,</span>
+    <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;list[tuple[np.ndarray, float]]&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Coordinate axis and event position(s) for one event.</span>
+
+<span class="sd">    Fraction-positioned (``at``) and anchored (``at_offset``, ``at_when``)</span>
+<span class="sd">    events yield one position, on the normalized window axis and the</span>
+<span class="sd">    epoch-seconds axis respectively. Daily ``at_time`` events yield one epoch-seconds</span>
+<span class="sd">    position per calendar date whose time-of-day occurrence falls inside the</span>
+<span class="sd">    window, placed in the facility timezone (``tz``). Returns an empty list</span>
+<span class="sd">    when an anchored or time-of-day event cannot be placed because the</span>
+<span class="sd">    timestamps were not convertible to epoch seconds.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="s2">&quot;at_offset&quot;</span> <span class="ow">in</span> <span class="n">event</span> <span class="ow">or</span> <span class="s2">&quot;at_when&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">t_abs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Skipping anchored event: timestamps not convertible to epoch seconds&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">t_abs</span><span class="p">,</span> <span class="n">anchored_instant</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">))]</span>
+    <span class="k">if</span> <span class="s2">&quot;at_time&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">t_abs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Skipping time-of-day event: timestamps not convertible to epoch seconds&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">t_abs</span><span class="p">,</span> <span class="n">at</span><span class="p">)</span> <span class="k">for</span> <span class="n">at</span> <span class="ow">in</span> <span class="n">daily_occurrences</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_time&quot;</span><span class="p">]),</span> <span class="n">t_abs</span><span class="p">,</span> <span class="n">tz</span><span class="p">)]</span>
+    <span class="k">return</span> <span class="p">[(</span><span class="n">t_frac</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at&quot;</span><span class="p">]))]</span></div>
+
+
+
+<div class="viewcode-block" id="daily_occurrences">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.daily_occurrences">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">daily_occurrences</span><span class="p">(</span><span class="n">at_time</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Epoch-second positions of a daily time-of-day within ``[t_abs[0], t_abs[-1]]``.</span>
+
+<span class="sd">    Walks calendar dates from the window start to its end (in timezone ``tz``)</span>
+<span class="sd">    and keeps every occurrence of ``at_time`` that falls inside the window.</span>
+<span class="sd">    Placing the time-of-day in an explicit zone — rather than the deploy host&#39;s</span>
+<span class="sd">    local zone — makes the result independent of the box ``$TZ``. ``tz`` defaults</span>
+<span class="sd">    to UTC; callers resolve and pass the facility zone, so this module stays</span>
+<span class="sd">    free of config.</span>
+<span class="sd">    Assumes ascending timestamps (the same contract ``apply_events`` relies</span>
+<span class="sd">    on via ``np.searchsorted``).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">zone</span> <span class="o">=</span> <span class="n">tz</span> <span class="k">if</span> <span class="n">tz</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ZoneInfo</span><span class="p">(</span><span class="s2">&quot;UTC&quot;</span><span class="p">)</span>
+    <span class="n">tod</span> <span class="o">=</span> <span class="n">dtime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="n">at_time</span><span class="p">)</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">t_abs</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="n">zone</span><span class="p">)</span>
+    <span class="n">end</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">t_abs</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span> <span class="n">zone</span><span class="p">)</span>
+    <span class="n">cursor</span> <span class="o">=</span> <span class="n">start</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">hour</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">microsecond</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">positions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">while</span> <span class="n">cursor</span> <span class="o">&lt;=</span> <span class="n">end</span><span class="p">:</span>
+        <span class="n">candidate</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>
+            <span class="n">hour</span><span class="o">=</span><span class="n">tod</span><span class="o">.</span><span class="n">hour</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="n">tod</span><span class="o">.</span><span class="n">minute</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="n">tod</span><span class="o">.</span><span class="n">second</span><span class="p">,</span> <span class="n">microsecond</span><span class="o">=</span><span class="n">tod</span><span class="o">.</span><span class="n">microsecond</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">start</span> <span class="o">&lt;=</span> <span class="n">candidate</span> <span class="o">&lt;=</span> <span class="n">end</span><span class="p">:</span>
+            <span class="n">positions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">candidate</span><span class="o">.</span><span class="n">timestamp</span><span class="p">())</span>
+        <span class="n">cursor</span> <span class="o">+=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">positions</span></div>
+
+
+
+<div class="viewcode-block" id="apply_events">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.apply_events">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_events</span><span class="p">(</span>
+    <span class="n">series</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
+    <span class="n">events</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">,</span>
+    <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply step/ramp/spike events in order (window-fraction or wall-clock).</span>
+
+<span class="sd">    A step with an end (see :func:`step_end`) holds ``to`` over ``[start, end)``</span>
+<span class="sd">    and leaves later samples on the baseline; without one it holds to the end.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">events</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">series</span>
+    <span class="n">t_frac</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+    <span class="n">series</span> <span class="o">=</span> <span class="n">series</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">events</span><span class="p">:</span>
+        <span class="n">shape</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;shape&quot;</span><span class="p">]</span>
+        <span class="n">offset_anchored</span> <span class="o">=</span> <span class="s2">&quot;at_offset&quot;</span> <span class="ow">in</span> <span class="n">event</span>
+        <span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">at</span> <span class="ow">in</span> <span class="n">event_positions</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">t_frac</span><span class="p">,</span> <span class="n">t_abs</span><span class="p">,</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">shape</span> <span class="o">==</span> <span class="s2">&quot;step&quot;</span><span class="p">:</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="n">step_end</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">)</span>
+                <span class="n">inside</span> <span class="o">=</span> <span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span> <span class="k">if</span> <span class="n">end</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">x</span> <span class="o">&lt;</span> <span class="n">end</span><span class="p">)</span>
+                <span class="n">series</span><span class="p">[</span><span class="n">inside</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">])</span>
+            <span class="k">elif</span> <span class="n">shape</span> <span class="o">==</span> <span class="s2">&quot;ramp&quot;</span><span class="p">:</span>
+                <span class="n">until</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">anchor</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_offset&quot;</span><span class="p">])</span>
+                    <span class="k">if</span> <span class="n">offset_anchored</span>
+                    <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until&quot;</span><span class="p">])</span>
+                <span class="p">)</span>
+                <span class="n">to</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">until</span> <span class="o">&lt;=</span> <span class="n">at</span><span class="p">:</span>
+                    <span class="n">series</span><span class="p">[</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">]</span> <span class="o">=</span> <span class="n">to</span>
+                    <span class="k">continue</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">searchsorted</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">at</span><span class="p">))</span>
+                <span class="n">start</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">series</span><span class="p">[</span><span class="nb">min</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)])</span>
+                <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">x</span> <span class="o">&lt;=</span> <span class="n">until</span><span class="p">)</span>
+                <span class="n">series</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="p">(</span><span class="n">to</span> <span class="o">-</span> <span class="n">start</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">-</span> <span class="n">at</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">until</span> <span class="o">-</span> <span class="n">at</span><span class="p">)</span>
+                <span class="n">series</span><span class="p">[</span><span class="n">x</span> <span class="o">&gt;</span> <span class="n">until</span><span class="p">]</span> <span class="o">=</span> <span class="n">to</span>
+            <span class="k">else</span><span class="p">:</span>  <span class="c1"># spike (gaussian bump; width as window fraction, or seconds when anchored)</span>
+                <span class="n">amplitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amplitude&quot;</span><span class="p">])</span>
+                <span class="n">width</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;width&quot;</span><span class="p">])</span>
+                <span class="n">series</span> <span class="o">=</span> <span class="n">series</span> <span class="o">+</span> <span class="n">amplitude</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="p">((</span><span class="n">x</span> <span class="o">-</span> <span class="n">at</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">width</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">series</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,889 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.honesty &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/honesty';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/honesty.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.honesty</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.honesty</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;The one connector pairing a deployment may not have: invented history.</span>
+
+<span class="sd">A virtual accelerator served from its container serves channels that move for</span>
+<span class="sd">modelled reasons — a corrector is stepped, the orbit responds, and the numbers a</span>
+<span class="sd">tool reads back are answers to what the deployment actually did — and its</span>
+<span class="sd">recorder writes that history as it happens. The live stand-in makes the same</span>
+<span class="sd">kind of claim from a soft IOC the deployment runs for itself. Neither machine</span>
+<span class="sd">existed before this deployment stood it up: the simulator&#39;s only past is the</span>
+<span class="sd">store its recorder keeps, and the stand-in&#39;s is the facility&#39;s archive it</span>
+<span class="sd">rehearses against — they are the</span>
+<span class="sd">:data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, reached over a</span>
+<span class="sd">network, and every question below is asked of that whole set rather than of the</span>
+<span class="sd">virtual accelerator alone. The mock archiver answers a history query the other</span>
+<span class="sd">way round: it synthesizes a plausible-looking series at read time, for</span>
+<span class="sd">questions nobody recorded the answer to. Configured together they produce an</span>
+<span class="sd">agent whose past is fiction and whose present is not, with nothing connecting</span>
+<span class="sd">the two — so the fiction can never be caught by disagreeing with the machine it</span>
+<span class="sd">claims to describe.</span>
+
+<span class="sd">Refused at every moment a deployment can acquire the pairing: ``osprey build``</span>
+<span class="sd">writes the config, ``osprey up`` stands the services up, the MCP server reads</span>
+<span class="sd">whatever ``config.yml`` it is pointed at — including one hand-edited long after</span>
+<span class="sd">the build — and, at run time, a session asks to be pointed at the simulator.</span>
+<span class="sd">Each site raises in its own vocabulary and names its own fix. What they share,</span>
+<span class="sd">and what lives here, is the question they ask and the reason they ask it.</span>
+
+<span class="sd">**The question is asked twice, because the two kinds of config are read by</span>
+<span class="sd">different readers, and a guard must resolve a key exactly as the reader it</span>
+<span class="sd">guards resolves it — otherwise the divergence *is* the bypass.**</span>
+
+<span class="sd">- A build profile&#39;s ``config:`` block reaches the rendered project through the</span>
+<span class="sd">  emitter, which honors the dotted spelling (``archiver.type:``, the canonical</span>
+<span class="sd">  one) *and* a nested mapping — both land on the same rendered leaf. Both are</span>
+<span class="sd">  therefore live, and :func:`pairing_in_profile` fails closed when they</span>
+<span class="sd">  disagree: whichever one wins, the profile has stated the archive twice and is</span>
+<span class="sd">  free to be wrong once.</span>
+<span class="sd">- A rendered ``config.yml`` is read by :class:`~osprey_connectors.config.ConfigBuilder`</span>
+<span class="sd">  and by ``MCPServerConfig``, and both walk *nested sections only* — a top-level</span>
+<span class="sd">  ``archiver.type:`` line there sets nothing at all. So</span>
+<span class="sd">  :func:`pairing_in_rendered_config` resolves nested-only. A flat line is not</span>
+<span class="sd">  evidence of an archiver; it is an inert line, and one this module names in its</span>
+<span class="sd">  message rather than silently reading as &quot;unset&quot;, because someone who typed it</span>
+<span class="sd">  deserves to be told why it did nothing.</span>
+
+<span class="sd">Both readers fall back to the mock archiver when ``archiver.type`` is absent or</span>
+<span class="sd">blank (see the factory&#39;s ``… is not set; defaulting to …`` warnings), so *unset</span>
+<span class="sd">counts as the mock archiver* at every site. That is the fallback the rule is</span>
+<span class="sd">really about: the common way into the pairing is not naming the mock archiver,</span>
+<span class="sd">it is naming nothing.</span>
+
+<span class="sd">The venue is part of the question. The simulator served from its container</span>
+<span class="sd">has a recorder that writes its real history, so a synthesized archive beside</span>
+<span class="sd">it is fiction. The simulator served in process has no recorder, so a</span>
+<span class="sd">synthesized archive is the only archive it can have, and the chip says</span>
+<span class="sd">&quot;Simulator&quot;: that pairing claims nothing it cannot back up and is not refused.</span>
+<span class="sd">:func:`invents_history` asks it through</span>
+<span class="sd">:func:`~osprey_connectors.types.talks_to_network`, the same wire fact every</span>
+<span class="sd">other check reads, so the type and the ``serving`` leaf are judged together and</span>
+<span class="sd">never the type word alone. A control system that states no type is the</span>
+<span class="sd">simulator in process, so it invents nothing either.</span>
+
+<span class="sd">The run-time question is the same question asked one step early. A session that</span>
+<span class="sd">asks to be pointed at the virtual accelerator, or at the stand-in, has not</span>
+<span class="sd">changed anything yet, so the config&#39;s own ``control_system.type`` is not the</span>
+<span class="sd">type to judge — the pairing to refuse is the one the switch *would* create.</span>
+<span class="sd">:func:`pairing_for_target` judges that one, taking the prospective control</span>
+<span class="sd">system from :func:`~osprey_connectors.types.resolve_target` while the archiver</span>
+<span class="sd">still comes from the config, because the switch changes the machine and leaves</span>
+<span class="sd">the archive exactly where it was. The target is resolved through that shared</span>
+<span class="sd">resolver and never here: a guard that translates ``va`` privately is guarding a</span>
+<span class="sd">deployment other than the one the switch will produce, which is the same</span>
+<span class="sd">divergence-is-the-bypass this module refuses on the config keys. A</span>
+<span class="sd">target is judged as the section it builds from — the deployment&#39;s own, with</span>
+<span class="sd">its type replaced by the target&#39;s — so on a deployment whose own type is a</span>
+<span class="sd">real machine, ``va`` is the served container and is judged served.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">INVENTED_HISTORY_TYPES</span><span class="p">,</span>
+    <span class="n">MOCK_ARCHIVER</span><span class="p">,</span>
+    <span class="n">SERVING_KEY</span><span class="p">,</span>
+    <span class="n">SERVING_LEAF</span><span class="p">,</span>
+    <span class="n">VIRTUAL_ACCELERATOR</span><span class="p">,</span>
+    <span class="n">resolve_archiver_type</span><span class="p">,</span>
+    <span class="n">resolve_control_system_type</span><span class="p">,</span>
+    <span class="n">resolve_target</span><span class="p">,</span>
+    <span class="n">talks_to_network</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;ArchiverPairing&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;VA_MOCK_ARCHIVER_WHY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;invents_history&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;pairing_for_target&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;pairing_in_profile&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;pairing_in_rendered_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;target_section&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1">#: Why the pairing is refused, in one sentence pair every site shares so the</span>
+<span class="c1">#: explanation cannot drift between them. Each site supplies its own fix.</span>
+<span class="n">VA_MOCK_ARCHIVER_WHY</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;a virtual accelerator and the live stand-in are machines this deployment &quot;</span>
+    <span class="s2">&quot;stands up for itself, with no past anybody recorded, while the mock archiver &quot;</span>
+    <span class="s2">&quot;synthesizes history at read time. Paired, the agent reports a past that never &quot;</span>
+    <span class="s2">&quot;happened and nothing can catch it — the one failure a simulated facility &quot;</span>
+    <span class="s2">&quot;exists to make visible rather than to have.&quot;</span>
+<span class="p">)</span>
+
+<span class="n">_CONTROL_SYSTEM_TYPE</span> <span class="o">=</span> <span class="s2">&quot;control_system.type&quot;</span>
+<span class="n">_ARCHIVER_TYPE</span> <span class="o">=</span> <span class="s2">&quot;archiver.type&quot;</span>
+
+
+<div class="viewcode-block" id="invents_history">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.invents_history">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">invents_history</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the machine *control_system_section* selects has no recorded past.</span>
+
+<span class="sd">    A type in :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES` that is</span>
+<span class="sd">    reached over a network: the simulator served from its container and the</span>
+<span class="sd">    live stand-in. The simulator served in process dials nothing and has no</span>
+<span class="sd">    recorder, so it is not one. A ``serving`` value no reader accepts is judged</span>
+<span class="sd">    served, the refusing side; the build names that value on its own.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">resolve_control_system_type</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">INVENTED_HISTORY_TYPES</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">talks_to_network</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span></div>
+
+
+
+<div class="viewcode-block" id="target_section">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.target_section">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">target_section</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The section a target builds from: the deployment&#39;s own, with its type replaced.&quot;&quot;&quot;</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">control_system_section</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
+    <span class="k">return</span> <span class="p">{</span><span class="o">**</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">connector_type</span><span class="p">}</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_Absent</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Sentinel for &quot;this spelling does not set the key&quot;, distinct from a key</span>
+<span class="sd">    set to ``None`` — which YAML produces for a bare ``archiver.type:`` and which</span>
+<span class="sd">    the factory resolves to the mock.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>  <span class="c1"># pragma: no cover - debugging aid</span>
+        <span class="k">return</span> <span class="s2">&quot;&lt;absent&gt;&quot;</span>
+
+
+<span class="n">_ABSENT</span> <span class="o">=</span> <span class="n">_Absent</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="ArchiverPairing">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.ArchiverPairing">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ArchiverPairing</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What a config says about its archive, judged the way its reader reads it.&quot;&quot;&quot;</span>
+
+    <span class="n">is_invented_history</span><span class="p">:</span> <span class="nb">bool</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether this config gives a simulated machine an archiver that invents</span>
+<span class="sd">    its past — the thing all three sites refuse.&quot;&quot;&quot;</span>
+
+    <span class="n">archiver_phrase</span><span class="p">:</span> <span class="nb">str</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;How to name the config&#39;s archiver back to whoever wrote it, ready to drop</span>
+<span class="sd">    into a message after &quot;archiver.type is …&quot;. Says *unset* when unset, and says</span>
+<span class="sd">    so about an inert flat line rather than pretending the key was never</span>
+<span class="sd">    written.&quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="pairing_in_profile">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.pairing_in_profile">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">pairing_in_profile</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Judge a build profile&#39;s ``config:`` block.</span>
+
+<span class="sd">    Both spellings are live here — the emitter honors the dotted key and a</span>
+<span class="sd">    nested mapping alike — so both are read, and a disagreement between them</span>
+<span class="sd">    fails closed. Refusing an ambiguous profile is the same stance</span>
+<span class="sd">    ``va_archiver_errors`` already takes on a duplicated connection key: one</span>
+<span class="sd">    fact with two homes is free to disagree, and the build should not be the</span>
+<span class="sd">    thing that picks a winner.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The profile&#39;s resolved ``config:`` block.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The verdict and the phrase naming its archiver.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">control_system</span> <span class="o">=</span> <span class="n">_spellings</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">_CONTROL_SYSTEM_TYPE</span><span class="p">,</span> <span class="n">nested_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">serving</span> <span class="o">=</span> <span class="n">_spellings</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">SERVING_KEY</span><span class="p">,</span> <span class="n">nested_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">archiver</span> <span class="o">=</span> <span class="n">_spellings</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">_ARCHIVER_TYPE</span><span class="p">,</span> <span class="n">nested_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="c1"># Each (type, serving) combination is judged as the section those spellings</span>
+    <span class="c1"># would render into. When two spellings of one key both exist, either may be</span>
+    <span class="c1"># the one that lands, so any combination inventing history is enough to</span>
+    <span class="c1"># refuse.</span>
+    <span class="n">any_invents_history</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span>
+        <span class="n">invents_history</span><span class="p">(</span><span class="n">_profile_section</span><span class="p">(</span><span class="n">type_value</span><span class="p">,</span> <span class="n">serving_value</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">type_value</span> <span class="ow">in</span> <span class="n">control_system</span> <span class="ow">or</span> <span class="p">[</span><span class="n">_ABSENT</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">serving_value</span> <span class="ow">in</span> <span class="n">serving</span> <span class="ow">or</span> <span class="p">[</span><span class="n">_ABSENT</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">is_mock</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">archiver</span> <span class="ow">or</span> <span class="nb">any</span><span class="p">(</span>
+        <span class="n">resolve_archiver_type</span><span class="p">({</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">value</span><span class="p">})</span> <span class="o">==</span> <span class="n">MOCK_ARCHIVER</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">archiver</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">ArchiverPairing</span><span class="p">(</span>
+        <span class="n">is_invented_history</span><span class="o">=</span><span class="n">any_invents_history</span> <span class="ow">and</span> <span class="n">is_mock</span><span class="p">,</span>
+        <span class="n">archiver_phrase</span><span class="o">=</span><span class="n">_profile_phrase</span><span class="p">(</span><span class="n">archiver</span><span class="p">),</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="pairing_in_rendered_config">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.pairing_in_rendered_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">pairing_in_rendered_config</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Judge a rendered ``config.yml`` — the deploy config and the MCP server&#39;s.</span>
+
+<span class="sd">    Nested sections only, because that is all either reader honors: a top-level</span>
+<span class="sd">    ``archiver.type:`` line in this file is read by nothing, so treating it as a</span>
+<span class="sd">    statement about the archiver would excuse the very config it fails to</span>
+<span class="sd">    configure.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The raw config mapping, as loaded from ``config.yml``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The verdict and the phrase naming its archiver — which calls out an</span>
+<span class="sd">        inert flat line when one is what misled the writer.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># The sections handed to the resolvers are the very objects the MCP server</span>
+    <span class="c1"># hands the factory (``MCPServerConfig.control_system`` / ``.archiver`` are</span>
+    <span class="c1"># ``raw.get(section)``), resolved by the factory&#39;s own functions. There is no</span>
+    <span class="c1"># second opinion to diverge from: this *is* what the deployment will build.</span>
+    <span class="n">control_system</span> <span class="o">=</span> <span class="n">_sections</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_rendered_pairing</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">invents_history</span><span class="p">(</span><span class="n">control_system</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="pairing_for_target">
+<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.pairing_for_target">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">pairing_for_target</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Judge the pairing a session *target* would create in a rendered config.</span>
+
+<span class="sd">    The same nested-only reading of the same file as</span>
+<span class="sd">    :func:`pairing_in_rendered_config`, asked one step early: the control system</span>
+<span class="sd">    is not the one the config selects but the one *target* selects, because a</span>
+<span class="sd">    session pointed at the virtual accelerator gets a virtual accelerator — and</span>
+<span class="sd">    one pointed at ``standin`` gets the stand-in — whatever the deployment was</span>
+<span class="sd">    built for. The archiver is still the config&#39;s</span>
+<span class="sd">    own, since pointing a session somewhere else does not move the archive —</span>
+<span class="sd">    which is exactly how a deployment honest at build time acquires the pairing</span>
+<span class="sd">    at run time.</span>
+
+<span class="sd">    The prospective type comes from</span>
+<span class="sd">    :func:`~osprey_connectors.types.resolve_target` and is never worked out</span>
+<span class="sd">    here, so this predicate and the switch it guards cannot disagree about where</span>
+<span class="sd">    a target lands.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The raw config mapping, as loaded from ``config.yml``.</span>
+<span class="sd">        target: The control target being asked for, one of</span>
+<span class="sd">            :data:`~osprey_connectors.types.CONTROL_TARGETS`.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The verdict and the phrase naming the config&#39;s archiver, ready for a</span>
+<span class="sd">        refusal that quotes :data:`VA_MOCK_ARCHIVER_WHY`.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: Propagated from :func:`~osprey_connectors.types.resolve_target`</span>
+<span class="sd">            when *target* is unknown, or is ``live`` on a deployment with no</span>
+<span class="sd">            derivable live control system. An underivable target has no pairing</span>
+<span class="sd">            to judge, and answering &quot;allowed&quot; for one would report a session as</span>
+<span class="sd">            honest that cannot be established at all; callers establish that a</span>
+<span class="sd">            target exists before asking whether it may be used.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">control_system</span> <span class="o">=</span> <span class="n">_sections</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">)</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">target_section</span><span class="p">(</span><span class="n">control_system</span><span class="p">,</span> <span class="n">resolve_target</span><span class="p">(</span><span class="n">control_system</span><span class="p">,</span> <span class="n">target</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">_rendered_pairing</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">invents_history</span><span class="p">(</span><span class="n">section</span><span class="p">))</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_sections</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The config&#39;s top-level sections, or none when it is not a mapping.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">config</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_profile_section</span><span class="p">(</span><span class="n">type_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">serving_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The one-key ``control_system:`` section a profile&#39;s spellings render to.&quot;&quot;&quot;</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="n">type_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_ABSENT</span><span class="p">:</span>
+        <span class="n">section</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">type_value</span>
+    <span class="k">if</span> <span class="n">serving_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_ABSENT</span><span class="p">:</span>
+        <span class="n">section</span><span class="p">[</span><span class="s2">&quot;connector&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">VIRTUAL_ACCELERATOR</span><span class="p">:</span> <span class="p">{</span><span class="n">SERVING_LEAF</span><span class="p">:</span> <span class="n">serving_value</span><span class="p">}}</span>
+    <span class="k">return</span> <span class="n">section</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_rendered_pairing</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">invented</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict on a rendered config, given whether the control system to</span>
+<span class="sd">    judge it against — the one it selects, or the one a target would select —</span>
+<span class="sd">    has no recorded past.&quot;&quot;&quot;</span>
+    <span class="n">archiver_type</span> <span class="o">=</span> <span class="n">resolve_archiver_type</span><span class="p">(</span><span class="n">_sections</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">ArchiverPairing</span><span class="p">(</span>
+        <span class="n">is_invented_history</span><span class="o">=</span><span class="n">invented</span> <span class="ow">and</span> <span class="n">archiver_type</span> <span class="o">==</span> <span class="n">MOCK_ARCHIVER</span><span class="p">,</span>
+        <span class="n">archiver_phrase</span><span class="o">=</span><span class="n">_rendered_phrase</span><span class="p">(</span>
+            <span class="n">_spellings</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">_ARCHIVER_TYPE</span><span class="p">,</span> <span class="n">nested_only</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+            <span class="n">_flat_value</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">_ARCHIVER_TYPE</span><span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_spellings</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">nested_only</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The values this config sets for *dotted*, in every spelling that is live.</span>
+
+<span class="sd">    Returned exactly as written, never normalized: the resolvers in</span>
+<span class="sd">    :mod:`osprey_connectors.types` are what turn a value into a decision, and</span>
+<span class="sd">    tidying one on the way in (stripping whitespace, say) would decide something</span>
+<span class="sd">    about it that the factory does not — a padded type name is a lookup failure</span>
+<span class="sd">    there, and must stay one here.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[]</span>
+    <span class="n">values</span> <span class="o">=</span> <span class="p">[</span><span class="n">_nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">dotted</span><span class="p">)]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">nested_only</span><span class="p">:</span>
+        <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_flat_value</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">dotted</span><span class="p">))</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">value</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values</span> <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_ABSENT</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flat_value</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The value of the whole dotted key written as one top-level key.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="n">dotted</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_ABSENT</span>
+    <span class="k">return</span> <span class="n">config</span><span class="p">[</span><span class="n">dotted</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The value of *dotted* walked as nested sections.&quot;&quot;&quot;</span>
+    <span class="n">node</span> <span class="o">=</span> <span class="n">config</span>
+    <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">dotted</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="n">part</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">node</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_ABSENT</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="n">node</span><span class="p">[</span><span class="n">part</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">node</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_stated</span><span class="p">(</span><span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The values that actually say something, as text for a message.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">({</span><span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values</span> <span class="k">if</span> <span class="n">value</span><span class="p">})</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_profile_phrase</span><span class="p">(</span><span class="n">archiver</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">archiver</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;unset (which the connector factory resolves to </span><span class="si">{</span><span class="n">MOCK_ARCHIVER</span><span class="si">!r}</span><span class="s2">)&quot;</span>
+    <span class="n">stated</span> <span class="o">=</span> <span class="n">_stated</span><span class="p">(</span><span class="n">archiver</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">stated</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;spelled twice and differently (</span><span class="si">{</span><span class="s1">&#39; and &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">stated</span><span class="p">)</span><span class="si">}</span><span class="s2">) — &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;both spellings reach the same rendered key, and which one lands &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;depends on which comes last in this profile, so one of them is wrong&quot;</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">stated</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;blank (which the connector factory resolves to </span><span class="si">{</span><span class="n">MOCK_ARCHIVER</span><span class="si">!r}</span><span class="s2">)&quot;</span>
+    <span class="k">return</span> <span class="nb">repr</span><span class="p">(</span><span class="n">stated</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_rendered_phrase</span><span class="p">(</span><span class="n">archiver</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">],</span> <span class="n">flat</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">stated</span> <span class="o">=</span> <span class="n">_stated</span><span class="p">(</span><span class="n">archiver</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">stated</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">repr</span><span class="p">(</span><span class="n">stated</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="n">unset</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;unset (which the connector factory resolves to </span><span class="si">{</span><span class="n">MOCK_ARCHIVER</span><span class="si">!r}</span><span class="s2">)&quot;</span>
+    <span class="k">if</span> <span class="n">flat</span> <span class="ow">is</span> <span class="n">_ABSENT</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">unset</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">unset</span><span class="si">}</span><span class="s2">. This file does carry a top-level &#39;</span><span class="si">{</span><span class="n">_ARCHIVER_TYPE</span><span class="si">}</span><span class="s2">: &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">flat</span><span class="si">}</span><span class="s2">&#39; line, but config.yml is read as nested sections, so &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;that line configures nothing — the archiver is whatever the &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;&#39;archiver:&#39; section says, and there is none&quot;</span>
+    <span class="p">)</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

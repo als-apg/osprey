@@ -1,0 +1,1438 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Errors and Logging &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/connectors-api/errors-logging';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/connectors-api/errors-logging.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Configuration" href="configuration.html" />
+    <link rel="prev" title="Building Connectors" href="building.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/environment-variables.html">Environment Variables</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/partial-answers.html">Partial Answers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/guarded-run.html">Guarded Run Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/watchdog.html">Watchdog Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/dock-engine.html">Dock Engine Contract</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">osprey-connectors API</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="contracts.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="building.html">Building Connectors</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Errors and Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="write-safety.html">Write Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deployment.html">A Deployment’s Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="supervision.html">Supervising Connector Processes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="utilities.html">Utilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">osprey-connectors API</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Errors and Logging</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="errors-and-logging">
+<span id="connectors-api-errors-logging"></span><h1>Errors and Logging<a class="headerlink" href="#errors-and-logging" title="Link to this heading">#</a></h1>
+<p>The exception taxonomy callers branch on, and the logger every connector writes
+through. The class names and <code class="docutils literal notranslate"><span class="pre">reason</span></code> codes in
+<a class="reference internal" href="#module-osprey_connectors.errors" title="osprey_connectors.errors"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.errors</span></code></a> are covered by the package’s compatibility
+guarantee.</p>
+<p id="module-osprey_connectors.errors">Error classification and handling for the Osprey Framework.</p>
+<p>Stability: the exception class names and <code class="docutils literal notranslate"><span class="pre">reason</span></code> codes defined here are
+public API. Removing or renaming any of them is a major version bump; adding
+new ones is a minor version bump.</p>
+<p>This module is the connector failure vocabulary.</p>
+<p>Three contract roots partition what a connector raises when a call fails, and
+no class lies under two of them: <a class="reference internal" href="#osprey_connectors.errors.ChannelError" title="osprey_connectors.errors.ChannelError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelError</span></code></a>, a failure about one
+named channel that leaves the connector in place; every single-channel failure
+(a limits violation, a refused write, a failed write, an address that is not a
+channel, an unreachable channel) is one, and its <code class="docutils literal notranslate"><span class="pre">channel_address</span></code> names the
+channel. <a class="reference internal" href="#osprey_connectors.errors.ConnectorUnavailableError" title="osprey_connectors.errors.ConnectorUnavailableError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectorUnavailableError</span></code></a>, the connector itself is gone and
+its supervisor replaces it. <a class="reference internal" href="#osprey_connectors.errors.ConnectorInternalError" title="osprey_connectors.errors.ConnectorInternalError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectorInternalError</span></code></a>, a connector bug
+that nothing recovers from. <a class="reference internal" href="#osprey_connectors.errors.ChannelReadFailedError" title="osprey_connectors.errors.ChannelReadFailedError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelReadFailedError</span></code></a> names several
+channels and lies under no root.</p>
+<p><a class="reference internal" href="#osprey_connectors.errors.RefusalReason" title="osprey_connectors.errors.RefusalReason"><code class="xref py py-class docutils literal notranslate"><span class="pre">RefusalReason</span></code></a> names why a write was refused, who refused it and what
+to do about it. <code class="docutils literal notranslate"><span class="pre">ChannelWriteFailedError</span></code>’s reason codes are the uppercased
+<code class="docutils literal notranslate"><span class="pre">WriteOutcome</span></code> words for the outcomes that raise, so the reason a caller
+branches on and the outcome the result reports are one vocabulary.</p>
+<p>The connector-host IPC registry is derived from this module: every class in
+<code class="docutils literal notranslate"><span class="pre">__all__</span></code> under a contract root crosses the process boundary as itself,
+with its channel, so a public failure needs no registry entry of its own.</p>
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.errors.NOT_A_CHANNEL">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">NOT_A_CHANNEL</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility'</span></span><a class="headerlink" href="#osprey_connectors.errors.NOT_A_CHANNEL" title="Link to this definition">#</a></dt>
+<dd><p>What an address outside the facility is, in every message that names one.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RAW_CLIENT_WRITE_MARKER">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">RAW_CLIENT_WRITE_MARKER</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'raw</span> <span class="pre">client</span> <span class="pre">write</span> <span class="pre">refused'</span></span><a class="headerlink" href="#osprey_connectors.errors.RAW_CLIENT_WRITE_MARKER" title="Link to this definition">#</a></dt>
+<dd><p>Shared substring of every raw-client-write refusal message. Refusals raised
+inside an executor subprocess reach the parent only as stderr text, so the
+parent recognises them by this marker; a test pins the message to it.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.BuildProfileError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">BuildProfileError</span></span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#BuildProfileError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.BuildProfileError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#osprey_connectors.errors.ConfigurationError" title="osprey_connectors.errors.ConfigurationError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConfigurationError</span></code></a></p>
+<p>Raised when a build profile is invalid or missing required files.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ChannelError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+<p>A failure about one named channel; the connector that raised it stays in place.</p>
+<p><code class="docutils literal notranslate"><span class="pre">channel_address</span></code> names the channel, in process and across the
+connector-host boundary alike. No supervisor recovers from a channel
+error: it is reported against its channel and nothing is restarted. It has
+no builtin base that another root shares, so no <code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">ConnectionError</span></code>
+or <code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">TimeoutError</span></code> reads it as a lost connector.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelLimitsViolationError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ChannelLimitsViolationError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">violation_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">violation_reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_step</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelLimitsViolationError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelLimitsViolationError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#osprey_connectors.errors.ChannelError" title="osprey_connectors.errors.ChannelError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelError</span></code></a></p>
+<p>Raised when a channel write violates configured safety limits.</p>
+<p>Covers min/max range violations, read-only channel writes,
+excessive step sizes, and writes to unlisted channels.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelLimitsViolationError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">violation_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">violation_reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_step</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelLimitsViolationError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelLimitsViolationError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelNotFoundError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ChannelNotFoundError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelNotFoundError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelNotFoundError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#osprey_connectors.errors.ChannelError" title="osprey_connectors.errors.ChannelError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelError</span></code></a>, <code class="xref py py-class docutils literal notranslate"><span class="pre">LookupError</span></code></p>
+<p>Raised when an address is not a channel of the facility a connector serves.</p>
+<p>Only a connector that holds the facility’s whole address set raises it. A
+connector that cannot tell an unknown name from an unreachable one (a
+Channel Access search that finds nothing times out) raises
+<a class="reference internal" href="#osprey_connectors.errors.ChannelUnreachableError" title="osprey_connectors.errors.ChannelUnreachableError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelUnreachableError</span></code></a> instead. A write to such an address is not
+raised: it comes back <code class="docutils literal notranslate"><span class="pre">refused</span></code> with <code class="docutils literal notranslate"><span class="pre">refusal_reason</span></code> <a class="reference internal" href="#osprey_connectors.errors.ChannelNotFoundError.reason" title="osprey_connectors.errors.ChannelNotFoundError.reason"><code class="xref py py-attr docutils literal notranslate"><span class="pre">reason</span></code></a>.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelNotFoundError.reason">
+<span class="sig-name descname"><span class="pre">reason</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'CHANNEL_NOT_FOUND'</span></span><a class="headerlink" href="#osprey_connectors.errors.ChannelNotFoundError.reason" title="Link to this definition">#</a></dt>
+<dd><p>The refusal reason a write to an address outside the facility carries.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelNotFoundError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelNotFoundError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelNotFoundError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelReadFailedError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ChannelReadFailedError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addresses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">causes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelReadFailedError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelReadFailedError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+<p>Raised when a batch read or a settle’s readback read could not produce a value.</p>
+<p>A channel counts as failed when the connector’s result leaves it out (a
+connector drops a channel whose read raised) or reports it with the value
+<code class="docutils literal notranslate"><span class="pre">None</span></code> (the EPICS-family connectors’ answer to a read timeout).</p>
+<p><code class="docutils literal notranslate"><span class="pre">addresses</span></code> names every failed channel, each once, in the order the
+caller asked for them, so a caller can report or retry all of them rather
+than only the first.</p>
+<p><code class="docutils literal notranslate"><span class="pre">causes</span></code> maps a failed channel to the exception its own read raised, so a
+timeout, a refused connection and a missing channel stay distinguishable.
+A failed channel whose read reported no value without raising has no
+entry.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelReadFailedError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addresses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">causes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelReadFailedError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelReadFailedError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelReadFailedError.causes">
+<span class="sig-name descname"><span class="pre">causes</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">BaseException</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.errors.ChannelReadFailedError.causes" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelUnreachableError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ChannelUnreachableError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelUnreachableError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelUnreachableError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#osprey_connectors.errors.ChannelError" title="osprey_connectors.errors.ChannelError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelError</span></code></a></p>
+<p>One channel could not be reached: it was lost, or it did not answer in time.</p>
+<p>The connector that raised it is healthy and keeps serving every other
+channel, so nothing is replaced for it; the failure is that channel’s
+device, not the control system as a whole. Its text names the address.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelUnreachableError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelUnreachableError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelUnreachableError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelWriteBlockedError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ChannelWriteBlockedError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verdict_reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelWriteBlockedError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelWriteBlockedError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#osprey_connectors.errors.ChannelError" title="osprey_connectors.errors.ChannelError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelError</span></code></a></p>
+<p>Raised when a channel write was refused and no value was written.</p>
+<p>Distinct from ChannelWriteFailedError, which means the write was attempted
+and its outcome is a failure rather than a denial.</p>
+<p><code class="docutils literal notranslate"><span class="pre">reason</span></code> is a <a class="reference internal" href="#osprey_connectors.errors.RefusalReason" title="osprey_connectors.errors.RefusalReason"><code class="xref py py-class docutils literal notranslate"><span class="pre">RefusalReason</span></code></a> member when the reason is a known
+one, and then names its refuser and remedy. An unknown reason, or no reason
+at all, is kept as given and names neither: no refuser is guessed.</p>
+<p><code class="docutils literal notranslate"><span class="pre">verdict_reason</span></code> narrows <code class="docutils literal notranslate"><span class="pre">WRITES_DISABLED</span></code> to the reason the write
+verdict gave, a member of <a class="reference internal" href="write-safety.html#osprey_connectors.refusals.REASONS" title="osprey_connectors.refusals.REASONS"><code class="xref py py-data docutils literal notranslate"><span class="pre">osprey_connectors.refusals.REASONS</span></code></a>, when
+it gave one: <code class="docutils literal notranslate"><span class="pre">switch_off</span></code>, <code class="docutils literal notranslate"><span class="pre">auth_exhausted</span></code>, <code class="docutils literal notranslate"><span class="pre">auth_range</span></code> and the
+rest, so a program branches on the word rather than the message.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelWriteBlockedError.refuser">
+<span class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">refuser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">reason</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelWriteBlockedError.refuser"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelWriteBlockedError.refuser" title="Link to this definition">#</a></dt>
+<dd><p>Return who refused a write for <code class="docutils literal notranslate"><span class="pre">reason</span></code>, or None when no one is known.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelWriteBlockedError.remedy">
+<span class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">remedy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">reason</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelWriteBlockedError.remedy"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelWriteBlockedError.remedy" title="Link to this definition">#</a></dt>
+<dd><p>Return the suggestion sentences for <code class="docutils literal notranslate"><span class="pre">reason</span></code>, or <code class="docutils literal notranslate"><span class="pre">()</span></code> when none is known.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tuple[str, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelWriteBlockedError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verdict_reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelWriteBlockedError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelWriteBlockedError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelWriteBlockedError.reason">
+<span class="sig-name descname"><span class="pre">reason</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.errors.ChannelWriteBlockedError.reason" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelWriteFailedError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ChannelWriteFailedError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">outcome</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value_written</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observed_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelWriteFailedError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelWriteFailedError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#osprey_connectors.errors.ChannelError" title="osprey_connectors.errors.ChannelError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelError</span></code></a></p>
+<p>Raised when a channel write was attempted but was not confirmed.</p>
+<p>The control system was asked to write but the write failed, the channel now
+holds a different value, or the write was sent but not acknowledged in time
+or the confirming re-read itself failed.
+Distinct from ChannelWriteBlockedError (a refusal — no value was written).
+A scan consumer must abort on this.</p>
+<p>reason is one of: “FAILED”, “MISMATCH”, “UNCONFIRMED” — the <code class="docutils literal notranslate"><span class="pre">WriteOutcome</span></code>
+words that raise. All three are protocol-neutral on purpose: the same codes
+describe an EPICS, DOOCS, or simulated write.</p>
+<p><code class="docutils literal notranslate"><span class="pre">outcome</span></code>, <code class="docutils literal notranslate"><span class="pre">value_written</span></code> and <code class="docutils literal notranslate"><span class="pre">observed_value</span></code> carry the detail the
+result held, so a caller that only sees the exception can still say what was
+sent and what the channel holds. <code class="docutils literal notranslate"><span class="pre">outcome</span></code> is a <code class="docutils literal notranslate"><span class="pre">WriteOutcome</span></code> member on
+either side of the connector-host boundary: the plain string the wire
+carries is coerced on construction, as <code class="docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code> coerces its own.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelWriteFailedError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">outcome</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value_written</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observed_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelWriteFailedError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelWriteFailedError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ClientLibraryRefusedError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ClientLibraryRefusedError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">package</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">library</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ClientLibraryRefusedError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ClientLibraryRefusedError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">RuntimeError</span></code></p>
+<p>Raised when a process that may hold no control-system client loads one.</p>
+<p>reason is “RAW_CLIENT_IMPORT”: user code imported a control-system client
+package, or loaded a client shared library, in a process whose only route
+to the machine is <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code>. Nothing was loaded and no channel was
+touched. <code class="docutils literal notranslate"><span class="pre">package</span></code> names the refused top-level package and <code class="docutils literal notranslate"><span class="pre">library</span></code>
+the refused shared library; one of the two is set.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> rather than an <code class="docutils literal notranslate"><span class="pre">ImportError</span></code>: code that treats a
+missing optional client as absent (<code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">ImportError</span></code>) must not read a
+refusal as “not installed” and carry on down another route.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ClientLibraryRefusedError.MARKER">
+<span class="sig-name descname"><span class="pre">MARKER</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'control-system</span> <span class="pre">client</span> <span class="pre">refused'</span></span><a class="headerlink" href="#osprey_connectors.errors.ClientLibraryRefusedError.MARKER" title="Link to this definition">#</a></dt>
+<dd><p>Shared substring of every client refusal message.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ClientLibraryRefusedError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">package</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">library</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ClientLibraryRefusedError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ClientLibraryRefusedError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ConfigurationError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ConfigurationError</span></span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ConfigurationError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ConfigurationError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+<p>Exception for configuration-related errors.</p>
+<p>Raised when configuration files are invalid, missing required settings,
+or contain incompatible values that prevent proper system operation.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ConnectorInternalError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ConnectorInternalError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">class_tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ConnectorInternalError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ConnectorInternalError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">RuntimeError</span></code></p>
+<p>Raised in the parent for something the connector-host child sent outside the contract.</p>
+<p>It has two sources, and both fail one call only. A connector bug: the
+child raised an exception the IPC registry does not carry typed, and the
+message carries the child’s <code class="docutils literal notranslate"><span class="pre">repr</span></code>. An unrebuildable reply: the child
+answered with a value the parent cannot rebuild into its declared type.
+Neither is a reachability answer, and nothing about the connector or the
+child is implied, so no supervisor recovers from it.</p>
+<p>It is a <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> and never a <code class="docutils literal notranslate"><span class="pre">ConnectionError</span></code> or <code class="docutils literal notranslate"><span class="pre">OSError</span></code>, so
+that no <code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">ConnectionError</span></code> or <code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">OSError</span></code> reads a connector
+bug as an unreachable control system.</p>
+<p><code class="docutils literal notranslate"><span class="pre">class_tag</span></code> names the class the child sent: the exception’s class for a
+connector bug, the value’s class for an unrebuildable reply.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ConnectorInternalError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">class_tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ConnectorInternalError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ConnectorInternalError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ConnectorUnavailableError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">ConnectorUnavailableError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">recovery</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ConnectorUnavailableError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ConnectorUnavailableError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectionError</span></code></p>
+<p>The connector itself is gone: its transport, context or process is lost.</p>
+<p>Every channel it serves fails alike until it is replaced, and the
+supervisor that owns the connector’s lifetime replaces it at most once per
+instance. <code class="docutils literal notranslate"><span class="pre">recovery</span></code> is what that supervisor did, one
+<code class="docutils literal notranslate"><span class="pre">{&quot;action&quot;,</span> <span class="pre">&quot;text&quot;}</span></code> record per step, set by the supervisor and by
+nothing else; it is empty until a supervisor has acted.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ConnectorUnavailableError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">recovery</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ConnectorUnavailableError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ConnectorUnavailableError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ConnectorUnavailableError.recovery">
+<span class="sig-name descname"><span class="pre">recovery</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.errors.ConnectorUnavailableError.recovery" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">RefusalReason</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#RefusalReason"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.RefusalReason" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">StrEnum</span></code></p>
+<p>Why a write was refused, with who refused it and what to do about it.</p>
+<p>Each member’s value is the reason word a result and an exception carry.
+<a class="reference internal" href="#osprey_connectors.errors.RefusalReason.refuser" title="osprey_connectors.errors.RefusalReason.refuser"><code class="xref py py-attr docutils literal notranslate"><span class="pre">refuser</span></code></a> names who refused a write for the reason, and is <code class="docutils literal notranslate"><span class="pre">None</span></code>
+for <code class="docutils literal notranslate"><span class="pre">CHANNEL_NOT_FOUND</span></code>: nothing was denied, the address is not a
+channel. <a class="reference internal" href="#osprey_connectors.errors.RefusalReason.remedy" title="osprey_connectors.errors.RefusalReason.remedy"><code class="xref py py-attr docutils literal notranslate"><span class="pre">remedy</span></code></a> holds the reason’s own suggestion sentences, in
+the order a message lists them; it is empty for <code class="docutils literal notranslate"><span class="pre">CHANNEL_NOT_FOUND</span></code>,
+whose answer is rendered as “not a channel”.</p>
+<p><code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE</span></code> means user code called a control-system client
+library’s put directly instead of going through
+<code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel</span></code>; nothing was sent.
+<code class="docutils literal notranslate"><span class="pre">CONTROL_SYSTEM_REFUSED</span></code> is the one reason under which the write was
+sent: the control system was asked and denied it.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.refuser">
+<span class="sig-name descname"><span class="pre">refuser</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.refuser" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.remedy">
+<span class="sig-name descname"><span class="pre">remedy</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.remedy" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.WRITES_DISABLED">
+<span class="sig-name descname"><span class="pre">WRITES_DISABLED</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'WRITES_DISABLED'</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.WRITES_DISABLED" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.LIMITS">
+<span class="sig-name descname"><span class="pre">LIMITS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'LIMITS'</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.LIMITS" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.VALIDATION_ERROR">
+<span class="sig-name descname"><span class="pre">VALIDATION_ERROR</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'VALIDATION_ERROR'</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.VALIDATION_ERROR" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.CONTROL_SYSTEM_REFUSED">
+<span class="sig-name descname"><span class="pre">CONTROL_SYSTEM_REFUSED</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'CONTROL_SYSTEM_REFUSED'</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.CONTROL_SYSTEM_REFUSED" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.RAW_CLIENT_WRITE">
+<span class="sig-name descname"><span class="pre">RAW_CLIENT_WRITE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'RAW_CLIENT_WRITE'</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.RAW_CLIENT_WRITE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.CHANNEL_NOT_FOUND">
+<span class="sig-name descname"><span class="pre">CHANNEL_NOT_FOUND</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'CHANNEL_NOT_FOUND'</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.CHANNEL_NOT_FOUND" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RegistryError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">RegistryError</span></span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#RegistryError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.RegistryError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+<p>Exception for registry-related errors.</p>
+<p>Raised when issues occur with component registration, lookup, or
+management within the framework’s registry system.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.errors.raw_client_write_message">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.errors.</span></span><span class="sig-name descname"><span class="pre">raw_client_write_message</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#raw_client_write_message"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.raw_client_write_message" title="Link to this definition">#</a></dt>
+<dd><p>Return the refusal text for a direct client-library write to <code class="docutils literal notranslate"><span class="pre">address</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">address</span></code> may be <code class="docutils literal notranslate"><span class="pre">&quot;&lt;unknown&gt;&quot;</span></code> when the refused call does not expose a
+channel name (a low-level handle put, for instance).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p id="module-osprey_connectors.logger">Component Logger Framework</p>
+<p>Provides colored logging for Osprey and application components with:
+- Unified API for all components (capabilities, infrastructure, pipelines)
+- Rich terminal output on stderr with component-specific colors
+- Graceful fallbacks when configuration is unavailable
+- Simple, clear interface</p>
+<p>Handler setup is explicit and separate from logger lookup. Entry points — the
+CLI, service startups, the dispatch worker, MCP servers — call
+<code class="docutils literal notranslate"><span class="pre">configure_logging()</span></code> once; everything else just calls <code class="docutils literal notranslate"><span class="pre">get_logger()</span></code>, which
+has no global side effects.</p>
+<dl>
+<dt>Usage:</dt><dd><p># Entry point, once at startup
+configure_logging()</p>
+<p># Module-level
+logger = get_logger(“orchestrator”)
+logger.key_info(“Starting orchestration”)</p>
+<p>logger = get_logger(“data_processor”)
+logger.info(“Processing data”)
+logger.debug(“Detailed trace”)
+logger.success(“Operation completed”)
+logger.warning(“Something to note”)
+logger.error(“Something went wrong”)
+logger.timing(“Execution took 2.5 seconds”)
+logger.approval(“Waiting for user approval”)</p>
+<p># Custom loggers with explicit parameters
+logger = get_logger(name=”custom_component”, color=”blue”)</p>
+</dd>
+</dl>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.logger.</span></span><span class="sig-name descname"><span class="pre">ComponentLogger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_logger</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">component_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'white'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Rich-formatted logger for Osprey and application components with color coding and message hierarchy.</p>
+<p>Message Types:
+- status: High-level status updates
+- key_info: Important operational information
+- info: Normal operational messages
+- debug: Detailed tracing information
+- warning: Warning messages
+- error: Error messages
+- success: Success messages
+- timing: Timing information
+- approval: Approval messages
+- resume: Resume messages</p>
+<p>Every emitted record carries the name of the method that produced it as the
+<code class="docutils literal notranslate"><span class="pre">osprey_intent</span></code> attribute, so handlers and filters can tell intents apart
+where the level cannot (<code class="docutils literal notranslate"><span class="pre">info</span></code> and <code class="docutils literal notranslate"><span class="pre">key_info</span></code> both log at INFO). It is
+metadata only: no level is remapped and no formatter reads it.</p>
+<p>Initialize component logger.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_logger</strong> (<em>Logger</em>) – Underlying Python logger</p></li>
+<li><p><strong>component_name</strong> (<em>str</em>) – Name of the component (e.g., ‘data_analysis’, ‘router’, ‘mongo’)</p></li>
+<li><p><strong>color</strong> (<em>str</em>) – Rich color name for this component</p></li>
+<li><p><strong>state</strong> (<em>Any</em>) – Optional state for context (unused, kept for API compat)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_logger</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">component_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'white'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.__init__" title="Link to this definition">#</a></dt>
+<dd><p>Initialize component logger.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_logger</strong> (<em>Logger</em>) – Underlying Python logger</p></li>
+<li><p><strong>component_name</strong> (<em>str</em>) – Name of the component (e.g., ‘data_analysis’, ‘router’, ‘mongo’)</p></li>
+<li><p><strong>color</strong> (<em>str</em>) – Rich color name for this component</p></li>
+<li><p><strong>state</strong> (<em>Any</em>) – Optional state for context (unused, kept for API compat)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.status">
+<span class="sig-name descname"><span class="pre">status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.status"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.status" title="Link to this definition">#</a></dt>
+<dd><p>Status update — high-level progress messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.key_info">
+<span class="sig-name descname"><span class="pre">key_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.key_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.key_info" title="Link to this definition">#</a></dt>
+<dd><p>Important operational information.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.info">
+<span class="sig-name descname"><span class="pre">info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.info" title="Link to this definition">#</a></dt>
+<dd><p>Normal operational messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.debug">
+<span class="sig-name descname"><span class="pre">debug</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.debug"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.debug" title="Link to this definition">#</a></dt>
+<dd><p>Debug-level messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.warning">
+<span class="sig-name descname"><span class="pre">warning</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.warning"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.warning" title="Link to this definition">#</a></dt>
+<dd><p>Warning messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.error">
+<span class="sig-name descname"><span class="pre">error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exc_info</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.error"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.error" title="Link to this definition">#</a></dt>
+<dd><p>Error messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.success">
+<span class="sig-name descname"><span class="pre">success</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.success"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.success" title="Link to this definition">#</a></dt>
+<dd><p>Success messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.timing">
+<span class="sig-name descname"><span class="pre">timing</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.timing"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.timing" title="Link to this definition">#</a></dt>
+<dd><p>Timing information.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.approval">
+<span class="sig-name descname"><span class="pre">approval</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.approval"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.approval" title="Link to this definition">#</a></dt>
+<dd><p>Approval messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.resume">
+<span class="sig-name descname"><span class="pre">resume</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.resume"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.resume" title="Link to this definition">#</a></dt>
+<dd><p>Resume messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.critical">
+<span class="sig-name descname"><span class="pre">critical</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.critical"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.critical" title="Link to this definition">#</a></dt>
+<dd><p>Critical error messages.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.exception">
+<span class="sig-name descname"><span class="pre">exception</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.exception"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.exception" title="Link to this definition">#</a></dt>
+<dd><p>Exception with traceback.</p>
+<dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.level">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">level</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.level" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.name">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">name</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.setLevel">
+<span class="sig-name descname"><span class="pre">setLevel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.setLevel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.setLevel" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.logger.ComponentLogger.isEnabledFor">
+<span class="sig-name descname"><span class="pre">isEnabledFor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#ComponentLogger.isEnabledFor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.ComponentLogger.isEnabledFor" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.logger.configure_logging">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.logger.</span></span><span class="sig-name descname"><span class="pre">configure_logging</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">logging.INFO</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#configure_logging"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.configure_logging" title="Link to this definition">#</a></dt>
+<dd><p>Configure logging for an Osprey entry point.</p>
+<p>Call this once, explicitly, from every entry point (CLI <code class="docutils literal notranslate"><span class="pre">main</span></code>, service
+startups, the dispatch worker, MCP server <code class="docutils literal notranslate"><span class="pre">__main__</span></code>). Library and import
+paths must never call it — importing Osprey leaves logging untouched.</p>
+<p>The configuration is <strong>strictly additive</strong>: it installs the Osprey
+<code class="docutils literal notranslate"><span class="pre">RichHandler</span></code> only if the root logger has no <code class="docutils literal notranslate"><span class="pre">RichHandler</span></code> yet, and it
+never removes or clears handlers it did not install. Handlers owned by
+someone else — <code class="docutils literal notranslate"><span class="pre">caplog</span></code>’s capture handler, a host application’s own
+handlers — survive. Calling it repeatedly is a no-op beyond re-applying the
+level.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>level</strong> (<em>int</em>) – Root logger level.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.logger.get_logger">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.logger.</span></span><span class="sig-name descname"><span class="pre">get_logger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">component_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">level</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">logging.INFO</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#get_logger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.get_logger" title="Link to this definition">#</a></dt>
+<dd><p>Get a unified logger for CLI logging.</p>
+<p>This is a pure lookup: it mutates no global logging state. Handler and level
+configuration belongs to <a class="reference internal" href="#osprey_connectors.logger.configure_logging" title="osprey_connectors.logger.configure_logging"><code class="xref py py-func docutils literal notranslate"><span class="pre">configure_logging()</span></code></a>, which entry points call
+once at startup. A module that only imports Osprey therefore leaves the
+host application’s logging exactly as it found it.</p>
+<p>Name the logger by its component (the recommended form), or give <code class="docutils literal notranslate"><span class="pre">name</span></code>
+and <code class="docutils literal notranslate"><span class="pre">color</span></code> directly for a custom or module-level logger.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>component_name</strong> (<em>str</em><em> | </em><em>None</em>) – Component name (e.g., ‘orchestrator’, ‘data_analysis’)</p></li>
+<li><p><strong>level</strong> (<em>int</em>) – Accepted for backwards compatibility and ignored — set levels
+through <a class="reference internal" href="#osprey_connectors.logger.configure_logging" title="osprey_connectors.logger.configure_logging"><code class="xref py py-func docutils literal notranslate"><span class="pre">configure_logging()</span></code></a> or on the returned logger.</p></li>
+<li><p><strong>state</strong> (<em>Any</em>) – Optional state for context</p></li>
+<li><p><strong>name</strong> (<em>str</em><em> | </em><em>None</em>) – Direct logger name (keyword-only)</p></li>
+<li><p><strong>color</strong> (<em>str</em><em> | </em><em>None</em>) – Direct color specification (keyword-only)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>ComponentLogger instance</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.logger.ComponentLogger" title="osprey_connectors.logger.ComponentLogger"><em>ComponentLogger</em></a></p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Module-level</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;orchestrator&quot;</span><span class="p">)</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Planning started&quot;</span><span class="p">)</span>
+
+<span class="c1"># Custom logger</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;test_logger&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;blue&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.logger.set_handler_console">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.logger.</span></span><span class="sig-name descname"><span class="pre">set_handler_console</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">console</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/logger.html#set_handler_console"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.logger.set_handler_console" title="Link to this definition">#</a></dt>
+<dd><p>Render root-logger records through <code class="docutils literal notranslate"><span class="pre">console</span></code> from now on.</p>
+<p>For entry points that already own a console of their own — the CLI owns the
+themed, terminal-sized stderr console every command prints through — so
+that logging and printed output share one renderer instead of interleaving
+two consoles with different widths on the same stream.</p>
+<p>Deliberately separate from <code class="docutils literal notranslate"><span class="pre">configure_logging()</span></code>, which stays untouched:
+the 15+ non-CLI entry points and external consumers of this package call
+that and must keep the console it has always built for them.</p>
+<p>Repointing an existing handler rather than rebuilding it keeps this safe to
+call any number of times in one process — CLI invocations repeat inside a
+single test process — with no handler ever stacking on the root logger.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>console</strong> (<em>Console</em>) – Console the Rich handler should render through.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The handler that was repointed, so a caller can go on to configure that
+same instance; <code class="docutils literal notranslate"><span class="pre">None</span></code> if the root logger has no <code class="docutils literal notranslate"><span class="pre">RichHandler</span></code> (a
+caller that has not called <code class="docutils literal notranslate"><span class="pre">configure_logging()</span></code> yet).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>RichHandler</em> | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p id="module-osprey_connectors.log_filter">Temporary suppression of a logger’s low-level messages.</p>
+<p><a class="reference internal" href="#osprey_connectors.log_filter.quiet_logger" title="osprey_connectors.log_filter.quiet_logger"><code class="xref py py-func docutils literal notranslate"><span class="pre">quiet_logger()</span></code></a> raises one or more loggers to WARNING for the duration of
+a <code class="docutils literal notranslate"><span class="pre">with</span></code> block and restores their levels afterwards.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.log_filter.quiet_logger">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.log_filter.</span></span><span class="sig-name descname"><span class="pre">quiet_logger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">logger_name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/log_filter.html#quiet_logger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.log_filter.quiet_logger" title="Link to this definition">#</a></dt>
+<dd><p>Context manager to temporarily suppress INFO-level messages from logger(s).</p>
+<p>This is a convenience wrapper around _suppress_logger_level() that specifically
+suppresses INFO and DEBUG messages while preserving WARNING, ERROR, and CRITICAL.
+This is the most common use case for “quiet” operations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>logger_name</strong> (<em>str</em><em> | </em><em>list</em><em>[</em><em>str</em><em>]</em>) – Name of logger(s) to quiet. Can be a single string
+or list of strings for multiple loggers.</p>
+</dd>
+<dt class="field-even">Yields<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dictionary mapping logger names to their original levels</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>Quiet a single logger:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">quiet_logger</span><span class="p">(</span><span class="s1">&#39;registry&#39;</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="n">initialize_registry</span><span class="p">()</span>  <span class="c1"># No INFO messages shown</span>
+</pre></div>
+</div>
+<p>Quiet multiple loggers:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">quiet_logger</span><span class="p">([</span><span class="s1">&#39;registry&#39;</span><span class="p">,</span> <span class="s1">&#39;DATABASE&#39;</span><span class="p">]):</span>
+<span class="gp">... </span>    <span class="n">do_something</span><span class="p">()</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This raises the level to <code class="docutils literal notranslate"><span class="pre">logging.WARNING</span></code> for the block.</p>
+</div>
+</dd></dl>
+
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="building.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Building Connectors</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="configuration.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Configuration</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.NOT_A_CHANNEL"><code class="docutils literal notranslate"><span class="pre">NOT_A_CHANNEL</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RAW_CLIENT_WRITE_MARKER"><code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE_MARKER</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.BuildProfileError"><code class="docutils literal notranslate"><span class="pre">BuildProfileError</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelError"><code class="docutils literal notranslate"><span class="pre">ChannelError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelError.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelLimitsViolationError"><code class="docutils literal notranslate"><span class="pre">ChannelLimitsViolationError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelLimitsViolationError.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelLimitsViolationError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelNotFoundError"><code class="docutils literal notranslate"><span class="pre">ChannelNotFoundError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelNotFoundError.reason"><code class="docutils literal notranslate"><span class="pre">ChannelNotFoundError.reason</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelNotFoundError.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelNotFoundError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelReadFailedError"><code class="docutils literal notranslate"><span class="pre">ChannelReadFailedError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelReadFailedError.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelReadFailedError.__init__()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelReadFailedError.causes"><code class="docutils literal notranslate"><span class="pre">ChannelReadFailedError.causes</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelUnreachableError"><code class="docutils literal notranslate"><span class="pre">ChannelUnreachableError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelUnreachableError.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelUnreachableError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelWriteBlockedError"><code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelWriteBlockedError.refuser"><code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError.refuser()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelWriteBlockedError.remedy"><code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError.remedy()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelWriteBlockedError.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError.__init__()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelWriteBlockedError.reason"><code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError.reason</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelWriteFailedError"><code class="docutils literal notranslate"><span class="pre">ChannelWriteFailedError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelWriteFailedError.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelWriteFailedError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ClientLibraryRefusedError"><code class="docutils literal notranslate"><span class="pre">ClientLibraryRefusedError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ClientLibraryRefusedError.MARKER"><code class="docutils literal notranslate"><span class="pre">ClientLibraryRefusedError.MARKER</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ClientLibraryRefusedError.__init__"><code class="docutils literal notranslate"><span class="pre">ClientLibraryRefusedError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ConfigurationError"><code class="docutils literal notranslate"><span class="pre">ConfigurationError</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ConnectorInternalError"><code class="docutils literal notranslate"><span class="pre">ConnectorInternalError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ConnectorInternalError.__init__"><code class="docutils literal notranslate"><span class="pre">ConnectorInternalError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ConnectorUnavailableError"><code class="docutils literal notranslate"><span class="pre">ConnectorUnavailableError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ConnectorUnavailableError.__init__"><code class="docutils literal notranslate"><span class="pre">ConnectorUnavailableError.__init__()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ConnectorUnavailableError.recovery"><code class="docutils literal notranslate"><span class="pre">ConnectorUnavailableError.recovery</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason"><code class="docutils literal notranslate"><span class="pre">RefusalReason</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.refuser"><code class="docutils literal notranslate"><span class="pre">RefusalReason.refuser</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.remedy"><code class="docutils literal notranslate"><span class="pre">RefusalReason.remedy</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.WRITES_DISABLED"><code class="docutils literal notranslate"><span class="pre">RefusalReason.WRITES_DISABLED</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.LIMITS"><code class="docutils literal notranslate"><span class="pre">RefusalReason.LIMITS</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.VALIDATION_ERROR"><code class="docutils literal notranslate"><span class="pre">RefusalReason.VALIDATION_ERROR</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.CONTROL_SYSTEM_REFUSED"><code class="docutils literal notranslate"><span class="pre">RefusalReason.CONTROL_SYSTEM_REFUSED</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.RAW_CLIENT_WRITE"><code class="docutils literal notranslate"><span class="pre">RefusalReason.RAW_CLIENT_WRITE</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.CHANNEL_NOT_FOUND"><code class="docutils literal notranslate"><span class="pre">RefusalReason.CHANNEL_NOT_FOUND</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RegistryError"><code class="docutils literal notranslate"><span class="pre">RegistryError</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.raw_client_write_message"><code class="docutils literal notranslate"><span class="pre">raw_client_write_message()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger"><code class="docutils literal notranslate"><span class="pre">ComponentLogger</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.__init__"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.__init__()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.status"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.status()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.key_info"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.key_info()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.info"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.info()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.debug"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.debug()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.warning"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.warning()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.error"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.error()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.success"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.success()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.timing"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.timing()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.approval"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.approval()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.resume"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.resume()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.critical"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.critical()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.exception"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.exception()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.level"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.level</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.name"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.name</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.setLevel"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.setLevel()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.ComponentLogger.isEnabledFor"><code class="docutils literal notranslate"><span class="pre">ComponentLogger.isEnabledFor()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.configure_logging"><code class="docutils literal notranslate"><span class="pre">configure_logging()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.get_logger"><code class="docutils literal notranslate"><span class="pre">get_logger()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.logger.set_handler_console"><code class="docutils literal notranslate"><span class="pre">set_handler_console()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.log_filter.quiet_logger"><code class="docutils literal notranslate"><span class="pre">quiet_logger()</span></code></a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/connectors-api/errors-logging.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

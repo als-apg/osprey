@@ -1,0 +1,678 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.refusals &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/refusals';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/refusals.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.refusals</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.refusals</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Why a write is refused, and who can lift the refusal, as one importable contract.</span>
+
+<span class="sd">A refusal carries a *reason* (a member of :data:`REASONS`) and a *phrase* that says</span>
+<span class="sd">what stopped the write and ends with who can lift it. :func:`refusal_text` is the</span>
+<span class="sd">phrase plus a trailer line ``[osprey-refusal: &lt;reason&gt;]``; every refusal a write</span>
+<span class="sd">path returns to the agent ends with it, so a reader recovers the reason without</span>
+<span class="sd">parsing the words. The package&#39;s verdict, the connector</span>
+<span class="sd">monitor and the stdlib-only hook twin all speak these words; the hook twin restates</span>
+<span class="sd">the tables and a parity test pins them to this module.</span>
+
+<span class="sd">No phrase names a config key, a file, an environment variable or a build command:</span>
+<span class="sd">the reader of a refusal is an operator or an agent, not the person who edits the</span>
+<span class="sd">deployment. :data:`STORE_PATH_MARKERS` holds the path spellings of the posture store</span>
+<span class="sd">(the directory part and the record&#39;s file name) so that a text meant for an agent can</span>
+<span class="sd">be scanned for them.</span>
+
+<span class="sd">Reasons are added by the phase that first consumes them; none is speculative.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;KIND_WORDS&quot;</span><span class="p">,</span> <span class="s2">&quot;REASONS&quot;</span><span class="p">,</span> <span class="s2">&quot;STORE_PATH_MARKERS&quot;</span><span class="p">,</span> <span class="s2">&quot;refusal_phrase&quot;</span><span class="p">,</span> <span class="s2">&quot;refusal_text&quot;</span><span class="p">]</span>
+
+<span class="c1">#: The closed set of refusal reasons.</span>
+<span class="n">REASONS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;readonly_run&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;tier_never&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;session_held&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;target_unknown&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;owner_unknown&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;owner_unscheduled&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;owner_foreign&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;record_unavailable&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;switch_off&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;launch_pinned&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;switching&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;stopped_since&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_unreadable&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_holder&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_channel&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_range&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_exhausted&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_lease_lapsed&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_expired&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_revoked&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;auth_overlap&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">_PHRASES</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;readonly_run&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because the deployment is running read-only; &quot;</span>
+        <span class="s2">&quot;the chip cannot lift this — ask the deployment admin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;tier_never&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this login&#39;s write tier does not allow them; &quot;</span>
+        <span class="s2">&quot;ask the deployment admin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;session_held&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are paused: this session has an unanswered hold the operator must answer.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;target_unknown&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because the machine this connector writes to is not known; &quot;</span>
+        <span class="s2">&quot;retry, then ask the deployment admin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;owner_unknown&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this login&#39;s write tier is not known; ask the deployment admin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;owner_unscheduled&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this scheduled or triggered job runs for no login, &quot;</span>
+        <span class="s2">&quot;so no switch covers it; ask the deployment admin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;owner_foreign&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this machine&#39;s writes belong to another login; &quot;</span>
+        <span class="s2">&quot;only that login can write here.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;record_unavailable&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because the write switch cannot be read; &quot;</span>
+        <span class="s2">&quot;retry, then ask the deployment admin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;switch_off&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;Writes are off; turn it on from the chip in the web terminal.&quot;</span><span class="p">),</span>
+    <span class="s2">&quot;launch_pinned&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this run was started with writes held off; &quot;</span>
+        <span class="s2">&quot;run it again without the pin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;switching&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because the write gateway has not yet followed the switch; &quot;</span>
+        <span class="s2">&quot;retry, then ask the deployment admin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;stopped_since&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are off because a stop came after the turn-on began; &quot;</span>
+        <span class="s2">&quot;turn it on again from the chip.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_unreadable&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this program&#39;s write authorization cannot be read; &quot;</span>
+        <span class="s2">&quot;retry, then ask the deployment admin.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_holder&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this write authorization was approved for another &quot;</span>
+        <span class="s2">&quot;program or login; ask the operator to approve one for this program.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_channel&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this channel is not in the program&#39;s write &quot;</span>
+        <span class="s2">&quot;authorization; ask the operator to approve one that lists it.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_range&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because this value is outside the range the program&#39;s write &quot;</span>
+        <span class="s2">&quot;authorization allows; ask the operator to approve a wider range.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_exhausted&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because the program has used every write its authorization &quot;</span>
+        <span class="s2">&quot;allows; ask the operator to approve a new authorization.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_lease_lapsed&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because the program holding this write authorization stopped &quot;</span>
+        <span class="s2">&quot;renewing it; ask the operator to approve a new authorization.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_expired&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because the program&#39;s write authorization has expired; &quot;</span>
+        <span class="s2">&quot;ask the operator to approve a new authorization.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_revoked&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;Writes are refused because the program&#39;s write authorization has ended: a stop &quot;</span>
+        <span class="s2">&quot;came, or the switch is no longer at allowed; ask the operator to approve a new &quot;</span>
+        <span class="s2">&quot;authorization.&quot;</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;auth_overlap&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">&quot;The authorization is refused because another program holds one on a channel of &quot;</span>
+        <span class="s2">&quot;this machine it names; wait for that run to end, or stop it from the chip.&quot;</span>
+    <span class="p">),</span>
+<span class="p">}</span>
+
+<span class="c1">#: The words a machine kind adds to a phrase.</span>
+<span class="n">KIND_WORDS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;real&quot;</span><span class="p">:</span> <span class="s2">&quot;the live machine&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;rehearsal&quot;</span><span class="p">:</span> <span class="s2">&quot;the rehearsal machine&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;simulator&quot;</span><span class="p">:</span> <span class="s2">&quot;the simulator&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="c1">#: Path spellings of the posture store: the state directory part and the record file.</span>
+<span class="n">STORE_PATH_MARKERS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;control_target&quot;</span><span class="p">,</span> <span class="s2">&quot;control_context.json&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="refusal_phrase">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.refusals.refusal_phrase">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">refusal_phrase</span><span class="p">(</span><span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The phrase for *reason*; a known *kind* names the machine it concerns.</span>
+
+<span class="sd">    Raises ``ValueError`` for a reason outside :data:`REASONS`. An unknown or absent</span>
+<span class="sd">    *kind* leaves the phrase as it is.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">phrase</span> <span class="o">=</span> <span class="n">_PHRASES</span><span class="p">[</span><span class="n">reason</span><span class="p">]</span>
+    <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unknown refusal reason: </span><span class="si">{</span><span class="n">reason</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+    <span class="n">words</span> <span class="o">=</span> <span class="n">KIND_WORDS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">kind</span><span class="p">)</span> <span class="k">if</span> <span class="n">kind</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">phrase</span><span class="si">}</span><span class="s2"> (Concerns </span><span class="si">{</span><span class="n">words</span><span class="si">}</span><span class="s2">.)&quot;</span> <span class="k">if</span> <span class="n">words</span> <span class="k">else</span> <span class="n">phrase</span></div>
+
+
+
+<div class="viewcode-block" id="refusal_text">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.refusals.refusal_text">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">refusal_text</span><span class="p">(</span><span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">detail</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The refusal a write path returns: the phrase, then ``[osprey-refusal: &lt;reason&gt;]``.</span>
+
+<span class="sd">    *detail* — what the refusing surface adds, such as which tool was refused —</span>
+<span class="sd">    follows the phrase on its line. The trailer is its own last line, so it ends</span>
+<span class="sd">    the text whatever the caller adds. Raises ``ValueError`` for a reason outside</span>
+<span class="sd">    :data:`REASONS`, as :func:`refusal_phrase` does.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">phrase</span> <span class="o">=</span> <span class="n">refusal_phrase</span><span class="p">(</span><span class="n">reason</span><span class="p">,</span> <span class="n">kind</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">detail</span><span class="p">:</span>
+        <span class="n">phrase</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">phrase</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">detail</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">phrase</span><span class="si">}</span><span class="se">\n</span><span class="s2">[osprey-refusal: </span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">]&quot;</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

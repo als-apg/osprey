@@ -1,0 +1,901 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.recovery &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/recovery';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/recovery.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.recovery</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.recovery</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;What a supervisor does about a connector call that failed: one policy, one table.</span>
+
+<span class="sd">A supervisor owns a connector&#39;s lifetime: the connector-host pool owns its</span>
+<span class="sd">children, a server owns its connectors. A supervisor that calls the policy —</span>
+<span class="sd">the connector-host pool does — hands the error and the supervised connector to</span>
+<span class="sd">:meth:`RecoveryPolicy.recover` when a call fails, and the policy answers with</span>
+<span class="sd">what it did, as a :class:`Recovery` record, or ``None`` when the failure</span>
+<span class="sd">restarts nothing.</span>
+
+<span class="sd">The decision is one table, failure class and origin in, one step out:</span>
+
+<span class="sd">* a connector bug (:class:`~osprey_connectors.errors.ConnectorInternalError`),</span>
+<span class="sd">  a failure about one channel (:class:`~osprey_connectors.errors.ChannelError`),</span>
+<span class="sd">  a batch read that failed</span>
+<span class="sd">  (:class:`~osprey_connectors.errors.ChannelReadFailedError`) and a refused</span>
+<span class="sd">  client library (:class:`~osprey_connectors.errors.ClientLibraryRefusedError`),</span>
+<span class="sd">  from anywhere: none;</span>
+<span class="sd">* a :class:`TimeoutError` on the link: replace for a write when writes replace,</span>
+<span class="sd">  probe otherwise;</span>
+<span class="sd">* a lost connector (:class:`~osprey_connectors.errors.ConnectorUnavailableError`)</span>
+<span class="sd">  and a bare :class:`ConnectionError`, from anywhere: replace;</span>
+<span class="sd">* anything else, a :class:`TimeoutError` from the child or from this process</span>
+<span class="sd">  included: none.</span>
+
+<span class="sd">A failure under one of the three contract roots of</span>
+<span class="sd">:mod:`osprey_connectors.errors` (a channel failure, a lost connector, a</span>
+<span class="sd">connector bug) is decided by its root alone; the builtin rows decide only a</span>
+<span class="sd">failure under no root. So no failure reaches two steps, and no decision depends</span>
+<span class="sd">on the order of the rows.</span>
+
+<span class="sd">*Probe* pings the incarnation: one that answers is kept (``child_kept``), one</span>
+<span class="sd">that does not is replaced. *Replace* retires the incarnation under</span>
+<span class="sd">:attr:`Timing.LAZY` (the next call starts a fresh one: ``child_replaced`` for a</span>
+<span class="sd">child, ``connector_dropped`` for an in-process connector) and respawns it under</span>
+<span class="sd">:attr:`Timing.EAGER` (``child_replaced``, or ``respawn_refused`` when no new</span>
+<span class="sd">child could be brought up).</span>
+
+<span class="sd">Invariants:</span>
+
+<span class="sd">* Callers hand over the error; the policy decides where it came from. An error</span>
+<span class="sd">  the connector-host child sent is :attr:`Origin.CHILD`, one the link to the</span>
+<span class="sd">  child made (a missed deadline, a closed pipe) is :attr:`Origin.LINK`, and</span>
+<span class="sd">  anything from a connector in this process is :attr:`Origin.IN_PROCESS`.</span>
+<span class="sd">* Recovery happens at most once per incarnation. Every failure of one</span>
+<span class="sd">  incarnation awaits the one act the first started, and an incarnation that has</span>
+<span class="sd">  been replaced or dropped is answered with that record and never acted on</span>
+<span class="sd">  again.</span>
+<span class="sd">* One attempt per failure episode. A refused respawn answers every call that</span>
+<span class="sd">  began before the refusal; a call that begins later may try once more. A kept</span>
+<span class="sd">  child is no episode&#39;s end: its next missed deadline pings it again.</span>
+<span class="sd">* The policy never retries a call, owns no deadline, and holds no incarnation</span>
+<span class="sd">  alive.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">weakref</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span><span class="p">,</span> <span class="n">StrEnum</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ChannelError</span><span class="p">,</span>
+    <span class="n">ChannelReadFailedError</span><span class="p">,</span>
+    <span class="n">ClientLibraryRefusedError</span><span class="p">,</span>
+    <span class="n">ConnectorInternalError</span><span class="p">,</span>
+    <span class="n">ConnectorUnavailableError</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;Origin&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Recovery&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RecoveryAction&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RecoveryPolicy&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Supervised&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Timing&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1">#: The attribute the connector-host proxy sets, true, on an error the child sent.</span>
+<span class="n">_RAISED_BY_CHILD</span> <span class="o">=</span> <span class="s2">&quot;_osprey_raised_by_child&quot;</span>
+
+
+<div class="viewcode-block" id="Origin">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.Origin">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Origin</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Where a failure was raised.&quot;&quot;&quot;</span>
+
+    <span class="c1">#: In the connector-host child, which answered with it.</span>
+    <span class="n">CHILD</span> <span class="o">=</span> <span class="s2">&quot;child&quot;</span>
+    <span class="c1">#: On the link to the child: a missed deadline, a closed pipe.</span>
+    <span class="n">LINK</span> <span class="o">=</span> <span class="s2">&quot;link&quot;</span>
+    <span class="c1">#: By a connector running in this process.</span>
+    <span class="n">IN_PROCESS</span> <span class="o">=</span> <span class="s2">&quot;in_process&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="Timing">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.Timing">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Timing</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;When a replaced incarnation&#39;s successor is brought up.&quot;&quot;&quot;</span>
+
+    <span class="c1">#: By the next call.</span>
+    <span class="n">LAZY</span> <span class="o">=</span> <span class="s2">&quot;lazy&quot;</span>
+    <span class="c1">#: At once, by the recovery itself.</span>
+    <span class="n">EAGER</span> <span class="o">=</span> <span class="s2">&quot;eager&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="RecoveryAction">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.RecoveryAction">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">RecoveryAction</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What a supervisor did about a failure.&quot;&quot;&quot;</span>
+
+    <span class="n">CONNECTOR_DROPPED</span> <span class="o">=</span> <span class="s2">&quot;connector_dropped&quot;</span>
+    <span class="n">CHILD_REPLACED</span> <span class="o">=</span> <span class="s2">&quot;child_replaced&quot;</span>
+    <span class="n">CHILD_KEPT</span> <span class="o">=</span> <span class="s2">&quot;child_kept&quot;</span>
+    <span class="n">RESPAWN_REFUSED</span> <span class="o">=</span> <span class="s2">&quot;respawn_refused&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="Recovery">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.Recovery">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Recovery</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One thing a supervisor did about a failure, in one sentence.&quot;&quot;&quot;</span>
+
+    <span class="n">action</span><span class="p">:</span> <span class="n">RecoveryAction</span>
+    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;action&quot;</span><span class="p">,</span> <span class="n">RecoveryAction</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">action</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">text</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;a recovery record states what was done; its text is empty&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Recovery.as_dict">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.Recovery.as_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">as_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The record as a failure&#39;s ``recovery`` carries it.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;action&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">action</span><span class="p">),</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">text</span><span class="p">}</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="Supervised">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.Supervised">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Supervised</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A connector as the policy acts on it.</span>
+
+<span class="sd">    ``incarnation`` is the one running instance the failure belongs to: the</span>
+<span class="sd">    connector-host proxy of a child, or the in-process connector itself. It is</span>
+<span class="sd">    hashable and weakly referable, and a successor is a different object.</span>
+<span class="sd">    ``respawn`` is the eager-only member, required only under</span>
+<span class="sd">    :attr:`Timing.EAGER` and never called under :attr:`Timing.LAZY`, so a lazy</span>
+<span class="sd">    supervisor&#39;s target leaves it out: ``async respawn() -&gt; bool`` brings up a</span>
+<span class="sd">    successor in the incarnation&#39;s place, retires the incarnation once the</span>
+<span class="sd">    successor serves, and answers whether it did.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">incarnation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span> <span class="o">...</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">in_child</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span>
+
+<div class="viewcode-block" id="Supervised.ping">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.Supervised.ping">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">ping</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span> <span class="o">...</span></div>
+
+
+<div class="viewcode-block" id="Supervised.retire">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.Supervised.retire">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">retire</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span></div>
+</div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_Step</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+    <span class="n">NONE</span> <span class="o">=</span> <span class="s2">&quot;none&quot;</span>
+    <span class="n">PROBE</span> <span class="o">=</span> <span class="s2">&quot;probe&quot;</span>
+    <span class="n">REPLACE</span> <span class="o">=</span> <span class="s2">&quot;replace&quot;</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_Failure</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The failure class a sentence names: a lost connector, or a missed deadline and ping.&quot;&quot;&quot;</span>
+
+    <span class="n">UNAVAILABLE</span> <span class="o">=</span> <span class="s2">&quot;unavailable&quot;</span>
+    <span class="n">UNRESPONSIVE</span> <span class="o">=</span> <span class="s2">&quot;unresponsive&quot;</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">_Row</span><span class="p">:</span>
+    <span class="n">failure</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="ne">BaseException</span><span class="p">]</span>
+    <span class="n">origin</span><span class="p">:</span> <span class="n">Origin</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">step</span><span class="p">:</span> <span class="n">_Step</span>
+    <span class="c1">#: ``True``: only a write whose timeout the policy replaces for; ``False``: only any</span>
+    <span class="c1">#: other call; ``None``: either.</span>
+    <span class="n">write_timeout</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<span class="n">_ROOTS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">type</span><span class="p">[</span><span class="ne">BaseException</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">ChannelError</span><span class="p">,</span>
+    <span class="n">ConnectorUnavailableError</span><span class="p">,</span>
+    <span class="n">ConnectorInternalError</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">_STEPS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_Row</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="n">ConnectorInternalError</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">NONE</span><span class="p">),</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="n">ChannelError</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">NONE</span><span class="p">),</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="n">ChannelReadFailedError</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">NONE</span><span class="p">),</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="n">ClientLibraryRefusedError</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">NONE</span><span class="p">),</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="ne">TimeoutError</span><span class="p">,</span> <span class="n">Origin</span><span class="o">.</span><span class="n">LINK</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">REPLACE</span><span class="p">,</span> <span class="n">write_timeout</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="ne">TimeoutError</span><span class="p">,</span> <span class="n">Origin</span><span class="o">.</span><span class="n">LINK</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">PROBE</span><span class="p">,</span> <span class="n">write_timeout</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="n">ConnectorUnavailableError</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">REPLACE</span><span class="p">),</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="ne">ConnectionError</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">REPLACE</span><span class="p">),</span>
+    <span class="n">_Row</span><span class="p">(</span><span class="ne">BaseException</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_Step</span><span class="o">.</span><span class="n">NONE</span><span class="p">),</span>
+<span class="p">)</span>
+
+<span class="n">_KEPT</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;The connector-host child still answers a ping, so it was kept; the call &quot;</span>
+    <span class="s2">&quot;may yet complete in it and was not retried.&quot;</span>
+<span class="p">)</span>
+<span class="n">_LAZY_REPLACED</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;The connector-host child was discarded; the next call starts a fresh one. &quot;</span>
+    <span class="s2">&quot;The call was not retried.&quot;</span>
+<span class="p">)</span>
+<span class="n">_REFUSED</span> <span class="o">=</span> <span class="s2">&quot;Replacing the connector-host child was refused; the call was not retried.&quot;</span>
+
+<span class="n">_SENTENCES</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">RecoveryAction</span><span class="p">,</span> <span class="n">Timing</span><span class="p">,</span> <span class="n">_Failure</span><span class="p">],</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_KEPT</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">LAZY</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNRESPONSIVE</span><span class="p">):</span> <span class="n">_KEPT</span><span class="p">,</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_KEPT</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">EAGER</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNRESPONSIVE</span><span class="p">):</span> <span class="n">_KEPT</span><span class="p">,</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_REPLACED</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">LAZY</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNAVAILABLE</span><span class="p">):</span> <span class="n">_LAZY_REPLACED</span><span class="p">,</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_REPLACED</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">LAZY</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNRESPONSIVE</span><span class="p">):</span> <span class="n">_LAZY_REPLACED</span><span class="p">,</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_REPLACED</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">EAGER</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNAVAILABLE</span><span class="p">):</span> <span class="p">(</span>
+        <span class="s2">&quot;The connector-host child that served this call has been replaced; &quot;</span>
+        <span class="s2">&quot;the call was not retried.&quot;</span>
+    <span class="p">),</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_REPLACED</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">EAGER</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNRESPONSIVE</span><span class="p">):</span> <span class="p">(</span>
+        <span class="s2">&quot;The connector-host child did not answer a ping and has been replaced; &quot;</span>
+        <span class="s2">&quot;the call was not retried.&quot;</span>
+    <span class="p">),</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">RESPAWN_REFUSED</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">EAGER</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNAVAILABLE</span><span class="p">):</span> <span class="n">_REFUSED</span><span class="p">,</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">RESPAWN_REFUSED</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">EAGER</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNRESPONSIVE</span><span class="p">):</span> <span class="n">_REFUSED</span><span class="p">,</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CONNECTOR_DROPPED</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">LAZY</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNAVAILABLE</span><span class="p">):</span> <span class="p">(</span>
+        <span class="s2">&quot;The connector was dropped; the next call builds a new one.&quot;</span>
+    <span class="p">),</span>
+    <span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CONNECTOR_DROPPED</span><span class="p">,</span> <span class="n">Timing</span><span class="o">.</span><span class="n">LAZY</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNRESPONSIVE</span><span class="p">):</span> <span class="p">(</span>
+        <span class="s2">&quot;The connector was dropped; the next call builds a new one.&quot;</span>
+    <span class="p">),</span>
+<span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_origin</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Supervised</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Origin</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">target</span><span class="o">.</span><span class="n">in_child</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Origin</span><span class="o">.</span><span class="n">IN_PROCESS</span>
+    <span class="k">return</span> <span class="n">Origin</span><span class="o">.</span><span class="n">CHILD</span> <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">_RAISED_BY_CHILD</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span> <span class="k">else</span> <span class="n">Origin</span><span class="o">.</span><span class="n">LINK</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_matches</span><span class="p">(</span><span class="n">row</span><span class="p">:</span> <span class="n">_Row</span><span class="p">,</span> <span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">,</span> <span class="n">origin</span><span class="p">:</span> <span class="n">Origin</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">write_timeout</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">row</span><span class="o">.</span><span class="n">failure</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">row</span><span class="o">.</span><span class="n">origin</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">row</span><span class="o">.</span><span class="n">origin</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">origin</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">row</span><span class="o">.</span><span class="n">write_timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">row</span><span class="o">.</span><span class="n">write_timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">write_timeout</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">row</span><span class="o">.</span><span class="n">failure</span> <span class="ow">is</span> <span class="ne">BaseException</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="c1"># A failure under a contract root is decided by that root&#39;s rows alone.</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="nb">next</span><span class="p">((</span><span class="n">root</span> <span class="k">for</span> <span class="n">root</span> <span class="ow">in</span> <span class="n">_ROOTS</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">root</span><span class="p">)),</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">root</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">row</span><span class="o">.</span><span class="n">failure</span><span class="p">,</span> <span class="n">root</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_step_of</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">,</span> <span class="n">origin</span><span class="p">:</span> <span class="n">Origin</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">write_timeout</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_Step</span><span class="p">:</span>
+    <span class="k">return</span> <span class="nb">next</span><span class="p">(</span>
+        <span class="n">row</span><span class="o">.</span><span class="n">step</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">_STEPS</span> <span class="k">if</span> <span class="n">_matches</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">write_timeout</span><span class="o">=</span><span class="n">write_timeout</span><span class="p">)</span>
+    <span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_Episode</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One incarnation&#39;s one recovery, and the tickets its record answers.&quot;&quot;&quot;</span>
+
+    <span class="vm">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;answers_through&quot;</span><span class="p">,</span> <span class="s2">&quot;task&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">task</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Future</span><span class="p">[</span><span class="n">Recovery</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">task</span> <span class="o">=</span> <span class="n">task</span>
+        <span class="c1">#: Set when a respawn is refused: the last ticket issued before the refusal.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">answers_through</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">answers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ticket</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">answers_through</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">ticket</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">answers_through</span>
+
+
+<div class="viewcode-block" id="RecoveryPolicy">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.RecoveryPolicy">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">RecoveryPolicy</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One supervisor&#39;s recovery: the table above, at one timing, with one memo.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        timing: When a replaced incarnation&#39;s successor is brought up.</span>
+<span class="sd">            An in-process connector always recovers lazily.</span>
+<span class="sd">        replace_on_write_timeout: Replace the child of a write that missed its</span>
+<span class="sd">            deadline without pinging it, so nothing left in it can send that</span>
+<span class="sd">            write after a newer one.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="RecoveryPolicy.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.RecoveryPolicy.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">timing</span><span class="p">:</span> <span class="n">Timing</span><span class="p">,</span> <span class="n">replace_on_write_timeout</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_timing</span> <span class="o">=</span> <span class="n">Timing</span><span class="p">(</span><span class="n">timing</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_replace_on_write_timeout</span> <span class="o">=</span> <span class="n">replace_on_write_timeout</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_issued</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_memo</span><span class="p">:</span> <span class="n">weakref</span><span class="o">.</span><span class="n">WeakKeyDictionary</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="n">_Episode</span><span class="p">]</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">WeakKeyDictionary</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="RecoveryPolicy.begin">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.RecoveryPolicy.begin">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">begin</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A ticket for a call that is starting; later calls get larger tickets.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_issued</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_issued</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Supervised</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">write</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_Step</span><span class="p">:</span>
+        <span class="n">write_timeout</span> <span class="o">=</span> <span class="n">write</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_replace_on_write_timeout</span>
+        <span class="k">return</span> <span class="n">_step_of</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">_origin</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">target</span><span class="p">),</span> <span class="n">write_timeout</span><span class="o">=</span><span class="n">write_timeout</span><span class="p">)</span>
+
+<div class="viewcode-block" id="RecoveryPolicy.recover">
+<a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.recovery.RecoveryPolicy.recover">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">recover</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Supervised</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ticket</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">write</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Recovery</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Act on *target* for *exc*, at most once per incarnation; ``None`` when nothing is done.</span>
+
+<span class="sd">        *ticket* is the one :meth:`begin` gave the failed call when it started;</span>
+<span class="sd">        *write* says the call could move the machine.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: An eager policy was handed a target that is not in a</span>
+<span class="sd">                child, or that cannot respawn.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">respawn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">bool</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="s2">&quot;respawn&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_timing</span> <span class="ow">is</span> <span class="n">Timing</span><span class="o">.</span><span class="n">EAGER</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">target</span><span class="o">.</span><span class="n">in_child</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;an in-process connector recovers lazily; this policy is eager&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">respawn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;an eager policy needs a target that can respawn&quot;</span><span class="p">)</span>
+        <span class="n">step</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">write</span><span class="o">=</span><span class="n">write</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">step</span> <span class="ow">is</span> <span class="n">_Step</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">incarnation</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">incarnation</span>
+        <span class="n">episode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_memo</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">incarnation</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">episode</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">episode</span><span class="o">.</span><span class="n">answers</span><span class="p">(</span><span class="n">ticket</span><span class="p">):</span>
+            <span class="n">episode</span> <span class="o">=</span> <span class="n">_Episode</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">ensure_future</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_act</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">respawn</span><span class="p">)))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_memo</span><span class="p">[</span><span class="n">incarnation</span><span class="p">]</span> <span class="o">=</span> <span class="n">episode</span>
+            <span class="n">episode</span><span class="o">.</span><span class="n">task</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_settle</span><span class="p">,</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">incarnation</span><span class="p">),</span> <span class="n">episode</span><span class="p">))</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">shield</span><span class="p">(</span><span class="n">episode</span><span class="o">.</span><span class="n">task</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_settle</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">incarnation</span><span class="p">:</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">[</span><span class="nb">object</span><span class="p">],</span> <span class="n">episode</span><span class="p">:</span> <span class="n">_Episode</span><span class="p">,</span> <span class="n">task</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Future</span><span class="p">[</span><span class="n">Recovery</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">task</span><span class="o">.</span><span class="n">cancelled</span><span class="p">()</span> <span class="ow">and</span> <span class="n">task</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">action</span> <span class="o">=</span> <span class="n">task</span><span class="o">.</span><span class="n">result</span><span class="p">()</span><span class="o">.</span><span class="n">action</span>
+            <span class="k">if</span> <span class="n">action</span> <span class="ow">is</span> <span class="n">RecoveryAction</span><span class="o">.</span><span class="n">RESPAWN_REFUSED</span><span class="p">:</span>
+                <span class="n">episode</span><span class="o">.</span><span class="n">answers_through</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_issued</span>
+                <span class="k">return</span>
+            <span class="k">if</span> <span class="n">action</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_KEPT</span><span class="p">:</span>
+                <span class="k">return</span>
+        <span class="n">alive</span> <span class="o">=</span> <span class="n">incarnation</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">alive</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_memo</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">alive</span><span class="p">)</span> <span class="ow">is</span> <span class="n">episode</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_memo</span><span class="p">[</span><span class="n">alive</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_act</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="n">_Step</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Supervised</span><span class="p">,</span> <span class="n">respawn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">bool</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Recovery</span><span class="p">:</span>
+        <span class="n">failure</span> <span class="o">=</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNAVAILABLE</span>
+        <span class="k">if</span> <span class="n">step</span> <span class="ow">is</span> <span class="n">_Step</span><span class="o">.</span><span class="n">PROBE</span><span class="p">:</span>
+            <span class="k">if</span> <span class="k">await</span> <span class="n">target</span><span class="o">.</span><span class="n">ping</span><span class="p">():</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record</span><span class="p">(</span><span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_KEPT</span><span class="p">,</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNRESPONSIVE</span><span class="p">)</span>
+            <span class="n">failure</span> <span class="o">=</span> <span class="n">_Failure</span><span class="o">.</span><span class="n">UNRESPONSIVE</span>
+        <span class="k">if</span> <span class="n">respawn</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_timing</span> <span class="ow">is</span> <span class="n">Timing</span><span class="o">.</span><span class="n">EAGER</span><span class="p">:</span>
+            <span class="n">respawned</span> <span class="o">=</span> <span class="k">await</span> <span class="n">respawn</span><span class="p">()</span>
+            <span class="n">action</span> <span class="o">=</span> <span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_REPLACED</span> <span class="k">if</span> <span class="n">respawned</span> <span class="k">else</span> <span class="n">RecoveryAction</span><span class="o">.</span><span class="n">RESPAWN_REFUSED</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">target</span><span class="o">.</span><span class="n">retire</span><span class="p">()</span>
+            <span class="n">action</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CHILD_REPLACED</span>
+                <span class="k">if</span> <span class="n">target</span><span class="o">.</span><span class="n">in_child</span>
+                <span class="k">else</span> <span class="n">RecoveryAction</span><span class="o">.</span><span class="n">CONNECTOR_DROPPED</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record</span><span class="p">(</span><span class="n">action</span><span class="p">,</span> <span class="n">failure</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_record</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">RecoveryAction</span><span class="p">,</span> <span class="n">failure</span><span class="p">:</span> <span class="n">_Failure</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Recovery</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Recovery</span><span class="p">(</span><span class="n">action</span><span class="p">,</span> <span class="n">_SENTENCES</span><span class="p">[(</span><span class="n">action</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_timing</span><span class="p">,</span> <span class="n">failure</span><span class="p">)])</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

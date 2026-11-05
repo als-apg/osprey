@@ -1,0 +1,1182 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.ipc._verification &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/ipc/_verification';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/ipc/_verification.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.ipc._verification</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.ipc._verification</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;What a connector-host child should connect to, and whether it did.</span>
+
+<span class="sd">Two pure questions every supervisor of :mod:`osprey_connectors.ipc._host`</span>
+<span class="sd">children asks, answered once for all of them — the controls MCP server&#39;s target</span>
+<span class="sd">switch and the library&#39;s multi-target</span>
+<span class="sd">:class:`~osprey_connectors.ipc.ConnectorHostPool` alike:</span>
+
+<span class="sd">**Derivation** (:func:`derive_endpoints`) restates</span>
+<span class="sd">``EPICSConnector.connect()``&#39;s gateway selection *positively*, from config</span>
+<span class="sd">alone: for a target, the connector type it resolves to, the endpoint each</span>
+<span class="sd">configured gateway role would produce, and the role this run will actually</span>
+<span class="sd">select given the target&#39;s write posture and the run mode.</span>
+
+<span class="sd">**Verification** (:func:`verify_host_report`, and :func:`verify_child_report`</span>
+<span class="sd">for the gateway case) compares a child&#39;s post-connect report against that</span>
+<span class="sd">derivation: not &quot;nothing looked wrong&quot; but &quot;the child configured exactly this</span>
+<span class="sd">host, this port, this mode, for exactly the role the derivation selected&quot;. A</span>
+<span class="sd">mismatch names the field, the expected value and the value received.</span>
+
+<span class="sd">**Collision with the live machine** (:func:`live_collision`) is the one</span>
+<span class="sd">eligibility question both supervisors ask from derivation alone: an endpoint a</span>
+<span class="sd">target that is never the real machine selects must not be one ``live`` derives.</span>
+
+<span class="sd">Nothing here imports a control-system client library.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config_flag</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._gateway_role</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ROLE_READ_ONLY</span><span class="p">,</span>
+    <span class="n">ROLE_WRITE_ACCESS</span><span class="p">,</span>
+    <span class="n">_selected_role</span><span class="p">,</span>
+    <span class="n">readonly_gateway_refusal</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_readonly_run</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">STANDIN_TYPES</span><span class="p">,</span>
+    <span class="n">TARGET_LIVE</span><span class="p">,</span>
+    <span class="n">TRANSPORT_IN_PROCESS</span><span class="p">,</span>
+    <span class="n">VIRTUAL_ACCELERATOR</span><span class="p">,</span>
+    <span class="n">connector_transport</span><span class="p">,</span>
+    <span class="n">resolve_target</span><span class="p">,</span>
+    <span class="n">tier_allows</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;config_section&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;subsection&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;DEFAULT_CA_PORT&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;DEFAULT_PVA_PORT&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;MODE_ADDR_LIST&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;MODE_NAME_SERVER&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;NEVER_LIVE_TYPES&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ROLE_PVA&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ROLE_READ_ONLY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ROLE_WRITE_ACCESS&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Endpoint&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LiveCollision&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;TargetDerivation&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Verification&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;connector_block&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;derive_endpoints&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;live_collision&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;readonly_gateway_refusal&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;same_endpoint&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;verify_child_report&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;verify_host_report&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1"># -- Gateway roles and the environment modes they produce -------------------</span>
+
+<span class="n">ROLE_PVA</span> <span class="o">=</span> <span class="s2">&quot;pva&quot;</span>
+
+<span class="c1">#: ``use_name_server: true`` — EPICS_CA_NAME_SERVERS / EPICS_PVA_NAME_SERVERS.</span>
+<span class="n">MODE_NAME_SERVER</span> <span class="o">=</span> <span class="s2">&quot;name_server&quot;</span>
+<span class="c1">#: ``use_name_server: false`` — EPICS_CA_ADDR_LIST / EPICS_PVA_ADDR_LIST.</span>
+<span class="n">MODE_ADDR_LIST</span> <span class="o">=</span> <span class="s2">&quot;addr_list&quot;</span>
+
+<span class="c1">#: The ports ``EPICSConnector.connect()`` falls back to when a gateway names</span>
+<span class="c1">#: none. The virtual accelerator never reaches the CA default: its unset ports</span>
+<span class="c1">#: are filled from ``services.virtual_accelerator.port`` first. The PVA default</span>
+<span class="c1">#: applies to name servers only (TCP); an address-list entry that names no port</span>
+<span class="c1">#: is passed to p4p without one, so its row carries ``None``.</span>
+<span class="n">DEFAULT_CA_PORT</span> <span class="o">=</span> <span class="mi">5064</span>
+<span class="n">DEFAULT_PVA_PORT</span> <span class="o">=</span> <span class="mi">5075</span>
+
+
+<div class="viewcode-block" id="Endpoint">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.Endpoint">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Where one gateway role points, and how the child will say so to EPICS.&quot;&quot;&quot;</span>
+
+    <span class="n">host</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">port</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span>
+
+<div class="viewcode-block" id="Endpoint.as_dict">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.Endpoint.as_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">as_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="p">,</span> <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">mode</span><span class="p">}</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="TargetDerivation">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.TargetDerivation">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TargetDerivation</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What a connector-host child *will* do for a target, derived from config.</span>
+
+<span class="sd">    ``endpoints`` carries one row per configured role: ``read_only`` and</span>
+<span class="sd">    ``write_access`` when the gateways table has them, plus ``pva`` when the</span>
+<span class="sd">    block configures PVA routing *and* a PVA gateway — the same conjunction</span>
+<span class="sd">    ``connect()`` requires before it touches a PVA environment variable.</span>
+
+<span class="sd">    ``selected_role`` is the row the child will actually configure the process</span>
+<span class="sd">    with: EPICS keeps one process-wide context, so exactly one gateway is used.</span>
+
+<span class="sd">    ``transport`` is the wire the child&#39;s connector will speak</span>
+<span class="sd">    (:func:`~osprey_connectors.types.connector_transport`), so a child that</span>
+<span class="sd">    built the other venue of the simulator is refused by what it echoes.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">endpoints</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Endpoint</span><span class="p">]</span>
+    <span class="n">selected_role</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">transport</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="TargetDerivation.selected_endpoint">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.TargetDerivation.selected_endpoint">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">selected_endpoint</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Endpoint</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The row the child will configure, or ``None`` when config has none.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">endpoints</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">selected_role</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="Verification">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.Verification">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Verification</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the child came up where the derivation said it would.&quot;&quot;&quot;</span>
+
+    <span class="n">ok</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">field</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">expected</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">got</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">detail</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+
+<div class="viewcode-block" id="Verification.as_dict">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.Verification.as_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">as_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">ok</span><span class="p">,</span>
+            <span class="s2">&quot;field&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">field</span><span class="p">,</span>
+            <span class="s2">&quot;expected&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">expected</span><span class="p">,</span>
+            <span class="s2">&quot;got&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">got</span><span class="p">,</span>
+            <span class="s2">&quot;detail&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">detail</span><span class="p">,</span>
+        <span class="p">}</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="config_section">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.config_section">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">config_section</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One top-level section of a rendered config, or an empty mapping.</span>
+
+<span class="sd">    Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read</span>
+<span class="sd">    this file: a top-level dotted line in ``config.yml`` configures nothing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">value</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span></div>
+
+
+
+<div class="viewcode-block" id="subsection">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.subsection">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">subsection</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One nested section of *section*, or an empty mapping when it is absent or not one.&quot;&quot;&quot;</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">value</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span></div>
+
+
+
+<div class="viewcode-block" id="connector_block">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.connector_block">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">connector_block</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``control_system.connector.&lt;type&gt;`` block, as written.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">subsection</span><span class="p">(</span><span class="n">config_section</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;control_system&quot;</span><span class="p">),</span> <span class="s2">&quot;connector&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">connector_type</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_mode</span><span class="p">(</span><span class="n">gateway</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">name_server</span> <span class="o">=</span> <span class="n">config_flag</span><span class="p">(</span><span class="n">gateway</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;use_name_server&quot;</span><span class="p">),</span> <span class="n">key</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.use_name_server&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">MODE_NAME_SERVER</span> <span class="k">if</span> <span class="n">name_server</span> <span class="k">else</span> <span class="n">MODE_ADDR_LIST</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_row</span><span class="p">(</span><span class="n">gateway</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">default_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Endpoint</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One endpoint row, or ``None`` for a gateway ``connect()`` would ignore.</span>
+
+<span class="sd">    ``connect()`` guards its environment derivation with ``if gateway_config:``,</span>
+<span class="sd">    so a missing, non-mapping or empty gateway configures nothing at all — and a</span>
+<span class="sd">    role that configures nothing is not a role this deployment can select.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">gateway</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">gateway</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">Endpoint</span><span class="p">(</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">gateway</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;address&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+        <span class="n">port</span><span class="o">=</span><span class="n">gateway</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;port&quot;</span><span class="p">,</span> <span class="n">default_port</span><span class="p">),</span>
+        <span class="n">mode</span><span class="o">=</span><span class="n">_mode</span><span class="p">(</span><span class="n">gateway</span><span class="p">,</span> <span class="n">key</span><span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_pva_globs</span><span class="p">(</span><span class="n">block</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The PVA routing globs, normalized exactly as ``connect()`` normalizes.&quot;&quot;&quot;</span>
+    <span class="n">pva_channels</span> <span class="o">=</span> <span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pva_channels&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pva_channels</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="n">pva_channels</span> <span class="o">=</span> <span class="p">[</span><span class="n">pva_channels</span><span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pva_channels</span><span class="p">,</span> <span class="nb">list</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[]</span>
+    <span class="k">return</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">pattern</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">pva_channels</span> <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">pattern</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+
+
+<div class="viewcode-block" id="derive_endpoints">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.derive_endpoints">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">derive_endpoints</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">writes_enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">readonly_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TargetDerivation</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Derive the per-role endpoints and selected role for *target*.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The full rendered config mapping (``config.yml`` as loaded).</span>
+<span class="sd">        target: The control target, ``&#39;live&#39;`` or ``&#39;va&#39;``.</span>
+<span class="sd">        writes_enabled: Whether writes are armed for *target*. Defaults to</span>
+<span class="sd">            the deployment&#39;s write tier —</span>
+<span class="sd">            :func:`~osprey_connectors.types.tier_allows` over the</span>
+<span class="sd">            ``control_system`` section, which is what the connector&#39;s write</span>
+<span class="sd">            verdict reads — never the per-type ``writes_enabled`` key on its</span>
+<span class="sd">            own; injectable so a caller (or a test) can derive the endpoints of</span>
+<span class="sd">            a posture other than the configured one.</span>
+<span class="sd">        readonly_run: Whether this is a readonly executor run. Defaults to</span>
+<span class="sd">            :func:`~osprey_connectors.posture_env.is_readonly_run`.</span>
+<span class="sd">        config_path: The project config an unset virtual-accelerator gateway</span>
+<span class="sd">            port is filled from — the file the child reads, so the port derived</span>
+<span class="sd">            here is the port it connects to. ``None`` reads ``CONFIG_FILE``,</span>
+<span class="sd">            else ``./config.yml``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The derivation, whose ``endpoints`` may be empty when the deployment has</span>
+<span class="sd">        no gateways for this target — an eligibility question, not an error, so</span>
+<span class="sd">        the derivation still answers &quot;which role would be selected&quot;.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: Propagated from</span>
+<span class="sd">            :func:`~osprey_connectors.types.resolve_target` when the target is</span>
+<span class="sd">            unknown, or is ``live`` on a deployment that has never named its real</span>
+<span class="sd">            machine, and from :func:`~osprey_connectors.config.config_flag` when a</span>
+<span class="sd">            ``use_name_server`` spells neither true nor false.</span>
+<span class="sd">            :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_eligibility`</span>
+<span class="sd">            is where that becomes a reason rather than an exception.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">control_system</span> <span class="o">=</span> <span class="n">config_section</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;control_system&quot;</span><span class="p">)</span>
+    <span class="n">connector_type</span> <span class="o">=</span> <span class="n">resolve_target</span><span class="p">(</span><span class="n">control_system</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+    <span class="n">transport</span> <span class="o">=</span> <span class="n">connector_transport</span><span class="p">(</span><span class="n">control_system</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">transport</span> <span class="o">==</span> <span class="n">TRANSPORT_IN_PROCESS</span><span class="p">:</span>
+        <span class="c1"># The simulator served inside the child dials nothing, so there is no</span>
+        <span class="c1"># block to read endpoints from and no gateway role to select.</span>
+        <span class="k">return</span> <span class="n">TargetDerivation</span><span class="p">(</span>
+            <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+            <span class="n">connector_type</span><span class="o">=</span><span class="n">connector_type</span><span class="p">,</span>
+            <span class="n">endpoints</span><span class="o">=</span><span class="p">{},</span>
+            <span class="n">selected_role</span><span class="o">=</span><span class="n">ROLE_READ_ONLY</span><span class="p">,</span>
+            <span class="n">transport</span><span class="o">=</span><span class="n">transport</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">writes_enabled</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">writes_enabled</span> <span class="o">=</span> <span class="n">tier_allows</span><span class="p">(</span><span class="n">control_system</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">readonly_run</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">readonly_run</span> <span class="o">=</span> <span class="n">is_readonly_run</span><span class="p">()</span>
+
+    <span class="n">raw_block</span> <span class="o">=</span> <span class="n">connector_block</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">)</span>
+    <span class="n">block</span> <span class="o">=</span> <span class="n">raw_block</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw_block</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
+    <span class="c1"># The virtual accelerator served from its container is a service this</span>
+    <span class="c1"># project deploys, so an unset gateway port follows</span>
+    <span class="c1"># services.virtual_accelerator.port. Filled through the</span>
+    <span class="c1"># connector&#39;s own helper rather than restated, so the roster cannot name a</span>
+    <span class="c1"># port the child will not use.</span>
+    <span class="k">if</span> <span class="n">connector_type</span> <span class="o">==</span> <span class="n">VIRTUAL_ACCELERATOR</span><span class="p">:</span>
+        <span class="c1"># Imported here: the connector module is only needed for this one</span>
+        <span class="c1"># type, and the derivation should not load a connector to answer for</span>
+        <span class="c1"># every other one.</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._va_connector</span><span class="w"> </span><span class="kn">import</span> <span class="n">fill_gateway_ports</span>
+
+        <span class="n">block</span> <span class="o">=</span> <span class="n">fill_gateway_ports</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">config_path</span><span class="p">)</span>
+
+    <span class="n">block_key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;control_system.connector.</span><span class="si">{</span><span class="n">connector_type</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">gateways</span> <span class="o">=</span> <span class="n">subsection</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="s2">&quot;gateways&quot;</span><span class="p">)</span>
+    <span class="n">endpoints</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Endpoint</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">role</span> <span class="ow">in</span> <span class="p">(</span><span class="n">ROLE_READ_ONLY</span><span class="p">,</span> <span class="n">ROLE_WRITE_ACCESS</span><span class="p">):</span>
+        <span class="n">row</span> <span class="o">=</span> <span class="n">_row</span><span class="p">(</span><span class="n">gateways</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">role</span><span class="p">),</span> <span class="n">DEFAULT_CA_PORT</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">block_key</span><span class="si">}</span><span class="s2">.gateways.</span><span class="si">{</span><span class="n">role</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">row</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">endpoints</span><span class="p">[</span><span class="n">role</span><span class="p">]</span> <span class="o">=</span> <span class="n">row</span>
+
+    <span class="c1"># PVA is derived only under the same conjunction connect() requires: routing</span>
+    <span class="c1"># globs AND a gateway. Globs without a gateway import p4p but touch no PVA</span>
+    <span class="c1"># environment variable, so there is no endpoint to report.</span>
+    <span class="k">if</span> <span class="n">_pva_globs</span><span class="p">(</span><span class="n">block</span><span class="p">):</span>
+        <span class="n">pva_gateway</span> <span class="o">=</span> <span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pva_gateway&quot;</span><span class="p">)</span>
+        <span class="c1"># connect() appends no port to an address list unless one is set; the</span>
+        <span class="c1"># TCP default applies to name servers only.</span>
+        <span class="n">pva_key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">block_key</span><span class="si">}</span><span class="s2">.pva_gateway&quot;</span>
+        <span class="n">name_server</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="nb">isinstance</span><span class="p">(</span><span class="n">pva_gateway</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_mode</span><span class="p">(</span><span class="n">pva_gateway</span><span class="p">,</span> <span class="n">pva_key</span><span class="p">)</span> <span class="o">==</span> <span class="n">MODE_NAME_SERVER</span>
+        <span class="p">)</span>
+        <span class="n">pva_row</span> <span class="o">=</span> <span class="n">_row</span><span class="p">(</span><span class="n">pva_gateway</span><span class="p">,</span> <span class="n">DEFAULT_PVA_PORT</span> <span class="k">if</span> <span class="n">name_server</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span> <span class="n">pva_key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">pva_row</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">endpoints</span><span class="p">[</span><span class="n">ROLE_PVA</span><span class="p">]</span> <span class="o">=</span> <span class="n">pva_row</span>
+
+    <span class="k">return</span> <span class="n">TargetDerivation</span><span class="p">(</span>
+        <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+        <span class="n">connector_type</span><span class="o">=</span><span class="n">connector_type</span><span class="p">,</span>
+        <span class="n">endpoints</span><span class="o">=</span><span class="n">endpoints</span><span class="p">,</span>
+        <span class="n">selected_role</span><span class="o">=</span><span class="n">_selected_role</span><span class="p">(</span>
+            <span class="n">gateways</span><span class="p">,</span> <span class="n">writes_enabled</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">writes_enabled</span><span class="p">),</span> <span class="n">readonly_run</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">readonly_run</span><span class="p">)</span>
+        <span class="p">),</span>
+        <span class="n">transport</span><span class="o">=</span><span class="n">transport</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># Verification</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_ports_equal</span><span class="p">(</span><span class="n">expected</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">got</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether two ports name the same port.</span>
+
+<span class="sd">    ``connect()`` interpolates the port into a string environment value, so a</span>
+<span class="sd">    child may report ``&#39;5064&#39;`` where the config carries ``5064``. Compared</span>
+<span class="sd">    numerically when both are integral and textually otherwise, so a genuinely</span>
+<span class="sd">    different port never compares equal.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">expected</span><span class="p">)</span> <span class="o">==</span> <span class="nb">int</span><span class="p">(</span><span class="n">got</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">expected</span><span class="p">)</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">got</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_host_key</span><span class="p">(</span><span class="n">host</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;*host* as two rows must both spell it to name the same machine.</span>
+
+<span class="sd">    Stripped and case-folded, and nothing more: no name is resolved, and no two</span>
+<span class="sd">    spellings of one address — ``localhost`` and ``127.0.0.1``, say — are</span>
+<span class="sd">    folded together. A compose service name that resolves only inside its own</span>
+<span class="sd">    network is a host this process may be unable to resolve at all, and a</span>
+<span class="sd">    comparison that needed to would answer differently on every machine.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">host</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="n">host</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">same_endpoint</span><span class="p">(</span><span class="n">first</span><span class="p">:</span> <span class="n">Endpoint</span><span class="p">,</span> <span class="n">second</span><span class="p">:</span> <span class="n">Endpoint</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether two derived rows name the same address and port, as written.</span>
+
+<span class="sd">    The CA/PVA *mode* is deliberately not compared: a name server and an</span>
+<span class="sd">    address-list entry on one host and port reach the same server. Ports are</span>
+<span class="sd">    compared as verification compares them (``&#39;5064&#39;`` is ``5064``); hosts as</span>
+<span class="sd">    :func:`_host_key` spells them, so two different spellings of one machine</span>
+<span class="sd">    are not caught here.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_host_key</span><span class="p">(</span><span class="n">first</span><span class="o">.</span><span class="n">host</span><span class="p">)</span> <span class="o">==</span> <span class="n">_host_key</span><span class="p">(</span><span class="n">second</span><span class="o">.</span><span class="n">host</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_ports_equal</span><span class="p">(</span><span class="n">first</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">second</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+
+
+<span class="c1">#: Types that are never the facility&#39;s own machine, so an endpoint one of them</span>
+<span class="c1">#: selects must never be an endpoint ``live`` derives.</span>
+<span class="n">NEVER_LIVE_TYPES</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">VIRTUAL_ACCELERATOR</span><span class="p">,</span> <span class="o">*</span><span class="n">STANDIN_TYPES</span><span class="p">})</span>
+
+
+<div class="viewcode-block" id="LiveCollision">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.LiveCollision">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LiveCollision</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A live gateway that a never-live target&#39;s selected endpoint lands on.</span>
+
+<span class="sd">    ``selected`` and ``live`` name the same endpoint, each as its own block</span>
+<span class="sd">    spells it; ``role`` and ``connector_type`` locate ``live`` in the config.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">selected</span><span class="p">:</span> <span class="n">Endpoint</span>
+    <span class="n">live</span><span class="p">:</span> <span class="n">Endpoint</span>
+    <span class="n">role</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span></div>
+
+
+
+<div class="viewcode-block" id="live_collision">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.live_collision">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">live_collision</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">derivation</span><span class="p">:</span> <span class="n">TargetDerivation</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LiveCollision</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The live gateway *derivation*&#39;s selected endpoint lands on, or ``None``.</span>
+
+<span class="sd">    Only a target whose type is in :data:`NEVER_LIVE_TYPES` is asked: its reads</span>
+<span class="sd">    and writes must not reach an endpoint ``live`` derives from the same config,</span>
+<span class="sd">    read-only or write-access alike, or they reach the real machine under a soft</span>
+<span class="sd">    label. Addresses are compared as written (:func:`same_endpoint`), never</span>
+<span class="sd">    resolved, so this is the negative half only — whatever the target is, it is</span>
+<span class="sd">    not the machine. A deployment with no live machine has nothing to collide</span>
+<span class="sd">    with.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The rendered config mapping *derivation* was derived from.</span>
+<span class="sd">        derivation: The target being judged, from :func:`derive_endpoints`.</span>
+<span class="sd">        config_path: See :func:`derive_endpoints`; pass the one *derivation* used.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">selected</span> <span class="o">=</span> <span class="n">derivation</span><span class="o">.</span><span class="n">selected_endpoint</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">selected</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">derivation</span><span class="o">.</span><span class="n">connector_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">NEVER_LIVE_TYPES</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">live</span> <span class="o">=</span> <span class="n">derive_endpoints</span><span class="p">(</span>
+            <span class="n">config</span><span class="p">,</span> <span class="n">TARGET_LIVE</span><span class="p">,</span> <span class="n">writes_enabled</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">readonly_run</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">config_path</span><span class="o">=</span><span class="n">config_path</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">role</span> <span class="ow">in</span> <span class="p">(</span><span class="n">ROLE_READ_ONLY</span><span class="p">,</span> <span class="n">ROLE_WRITE_ACCESS</span><span class="p">):</span>
+        <span class="n">row</span> <span class="o">=</span> <span class="n">live</span><span class="o">.</span><span class="n">endpoints</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">role</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">row</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">same_endpoint</span><span class="p">(</span><span class="n">selected</span><span class="p">,</span> <span class="n">row</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">LiveCollision</span><span class="p">(</span>
+                <span class="n">selected</span><span class="o">=</span><span class="n">selected</span><span class="p">,</span> <span class="n">live</span><span class="o">=</span><span class="n">row</span><span class="p">,</span> <span class="n">role</span><span class="o">=</span><span class="n">role</span><span class="p">,</span> <span class="n">connector_type</span><span class="o">=</span><span class="n">live</span><span class="o">.</span><span class="n">connector_type</span>
+            <span class="p">)</span>
+    <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="verify_child_report">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.verify_child_report">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">verify_child_report</span><span class="p">(</span><span class="n">derivation</span><span class="p">:</span> <span class="n">TargetDerivation</span><span class="p">,</span> <span class="n">report</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Verification</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Assert a child came up exactly where the derivation said it would.</span>
+
+<span class="sd">    Positive and role-aware: every field of the selected role&#39;s endpoint is</span>
+<span class="sd">    compared, and the child must also say it configured EPICS at all — a child</span>
+<span class="sd">    that connected without a gateway leaves ``_epics_configured`` false and has</span>
+<span class="sd">    silently inherited whatever CA environment the process already carried.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        derivation: The derivation for the target being switched to, from</span>
+<span class="sd">            :func:`derive_endpoints`.</span>
+<span class="sd">        report: The child&#39;s post-connect report: ``selected_role``, ``mode``,</span>
+<span class="sd">            ``host``, ``port`` and ``_epics_configured``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A passing :class:`Verification`, or a failing one naming the field, the</span>
+<span class="sd">        expected value and the value the child reported. The switch aborts on a</span>
+<span class="sd">        failure and leaves the previous target active.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_epics_configured&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;_epics_configured&quot;</span><span class="p">,</span>
+            <span class="kc">True</span><span class="p">,</span>
+            <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_epics_configured&quot;</span><span class="p">),</span>
+            <span class="s2">&quot;The child reports it never configured an EPICS gateway, so its &quot;</span>
+            <span class="s2">&quot;environment is whatever the process already carried rather than this &quot;</span>
+            <span class="s2">&quot;target&#39;s.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="n">expected_role</span> <span class="o">=</span> <span class="n">derivation</span><span class="o">.</span><span class="n">selected_role</span>
+    <span class="n">got_role</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;selected_role&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">got_role</span> <span class="o">!=</span> <span class="n">expected_role</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;selected_role&quot;</span><span class="p">,</span>
+            <span class="n">expected_role</span><span class="p">,</span>
+            <span class="n">got_role</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;The child selected the </span><span class="si">{</span><span class="n">got_role</span><span class="si">!r}</span><span class="s2"> gateway where target &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> derives </span><span class="si">{</span><span class="n">expected_role</span><span class="si">!r}</span><span class="s2">.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="n">endpoint</span> <span class="o">=</span> <span class="n">derivation</span><span class="o">.</span><span class="n">selected_endpoint</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">endpoint</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;endpoints&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;a derived </span><span class="si">{</span><span class="n">expected_role</span><span class="si">!r}</span><span class="s2"> endpoint&quot;</span><span class="p">,</span>
+            <span class="kc">None</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;Target </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> has no derived </span><span class="si">{</span><span class="n">expected_role</span><span class="si">!r}</span><span class="s2"> endpoint &quot;</span>
+            <span class="s2">&quot;to compare the child against; it should never have been switched to.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">field_name</span><span class="p">,</span> <span class="n">expected</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">&quot;mode&quot;</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">.</span><span class="n">mode</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;host&quot;</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">.</span><span class="n">host</span><span class="p">)):</span>
+        <span class="n">got</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">field_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">got</span> <span class="o">!=</span> <span class="n">expected</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+                <span class="kc">False</span><span class="p">,</span>
+                <span class="n">field_name</span><span class="p">,</span>
+                <span class="n">expected</span><span class="p">,</span>
+                <span class="n">got</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">&quot;The child&#39;s </span><span class="si">{</span><span class="n">field_name</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="n">got</span><span class="si">!r}</span><span class="s2"> where target &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> derives </span><span class="si">{</span><span class="n">expected</span><span class="si">!r}</span><span class="s2"> for its &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">expected_role</span><span class="si">!r}</span><span class="s2"> gateway.&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_ports_equal</span><span class="p">(</span><span class="n">endpoint</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;port&quot;</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;port&quot;</span><span class="p">,</span>
+            <span class="n">endpoint</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+            <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;port&quot;</span><span class="p">),</span>
+            <span class="sa">f</span><span class="s2">&quot;The child&#39;s port is </span><span class="si">{</span><span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;port&#39;</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> where target &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> derives </span><span class="si">{</span><span class="n">endpoint</span><span class="o">.</span><span class="n">port</span><span class="si">!r}</span><span class="s2"> for its &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">expected_role</span><span class="si">!r}</span><span class="s2"> gateway.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+        <span class="kc">True</span><span class="p">,</span>
+        <span class="n">detail</span><span class="o">=</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;The child is on target </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> via its </span><span class="si">{</span><span class="n">expected_role</span><span class="si">!r}</span><span class="s2"> &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;gateway at </span><span class="si">{</span><span class="n">endpoint</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">endpoint</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">endpoint</span><span class="o">.</span><span class="n">mode</span><span class="si">}</span><span class="s2">).&quot;</span>
+        <span class="p">),</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_verify_posture</span><span class="p">(</span>
+    <span class="n">derivation</span><span class="p">:</span> <span class="n">TargetDerivation</span><span class="p">,</span>
+    <span class="n">report</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">readonly_run</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">writes_enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Verification</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The identity and posture failure in *report*, or ``None`` when there is none.</span>
+
+<span class="sd">    The child echoes the target it was sent, so only the type it resolved that</span>
+<span class="sd">    target to can differ — a child from another build of the package. Posture</span>
+<span class="sd">    is checked for every connector type: the endpoint check sees it only</span>
+<span class="sd">    through the gateway role, which a connector with no gateways, or with a</span>
+<span class="sd">    ``read_only`` row alone, never varies.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">got_type</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector_type&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">got_type</span> <span class="o">!=</span> <span class="n">derivation</span><span class="o">.</span><span class="n">connector_type</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;connector_type&quot;</span><span class="p">,</span>
+            <span class="n">derivation</span><span class="o">.</span><span class="n">connector_type</span><span class="p">,</span>
+            <span class="n">got_type</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;The child reports connector type </span><span class="si">{</span><span class="n">got_type</span><span class="si">!r}</span><span class="s2"> where target &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> derives </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">connector_type</span><span class="si">!r}</span><span class="s2">.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="n">got_transport</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;transport&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">got_transport</span> <span class="o">!=</span> <span class="n">derivation</span><span class="o">.</span><span class="n">transport</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;transport&quot;</span><span class="p">,</span>
+            <span class="n">derivation</span><span class="o">.</span><span class="n">transport</span><span class="p">,</span>
+            <span class="n">got_transport</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;The child for target </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> reports transport &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">got_transport</span><span class="si">!r}</span><span class="s2"> where </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">transport</span><span class="si">!r}</span><span class="s2"> was derived.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">readonly_run</span><span class="p">:</span>
+        <span class="n">got_readonly</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;readonly_run&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">got_readonly</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+                <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;readonly_run&quot;</span><span class="p">,</span>
+                <span class="kc">True</span><span class="p">,</span>
+                <span class="n">got_readonly</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">&quot;The child for target </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> was asked to run readonly &quot;</span>
+                <span class="s2">&quot;but reports it is not in a readonly run.&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">writes_enabled</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">got_writes</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;writes_enabled&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">got_writes</span> <span class="ow">is</span> <span class="kc">True</span><span class="p">)</span> <span class="o">!=</span> <span class="n">writes_enabled</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;writes_enabled&quot;</span><span class="p">,</span>
+            <span class="n">writes_enabled</span><span class="p">,</span>
+            <span class="n">got_writes</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;The child for target </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> reports writes &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;armed&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">got_writes</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="kc">True</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;off&#39;</span><span class="si">}</span><span class="s2"> where this process derives them &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;armed&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">writes_enabled</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;off&#39;</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="verify_host_report">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.verify_host_report">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">verify_host_report</span><span class="p">(</span>
+    <span class="n">derivation</span><span class="p">:</span> <span class="n">TargetDerivation</span><span class="p">,</span>
+    <span class="n">report</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">readonly_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">writes_enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Verification</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Assert the child came up where the derivation said it would.</span>
+
+<span class="sd">    Given the posture the derivation was taken under (*readonly_run*,</span>
+<span class="sd">    *writes_enabled*), the report is first held to it: its ``connector_type``</span>
+<span class="sd">    and its ``transport`` must be the derived ones, and then a readonly run requires the report&#39;s</span>
+<span class="sd">    ``readonly_run`` to be ``True`` while any other run requires its</span>
+<span class="sd">    ``writes_enabled`` to equal *writes_enabled*. With neither given, only the</span>
+<span class="sd">    endpoint check below runs.</span>
+
+<span class="sd">    :func:`verify_child_report` answers this for every target whose config</span>
+<span class="sd">    names a gateway. A deployment can also select a connector that talks to no</span>
+<span class="sd">    gateway at all — the simulator served in process is one, and it is the</span>
+<span class="sd">    fail-safe default — and for that one the derivation has no endpoint and the child reports</span>
+<span class="sd">    none. Nothing is verified there because there is no endpoint to get wrong,</span>
+<span class="sd">    but the *symmetry* is: a child that configured Channel Access where the</span>
+<span class="sd">    config derived nothing has inherited an environment from somewhere, and</span>
+<span class="sd">    that is a mismatch as serious as any other.</span>
+
+<span class="sd">    The unverified branch is entered only when the derivation has **no endpoint</span>
+<span class="sd">    rows at all**. A target with rows whose *selected* role is missing — a</span>
+<span class="sd">    write-only gateway table on a deployment that selects ``read_only``, say —</span>
+<span class="sd">    is a gateway deployment with a hole in it, not a gatewayless one: its child</span>
+<span class="sd">    connects to a real control system over whatever default broadcast address</span>
+<span class="sd">    it finds, and that is precisely the unpinned-CA case verification exists to</span>
+<span class="sd">    catch. It goes to :func:`verify_child_report`, which refuses it either for</span>
+<span class="sd">    reporting no gateway or for having no derived endpoint to compare against.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        derivation: The derivation for the target, from :func:`derive_endpoints`.</span>
+<span class="sd">        report: The child&#39;s post-connect report.</span>
+<span class="sd">        readonly_run: Whether the derivation was taken for a readonly run.</span>
+<span class="sd">        writes_enabled: Whether the derivation was taken with writes armed.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A passing :class:`Verification`, or a failing one naming the field</span>
+<span class="sd">        (``connector_type``, ``transport``, ``readonly_run``, ``writes_enabled`` or an</span>
+<span class="sd">        endpoint field), the expected value and the value the child reported.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">readonly_run</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">writes_enabled</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">refusal</span> <span class="o">=</span> <span class="n">_verify_posture</span><span class="p">(</span>
+            <span class="n">derivation</span><span class="p">,</span> <span class="n">report</span><span class="p">,</span> <span class="n">readonly_run</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">readonly_run</span><span class="p">),</span> <span class="n">writes_enabled</span><span class="o">=</span><span class="n">writes_enabled</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">refusal</span>
+
+    <span class="k">if</span> <span class="n">derivation</span><span class="o">.</span><span class="n">endpoints</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">verify_child_report</span><span class="p">(</span><span class="n">derivation</span><span class="p">,</span> <span class="n">report</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_epics_configured&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;mode&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;host&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;_epics_configured&quot;</span><span class="p">,</span>
+            <span class="kc">False</span><span class="p">,</span>
+            <span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_epics_configured&quot;</span><span class="p">),</span>
+            <span class="sa">f</span><span class="s2">&quot;Target </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> derives no gateway on this deployment, but the &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;child reports it configured </span><span class="si">{</span><span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;mode&#39;</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> routing to &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">report</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;host&#39;</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> — an endpoint this config never described.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">Verification</span><span class="p">(</span>
+        <span class="kc">True</span><span class="p">,</span>
+        <span class="n">detail</span><span class="o">=</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Target </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> derives no gateway (connector type &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">connector_type</span><span class="si">!r}</span><span class="s2">) and the child configured none.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

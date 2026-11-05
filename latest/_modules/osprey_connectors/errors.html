@@ -1,0 +1,1070 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.errors &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/errors';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/errors.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.errors</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.errors</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Error classification and handling for the Osprey Framework.</span>
+
+<span class="sd">Stability: the exception class names and ``reason`` codes defined here are</span>
+<span class="sd">public API. Removing or renaming any of them is a major version bump; adding</span>
+<span class="sd">new ones is a minor version bump.</span>
+
+<span class="sd">This module is the connector failure vocabulary.</span>
+
+<span class="sd">Three contract roots partition what a connector raises when a call fails, and</span>
+<span class="sd">no class lies under two of them: :class:`ChannelError`, a failure about one</span>
+<span class="sd">named channel that leaves the connector in place; every single-channel failure</span>
+<span class="sd">(a limits violation, a refused write, a failed write, an address that is not a</span>
+<span class="sd">channel, an unreachable channel) is one, and its ``channel_address`` names the</span>
+<span class="sd">channel. :class:`ConnectorUnavailableError`, the connector itself is gone and</span>
+<span class="sd">its supervisor replaces it. :class:`ConnectorInternalError`, a connector bug</span>
+<span class="sd">that nothing recovers from. :class:`ChannelReadFailedError` names several</span>
+<span class="sd">channels and lies under no root.</span>
+
+<span class="sd">:class:`RefusalReason` names why a write was refused, who refused it and what</span>
+<span class="sd">to do about it. ``ChannelWriteFailedError``&#39;s reason codes are the uppercased</span>
+<span class="sd">``WriteOutcome`` words for the outcomes that raise, so the reason a caller</span>
+<span class="sd">branches on and the outcome the result reports are one vocabulary.</span>
+
+<span class="sd">The connector-host IPC registry is derived from this module: every class in</span>
+<span class="sd">``__all__`` under a contract root crosses the process boundary as itself,</span>
+<span class="sd">with its channel, so a public failure needs no registry entry of its own.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">StrEnum</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">WriteOutcome</span>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;NOT_A_CHANNEL&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RAW_CLIENT_WRITE_MARKER&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;BuildProfileError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ChannelError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ChannelLimitsViolationError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ChannelNotFoundError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ChannelReadFailedError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ChannelUnreachableError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ChannelWriteBlockedError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ChannelWriteFailedError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ClientLibraryRefusedError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ConfigurationError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ConnectorInternalError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ConnectorUnavailableError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RefusalReason&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RegistryError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;raw_client_write_message&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="ChannelError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A failure about one named channel; the connector that raised it stays in place.</span>
+
+<span class="sd">    ``channel_address`` names the channel, in process and across the</span>
+<span class="sd">    connector-host boundary alike. No supervisor recovers from a channel</span>
+<span class="sd">    error: it is reported against its channel and nothing is restarted. It has</span>
+<span class="sd">    no builtin base that another root shares, so no ``except ConnectionError``</span>
+<span class="sd">    or ``except TimeoutError`` reads it as a lost connector.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ChannelError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span> <span class="o">=</span> <span class="n">channel_address</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ChannelLimitsViolationError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelLimitsViolationError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelLimitsViolationError</span><span class="p">(</span><span class="n">ChannelError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when a channel write violates configured safety limits.</span>
+
+<span class="sd">    Covers min/max range violations, read-only channel writes,</span>
+<span class="sd">    excessive step sizes, and writes to unlisted channels.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ChannelLimitsViolationError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelLimitsViolationError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">violation_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">violation_reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">min_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">max_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">max_step</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">current_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span> <span class="o">=</span> <span class="n">channel_address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attempted_value</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">violation_type</span> <span class="o">=</span> <span class="n">violation_type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">violation_reason</span> <span class="o">=</span> <span class="n">violation_reason</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">min_value</span> <span class="o">=</span> <span class="n">min_value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_value</span> <span class="o">=</span> <span class="n">max_value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_step</span> <span class="o">=</span> <span class="n">max_step</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">current_value</span> <span class="o">=</span> <span class="n">current_value</span>
+
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_format_violation_message</span><span class="p">())</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_format_violation_message</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Format a user-friendly violation message with all relevant details.&quot;&quot;&quot;</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">,</span>
+            <span class="s2">&quot;CHANNEL LIMITS VIOLATION DETECTED&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;Channel Address: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;Attempted Value: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">attempted_value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">msg</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Current Value: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">current_value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">msg</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Violation: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">violation_reason</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">msg</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Allowed Range: [</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">min_value</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">max_value</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_step</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">msg</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Maximum Step Size: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">max_step</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">msg</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">,</span>
+                <span class="s2">&quot;⚠️  Write operation BLOCKED for safety&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span></div>
+
+
+
+<span class="n">_REFERENCE_MONITOR</span> <span class="o">=</span> <span class="s2">&quot;the reference monitor&quot;</span>
+<span class="n">_CONTROL_SYSTEM</span> <span class="o">=</span> <span class="s2">&quot;the control system&quot;</span>
+<span class="n">_NEVER_SENT</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;This write was refused on policy grounds; it was never sent to the control system.&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="RefusalReason">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.RefusalReason">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">RefusalReason</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Why a write was refused, with who refused it and what to do about it.</span>
+
+<span class="sd">    Each member&#39;s value is the reason word a result and an exception carry.</span>
+<span class="sd">    :attr:`refuser` names who refused a write for the reason, and is ``None``</span>
+<span class="sd">    for ``CHANNEL_NOT_FOUND``: nothing was denied, the address is not a</span>
+<span class="sd">    channel. :attr:`remedy` holds the reason&#39;s own suggestion sentences, in</span>
+<span class="sd">    the order a message lists them; it is empty for ``CHANNEL_NOT_FOUND``,</span>
+<span class="sd">    whose answer is rendered as &quot;not a channel&quot;.</span>
+
+<span class="sd">    ``RAW_CLIENT_WRITE`` means user code called a control-system client</span>
+<span class="sd">    library&#39;s put directly instead of going through</span>
+<span class="sd">    ``osprey.runtime.write_channel``; nothing was sent.</span>
+<span class="sd">    ``CONTROL_SYSTEM_REFUSED`` is the one reason under which the write was</span>
+<span class="sd">    sent: the control system was asked and denied it.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">refuser</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">remedy</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">refuser</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">remedy</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;RefusalReason&quot;</span><span class="p">:</span>
+        <span class="n">member</span> <span class="o">=</span> <span class="nb">str</span><span class="o">.</span><span class="fm">__new__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="n">member</span><span class="o">.</span><span class="n">_value_</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="n">member</span><span class="o">.</span><span class="n">refuser</span> <span class="o">=</span> <span class="n">refuser</span>
+        <span class="n">member</span><span class="o">.</span><span class="n">remedy</span> <span class="o">=</span> <span class="n">remedy</span>
+        <span class="k">return</span> <span class="n">member</span>
+
+    <span class="n">WRITES_DISABLED</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;WRITES_DISABLED&quot;</span><span class="p">,</span> <span class="n">_REFERENCE_MONITOR</span><span class="p">,</span> <span class="n">_NEVER_SENT</span><span class="p">)</span>
+    <span class="n">LIMITS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;LIMITS&quot;</span><span class="p">,</span> <span class="n">_REFERENCE_MONITOR</span><span class="p">,</span> <span class="n">_NEVER_SENT</span><span class="p">)</span>
+    <span class="n">VALIDATION_ERROR</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;VALIDATION_ERROR&quot;</span><span class="p">,</span> <span class="n">_REFERENCE_MONITOR</span><span class="p">,</span> <span class="n">_NEVER_SENT</span><span class="p">)</span>
+    <span class="n">CONTROL_SYSTEM_REFUSED</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;CONTROL_SYSTEM_REFUSED&quot;</span><span class="p">,</span>
+        <span class="n">_CONTROL_SYSTEM</span><span class="p">,</span>
+        <span class="p">(</span>
+            <span class="s2">&quot;The control system itself denied this write (access security); no value was written.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Report it to the operator: write access for this channel is granted &quot;</span>
+            <span class="s2">&quot;by the control system, not by OSPREY.&quot;</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">RAW_CLIENT_WRITE</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;RAW_CLIENT_WRITE&quot;</span><span class="p">,</span> <span class="n">_REFERENCE_MONITOR</span><span class="p">,</span> <span class="n">_NEVER_SENT</span><span class="p">)</span>
+    <span class="n">CHANNEL_NOT_FOUND</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;CHANNEL_NOT_FOUND&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">())</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_known_reason</span><span class="p">(</span><span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RefusalReason</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the :class:`RefusalReason` member ``reason`` names, or None.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">reason</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">RefusalReason</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="ChannelWriteBlockedError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelWriteBlockedError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteBlockedError</span><span class="p">(</span><span class="n">ChannelError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when a channel write was refused and no value was written.</span>
+
+<span class="sd">    Distinct from ChannelWriteFailedError, which means the write was attempted</span>
+<span class="sd">    and its outcome is a failure rather than a denial.</span>
+
+<span class="sd">    ``reason`` is a :class:`RefusalReason` member when the reason is a known</span>
+<span class="sd">    one, and then names its refuser and remedy. An unknown reason, or no reason</span>
+<span class="sd">    at all, is kept as given and names neither: no refuser is guessed.</span>
+
+<span class="sd">    ``verdict_reason`` narrows ``WRITES_DISABLED`` to the reason the write</span>
+<span class="sd">    verdict gave, a member of :data:`osprey_connectors.refusals.REASONS`, when</span>
+<span class="sd">    it gave one: ``switch_off``, ``auth_exhausted``, ``auth_range`` and the</span>
+<span class="sd">    rest, so a program branches on the word rather than the message.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ChannelWriteBlockedError.refuser">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelWriteBlockedError.refuser">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">refuser</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return who refused a write for ``reason``, or None when no one is known.&quot;&quot;&quot;</span>
+        <span class="n">known</span> <span class="o">=</span> <span class="n">_known_reason</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">known</span><span class="o">.</span><span class="n">refuser</span> <span class="k">if</span> <span class="n">known</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="ChannelWriteBlockedError.remedy">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelWriteBlockedError.remedy">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">remedy</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the suggestion sentences for ``reason``, or ``()`` when none is known.&quot;&quot;&quot;</span>
+        <span class="n">known</span> <span class="o">=</span> <span class="n">_known_reason</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">known</span><span class="o">.</span><span class="n">remedy</span> <span class="k">if</span> <span class="n">known</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="ChannelWriteBlockedError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelWriteBlockedError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">verdict_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span> <span class="o">=</span> <span class="n">channel_address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">_known_reason</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span> <span class="ow">or</span> <span class="n">reason</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">verdict_reason</span> <span class="o">=</span> <span class="n">verdict_reason</span>
+        <span class="n">refuser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">refuser</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">refuser</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">fallback</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; refused by </span><span class="si">{</span><span class="n">refuser</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="k">elif</span> <span class="n">reason</span> <span class="o">==</span> <span class="n">ChannelNotFoundError</span><span class="o">.</span><span class="n">reason</span><span class="p">:</span>
+            <span class="n">fallback</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">ChannelNotFoundError</span><span class="p">(</span><span class="n">channel_address</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="n">reason</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">fallback</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; refused&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fallback</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; refused (</span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">message</span> <span class="ow">or</span> <span class="n">fallback</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="c1">#: Shared substring of every raw-client-write refusal message. Refusals raised</span>
+<span class="c1">#: inside an executor subprocess reach the parent only as stderr text, so the</span>
+<span class="c1">#: parent recognises them by this marker; a test pins the message to it.</span>
+<span class="n">RAW_CLIENT_WRITE_MARKER</span> <span class="o">=</span> <span class="s2">&quot;raw client write refused&quot;</span>
+
+
+<div class="viewcode-block" id="raw_client_write_message">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.raw_client_write_message">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">raw_client_write_message</span><span class="p">(</span><span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the refusal text for a direct client-library write to ``address``.</span>
+
+<span class="sd">    ``address`` may be ``&quot;&lt;unknown&gt;&quot;`` when the refused call does not expose a</span>
+<span class="sd">    channel name (a low-level handle put, for instance).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">RAW_CLIENT_WRITE_MARKER</span><span class="si">}</span><span class="s2">: write to &#39;</span><span class="si">{</span><span class="n">address</span><span class="si">}</span><span class="s2">&#39; bypassed the reference &quot;</span>
+        <span class="s2">&quot;monitor. Use osprey.runtime.write_channel(address, value) or &quot;</span>
+        <span class="s2">&quot;osprey.runtime.write_channels({address: value, ...}) so limits and &quot;</span>
+        <span class="s2">&quot;approval apply.&quot;</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="ClientLibraryRefusedError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ClientLibraryRefusedError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ClientLibraryRefusedError</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when a process that may hold no control-system client loads one.</span>
+
+<span class="sd">    reason is &quot;RAW_CLIENT_IMPORT&quot;: user code imported a control-system client</span>
+<span class="sd">    package, or loaded a client shared library, in a process whose only route</span>
+<span class="sd">    to the machine is ``osprey.runtime``. Nothing was loaded and no channel was</span>
+<span class="sd">    touched. ``package`` names the refused top-level package and ``library``</span>
+<span class="sd">    the refused shared library; one of the two is set.</span>
+
+<span class="sd">    A ``RuntimeError`` rather than an ``ImportError``: code that treats a</span>
+<span class="sd">    missing optional client as absent (``except ImportError``) must not read a</span>
+<span class="sd">    refusal as &quot;not installed&quot; and carry on down another route.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1">#: Shared substring of every client refusal message.</span>
+    <span class="n">MARKER</span> <span class="o">=</span> <span class="s2">&quot;control-system client refused&quot;</span>
+
+<div class="viewcode-block" id="ClientLibraryRefusedError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ClientLibraryRefusedError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">package</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">library</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">package</span> <span class="o">=</span> <span class="n">package</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">library</span> <span class="o">=</span> <span class="n">library</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reason</span> <span class="o">=</span> <span class="s2">&quot;RAW_CLIENT_IMPORT&quot;</span>
+        <span class="k">if</span> <span class="n">library</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">what</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;loading &#39;</span><span class="si">{</span><span class="n">library</span><span class="si">}</span><span class="s2">&#39; refused: it is a control-system client library&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">what</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">package</span><span class="si">}</span><span class="s2">&#39; is not loaded in a notebook kernel&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">MARKER</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">what</span><span class="si">}</span><span class="s2">. A kernel reaches the machine only through &quot;</span>
+            <span class="s2">&quot;osprey.runtime, which follows the control target: read_channel(address), &quot;</span>
+            <span class="s2">&quot;write_channel(address, value), write_channels({address: value, ...}).&quot;</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ChannelWriteFailedError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelWriteFailedError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelWriteFailedError</span><span class="p">(</span><span class="n">ChannelError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when a channel write was attempted but was not confirmed.</span>
+
+<span class="sd">    The control system was asked to write but the write failed, the channel now</span>
+<span class="sd">    holds a different value, or the write was sent but not acknowledged in time</span>
+<span class="sd">    or the confirming re-read itself failed.</span>
+<span class="sd">    Distinct from ChannelWriteBlockedError (a refusal — no value was written).</span>
+<span class="sd">    A scan consumer must abort on this.</span>
+
+<span class="sd">    reason is one of: &quot;FAILED&quot;, &quot;MISMATCH&quot;, &quot;UNCONFIRMED&quot; — the ``WriteOutcome``</span>
+<span class="sd">    words that raise. All three are protocol-neutral on purpose: the same codes</span>
+<span class="sd">    describe an EPICS, DOOCS, or simulated write.</span>
+
+<span class="sd">    ``outcome``, ``value_written`` and ``observed_value`` carry the detail the</span>
+<span class="sd">    result held, so a caller that only sees the exception can still say what was</span>
+<span class="sd">    sent and what the channel holds. ``outcome`` is a ``WriteOutcome`` member on</span>
+<span class="sd">    either side of the connector-host boundary: the plain string the wire</span>
+<span class="sd">    carries is coerced on construction, as ``ChannelWriteResult`` coerces its own.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">_VALID_REASONS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;FAILED&quot;</span><span class="p">,</span> <span class="s2">&quot;MISMATCH&quot;</span><span class="p">,</span> <span class="s2">&quot;UNCONFIRMED&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ChannelWriteFailedError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelWriteFailedError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">outcome</span><span class="p">:</span> <span class="s2">&quot;WriteOutcome | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">value_written</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">observed_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="k">if</span> <span class="n">outcome</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">WriteOutcome</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">outcome</span><span class="p">,</span> <span class="n">WriteOutcome</span><span class="p">):</span>
+                <span class="n">outcome</span> <span class="o">=</span> <span class="n">WriteOutcome</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span> <span class="o">=</span> <span class="n">channel_address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reason</span> <span class="o">=</span> <span class="n">reason</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">outcome</span> <span class="o">=</span> <span class="n">outcome</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">value_written</span> <span class="o">=</span> <span class="n">value_written</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">observed_value</span> <span class="o">=</span> <span class="n">observed_value</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">message</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_default_message</span><span class="p">())</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_default_message</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Name both values for a mismatch — the difference is the whole report.</span>
+
+<span class="sd">        Only when there is a value to name: ``value_written`` is optional, and</span>
+<span class="sd">        the producer (``raise_for_write_result``) always supplies it, so a</span>
+<span class="sd">        mismatch raised without it came from somewhere that has no detail to</span>
+<span class="sd">        report. Saying &quot;sent None, channel holds None&quot; would dress that up as a</span>
+<span class="sd">        reading, so the generic wording is used instead.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">&quot;MISMATCH&quot;</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">value_written</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; not confirmed (MISMATCH): &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;sent </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">value_written</span><span class="si">}</span><span class="s2">, channel holds </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">observed_value</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; failed (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">reason</span><span class="si">}</span><span class="s2">)&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="ChannelReadFailedError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelReadFailedError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelReadFailedError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when a batch read or a settle&#39;s readback read could not produce a value.</span>
+
+<span class="sd">    A channel counts as failed when the connector&#39;s result leaves it out (a</span>
+<span class="sd">    connector drops a channel whose read raised) or reports it with the value</span>
+<span class="sd">    ``None`` (the EPICS-family connectors&#39; answer to a read timeout).</span>
+
+<span class="sd">    ``addresses`` names every failed channel, each once, in the order the</span>
+<span class="sd">    caller asked for them, so a caller can report or retry all of them rather</span>
+<span class="sd">    than only the first.</span>
+
+<span class="sd">    ``causes`` maps a failed channel to the exception its own read raised, so a</span>
+<span class="sd">    timeout, a refused connection and a missing channel stay distinguishable.</span>
+<span class="sd">    A failed channel whose read reported no value without raising has no</span>
+<span class="sd">    entry.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ChannelReadFailedError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelReadFailedError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">addresses</span><span class="p">:</span> <span class="s2">&quot;Sequence[str]&quot;</span><span class="p">,</span>
+        <span class="n">message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">causes</span><span class="p">:</span> <span class="s2">&quot;Mapping[str, BaseException] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addresses</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">addresses</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">causes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">causes</span> <span class="ow">or</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">message</span><span class="p">:</span>
+            <span class="n">named</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">address</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">causes</span><span class="p">[</span><span class="n">address</span><span class="p">])</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">causes</span><span class="p">[</span><span class="n">address</span><span class="p">]</span><span class="si">}</span><span class="s2">)&quot;</span>
+                <span class="k">if</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">causes</span>
+                <span class="k">else</span> <span class="n">address</span>
+                <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">addresses</span>
+            <span class="p">]</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Read failed for </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">addresses</span><span class="p">)</span><span class="si">}</span><span class="s2"> channel(s): </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">named</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="c1">#: What an address outside the facility is, in every message that names one.</span>
+<span class="n">NOT_A_CHANNEL</span> <span class="o">=</span> <span class="s2">&quot;not a channel of this facility&quot;</span>
+
+
+<div class="viewcode-block" id="ChannelNotFoundError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelNotFoundError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelNotFoundError</span><span class="p">(</span><span class="n">ChannelError</span><span class="p">,</span> <span class="ne">LookupError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when an address is not a channel of the facility a connector serves.</span>
+
+<span class="sd">    Only a connector that holds the facility&#39;s whole address set raises it. A</span>
+<span class="sd">    connector that cannot tell an unknown name from an unreachable one (a</span>
+<span class="sd">    Channel Access search that finds nothing times out) raises</span>
+<span class="sd">    :class:`ChannelUnreachableError` instead. A write to such an address is not</span>
+<span class="sd">    raised: it comes back ``refused`` with ``refusal_reason`` :attr:`reason`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1">#: The refusal reason a write to an address outside the facility carries.</span>
+    <span class="n">reason</span> <span class="o">=</span> <span class="n">RefusalReason</span><span class="o">.</span><span class="n">CHANNEL_NOT_FOUND</span>
+
+<div class="viewcode-block" id="ChannelNotFoundError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelNotFoundError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="n">NOT_A_CHANNEL</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ChannelUnreachableError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelUnreachableError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelUnreachableError</span><span class="p">(</span><span class="n">ChannelError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One channel could not be reached: it was lost, or it did not answer in time.</span>
+
+<span class="sd">    The connector that raised it is healthy and keeps serving every other</span>
+<span class="sd">    channel, so nothing is replaced for it; the failure is that channel&#39;s</span>
+<span class="sd">    device, not the control system as a whole. Its text names the address.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ChannelUnreachableError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelUnreachableError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">message</span> <span class="ow">or</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2"> did not answer&quot;</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ConnectorUnavailableError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ConnectorUnavailableError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ConnectorUnavailableError</span><span class="p">(</span><span class="ne">ConnectionError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The connector itself is gone: its transport, context or process is lost.</span>
+
+<span class="sd">    Every channel it serves fails alike until it is replaced, and the</span>
+<span class="sd">    supervisor that owns the connector&#39;s lifetime replaces it at most once per</span>
+<span class="sd">    instance. ``recovery`` is what that supervisor did, one</span>
+<span class="sd">    ``{&quot;action&quot;, &quot;text&quot;}`` record per step, set by the supervisor and by</span>
+<span class="sd">    nothing else; it is empty until a supervisor has acted.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ConnectorUnavailableError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ConnectorUnavailableError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">recovery</span><span class="p">:</span> <span class="s2">&quot;Sequence[Mapping[str, str]]&quot;</span> <span class="o">=</span> <span class="p">()):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">recovery</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ConnectorInternalError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ConnectorInternalError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ConnectorInternalError</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised in the parent for something the connector-host child sent outside the contract.</span>
+
+<span class="sd">    It has two sources, and both fail one call only. A connector bug: the</span>
+<span class="sd">    child raised an exception the IPC registry does not carry typed, and the</span>
+<span class="sd">    message carries the child&#39;s ``repr``. An unrebuildable reply: the child</span>
+<span class="sd">    answered with a value the parent cannot rebuild into its declared type.</span>
+<span class="sd">    Neither is a reachability answer, and nothing about the connector or the</span>
+<span class="sd">    child is implied, so no supervisor recovers from it.</span>
+
+<span class="sd">    It is a ``RuntimeError`` and never a ``ConnectionError`` or ``OSError``, so</span>
+<span class="sd">    that no ``except ConnectionError`` or ``except OSError`` reads a connector</span>
+<span class="sd">    bug as an unreachable control system.</span>
+
+<span class="sd">    ``class_tag`` names the class the child sent: the exception&#39;s class for a</span>
+<span class="sd">    connector bug, the value&#39;s class for an unrebuildable reply.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ConnectorInternalError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ConnectorInternalError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">class_tag</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">class_tag</span> <span class="o">=</span> <span class="n">class_tag</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="RegistryError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.RegistryError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">RegistryError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exception for registry-related errors.</span>
+
+<span class="sd">    Raised when issues occur with component registration, lookup, or</span>
+<span class="sd">    management within the framework&#39;s registry system.</span>
+<span class="sd">    &quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="ConfigurationError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ConfigurationError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ConfigurationError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exception for configuration-related errors.</span>
+
+<span class="sd">    Raised when configuration files are invalid, missing required settings,</span>
+<span class="sd">    or contain incompatible values that prevent proper system operation.</span>
+<span class="sd">    &quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="BuildProfileError">
+<a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.BuildProfileError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">BuildProfileError</span><span class="p">(</span><span class="n">ConfigurationError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when a build profile is invalid or missing required files.&quot;&quot;&quot;</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

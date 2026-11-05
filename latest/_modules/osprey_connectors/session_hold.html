@@ -1,0 +1,1096 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.session_hold &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/session_hold';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/session_hold.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.session_hold</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.session_hold</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;The session hold record: one durable file per session that holds its writes.</span>
+
+<span class="sd">A *hold* is a set of open flags on one session. While any flag is open the</span>
+<span class="sd">session is held, and every write execution site refuses the session&#39;s writes</span>
+<span class="sd">(``session_held``). A flag is closed only by an answer that names it. This</span>
+<span class="sd">module owns the record&#39;s format, its reader and its writer; it knows nothing</span>
+<span class="sd">about who opens a flag — a flag carries an opaque ``source`` and ``reason``.</span>
+
+<span class="sd">**The store.** Every call takes ``root``; ``None`` reads</span>
+<span class="sd">:data:`HOLD_DIR_ENV_VAR` (``OSPREY_SESSION_HOLD_DIR``). An unset or empty root</span>
+<span class="sd">is *no hold store*: nothing is written and nothing is ever held. Under a root,</span>
+<span class="sd">one session&#39;s record is ``&lt;root&gt;/&lt;session_key&gt;/record.json``.</span>
+
+<span class="sd">**Fail closed under a root.** :func:`is_held` answers ``True`` for an open</span>
+<span class="sd">flag, and equally for a missing session directory, a missing record, a record</span>
+<span class="sd">that cannot be read or parsed, a record of another schema, a symbolic link at</span>
+<span class="sd">the session directory or the record, and an unsafe session key. It never</span>
+<span class="sd">raises. :func:`open_flags` reports an unreadable record as the one synthetic</span>
+<span class="sd">flag :data:`UNREADABLE_FLAG_ID`; answering that flag rewrites a fresh record</span>
+<span class="sd">(with the synthetic flag kept, closed, for audit). Nothing else rewrites an</span>
+<span class="sd">unreadable record: :func:`ensure_session` is create-if-absent and leaves an</span>
+<span class="sd">existing file alone, readable or not.</span>
+
+<span class="sd">**Writes.** Every write is a read-modify-write under an exclusive ``flock`` on</span>
+<span class="sd">``&lt;session dir&gt;/record.json.lock`` and lands through</span>
+<span class="sd">:func:`~osprey_connectors.safety_file.atomic_replace`, so a reader sees the</span>
+<span class="sd">old record or the new one and two writers in two processes never lose each</span>
+<span class="sd">other&#39;s flag. Answered flags stay in the record, closed, with the answer, the</span>
+<span class="sd">operator and the time.</span>
+
+<span class="sd">**Reads** follow no symbolic link: the session directory is checked with</span>
+<span class="sd">:func:`os.lstat` and the record is opened ``O_NOFOLLOW`` and bounded, the same</span>
+<span class="sd">reader the posture store uses for its tree.</span>
+
+<span class="sd">This module imports only :mod:`~osprey_connectors.safety_file` from the</span>
+<span class="sd">package, so the posture store can import it.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">errno</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fcntl</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">stat</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Iterator</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">UTC</span><span class="p">,</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.safety_file</span><span class="w"> </span><span class="kn">import</span> <span class="n">atomic_replace</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;EXCERPT_LIMIT&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;HOLD_DIR_ENV_VAR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RECORD_NAME&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SCHEMA_VERSION&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;UNREADABLE_FLAG_ID&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;HoldFlag&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;answer_flags&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ensure_session&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;has_no_record&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;hold_root&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;is_held&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;is_safe_session_key&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;mark_stop_unconfirmed&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;open_flag&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;open_flags&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1">#: The environment variable naming the hold root when no ``root`` is passed.</span>
+<span class="n">HOLD_DIR_ENV_VAR</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_SESSION_HOLD_DIR&quot;</span>
+
+<span class="c1">#: The record&#39;s file name inside a session&#39;s directory.</span>
+<span class="n">RECORD_NAME</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;record.json&quot;</span>
+
+<span class="c1">#: The record format. A record of any other schema is unreadable, and holds.</span>
+<span class="n">SCHEMA_VERSION</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1</span>
+
+<span class="c1">#: The id of the one flag reported for a missing or unreadable record.</span>
+<span class="n">UNREADABLE_FLAG_ID</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;hold-record-unreadable&quot;</span>
+
+<span class="c1">#: The longest prompt excerpt a flag stores; the writer truncates.</span>
+<span class="n">EXCERPT_LIMIT</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">200</span>
+
+<span class="c1">#: The source of the synthetic flag.</span>
+<span class="n">_UNREADABLE_SOURCE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;session_hold&quot;</span>
+<span class="n">_UNREADABLE_REASON</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;The session&#39;s hold record is missing or unreadable, so the session is held &quot;</span>
+    <span class="s2">&quot;until an operator answers.&quot;</span>
+<span class="p">)</span>
+
+<span class="c1">#: A session key is one path segment: a UUID, or a name of the same alphabet.</span>
+<span class="n">_SAFE_KEY</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;[A-Za-z0-9][A-Za-z0-9._-]{0,127}&quot;</span><span class="p">)</span>
+
+<span class="c1">#: Records are a few hundred bytes per flag; an over-long file is refused</span>
+<span class="c1">#: rather than truncated into a parse.</span>
+<span class="n">_RECORD_READ_LIMIT</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span>
+
+<span class="n">_LOCK_TIMEOUT_S</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mf">5.0</span>
+<span class="n">_LOCK_POLL_S</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mf">0.01</span>
+<span class="n">_DIR_MODE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mo">0o750</span>
+<span class="n">_RECORD_MODE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mo">0o640</span>
+<span class="n">_LOCK_MODE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mo">0o640</span>
+
+<span class="n">_ANSWERS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;stop&quot;</span><span class="p">,</span> <span class="s2">&quot;continue&quot;</span><span class="p">})</span>
+<span class="n">_STR_FIELDS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;flag_id&quot;</span><span class="p">,</span> <span class="s2">&quot;source&quot;</span><span class="p">,</span> <span class="s2">&quot;reason&quot;</span><span class="p">,</span> <span class="s2">&quot;prompt_ref&quot;</span><span class="p">,</span> <span class="s2">&quot;prompt_excerpt&quot;</span><span class="p">,</span> <span class="s2">&quot;opened_at&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="HoldFlag">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.HoldFlag">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">HoldFlag</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One open flag on a session, as :func:`open_flags` reports it.&quot;&quot;&quot;</span>
+
+    <span class="n">flag_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">prompt_ref</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">prompt_excerpt</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">opened_at</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">stop_unconfirmed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">started</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span></div>
+
+
+
+<span class="c1"># -- paths -----------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="hold_root">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.hold_root">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The hold root: *root* when given, else :data:`HOLD_DIR_ENV_VAR`; ``None`` is no store.&quot;&quot;&quot;</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">root</span><span class="p">)</span> <span class="k">if</span> <span class="n">root</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">HOLD_DIR_ENV_VAR</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">text</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="is_safe_session_key">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.is_safe_session_key">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_safe_session_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *session_key* is one safe path segment (no separator, no dot-name).&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">session_key</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_SAFE_KEY</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_safe_session_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unsafe session key </span><span class="si">{</span><span class="n">session_key</span><span class="si">!r}</span><span class="s2">: not a safe file name&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">session_key</span>  <span class="c1"># type: ignore[return-value]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_now</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">UTC</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(</span><span class="n">timespec</span><span class="o">=</span><span class="s2">&quot;seconds&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;+00:00&quot;</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">)</span>
+
+
+<span class="c1"># -- reading ---------------------------------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_no_follow</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;*path*&#39;s text, bounded, refusing a symbolic link at its last component.&quot;&quot;&quot;</span>
+    <span class="n">fd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">O_RDONLY</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">O_NOFOLLOW</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">os</span><span class="o">.</span><span class="n">fdopen</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">,</span> <span class="n">closefd</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
+            <span class="n">text</span> <span class="o">=</span> <span class="n">handle</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">_RECORD_READ_LIMIT</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_RECORD_READ_LIMIT</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="n">errno</span><span class="o">.</span><span class="n">EFBIG</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2"> is larger than a hold record may be&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">text</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_valid_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">),</span> <span class="nb">str</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_STR_FIELDS</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;state&quot;</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;open&quot;</span><span class="p">,</span> <span class="s2">&quot;closed&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;stop_unconfirmed&quot;</span><span class="p">),</span> <span class="nb">bool</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="n">started</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;started&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">started</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">started</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_record</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The session&#39;s flag entries, or ``None`` when the record is missing or unreadable.</span>
+
+<span class="sd">    ``None`` covers every failure: a missing or non-directory session dir, a</span>
+<span class="sd">    link at the dir or the record, an absent, unreadable, over-long or</span>
+<span class="sd">    malformed file, another schema, another session&#39;s key.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="n">root</span> <span class="o">/</span> <span class="n">session_key</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">mode</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">lstat</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span><span class="o">.</span><span class="n">st_mode</span>
+    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">stat</span><span class="o">.</span><span class="n">S_ISDIR</span><span class="p">(</span><span class="n">mode</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">payload</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">_read_no_follow</span><span class="p">(</span><span class="n">directory</span> <span class="o">/</span> <span class="n">RECORD_NAME</span><span class="p">))</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">SCHEMA_VERSION</span> <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_key&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">session_key</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">flags</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;flags&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">flags</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">_valid_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">flags</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_to_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">HoldFlag</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">HoldFlag</span><span class="p">(</span>
+        <span class="n">flag_id</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">],</span>
+        <span class="n">source</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;source&quot;</span><span class="p">],</span>
+        <span class="n">reason</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;reason&quot;</span><span class="p">],</span>
+        <span class="n">prompt_ref</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;prompt_ref&quot;</span><span class="p">],</span>
+        <span class="n">prompt_excerpt</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;prompt_excerpt&quot;</span><span class="p">],</span>
+        <span class="n">opened_at</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;opened_at&quot;</span><span class="p">],</span>
+        <span class="n">stop_unconfirmed</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;stop_unconfirmed&quot;</span><span class="p">],</span>
+        <span class="n">started</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;started&quot;</span><span class="p">]),</span>
+    <span class="p">)</span>
+
+
+<span class="n">_SYNTHETIC</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="n">HoldFlag</span><span class="p">(</span>
+    <span class="n">flag_id</span><span class="o">=</span><span class="n">UNREADABLE_FLAG_ID</span><span class="p">,</span>
+    <span class="n">source</span><span class="o">=</span><span class="n">_UNREADABLE_SOURCE</span><span class="p">,</span>
+    <span class="n">reason</span><span class="o">=</span><span class="n">_UNREADABLE_REASON</span><span class="p">,</span>
+    <span class="n">prompt_ref</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">prompt_excerpt</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">opened_at</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="is_held">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.is_held">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_held</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *session_key* is held. Never raises.</span>
+
+<span class="sd">    No root: ``False``. Under a root: ``True`` for an open flag and for every</span>
+<span class="sd">    way the record can fail to be read (see the module doc), including an</span>
+<span class="sd">    unsafe key.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">resolved</span> <span class="o">=</span> <span class="n">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_safe_session_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">):</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="n">flags</span> <span class="o">=</span> <span class="n">_read_record</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">session_key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="k">return</span> <span class="nb">any</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;open&quot;</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># a write-path reader fails closed</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;session hold for </span><span class="si">%r</span><span class="s2"> could not be read; held&quot;</span><span class="p">,</span> <span class="n">session_key</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span></div>
+
+
+
+<div class="viewcode-block" id="open_flags">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.open_flags">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">open_flags</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">HoldFlag</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The session&#39;s open flags, in the order they were opened.</span>
+
+<span class="sd">    No root: ``[]``. A missing or unreadable record under a root: the one</span>
+<span class="sd">    synthetic :data:`UNREADABLE_FLAG_ID` flag.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: *session_key* is not a safe file name.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span>
+    <span class="n">flags</span> <span class="o">=</span> <span class="n">_read_record</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">flags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">_SYNTHETIC</span><span class="p">]</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">_to_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span> <span class="k">if</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;open&quot;</span><span class="p">]</span></div>
+
+
+
+<div class="viewcode-block" id="has_no_record">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.has_no_record">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">has_no_record</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether nothing at all is on disk for this session under a root.</span>
+
+<span class="sd">    The one question :func:`is_held` and :func:`open_flags` deliberately do not</span>
+<span class="sd">    separate from an unreadable record: a caller that knows no session runs</span>
+<span class="sd">    under this key can tell &quot;never started&quot; from &quot;lost&quot;. It changes no answer of</span>
+<span class="sd">    theirs. A session directory of any kind, even empty or a dangling link, is</span>
+<span class="sd">    ``False``, and so is a path that cannot be examined.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: *session_key* is not a safe file name.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">lstat</span><span class="p">(</span><span class="n">resolved</span> <span class="o">/</span> <span class="n">key</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="kc">False</span></div>
+
+
+
+<span class="c1"># -- writing ---------------------------------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_session_dir</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The session&#39;s directory, created when absent; never a symbolic link.&quot;&quot;&quot;</span>
+    <span class="n">root</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="n">root</span> <span class="o">/</span> <span class="n">session_key</span>
+    <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">FileExistsError</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">_DIR_MODE</span><span class="p">)</span>
+    <span class="n">mode</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">lstat</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span><span class="o">.</span><span class="n">st_mode</span>
+    <span class="k">if</span> <span class="n">stat</span><span class="o">.</span><span class="n">S_ISLNK</span><span class="p">(</span><span class="n">mode</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">stat</span><span class="o">.</span><span class="n">S_ISDIR</span><span class="p">(</span><span class="n">mode</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="n">errno</span><span class="o">.</span><span class="n">ELOOP</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">directory</span><span class="si">}</span><span class="s2"> is not a plain directory; nothing was written&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">directory</span>
+
+
+<span class="nd">@contextlib</span><span class="o">.</span><span class="n">contextmanager</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_locked</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Path</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hold the session&#39;s record lock; yields the record path.&quot;&quot;&quot;</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="n">_session_dir</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">session_key</span><span class="p">)</span>
+    <span class="n">lock</span> <span class="o">=</span> <span class="n">directory</span> <span class="o">/</span> <span class="p">(</span><span class="n">RECORD_NAME</span> <span class="o">+</span> <span class="s2">&quot;.lock&quot;</span><span class="p">)</span>
+    <span class="n">fd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">lock</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">O_RDWR</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">O_CREAT</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">O_NOFOLLOW</span><span class="p">,</span> <span class="n">_LOCK_MODE</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">deadline</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">+</span> <span class="n">_LOCK_TIMEOUT_S</span>
+        <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">fcntl</span><span class="o">.</span><span class="n">flock</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">fcntl</span><span class="o">.</span><span class="n">LOCK_EX</span> <span class="o">|</span> <span class="n">fcntl</span><span class="o">.</span><span class="n">LOCK_NB</span><span class="p">)</span>
+                <span class="k">break</span>
+            <span class="k">except</span> <span class="ne">BlockingIOError</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="n">deadline</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;The session hold record at </span><span class="si">{</span><span class="n">directory</span><span class="si">}</span><span class="s2"> stayed locked for &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">_LOCK_TIMEOUT_S</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2"> s; nothing was written&quot;</span>
+                    <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+                <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">_LOCK_POLL_S</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">directory</span> <span class="o">/</span> <span class="n">RECORD_NAME</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">fcntl</span><span class="o">.</span><span class="n">flock</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">fcntl</span><span class="o">.</span><span class="n">LOCK_UN</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_write</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span> <span class="s2">&quot;session_key&quot;</span><span class="p">:</span> <span class="n">session_key</span><span class="p">,</span> <span class="s2">&quot;flags&quot;</span><span class="p">:</span> <span class="n">flags</span><span class="p">}</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+    <span class="n">atomic_replace</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">_RECORD_MODE</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_ids</span><span class="p">(</span><span class="n">flag_ids</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">flag_ids</span><span class="p">,</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">)):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;flag_ids is a collection of ids, not one string&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">flag_ids</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_open_entry</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">flag_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">prompt_ref</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">prompt_excerpt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">opened_at</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A new flag&#39;s record entry, with every field :func:`_valid_flag` requires.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;flag_id&quot;</span><span class="p">:</span> <span class="n">flag_id</span><span class="p">,</span>
+        <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="n">source</span><span class="p">,</span>
+        <span class="s2">&quot;reason&quot;</span><span class="p">:</span> <span class="n">reason</span><span class="p">,</span>
+        <span class="s2">&quot;prompt_ref&quot;</span><span class="p">:</span> <span class="n">prompt_ref</span><span class="p">,</span>
+        <span class="s2">&quot;prompt_excerpt&quot;</span><span class="p">:</span> <span class="n">prompt_excerpt</span><span class="p">,</span>
+        <span class="s2">&quot;opened_at&quot;</span><span class="p">:</span> <span class="n">opened_at</span><span class="p">,</span>
+        <span class="s2">&quot;state&quot;</span><span class="p">:</span> <span class="s2">&quot;open&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;stop_unconfirmed&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">&quot;started&quot;</span><span class="p">:</span> <span class="p">[],</span>
+    <span class="p">}</span>
+
+
+<div class="viewcode-block" id="ensure_session">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.ensure_session">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">ensure_session</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create the session&#39;s empty record when none exists. No root: nothing.</span>
+
+<span class="sd">    Never rewrites an existing file, readable or not.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: *session_key* is not a safe file name.</span>
+<span class="sd">        OSError: The session directory is a link or could not be created.</span>
+<span class="sd">        RuntimeError: The lock was not acquired in time.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">_locked</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="k">as</span> <span class="n">path</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">lexists</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+            <span class="k">return</span>
+        <span class="n">_write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="p">[])</span></div>
+
+
+
+<div class="viewcode-block" id="open_flag">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.open_flag">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">open_flag</span><span class="p">(</span>
+    <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">flag_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">prompt_ref</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">prompt_excerpt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Open one flag; ``True`` when it was opened.</span>
+
+<span class="sd">    ``False`` when there is no root, when a flag with the same</span>
+<span class="sd">    ``(source, prompt_ref)`` or the same ``flag_id`` exists (open or closed),</span>
+<span class="sd">    or when the record exists and is unreadable — that session is already held</span>
+<span class="sd">    by the synthetic flag, and only its answer rewrites the record. A missing</span>
+<span class="sd">    record is created with the flag.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: *session_key* is not a safe file name.</span>
+<span class="sd">        OSError: The session directory is a link, or the write failed.</span>
+<span class="sd">        RuntimeError: The lock was not acquired in time.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">prompt_excerpt</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">EXCERPT_LIMIT</span><span class="p">:</span>
+        <span class="n">prompt_excerpt</span> <span class="o">=</span> <span class="n">prompt_excerpt</span><span class="p">[:</span> <span class="n">EXCERPT_LIMIT</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;…&quot;</span>
+    <span class="k">with</span> <span class="n">_locked</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="k">as</span> <span class="n">path</span><span class="p">:</span>
+        <span class="n">flags</span> <span class="o">=</span> <span class="n">_read_record</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">lexists</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="s2">&quot;session hold record </span><span class="si">%s</span><span class="s2"> is unreadable; flag </span><span class="si">%s</span><span class="s2"> not added&quot;</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">flag_id</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="kc">False</span>
+            <span class="n">flags</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">flag_id</span> <span class="ow">or</span> <span class="p">(</span>
+                <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;source&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">source</span> <span class="ow">and</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;prompt_ref&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">prompt_ref</span>
+            <span class="p">):</span>
+                <span class="k">return</span> <span class="kc">False</span>
+        <span class="n">flags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="n">_open_entry</span><span class="p">(</span>
+                <span class="n">flag_id</span><span class="o">=</span><span class="n">flag_id</span><span class="p">,</span>
+                <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">,</span>
+                <span class="n">reason</span><span class="o">=</span><span class="n">reason</span><span class="p">,</span>
+                <span class="n">prompt_ref</span><span class="o">=</span><span class="n">prompt_ref</span><span class="p">,</span>
+                <span class="n">prompt_excerpt</span><span class="o">=</span><span class="n">prompt_excerpt</span><span class="p">,</span>
+                <span class="n">opened_at</span><span class="o">=</span><span class="n">_now</span><span class="p">(),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">_write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+    <span class="k">return</span> <span class="kc">True</span></div>
+
+
+
+<div class="viewcode-block" id="answer_flags">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.answer_flags">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">answer_flags</span><span class="p">(</span>
+    <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">flag_ids</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">answer</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;stop&quot;</span><span class="p">,</span> <span class="s2">&quot;continue&quot;</span><span class="p">],</span>
+    <span class="n">operator</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Close the named open flags with *answer*; the ids released, in record order.</span>
+
+<span class="sd">    Unknown and already-closed ids are ignored. Against a missing or unreadable</span>
+<span class="sd">    record only :data:`UNREADABLE_FLAG_ID` can be answered, and answering it</span>
+<span class="sd">    writes a fresh record holding that flag, closed. No root: ``()``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: An unsafe *session_key*, or an *answer* that is neither</span>
+<span class="sd">            ``&quot;stop&quot;`` nor ``&quot;continue&quot;``.</span>
+<span class="sd">        TypeError: *flag_ids* is a single string.</span>
+<span class="sd">        OSError: The session directory is a link, or the write failed.</span>
+<span class="sd">        RuntimeError: The lock was not acquired in time.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">answer</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ANSWERS</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;answer must be &#39;stop&#39; or &#39;continue&#39;, not </span><span class="si">{</span><span class="n">answer</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">wanted</span> <span class="o">=</span> <span class="n">_ids</span><span class="p">(</span><span class="n">flag_ids</span><span class="p">)</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">()</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">wanted</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">()</span>
+    <span class="n">closed</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;state&quot;</span><span class="p">:</span> <span class="s2">&quot;closed&quot;</span><span class="p">,</span> <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="n">answer</span><span class="p">,</span> <span class="s2">&quot;operator&quot;</span><span class="p">:</span> <span class="n">operator</span><span class="p">}</span>
+    <span class="k">with</span> <span class="n">_locked</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="k">as</span> <span class="n">path</span><span class="p">:</span>
+        <span class="n">flags</span> <span class="o">=</span> <span class="n">_read_record</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">UNREADABLE_FLAG_ID</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">wanted</span><span class="p">:</span>
+                <span class="k">return</span> <span class="p">()</span>
+            <span class="n">entry</span> <span class="o">=</span> <span class="n">_open_entry</span><span class="p">(</span>
+                <span class="n">flag_id</span><span class="o">=</span><span class="n">_SYNTHETIC</span><span class="o">.</span><span class="n">flag_id</span><span class="p">,</span>
+                <span class="n">source</span><span class="o">=</span><span class="n">_SYNTHETIC</span><span class="o">.</span><span class="n">source</span><span class="p">,</span>
+                <span class="n">reason</span><span class="o">=</span><span class="n">_SYNTHETIC</span><span class="o">.</span><span class="n">reason</span><span class="p">,</span>
+                <span class="n">prompt_ref</span><span class="o">=</span><span class="n">_SYNTHETIC</span><span class="o">.</span><span class="n">prompt_ref</span><span class="p">,</span>
+                <span class="n">prompt_excerpt</span><span class="o">=</span><span class="n">_SYNTHETIC</span><span class="o">.</span><span class="n">prompt_excerpt</span><span class="p">,</span>
+                <span class="n">opened_at</span><span class="o">=</span><span class="n">_SYNTHETIC</span><span class="o">.</span><span class="n">opened_at</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">entry</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">closed</span><span class="p">,</span> <span class="n">answered_at</span><span class="o">=</span><span class="n">_now</span><span class="p">())</span>
+            <span class="n">_write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="p">[</span><span class="n">entry</span><span class="p">])</span>
+            <span class="k">return</span> <span class="p">(</span><span class="n">UNREADABLE_FLAG_ID</span><span class="p">,)</span>
+        <span class="n">released</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">stamp</span> <span class="o">=</span> <span class="n">_now</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;open&quot;</span> <span class="ow">and</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">wanted</span><span class="p">:</span>
+                <span class="n">entry</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">closed</span><span class="p">,</span> <span class="n">answered_at</span><span class="o">=</span><span class="n">stamp</span><span class="p">)</span>
+                <span class="n">released</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">]))</span>
+        <span class="k">if</span> <span class="n">released</span><span class="p">:</span>
+            <span class="n">_write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">released</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="mark_stop_unconfirmed">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.mark_stop_unconfirmed">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">mark_stop_unconfirmed</span><span class="p">(</span>
+    <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">flag_ids</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">operator</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">started</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="n">root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Mark the named open flags as stopped-but-unconfirmed; the ids marked.</span>
+
+<span class="sd">    The flags stay open — the turn did not stop — and record *started*, the</span>
+<span class="sd">    commands still running, with the operator and the time. Closed and unknown</span>
+<span class="sd">    ids are ignored; an unreadable record marks nothing. No root: ``()``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: *session_key* is not a safe file name.</span>
+<span class="sd">        TypeError: *flag_ids* is a single string.</span>
+<span class="sd">        OSError: The session directory is a link, or the write failed.</span>
+<span class="sd">        RuntimeError: The lock was not acquired in time.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">wanted</span> <span class="o">=</span> <span class="n">_ids</span><span class="p">(</span><span class="n">flag_ids</span><span class="p">)</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">hold_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">()</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">wanted</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">()</span>
+    <span class="k">with</span> <span class="n">_locked</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="k">as</span> <span class="n">path</span><span class="p">:</span>
+        <span class="n">flags</span> <span class="o">=</span> <span class="n">_read_record</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">()</span>
+        <span class="n">marked</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">stamp</span> <span class="o">=</span> <span class="n">_now</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;open&quot;</span> <span class="ow">and</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">wanted</span><span class="p">:</span>
+                <span class="n">entry</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+                    <span class="n">stop_unconfirmed</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">started</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">command</span><span class="p">)</span> <span class="k">for</span> <span class="n">command</span> <span class="ow">in</span> <span class="n">started</span><span class="p">],</span>
+                    <span class="n">stop_operator</span><span class="o">=</span><span class="n">operator</span><span class="p">,</span>
+                    <span class="n">stop_marked_at</span><span class="o">=</span><span class="n">stamp</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="n">marked</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">marked</span><span class="p">:</span>
+            <span class="n">_write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">marked</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

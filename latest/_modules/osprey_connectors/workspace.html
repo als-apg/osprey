@@ -1,0 +1,937 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.workspace &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/workspace';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/workspace.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.workspace</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.workspace</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Where a process finds its config and its agent data.</span>
+
+<span class="sd">The rendered ``config.yml``, the repo root it belongs to, and the agent-data</span>
+<span class="sd">root under it — resolved once here, for the connectors and for every framework</span>
+<span class="sd">layer that loads the same config. The rest of the deployment repo&#39;s layout</span>
+<span class="sd">(layer directories, the image staging area, the audit and archive zones) is the</span>
+<span class="sd">framework&#39;s, in ``osprey.utils.workspace``.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;BUILD_DIR_NAME&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;DEFAULT_AGENT_DATA_BASE_DIR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RENDERED_CONFIG_RELPATH&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SIMULATION_STATE_DIR_CONFIG_KEY&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SIMULATOR_LOG_DIR_RELPATH&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;agent_data_base_dir&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;anchored_path&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;dotted_config_str&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;load_osprey_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;rendered_config_path&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;repo_root_for_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;reset_config_cache&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;resolve_agent_data_root&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;resolve_config_path&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;resolve_path&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;resolve_project_root&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;resolve_shared_data_root&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;resolve_simulation_state_dir&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.workspace&quot;</span><span class="p">)</span>
+
+<span class="c1">#: The render zone inside a deployment repo, re-created wholesale by every</span>
+<span class="c1">#: ``osprey build``. The rendered config lives in it</span>
+<span class="c1">#: (:data:`RENDERED_CONFIG_RELPATH`), which is how :func:`repo_root_for_config`</span>
+<span class="c1">#: tells a host&#39;s render from a container&#39;s project directory.</span>
+<span class="n">BUILD_DIR_NAME</span> <span class="o">=</span> <span class="s2">&quot;build&quot;</span>
+
+<span class="c1">#: The durable state zone, which survives ``build/`` being re-created. Private:</span>
+<span class="c1">#: the framework owns the zone layout (``osprey.utils.workspace.STATE_DIR_NAME``,</span>
+<span class="c1">#: held equal to this by test); it is spelled here only to place</span>
+<span class="c1">#: :data:`DEFAULT_AGENT_DATA_BASE_DIR`.</span>
+<span class="n">_STATE_DIR_NAME</span> <span class="o">=</span> <span class="s2">&quot;var&quot;</span>
+
+<span class="c1">#: The file that makes a directory a deployment repo root, the marker</span>
+<span class="c1">#: :func:`resolve_project_root` walks up to. Private: the framework owns it</span>
+<span class="c1">#: (``osprey.utils.workspace.PROFILE_FILENAME``, held equal to this by test).</span>
+<span class="n">_PROFILE_FILENAME</span> <span class="o">=</span> <span class="s2">&quot;profile.yml&quot;</span>
+
+<span class="c1">#: The rendered config, relative to the repo root. It is an *output*: the source</span>
+<span class="c1">#: of truth is ``profile.yml`` at the repo root, and this file is what a build</span>
+<span class="c1">#: derives from it. Every producer and consumer of that path spells it through</span>
+<span class="c1">#: this constant so the two cannot drift.</span>
+<span class="n">RENDERED_CONFIG_RELPATH</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BUILD_DIR_NAME</span><span class="si">}</span><span class="s2">/config.yml&quot;</span>
+
+<span class="c1">#: Agent-data root used when a config declares no ``agent_data.base_dir``.</span>
+<span class="c1">#: Under ``var/`` rather than beside the render: memory, sessions, and artifacts</span>
+<span class="c1">#: have to survive ``rm -rf build/``, which is the one guarantee the build zone</span>
+<span class="c1">#: does not offer.</span>
+<span class="n">DEFAULT_AGENT_DATA_BASE_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">_STATE_DIR_NAME</span><span class="si">}</span><span class="s2">/agent_data&quot;</span>
+
+<span class="c1">#: The simulator&#39;s model-log directory, relative to the repo root: the composite</span>
+<span class="c1">#: appends one ``&lt;model&gt;.log`` per served physics model here, from whichever</span>
+<span class="c1">#: process serves it. Durable, like the agent-data root beside it.</span>
+<span class="n">SIMULATOR_LOG_DIR_RELPATH</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">_STATE_DIR_NAME</span><span class="si">}</span><span class="s2">/simulator&quot;</span>
+
+<span class="c1">#: Subdirectory of the agent-data root holding the simulation&#39;s mutable</span>
+<span class="c1">#: ``active_scenarios`` state file.</span>
+<span class="n">_SIMULATION_STATE_DIR_NAME</span> <span class="o">=</span> <span class="s2">&quot;simulation&quot;</span>
+
+<span class="c1">#: Config key naming that directory explicitly (relative paths resolve against</span>
+<span class="c1">#: the project root). Unset — the normal case — puts it under the agent-data</span>
+<span class="c1">#: root. :class:`osprey_connectors.config.ConfigBuilder`&#39;s runtime-write</span>
+<span class="c1">#: advisory and :func:`resolve_simulation_state_dir` read this one spelling.</span>
+<span class="n">SIMULATION_STATE_DIR_CONFIG_KEY</span> <span class="o">=</span> <span class="s2">&quot;simulation.state_dir&quot;</span>
+
+
+<div class="viewcode-block" id="dotted_config_str">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.dotted_config_str">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">dotted_config_str</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read a dotted config key, or ``None`` if it does not name a real string.</span>
+
+<span class="sd">    ``None`` is returned for every way the key can fail to answer — a missing</span>
+<span class="sd">    segment, a segment that is not a mapping, a non-string value, or an empty</span>
+<span class="sd">    one — because each of those means the same thing to every caller: the key</span>
+<span class="sd">    is unset, use the default. A mistyped key therefore falls through to the</span>
+<span class="sd">    default rather than raising.</span>
+
+<span class="sd">    The single reader for the path-shaped config keys, so the checks that</span>
+<span class="sd">    *reject* a value and the resolvers that *use* it cannot disagree about what</span>
+<span class="sd">    the config says — including on ``dict`` versus ``Mapping``, a difference</span>
+<span class="sd">    that stays invisible only while every config arrives straight from the YAML</span>
+<span class="sd">    loader.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: Loaded config mapping, or ``None``.</span>
+<span class="sd">        key: Dotted path, e.g. ``simulation.state_dir``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">or</span> <span class="n">part</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="n">part</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">value</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="anchored_path">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.anchored_path">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">anchored_path</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_root</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Expand ``~`` in a configured path and anchor a relative one at the project.</span>
+
+<span class="sd">    The other half of :func:`dotted_config_str`: a configured path is absolute,</span>
+<span class="sd">    home-relative, or project-relative, and every consumer has to make the same</span>
+<span class="sd">    three-way choice before comparing paths or creating directories.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">path</span> <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">is_absolute</span><span class="p">()</span> <span class="k">else</span> <span class="n">Path</span><span class="p">(</span><span class="n">project_root</span><span class="p">)</span> <span class="o">/</span> <span class="n">path</span></div>
+
+
+
+<div class="viewcode-block" id="rendered_config_path">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.rendered_config_path">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">rendered_config_path</span><span class="p">(</span><span class="n">repo_root</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Path to the rendered ``config.yml`` of the repo rooted at *repo_root*.</span>
+
+<span class="sd">    The one place the ``build/config.yml`` spelling is assembled, so that a</span>
+<span class="sd">    caller holding a repo root never has to know which zone the render lands in.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">repo_root</span><span class="p">)</span> <span class="o">/</span> <span class="n">RENDERED_CONFIG_RELPATH</span></div>
+
+
+
+<div class="viewcode-block" id="agent_data_base_dir">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.agent_data_base_dir">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">agent_data_base_dir</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read the agent-data root out of an already-loaded config mapping.</span>
+
+<span class="sd">    ``agent_data.base_dir`` is the only key that names this directory. Callers</span>
+<span class="sd">    holding a config dict read it through here and anchor the result themselves</span>
+<span class="sd">    (the health checks and the compose generator anchor on ``project_root``);</span>
+<span class="sd">    callers with no config in hand use :func:`resolve_agent_data_root`, which</span>
+<span class="sd">    loads the config and anchors on the same ``project_root``.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: Loaded ``config.yml`` mapping, or ``None``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The configured base directory, possibly relative to the caller&#39;s anchor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="p">(</span><span class="n">config</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;agent_data&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">DEFAULT_AGENT_DATA_BASE_DIR</span>
+    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;base_dir&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">DEFAULT_AGENT_DATA_BASE_DIR</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="resolve_simulation_state_dir">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_simulation_state_dir">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_simulation_state_dir</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">project_root</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the directory holding the mutable ``active_scenarios`` state file.</span>
+
+<span class="sd">    The state file is the one piece of simulation state that changes after a</span>
+<span class="sd">    build, so it lives under the agent-data root rather than in ``data/``:</span>
+<span class="sd">    everything in a project&#39;s ``data/`` tree is build-owned and checksummed</span>
+<span class="sd">    (see :func:`osprey.cli.templates.manifest.calculate_file_checksums`), and</span>
+<span class="sd">    a scenario switch is not project drift.</span>
+
+<span class="sd">    The one spelling serves config, the compose generator that renders the</span>
+<span class="sd">    container&#39;s bind-mount source, and the build injector that pre-creates it,</span>
+<span class="sd">    so all three resolve the same directory.</span>
+
+<span class="sd">    A mistyped :data:`SIMULATION_STATE_DIR_CONFIG_KEY` (anything but a non-empty</span>
+<span class="sd">    string) falls through to the default rather than raising, matching how</span>
+<span class="sd">    :class:`osprey_connectors.config.ConfigBuilder`&#39;s runtime-write advisory</span>
+<span class="sd">    reads the same key.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: Loaded ``config.yml`` mapping, or ``None``.</span>
+<span class="sd">        project_root: Root the relative paths above resolve against.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Absolute path to the state directory (not created here).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">configured</span> <span class="o">=</span> <span class="n">dotted_config_str</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">SIMULATION_STATE_DIR_CONFIG_KEY</span><span class="p">)</span>
+    <span class="n">relative</span> <span class="o">=</span> <span class="n">configured</span> <span class="ow">or</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">agent_data_base_dir</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">_SIMULATION_STATE_DIR_NAME</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="n">anchored_path</span><span class="p">(</span><span class="n">relative</span><span class="p">,</span> <span class="n">project_root</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="resolve_config_path">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_config_path">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_config_path</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the path to the rendered ``config.yml``.</span>
+
+<span class="sd">    Resolution order:</span>
+<span class="sd">      1. ``OSPREY_CONFIG`` environment variable (with shell variable expansion).</span>
+<span class="sd">         The CLI sets it on the host, every framework MCP server definition</span>
+<span class="sd">         sets it, and so does the compose service of every container whose</span>
+<span class="sd">         working directory does not hold the render: the Bluesky bridge, its</span>
+<span class="sd">         queueserver and the Bluesky sidecar run from ``/app`` with the config</span>
+<span class="sd">         mounted at ``/app/project/config.yml``.</span>
+<span class="sd">      2. ``build/config.yml`` under the current working directory — standing in</span>
+<span class="sd">         a repo root with a render in it.</span>
+<span class="sd">      3. ``config.yml`` under the current working directory — a container</span>
+<span class="sd">         project directory, whose root *is* the render, and the path reported</span>
+<span class="sd">         when nothing exists at all.</span>
+
+<span class="sd">    ``CONFIG_FILE`` is deliberately NOT read here, even though</span>
+<span class="sd">    :func:`osprey.agent_runner.artifact_resolve.deployed_config_path` reads it</span>
+<span class="sd">    ahead of ``OSPREY_CONFIG``. That helper answers for one deployed process</span>
+<span class="sd">    whose compose service sets the variable; this one answers for the framework</span>
+<span class="sd">    everywhere, and ``CONFIG_FILE`` is a name generic enough that honoring it</span>
+<span class="sd">    globally would let an unrelated export redirect every OSPREY process on the</span>
+<span class="sd">    host. Where a container is handed both, they agree by construction rather</span>
+<span class="sd">    than by precedence. The Bluesky compose services set both to the one</span>
+<span class="sd">    mounted path. The dispatch worker&#39;s sets ``CONFIG_FILE`` to</span>
+<span class="sd">    ``/app/&lt;project&gt;/build/config.yml``, and the image&#39;s ``WORKDIR`` is</span>
+<span class="sd">    ``/app/&lt;project&gt;``, so step 2 above finds that same file.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+    <span class="n">configured</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;OSPREY_CONFIG&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">configured</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">expandvars</span><span class="p">(</span><span class="n">configured</span><span class="p">))</span>
+
+    <span class="n">cwd</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span>
+    <span class="n">rendered</span> <span class="o">=</span> <span class="n">rendered_config_path</span><span class="p">(</span><span class="n">cwd</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">rendered</span> <span class="k">if</span> <span class="n">rendered</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span> <span class="k">else</span> <span class="n">cwd</span> <span class="o">/</span> <span class="s2">&quot;config.yml&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="load_osprey_config">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.load_osprey_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_osprey_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load OSPREY configuration (delegates to ConfigBuilder singleton).</span>
+
+<span class="sd">    Delegates to the framework&#39;s ``ConfigBuilder`` so that ``${VAR:-default}``</span>
+<span class="sd">    environment-variable placeholders are resolved consistently.</span>
+
+<span class="sd">    The file is the one :func:`resolve_config_path` names.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">config_path</span> <span class="o">=</span> <span class="n">resolve_config_path</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_builder</span>
+
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">get_config_builder</span><span class="p">(</span><span class="n">config_path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">),</span> <span class="n">set_as_default</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">raw_config</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{}</span></div>
+
+
+
+<div class="viewcode-block" id="reset_config_cache">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.reset_config_cache">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">reset_config_cache</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Clear all config caches — used between tests.</span>
+
+<span class="sd">    The warn-once latch on the facility-timezone fallback is cleared with them.</span>
+<span class="sd">    It is process state in exactly the way a cache is: left set, whichever test</span>
+<span class="sd">    happened to run first would consume the single warning and every later test</span>
+<span class="sd">    asserting on it would see none — an order-dependent pass that says nothing</span>
+<span class="sd">    about the code.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span> <span class="k">as</span> <span class="n">config_module</span>
+
+    <span class="n">config_module</span><span class="o">.</span><span class="n">_default_config</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">config_module</span><span class="o">.</span><span class="n">_default_configurable</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">config_module</span><span class="o">.</span><span class="n">_config_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+    <span class="n">config_module</span><span class="o">.</span><span class="n">_tz_fallback_warned</span> <span class="o">=</span> <span class="kc">False</span></div>
+
+
+
+<div class="viewcode-block" id="repo_root_for_config">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.repo_root_for_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">repo_root_for_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The repo root that a config file at *config_path* belongs to.</span>
+
+<span class="sd">    The rendered config lives at ``&lt;repo&gt;/build/config.yml``, so the repo is</span>
+<span class="sd">    two levels up — except in a container, whose project directory *is* the</span>
+<span class="sd">    render and holds ``config.yml`` at its root. One helper for both, so the</span>
+<span class="sd">    &quot;is this the build zone?&quot; question is asked in exactly one place.</span>
+
+<span class="sd">    Known non-goal: a FLAT project whose own directory is literally named</span>
+<span class="sd">    ``build`` is read as a render, and its parent is returned. Accepted</span>
+<span class="sd">    — every runtime path derives the root through this helper, so a regen or a</span>
+<span class="sd">    status check agreeing with the runtime beats a special case that would make</span>
+<span class="sd">    the two disagree.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parent</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span>
+    <span class="k">return</span> <span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="k">if</span> <span class="n">parent</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">BUILD_DIR_NAME</span> <span class="k">else</span> <span class="n">parent</span></div>
+
+
+
+<div class="viewcode-block" id="resolve_project_root">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_project_root">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_project_root</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the repo root that relative configured paths anchor against.</span>
+
+<span class="sd">    ``project_root`` names the deployment repo — the directory holding</span>
+<span class="sd">    ``profile.yml`` — and not the directory holding ``config.yml``: the render</span>
+<span class="sd">    lives one level down, in ``build/``, so anchoring on the config file&#39;s own</span>
+<span class="sd">    parent would put every relative path inside the disposable zone.</span>
+
+<span class="sd">    Resolution order:</span>
+<span class="sd">      1. The config&#39;s own ``project_root`` key, when it names a directory that</span>
+<span class="sd">         exists here. That qualifier is what makes it right inside a container,</span>
+<span class="sd">         where the repo was built at one path and runs at another: a deployed</span>
+<span class="sd">         service reads a config STAGED on the host — the compose generator</span>
+<span class="sd">         flattens the host render into ``build/services/&lt;svc&gt;/config.yml``, and</span>
+<span class="sd">         the service&#39;s compose file bind-mounts that over the one in the image —</span>
+<span class="sd">         so its ``project_root`` is a host path that names nothing in here.</span>
+<span class="sd">         Anchoring on it would put the</span>
+<span class="sd">         agent-data root, and every other relative path, outside the mounted</span>
+<span class="sd">         volume. Same rule and same reason as</span>
+<span class="sd">         :func:`osprey.deployment.compose_generator.resolve_repo_root`.</span>
+<span class="sd">      2. The repo the resolved config path sits in — its parent, or that</span>
+<span class="sd">         parent&#39;s parent when the config is in the ``build/`` zone. Filesystem</span>
+<span class="sd">         truth, and correct in every container layout: the mount target names</span>
+<span class="sd">         the render, so unwrapping it names the repo.</span>
+<span class="sd">      3. The nearest ancestor of the working directory holding ``profile.yml``,</span>
+<span class="sd">         the marker every OSPREY verb walks up to. Reached only when no config</span>
+<span class="sd">         file exists, so it can never out-vote one; without it a process started</span>
+<span class="sd">         in an unbuilt render would anchor every relative path inside</span>
+<span class="sd">         ``build/``.</span>
+<span class="sd">      4. The configured value after all, when there is no config file and no</span>
+<span class="sd">         marker to derive from — a build rendered with ``--runtime-root``</span>
+<span class="sd">         records a path that exists only on the machine it will run on, and has</span>
+<span class="sd">         nothing better.</span>
+<span class="sd">      5. The current working directory, when there is neither.</span>
+<span class="sd">         ``CLAUDE_PROJECT_DIR`` is not an input: this resolver serves processes</span>
+<span class="sd">         outside any agent session as well, and a harness variable must not</span>
+<span class="sd">         redirect them.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: Loaded ``config.yml`` mapping, or ``None`` to consult only the</span>
+<span class="sd">            config *path* (callers that have not loaded one).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">configured</span> <span class="o">=</span> <span class="n">dotted_config_str</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;project_root&quot;</span><span class="p">)</span>
+    <span class="n">candidate</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">configured</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span> <span class="k">if</span> <span class="n">configured</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">candidate</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">candidate</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">candidate</span>
+
+    <span class="n">config_path</span> <span class="o">=</span> <span class="n">resolve_config_path</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">config_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">repo_root_for_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+    <span class="n">cwd</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">ancestor</span> <span class="ow">in</span> <span class="p">(</span><span class="n">cwd</span><span class="p">,</span> <span class="o">*</span><span class="n">cwd</span><span class="o">.</span><span class="n">parents</span><span class="p">):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ancestor</span> <span class="o">/</span> <span class="n">_PROFILE_FILENAME</span><span class="p">)</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">ancestor</span>
+    <span class="k">return</span> <span class="n">candidate</span> <span class="k">if</span> <span class="n">candidate</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">cwd</span></div>
+
+
+
+<div class="viewcode-block" id="resolve_agent_data_root">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_agent_data_root">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_agent_data_root</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the agent data root directory from config.</span>
+
+<span class="sd">    Uses ``agent_data.base_dir`` from config.yml, anchored on the repo root that</span>
+<span class="sd">    :func:`resolve_project_root` resolves. Falls back to</span>
+<span class="sd">    :data:`DEFAULT_AGENT_DATA_BASE_DIR` relative to that root when the config</span>
+<span class="sd">    declares no base directory.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">load_osprey_config</span><span class="p">()</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">anchored_path</span><span class="p">(</span><span class="n">agent_data_base_dir</span><span class="p">(</span><span class="n">config</span><span class="p">),</span> <span class="n">resolve_project_root</span><span class="p">(</span><span class="n">config</span><span class="p">))</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+
+    <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+    <span class="n">session_id</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;OSPREY_SESSION_ID&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">session_id</span><span class="p">:</span>
+        <span class="n">resolved</span> <span class="o">=</span> <span class="n">resolved</span> <span class="o">/</span> <span class="s2">&quot;sessions&quot;</span> <span class="o">/</span> <span class="n">session_id</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Agent data root resolved to </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">resolved</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">resolved</span></div>
+
+
+
+<div class="viewcode-block" id="resolve_shared_data_root">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_shared_data_root">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_shared_data_root</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the agent data root WITHOUT session-path isolation.</span>
+
+<span class="sd">    Use for stores whose data must be visible to long-lived daemons</span>
+<span class="sd">    (gallery, ARIEL) that run outside any specific session.  Logical</span>
+<span class="sd">    session isolation is handled at the index level via entry metadata</span>
+<span class="sd">    (e.g. ``ArtifactEntry.session_id``).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: An already-loaded config mapping; ``None`` loads the config.</span>
+<span class="sd">            One derivation serves both a store&#39;s writer and a reader that</span>
+<span class="sd">            already holds a config.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="n">load_osprey_config</span><span class="p">()</span>
+    <span class="n">resolved</span> <span class="o">=</span> <span class="n">anchored_path</span><span class="p">(</span><span class="n">agent_data_base_dir</span><span class="p">(</span><span class="n">config</span><span class="p">),</span> <span class="n">resolve_project_root</span><span class="p">(</span><span class="n">config</span><span class="p">))</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Shared data root resolved to </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">resolved</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">resolved</span></div>
+
+
+
+<div class="viewcode-block" id="resolve_path">
+<a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_path">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_path</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve a path relative to the project root from config.</span>
+
+<span class="sd">    Absolute paths are returned as-is. Relative paths are resolved</span>
+<span class="sd">    against ``project_root`` from the active configuration.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        path_str: Path string (absolute or relative to project root)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Resolved absolute Path object</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_builder</span>
+
+    <span class="n">config_builder</span> <span class="o">=</span> <span class="n">get_config_builder</span><span class="p">()</span>
+    <span class="n">project_root</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_builder</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;project_root&quot;</span><span class="p">))</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path_str</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">is_absolute</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">path</span>
+    <span class="k">return</span> <span class="n">project_root</span> <span class="o">/</span> <span class="n">path</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

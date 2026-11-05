@@ -405,6 +405,18 @@
 <li class="toctree-l2"><a class="reference internal" href="dock-engine.html">Dock Engine Contract</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../connectors-api/index.html">osprey-connectors API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/contracts.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/building.html">Building Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/errors-logging.html">Errors and Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/configuration.html">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/write-safety.html">Write Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/deployment.html">A Deployment’s Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/supervision.html">Supervising Connector Processes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
 </ul>
 </div>
@@ -572,14 +584,16 @@ connector’s own subclass crosses as the nearest public class it extends.</p>
 <p>A write is <strong>confirmed</strong> when the channel it wrote now holds the value that was
 sent. The connector establishes that itself: it re-reads the channel once the
 control system has accepted the put, and reports what it found as a single word
-on <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>, which every
-<code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> call returns.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">WriteOutcome</span>
-
-<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span><span class="s2">&quot;BEAM:CURRENT&quot;</span><span class="p">,</span> <span class="mf">100.0</span><span class="p">)</span>
-
-<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">outcome</span> <span class="ow">is</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">CONFIRMED</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;the channel now holds the value that was sent&quot;</span><span class="p">)</span>
+on <a class="reference internal" href="../connectors-api/contracts.html#osprey_connectors.control_system.ChannelWriteResult" title="osprey_connectors.control_system.ChannelWriteResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code></a>, which every
+<code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> call returns; <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> returns one per
+operation. The program in <a class="reference internal" href="../../how-to/control-systems/use-connectors.html#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a> reads it after a
+batch, with <a class="reference internal" href="../connectors-api/contracts.html#osprey_connectors.control_system.WriteOutcome" title="osprey_connectors.control_system.WriteOutcome"><code class="xref py py-class docutils literal notranslate"><span class="pre">WriteOutcome</span></code></a> imported
+from <code class="docutils literal notranslate"><span class="pre">osprey_connectors.control_system</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">outcome</span> <span class="ow">is</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">CONFIRMED</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span> <span class="s2">&quot;now holds&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">value_written</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">outcome</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">verdict_reason</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Every write ends in exactly one of six outcomes:</p>
@@ -881,7 +895,7 @@ nothing renews a budget or revives a lease, and the program asks again. The
 chip, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">write-authorization</span> <span class="pre">list</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> read the
 holder’s ledger and show a grant whose steps are spent or whose lease lapsed
 as ended, with its steps used of its total.</p>
-<p><strong>Stop.</strong> <code class="xref py py-func docutils literal notranslate"><span class="pre">set_switch()</span></code> with <code class="docutils literal notranslate"><span class="pre">off</span></code>
+<p><strong>Stop.</strong> <a class="reference internal" href="../connectors-api/write-safety.html#osprey_connectors.control_context.set_switch" title="osprey_connectors.control_context.set_switch"><code class="xref py py-func docutils literal notranslate"><span class="pre">set_switch()</span></code></a> with <code class="docutils literal notranslate"><span class="pre">off</span></code>
 marks every grant on the named machines (every grant for <code class="docutils literal notranslate"><span class="pre">&quot;all&quot;</span></code>) revoked
 inside its record lock; <code class="docutils literal notranslate"><span class="pre">&quot;all&quot;</span></code> also moves the epoch, which ends every grant
 issued under the old one. A stop whose marks cannot be written moves the epoch
@@ -1096,11 +1110,11 @@ key it read.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
-<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelValue</span></code></dt><dd><p>Channel read result data model</p>
+<dt><a class="reference internal" href="../connectors-api/contracts.html#osprey_connectors.control_system.ChannelValue" title="osprey_connectors.control_system.ChannelValue"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelValue</span></code></a></dt><dd><p>Channel read result data model</p>
 </dd>
-<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code></dt><dd><p>Complete write operation result</p>
+<dt><a class="reference internal" href="../connectors-api/contracts.html#osprey_connectors.control_system.ChannelWriteResult" title="osprey_connectors.control_system.ChannelWriteResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code></a></dt><dd><p>Complete write operation result</p>
 </dd>
-<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">WriteOutcome</span></code></dt><dd><p>The six words a write can end in</p>
+<dt><a class="reference internal" href="../connectors-api/contracts.html#osprey_connectors.control_system.WriteOutcome" title="osprey_connectors.control_system.WriteOutcome"><code class="xref py py-class docutils literal notranslate"><span class="pre">WriteOutcome</span></code></a></dt><dd><p>The six words a write can end in</p>
 </dd>
 </dl>
 </div>
@@ -1114,7 +1128,7 @@ control-system connector answers about the present.</p>
 <p><span class="versionmodified changed">Changed in version Unreleased: </span><code class="docutils literal notranslate"><span class="pre">get_data</span></code> returns long-format data (below) instead of a shared-index wide
 <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code>. Out-of-tree connectors written against the old contract must be updated.</p>
 </div>
-<p>Subclass <code class="xref py py-class docutils literal notranslate"><span class="pre">ArchiverConnector</span></code> and implement
+<p>Subclass <a class="reference internal" href="../connectors-api/contracts.html#osprey_connectors.archiver.ArchiverConnector" title="osprey_connectors.archiver.ArchiverConnector"><code class="xref py py-class docutils literal notranslate"><span class="pre">ArchiverConnector</span></code></a> and implement
 <code class="docutils literal notranslate"><span class="pre">connect</span></code>, <code class="docutils literal notranslate"><span class="pre">disconnect</span></code>, <code class="docutils literal notranslate"><span class="pre">get_data</span></code>, <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">check_availability</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">get_data</span></code> is the entire contract. It returns a <strong>long-format</strong> <code class="docutils literal notranslate"><span class="pre">pandas.DataFrame</span></code>
 with exactly three columns, sorted by <code class="docutils literal notranslate"><span class="pre">channel</span></code> then <code class="docutils literal notranslate"><span class="pre">timestamp</span></code>:</p>
