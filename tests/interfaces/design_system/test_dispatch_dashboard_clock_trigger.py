@@ -73,7 +73,7 @@ def test_a_clock_trigger_shows_its_times_and_next_fire(
         f"{dashboard_url}/",
         wait_until="domcontentloaded",
     )
-    page.bar_item("view", "triggers").click()
+    page.click("#view-seg button[data-view='triggers']")
     page.wait_for_selector("#trigger-list .trigger-row", timeout=10_000)
     # The next fire renders once the facility-time module has loaded.
     page.wait_for_function(
