@@ -257,7 +257,7 @@ def _open(browser, hub: Hub, *, terminal: bool = False) -> Page:
         page = browser.new_page(viewport=VIEWPORT)
         arm_terminal_tab(page)
         page.goto(hub.base_url, wait_until="domcontentloaded")
-        expect(rail_entry(page, "artifacts")).to_be_attached(timeout=15_000)
+        expect(rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=15_000)
     else:
         page = open_hub_page(browser, hub.base_url, viewport=VIEWPORT)

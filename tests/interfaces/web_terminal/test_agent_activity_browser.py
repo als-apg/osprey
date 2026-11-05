@@ -190,8 +190,19 @@ _CUSTOM_DATA_VIZ: dict = {
 }
 
 
+# A second healthy rail member, for tests that hand the workspace tile away
+# from data-viz with a rail click (artifacts has no rail entry).
+_CUSTOM_TUNING: dict = {
+    "id": "tuning",
+    "label": "TUNING",
+    "url": "http://tuning.internal:8080",
+    "healthEndpoint": None,
+    "path": "/",
+}
+
+
 @contextmanager
-def _hub_server(workspace_dir: Path) -> Iterator[str]:
+def _hub_server(workspace_dir: Path, *extra_panels: dict) -> Iterator[str]:
     """Launch a real web-terminal hub with artifacts + the data-viz panel.
 
     The artifacts panel reports the standard fallback URL so it
@@ -200,7 +211,8 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
     Yields:
         The hub's base URL.
     """
-    with hub_server(workspace_dir, custom_panels=[_CUSTOM_DATA_VIZ]) as (base_url, _app):
+    panels = [_CUSTOM_DATA_VIZ, *extra_panels]
+    with hub_server(workspace_dir, custom_panels=panels) as (base_url, _app):
         yield base_url
 
 
@@ -214,9 +226,7 @@ def _open_hub_page(browser: Browser, base_url: str) -> Page:
     page = browser.new_page()
     page.add_init_script(_PROBES_INIT_SCRIPT)
     page.goto(base_url, wait_until="domcontentloaded")
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=10_000
-    )
+    expect(page.locator(_AGENT_RAIL_READY)).to_be_attached(timeout=10_000)
     expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_be_attached(
         timeout=10_000
     )
@@ -274,7 +284,7 @@ def _reload_hub_page(page: Page) -> None:
     restored dock layout varies with what the page did before reloading.
     """
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator(_ARTIFACTS_RAIL)).to_be_attached(timeout=10_000)
+    expect(page.locator(_AGENT_RAIL_READY)).to_be_attached(timeout=10_000)
     _wait_for_sse_open(page, "/api/files/events")
 
 
@@ -300,7 +310,10 @@ _ATTENTION_RE = re.compile(r"\bagent-attention\b")
 _ACTIVE_RE = re.compile(r"\bactive\b")
 
 _DATA_VIZ_RAIL = 'button.panel-rail-button[data-panel-id="data-viz"]'
-_ARTIFACTS_RAIL = 'button.panel-rail-button[data-panel-id="artifacts"]'
+_TUNING_RAIL = 'button.panel-rail-button[data-panel-id="tuning"]'
+_AGENT_RAIL = 'button.panel-rail-button[data-panel-id="terminal"]'
+# The page ships the Agent row disabled; the rail render enables it.
+_AGENT_RAIL_READY = f"{_AGENT_RAIL}:not(.disabled)"
 
 
 # ---------------------------------------------------------------------------
@@ -331,9 +344,7 @@ def test_panel_activity_badges_rail_entry_and_activation_clears_it(tmp_path, chr
 
         # The persistent badge lands on exactly the targeted rail entry.
         expect(rail_btn).to_have_class(_ATTENTION_RE, timeout=5_000)
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-        ).not_to_have_class(_ATTENTION_RE)
+        expect(page.locator(_AGENT_RAIL)).not_to_have_class(_ATTENTION_RE)
 
         # Activating the panel (a rail click) serves — and clears — the badge.
         rail_btn.click()
@@ -688,13 +699,14 @@ def test_acknowledged_badge_stays_cleared_across_reload_and_a_newer_one_returns(
     reload compares ring rows against what the operator actually cleared —
     never against a browser clock.
 
-    Focus is deliberately handed back to artifacts before each reload, so the
-    badge under test is never restored onto the panel that is already surfaced.
+    Focus is deliberately handed to another rail member before each reload, so
+    the badge under test is never restored onto the panel that is already
+    surfaced.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
-    with _hub_server(workspace) as base_url:
+    with _hub_server(workspace, _CUSTOM_TUNING) as base_url:
         page = _open_hub_page(chromium_browser, base_url)
         rail_btn = page.locator(_DATA_VIZ_RAIL)
 
@@ -713,10 +725,10 @@ def test_acknowledged_badge_stays_cleared_across_reload_and_a_newer_one_returns(
         assert ack is not None, "surfacing the panel did not record an acknowledgment"
         assert float(ack) > 0
 
-        # Hand the workspace back to artifacts so the reload does not land with
+        # Hand the workspace to tuning so the reload does not land with
         # data-viz surfaced (see the docstring's note on the two-click limit).
-        page.locator(_ARTIFACTS_RAIL).click()
-        expect(page.locator(_ARTIFACTS_RAIL)).to_have_class(_ACTIVE_RE, timeout=5_000)
+        page.locator(_TUNING_RAIL).click()
+        expect(page.locator(_TUNING_RAIL)).to_have_class(_ACTIVE_RE, timeout=5_000)
 
         # --- Reload: the served badge must not come back ---------------------
         _reload_hub_page(page)

@@ -216,9 +216,7 @@ def _open_page(browser, base_url: str) -> Page:
     page = browser.new_page()
     page.add_init_script(_FETCH_COUNTER_JS)
     page.goto(base_url, wait_until="domcontentloaded")
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=15_000
-    )
+    expect(rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=15_000)
     return page
 
@@ -337,9 +335,10 @@ def _rail_ids(page: Page) -> list[str]:
     return page.eval_on_selector_all(".panel-rail-button", "els => els.map(e => e.dataset.panelId)")
 
 
-def _active_rail_id(page: Page) -> str | None:
+def _active_panel_id(page: Page) -> str | None:
+    """The client's surfaced panel (``panel-manager.js`` stamps it; artifacts has no rail entry)."""
     return page.evaluate(
-        "() => document.querySelector('.panel-rail-button.active')?.dataset.panelId ?? null"
+        "() => document.getElementById('right-panel')?.dataset.activePanel ?? null"
     )
 
 
@@ -820,9 +819,10 @@ def test_arrange_with_unhealthy_member_focuses_elsewhere_and_docks_no_empty_tile
         assert result["status"] == "ok", result
 
         # Focus falls back to the first healthy listed tile.
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
-        ).to_have_count(1, timeout=10_000)
+        # Artifacts has no rail entry; the client's active stamp shows the focus.
+        expect(page.locator('#right-panel[data-active-panel="artifacts"]')).to_have_count(
+            1, timeout=10_000
+        )
         page.wait_for_timeout(1_000)
 
         # No ghost tile for the panel that cannot fill one — and its rail entry
@@ -865,7 +865,7 @@ def _workspace_signature(page: Page) -> dict:
     return {
         "shape": _shape(_client_layout(page)),
         "rail": _rail_ids(page),
-        "active": _active_rail_id(page),
+        "active": _active_panel_id(page),
     }
 
 
@@ -967,11 +967,11 @@ def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chr
     assert human_result == agent_result, f"preset paths diverged\nhuman: {human}\nagent: {agent}"
     # And the shared result is the preset's own layout: its two tiles side by
     # side, left of the terminal, the rail pruned to them (plus the terminal
-    # anchor).
+    # anchor; artifacts has no rail entry).
     assert human["shape"] == "row[artifacts,data-viz,terminal]", human
     assert human["server_shape"] == human["shape"], human
     assert "scope" not in human["rail"], human
-    assert set(human["rail"]) == {"terminal", "data-viz", "artifacts"}, human
+    assert set(human["rail"]) == {"terminal", "data-viz"}, human
     assert human["server_visible"] == ["artifacts", "data-viz"], human
 
     # The recorded focus moved with the arrangement rather than being stranded
@@ -1181,9 +1181,7 @@ def test_occupancy_read_back_distinguishes_unknown_from_empty(tmp_path, chromium
         dockless = chromium_browser.new_page()
         dockless.route("**/dockview-core*", lambda route: route.abort())
         dockless.goto(base_url, wait_until="domcontentloaded")
-        expect(
-            dockless.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-        ).to_be_attached(timeout=15_000)
+        expect(rail_entry(dockless, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
         assert (
             dockless.evaluate(
                 "async () => { const m = await import('/static/js/dock-workspace.js');"
@@ -1272,7 +1270,7 @@ def test_human_focus_stays_local_to_the_gesturing_client(tmp_path, chromium_brow
         _wait_for_client_tiles(page_a, ["artifacts"])
         page_b = _open_page(chromium_browser, base_url)
         _wait_for_client_tiles(page_b, ["artifacts"])
-        assert _active_rail_id(page_a) == "artifacts"
+        assert _active_panel_id(page_a) == "artifacts"
 
         # B's human gesture: open data-viz beside (activation reports focus).
         _open_beside(page_b, "data-viz")
@@ -1282,7 +1280,7 @@ def test_human_focus_stays_local_to_the_gesturing_client(tmp_path, chromium_brow
         _wait_for_active(base_url, "data-viz")
         page_a.wait_for_timeout(1000)  # ...but no echo may reach client A:
 
-        assert _active_rail_id(page_a) == "artifacts", (
+        assert _active_panel_id(page_a) == "artifacts", (
             "client B's human focus gesture moved client A's active panel"
         )
         assert _client_service_tabs(page_a) == ["artifacts"], (

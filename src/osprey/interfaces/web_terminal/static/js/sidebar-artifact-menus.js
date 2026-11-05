@@ -32,6 +32,7 @@ import { showConfirm } from './posture-confirm.js';
 
 /** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
+/** @typedef {import('./sidebar-artifact-rows.js').TreeEntry} TreeEntry */
 
 const TREE_SELECTOR = '[data-session-tree]';
 const SESSION_SELECTOR = '.osprey-tree-session[data-session-id]';
@@ -234,7 +235,7 @@ async function setPinned(entry) {
 /**
  * Ask first, then delete. Deleting a run's head deletes the run and its
  * parts (the server's delete_with_group), and the question says so.
- * @param {ArtifactEntry} entry  @param {boolean} isRun
+ * @param {TreeEntry} entry  @param {boolean} isRun
  */
 export function confirmDelete(entry, isRun) {
   const name = entry.title || entry.id;
@@ -292,7 +293,7 @@ function openPart(head, partId) {
 
 /**
  * A run head's menu. A part the run does not have is offered disabled.
- * @param {HTMLElement} head  @param {ArtifactEntry} entry
+ * @param {HTMLElement} head  @param {TreeEntry} entry
  * @returns {MenuItem[]}
  */
 export function runMenuItems(head, entry) {

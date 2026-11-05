@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -174,7 +175,9 @@ class ScriptedModel:
             blocks = [
                 {
                     "type": "tool_use",
-                    "id": f"toolu_scripted_{index:02d}_{n:02d}",
+                    # Unique like a real tool-use id: the exec id of a run is its
+                    # tool-use id, and two scripts sharing a store must not share one.
+                    "id": f"toolu_scripted_{index:02d}_{n:02d}_{uuid.uuid4().hex[:12]}",
                     "name": call.name,
                     "input": dict(call.input),
                 }

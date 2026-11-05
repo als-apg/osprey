@@ -124,6 +124,9 @@ const TID = '11111111-1111-4111-8111-111111111111';
  * A session row as GET /api/sessions lists it.
  * @param {object} [extra]
  */
+/** @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifact-rows.js').SessionRow} SessionRow */
+
+/** @param {Partial<SessionRow>} [extra] @returns {SessionRow} */
 const session = (extra = {}) => ({
   transcript_id: TID,
   title: 'Tune the orbit',
@@ -258,10 +261,12 @@ describe('a session row', () => {
   });
 
   test('a session without a title (failed naming, truncated scan) is "Untitled session"', () => {
-    for (const extra of [
+    /** @type {Partial<SessionRow>[]} */
+    const extras = [
       { naming: 'failed', title: '' },
       { truncated: true, title: null },
-    ]) {
+    ];
+    for (const extra of extras) {
       const row = rows.sessionRow(session(extra), { active: false, open: false, count: 0 });
       expect(row.querySelector('.osprey-tree-title')?.textContent).toBe('Untitled session');
     }
