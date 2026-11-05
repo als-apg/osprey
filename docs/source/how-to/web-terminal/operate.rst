@@ -165,9 +165,9 @@ The chat and the terminal run the same Claude Code version, the one
 is not installed, the server log says which one to install; see
 :doc:`/getting-started/installation`.
 
-While a turn runs in the chat, the composer is disabled and **Send** becomes
-**Stop**. Send the next prompt when the agent finishes, or select **Stop** to
-end the turn.
+While a turn runs in the chat, **Send** becomes **Stop**. A message entered
+meanwhile waits above the composer and is sent when the turn ends; **Interrupt
+and ask now** ends the turn and sends it at once.
 
 Clearing a conversation
 ~~~~~~~~~~~~~~~~~~~~~~~

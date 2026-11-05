@@ -451,12 +451,12 @@ def test_activity_line_shows_tool_then_clears_on_text(tmp_path, chromium_browser
 
 
 # ---------------------------------------------------------------------------
-# 4. Stop mid-stream: input re-enabled, streaming cleared, next prompt clean
+# 4. Stop mid-stream: streaming cleared, next prompt clean
 # ---------------------------------------------------------------------------
 
 
 def test_stop_mid_stream_reenables_and_next_prompt_works(tmp_path, chromium_browser):
-    """Stop clears the streaming affordance and re-enables input; a follow-up runs."""
+    """Stop clears the streaming affordance; a follow-up runs."""
     with live_chat_server(tmp_path) as (base_url, _app):
         PLANS["long task"] = [("text", "starting…"), ("await_interrupt",), ("result",)]
         PLANS["quick follow up"] = [("text", "all clear"), ("result",)]
@@ -467,15 +467,15 @@ def test_stop_mid_stream_reenables_and_next_prompt_works(tmp_path, chromium_brow
         stop_btn = page.locator(f"{_OP} .op-stop-btn")
         textarea = page.locator(f"{_OP} .op-input-area textarea")
 
-        # Turn is live: streaming edge on, Stop shown, input disabled, partial text.
+        # Turn is live: streaming edge on, Stop shown, input open, partial text.
         expect(container).to_have_class(re.compile(r"\bstreaming\b"), timeout=10_000)
         expect(stop_btn).to_be_visible()
-        expect(textarea).to_be_disabled()
+        expect(textarea).to_be_enabled()
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text("starting…")
 
         stop_btn.click()
 
-        # Streaming affordance cleared, Stop hidden, input re-enabled.
+        # Streaming affordance cleared, Stop hidden, input still open.
         expect(container).not_to_have_class(re.compile(r"\bstreaming\b"), timeout=10_000)
         expect(stop_btn).to_be_hidden()
         expect(textarea).to_be_enabled()
@@ -486,6 +486,63 @@ def test_stop_mid_stream_reenables_and_next_prompt_works(tmp_path, chromium_brow
         expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text(
             "all clear", timeout=10_000
         )
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# 4a. A follow-up typed during a turn waits, or interrupts and asks now
+# ---------------------------------------------------------------------------
+
+
+def test_follow_up_typed_during_a_turn_is_sent_when_the_turn_ends(tmp_path, chromium_browser):
+    """Enter mid-turn queues the message above the composer; the turn's end sends it."""
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["long task"] = [("text", "starting…"), ("gate",), ("text", "done."), ("result",)]
+        PLANS["and the tunes?"] = [("text", "tunes nominal"), ("result",)]
+        page = _open_chat_page(chromium_browser, base_url)
+        _send(page, "long task")
+        expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
+            "starting…", timeout=10_000
+        )
+
+        _send(page, "and the tunes?")
+        queued = page.locator(f"{_OP} .op-queued")
+        expect(queued).to_be_visible()
+        expect(queued).to_contain_text("and the tunes?")
+        assert OBSERVED_PROMPTS == ["long task"]
+
+        requests.post(f"{base_url}/__test__/release")
+        expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text(
+            "tunes nominal", timeout=10_000
+        )
+        expect(queued).to_be_hidden()
+        expect(page.locator(f"{_OP} .op-system")).to_have_count(0)
+        assert OBSERVED_PROMPTS == ["long task", "and the tunes?"]
+
+        page.close()
+
+
+def test_interrupt_and_ask_now_ends_the_turn_and_sends(tmp_path, chromium_browser):
+    """The queued bubble's button interrupts the turn, and the message is not refused after."""
+    with live_chat_server(tmp_path) as (base_url, _app):
+        PLANS["long task"] = [("text", "starting…"), ("await_interrupt",), ("result",)]
+        PLANS["ask this now"] = [("text", "asked and answered"), ("result",)]
+        page = _open_chat_page(chromium_browser, base_url)
+        _send(page, "long task")
+        expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
+            "starting…", timeout=10_000
+        )
+
+        _send(page, "ask this now")
+        page.locator(f"{_OP} .op-queued-action").click()
+
+        expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text(
+            "asked and answered", timeout=10_000
+        )
+        expect(page.locator(f"{_OP} .op-queued")).to_be_hidden()
+        expect(page.locator(f"{_OP} .op-system")).to_have_count(0)
+        assert OBSERVED_PROMPTS == ["long task", "ask this now"]
 
         page.close()
 
