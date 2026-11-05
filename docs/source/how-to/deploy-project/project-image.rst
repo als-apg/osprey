@@ -27,8 +27,8 @@ every project.
 Overview
 ========
 
-Every project built by ``osprey build`` includes a reference container
-recipe at the project root:
+Every ``osprey build`` renders a reference container recipe into the project
+it builds under ``build/``:
 
 - ``Dockerfile`` — an image definition that installs the agent CLI and OSPREY,
   copies the project in, relocates its recorded paths, and serves the web
@@ -36,14 +36,11 @@ recipe at the project root:
 - ``.dockerignore`` — keeps secrets (``.env``) and host-specific state
   (``.venv``, ``.git``, ``var/``) out of the image.
 
-Both files are **generated, then yours to edit in place**: change them freely,
-but keep ``.dockerignore`` — the build depends on it, and it is what keeps your
-``.env`` secrets out of the image. ``osprey build`` never touches either
-file.
-
-An edit made in ``build/`` lasts only until the next ``osprey build``, which
-re-renders both from the framework. To make a customization durable, put your
-version in the source zone's ``project/`` mirror instead:
+Both files are re-rendered from the framework on every build, so an edit made
+in ``build/`` lasts only until the next ``osprey build``. To customize them, put
+your version in the source zone's ``project/`` mirror instead. A
+``.dockerignore`` of your own must still exclude ``.env``: the image build
+depends on that file to keep your secrets out of the image.
 
 .. code-block:: text
 
@@ -307,7 +304,7 @@ tool's default and the build behaves exactly as before.
 
    (``/etc/ssl/certs/ca-bundle.crt`` is the RHEL-family spelling of the system
    bundle; Debian-family hosts use ``/etc/ssl/certs/ca-certificates.crt``.)
-   These are the same three variables the image sets for its own inside —
+   These are three of the four variables the image sets for its own inside —
    exported here, they cover the host-side build, which reads them from the
    shell rather than from the deployment's env files.
 

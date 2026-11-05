@@ -31,6 +31,7 @@ namespace instead. That is ``host``:
    # in profile.yml — the event dispatcher and its workers
    dispatch:
      network: host
+     triggers: tutorial_triggers.yml   # required; keep your own trigger file
 
    # a facility-owned service
    services:

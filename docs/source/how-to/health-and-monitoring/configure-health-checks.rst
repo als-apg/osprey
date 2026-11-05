@@ -47,6 +47,7 @@ tile on the web dashboard, graded against the bands you choose:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    health:
      categories:
        control_system:
@@ -85,6 +86,7 @@ grades a channel:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    health:
      categories:
        host:                     # any name that is not a built-in category
@@ -206,6 +208,7 @@ process that runs the suite, or a path to a ``.py`` file, which does not:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    health:
      plugins:
        - ./health/facility_checks.py   # a file in your project
@@ -234,11 +237,12 @@ Title, host, port, and auto-launch live under ``health.title`` and
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    health:
      title: "Beamline Health"   # dashboard heading (default "System Health")
      web:
        host: 127.0.0.1          # default 127.0.0.1
-       port: 10700              # the port layout's slot for it
+       port: 10700              # default: deployment.port_base + 700
        auto_launch: true        # default true
 
 The sidecar re-reads ``config.yml`` and the project ``.env`` on each refresh,
