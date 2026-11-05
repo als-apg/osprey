@@ -233,21 +233,26 @@ The explorer is read-only. To correct a channel, edit
 
 The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into
-the search box (``/`` focuses it) and it keeps the channels that match all of
-them — against the address, the description, the device or signal name, and the
-name or synonyms of the device's class or any class above it. When the panel
-runs inside the terminal, the search box and the view's ⋯ menu sit in the
-panel's tile bar.
+the search box in the panel toolbar (``/`` focuses it) and it keeps the
+channels that match all of them — against the address, the description, the
+device or signal name, and the name or synonyms of the device's class or any
+class above it. The toolbar is the same when the panel runs inside the
+terminal: Explore and Feedback are at its left, and the result count and the
+search box are at its right.
 
-A facet rail narrows further: Section, System and Signal count matching
+The sidebar narrows further: Section, System and Signal count matching
 channels, Device class counts devices and rolls each class up over its
 subclasses, and Direction splits them into read, write, read/write and
 undirected. A class that groups devices without being a kind of device itself
 is shown in muted italic. Every facet is counted with its own filter lifted, so
 a number says what a second pick in that facet would add. Each facet folds from
 its heading and clears with its ✕. Active filters show as chips you can click
-to remove, and when a facet list is capped the panel says so. The ⋯ menu hides
-the rail, switches row density and clears filters or the selection.
+to remove, and when a facet list is capped the panel says so. The sidebar
+button at the left end of the toolbar shows and hides the sidebar. In a narrow
+panel the sidebar opens over the results. The ⋯ button at the right end of the
+toolbar switches the row density, chooses and resets the columns, and clears
+the filters or the selection. Inside the terminal, these entries are in the ⋯
+menu of the tile, under This panel.
 
 Results come fifty to a page: device, section, address, direction, signal and
 description. Click a header to sort on it, drag it to move the column, drag its
@@ -270,7 +275,7 @@ table is one Tab stop: arrows, Home and End move between rows, Space selects,
 Enter opens the device and ⌘C/Ctrl+C copies the address. A focused header sorts
 on Enter and moves with Alt+←/→.
 
-The strip above the results names the corpus file and the store it was loaded
+The strip below the results names the corpus file and the store it was loaded
 into, the tools the OSPREY agent queries that same store with, and the counts
 of devices, channels, classes, signals and sections read live from the store.
 If the store is unreachable the view says so and offers a Retry, and if it is

@@ -170,7 +170,7 @@ def test_a_row_menu_opens_inside_the_window_and_narrows_the_search(
     engine_browser: Browser, finder_url: str
 ):
     page = _open(engine_browser, finder_url)
-    total = page.locator(".result-counts strong").first.inner_text()
+    total = page.locator("#cf-result-count strong").first.inner_text()
 
     row = page.locator(ROWS).nth(2)
     section = row.locator("td.sec").inner_text()
@@ -191,7 +191,7 @@ def test_a_row_menu_opens_inside_the_window_and_narrows_the_search(
 
     menu.locator(".osprey-context-item", has_text=f"Only section {section}").click()
     page.wait_for_selector(f'.active-filter[data-chip="section:{section}"]')
-    assert page.locator(".result-counts strong").first.inner_text() != total
+    assert page.locator("#cf-result-count strong").first.inner_text() != total
     assert set(
         page.eval_on_selector_all(
             "#graph-finder-table .result-table tbody td.sec", "els => els.map(e => e.textContent)"

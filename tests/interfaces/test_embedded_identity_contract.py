@@ -22,8 +22,10 @@ CONTRACT = [
     # Whole embedded top bars
     ("artifacts/static/css/gallery.css", "body.embedded .header"),
     ("ariel/static/css/layout.css", "body.embedded .header"),
-    ("channel_finder/static/css/channel-finder.css", "body.embedded .app-header"),
-    ("bluesky_web/panels/bluesky/panel.css", "body.embedded .panel-chrome"),
+    # channel_finder is absent: on the panel-chrome standard (DESIGN.md §12)
+    # its panel toolbar shows embedded too, so there is no top bar to hide.
+    # bluesky is absent for the same reason: its toolbar is the page's one
+    # header row embedded and standalone alike, and its standalone header is gone.
     # Theme controls (hub owns theming) are absent by design: every panel
     # mounts <osprey-display-menu>, and that component injects its own
     # `body.embedded osprey-display-menu { display: none }` rule, so there is
