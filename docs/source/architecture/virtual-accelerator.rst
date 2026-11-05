@@ -134,15 +134,16 @@ still settling:
      - The serving stack ``runner.py`` subclasses --- ``pcaspy`` for Channel
        Access, ``p4p`` for PVAccess.
 
-       Since 0.1.3, 0.1.4 and 0.1.5: the features listed below the table.
+       Releases 0.1.3 to 0.1.5 add the features OSPREY relies on, listed
+       below the table.
 
 OSPREY relies on these ``lume-pva-apg`` features, by the release that added
 them:
 
-- **0.1.3** adds the two hooks the model surface is built on.
-  ``_enqueue(..., jobs=)`` runs a callable on the run loop's own thread,
-  batched with the writes already queued there. ``_cycle_output_names()`` lets
-  a subclass narrow the set of variables re-read after each cycle.
+- **0.1.3** adds the two hooks the model surface is built on:
+  ``_enqueue(..., jobs=)``, which runs a callable on the run loop's own thread
+  batched with the writes already queued there, and ``_cycle_output_names()``,
+  which lets a subclass narrow the set of variables re-read after each cycle.
 - **0.1.4** makes the model info the server announces follow the
   configuration it was given, so a variable held back from the channel
   namespace is not advertised as one.

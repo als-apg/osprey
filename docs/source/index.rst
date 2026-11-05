@@ -3,10 +3,10 @@ Osprey Framework Documentation
 
 **An agentic interface to scientific control systems.**
 
-The **Osprey Framework** is an agentic interface for scientific facilities
-managing complex technical infrastructure, such as particle accelerators. It
-runs Claude Code as its agent and wraps it in a *safety harness*, the layer
-that stands between the agent and the machine. The harness is an
+The **Osprey Framework** is an agentic interface and harness for scientific
+facilities managing complex technical infrastructure, such as particle
+accelerators. The *harness* is the layer that stands between the agent and the
+machine. Osprey runs Claude Code as its agent and wraps it in an
 operator-facing safety policy, a hook-based approval chain, and an MCP-server
 multiplexer (MCP, the Model Context Protocol, is how the agent calls tools).
 

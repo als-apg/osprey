@@ -178,6 +178,21 @@ def _requirements(pyproject: dict[str, Any]) -> Iterable[str]:
         yield from (item for item in group if isinstance(item, str))
 
 
+def _normalised(name: str) -> str:
+    """``name[extras]`` with the extras stripped and sorted, so their spelling is no drift."""
+    base, _, extras = name.partition("[")
+    if not extras:
+        return base.strip()
+    listed = sorted(extra.strip() for extra in extras.rstrip("]").split(",") if extra.strip())
+    return f"{base.strip()}[{','.join(listed)}]"
+
+
+def test_extras_compare_by_set_not_spelling() -> None:
+    assert _normalised("lume-pva-apg[pva, ca]") == _normalised("lume-pva-apg[ca,pva]")
+    assert _normalised("lume-pva-apg[ca]") != _normalised("lume-pva-apg[ca,pva]")
+    assert _normalised("lume-base") == "lume-base"
+
+
 def _code_pins() -> dict[str, set[str]]:
     """Every exact ``lume-*`` pin of the two pyproject files, by name with extras."""
     pins: dict[str, set[str]] = {}
@@ -185,7 +200,7 @@ def _code_pins() -> dict[str, set[str]]:
         pyproject = tomllib.loads(path.read_text(encoding="utf-8"))
         for requirement in _requirements(pyproject):
             if pin := _PIN.match(requirement.replace(" ", "")):
-                pins.setdefault(pin["name"], set()).add(pin["version"])
+                pins.setdefault(_normalised(pin["name"]), set()).add(pin["version"])
     return pins
 
 
@@ -195,7 +210,7 @@ def _pin_table(text: str) -> dict[str, set[str]]:
     for row in _rows(_section(text, "The LUME stack and its pins")):
         package, pin = (re.fullmatch(r"``([^`]+)``", cell) for cell in row[:2])
         if package and pin:
-            table.setdefault(package[1], set()).add(pin[1])
+            table.setdefault(_normalised(package[1]), set()).add(pin[1])
     return table
 
 
