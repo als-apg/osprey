@@ -103,7 +103,7 @@ export const isStreaming = () => controls?.streaming() ?? false;
 /** Stop the streaming turn (interrupt, then abort); resolves once asked, not once it ended. */
 export const stopTurn = () => controls?.stop() ?? Promise.resolve();
 
-/** Start a conversation on a new session key, as the pen button does. */
+/** Start a conversation on a new session key, as the Agent bar's `+` does. */
 export const newConversation = () => controls?.newConversation();
 
 /**
@@ -120,8 +120,8 @@ export function initChat(containerId = 'operator-container') {
   // handler closures below, so hand them a statically non-null reference.
   const container = /** @type {HTMLElement} */ (found);
 
-  const handles = buildConsole();
-  const { bar, label, newBtn, messages, overlay, overlayMessage, overlayAction } = handles;
+  const handles = buildConsole({ onNew: startConversation });
+  const { bar, label, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
   const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
@@ -257,13 +257,15 @@ export function initChat(containerId = 'operator-container') {
     textarea.style.height = `${Math.min(textarea.scrollHeight, MAX_INPUT_HEIGHT)}px`;
   }
 
-  /** Apply the current streaming/transition state to every control. */
+  /**
+   * Apply the streaming/transition state to the composer, and say it on the
+   * bus: the Agent bar's `+` follows it (agent-bar.js).
+   */
   function applyControls() {
     const blocked = streaming || transitioning;
     textarea.disabled = blocked;
     cmdBtn.disabled = blocked;
     sendBtn.disabled = blocked;
-    newBtn.disabled = blocked;
     sendBtn.hidden = streaming;
     stopBtn.hidden = !streaming;
     stopBtn.disabled = false;
@@ -720,7 +722,6 @@ export function initChat(containerId = 'operator-container') {
   });
   sendBtn.addEventListener('click', submit);
   stopBtn.addEventListener('click', stop);
-  newBtn.addEventListener('click', startConversation);
 
   controls = { streaming: () => streaming, stop, newConversation: startConversation };
 

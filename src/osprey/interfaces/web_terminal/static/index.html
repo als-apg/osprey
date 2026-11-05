@@ -286,14 +286,17 @@
         </div>
 
         <!-- Agent pane: the chat / terminal card. The header is the terminal's
-             (the session switcher label and "+ New"); the chat's Agent bar is the
-             console's own. -->
+             Agent bar, the same shape as the chat's (agent-bar.js): the session
+             switcher label, "+" (New session) and the divider the tile's menu
+             and close follow. -->
         <div class="terminal-panel">
           <div class="terminal-card">
-            <div class="terminal-header">
-              <span class="session-led" id="session-led"></span>
-              <span class="terminal-label" id="terminal-label">Agent</span>
-              <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
+            <div class="terminal-header agent-bar">
+              <span class="terminal-label agent-bar-label" id="terminal-label">Agent</span>
+              <span class="agent-bar-spacer"></span>
+              <button class="osprey-icon-btn agent-bar-new" id="new-session-btn" type="button"
+                      title="New session" aria-label="New session"><svg class="osprey-ic" data-icon="plus" aria-hidden="true"></svg></button>
+              <span class="tile-tab-divider" aria-hidden="true"></span>
             </div>
             <div class="terminal-body" id="terminal-body">
               <div id="terminal-container"></div>

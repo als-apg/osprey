@@ -28,7 +28,7 @@
  * That compounding applies ONLY to rules whose subject is a `dv-*` element —
  * the ones with a stock rule to out-specify. Rules whose subject is one of the
  * bar's OWN classes (`.tile-tab*`, `.contrib-*`, `.bar-icon`) anchor on
- * `.tile-tab` instead, matching terminal.css's `.tile-tab .terminal-header`.
+ * `.tile-tab` instead, matching operator.css's `.tile-tab .agent-bar`.
  * `.dock-root` would be actively WRONG for them: dockview builds a tile's drag
  * image by cloning the tab into document.body, so a bar styled from the dock
  * root paints unstyled the moment the operator picks it up. Anchoring on a
@@ -214,8 +214,8 @@
  *     panel icons (.tile-tab-contrib) + a hairline + the deployment's shared
  *     controls (.tile-tab-controls) + ⋯ + pop out + close.
  *   The AGENT tile shows its adopted bar + ⋯ + close: the chat console's
- *     .op-session-bar in chat (operator.css), the .terminal-header on the
- *     terminal surface (terminal.css). It is always its own tile.
+ *     .op-session-bar in chat, the .terminal-header on the terminal surface —
+ *     one shape, styled as .agent-bar (operator.css). It is always its own tile.
  *
  * SEATED CHROME: the bar is part of the card (--surface-card, remapped
  * above) closed by a hairline. The hairline turns accent on the ACTIVE tile

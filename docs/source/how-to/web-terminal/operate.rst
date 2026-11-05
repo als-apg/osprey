@@ -55,8 +55,9 @@ The window has a sidebar on the left and two panes:
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
 - **Agent** (right) — the operator chat, or a real terminal running the OSPREY
-  agent when you open one from the pane's **⋯** menu. It survives reconnects,
-  and you can keep a few background conversations alive and hop between them.
+  agent when you open one from the pane's session switcher (the session title
+  at the left of the Agent bar). It survives reconnects, and you can keep a
+  few background conversations alive and hop between them.
   Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
@@ -153,16 +154,21 @@ has two sections:
   rail**, and **Reset layout**. **Help** shows only when the panel has a page
   in the documentation.
 
-The Agent tile has its own bar, then **⋯** and **×**. It has no **Pop out**
-and no shared controls.
+The Agent tile's bar shows the session title with its ▾ switcher and **+** (a
+new conversation; a new session on the terminal), then **⋯** and **×**. It has
+no **Pop out** and no shared controls. Its **⋯** has **This panel**: **Export
+conversation (Markdown)** (inert on the terminal) and **Desktop notifications**
+(a check mark while on); then **Tile**: **Reset layout** and **Close Agent
+pane** (on the terminal, **Restart terminal** first).
 
 .. _web-terminal-one-session:
 
 The chat and the terminal
 -------------------------
 
-The Agent pane is the operator chat. To reach the agent's terminal, open the
-Agent bar's **⋯** menu and pick **Open terminal**; **Back to chat** returns.
+The Agent pane is the operator chat. To reach the agent's terminal, click the
+session title at the left of the Agent bar and pick **Open terminal**, the last
+row; **Back to chat** returns.
 The choice belongs to the browser tab, and a new tab opens on the chat. The
 chat and the terminal are two windows onto one conversation: they share one
 session, one write state and one transcript, and only the one you are looking

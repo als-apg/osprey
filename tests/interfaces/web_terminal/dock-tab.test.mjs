@@ -93,24 +93,16 @@ function detachedTerminalHeader() {
 
 /**
  * The chat console's Agent bar as the page has it before the dock adopts it:
- * built by chat-console.js, with the bell and Export the feature modules add,
- * and its label marked as the session switcher's button the way
- * attachSessionSwitcher marks it, inside a detached console container.
+ * built by chat-console.js (agent-bar.js), with its label marked as the
+ * session switcher's button the way attachSessionSwitcher marks it, inside a
+ * detached console container. The bell and Export are tile-⋯ rows now, not
+ * bar buttons.
  * @returns {HTMLElement}
  */
 function detachedConsoleBar() {
   const { bar, label: switcher } = buildConsole();
   switcher.setAttribute('role', 'button');
   switcher.setAttribute('aria-label', 'Switch session');
-  for (const [cls, label] of [
-    ['op-attention-toggle', 'Desktop notifications'],
-    ['op-export', 'Export'],
-  ]) {
-    const btn = document.createElement('button');
-    btn.className = `osprey-icon-btn ${cls}`;
-    btn.setAttribute('aria-label', label);
-    bar.append(btn);
-  }
   document.createElement('div').append(bar);
   return bar;
 }
@@ -397,7 +389,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: dot, session switcher, pen, bell, share, then ⋯ and close', async () => {
+    test('the chat adopts the console bar: session switcher, +, divider, then ⋯ and close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -416,11 +408,8 @@ describe('tile-tab renderer', () => {
         (el) => el.getAttribute('aria-label') ?? el.textContent
       );
       expect(parts).toEqual([
-        '',
         'Switch session',
         'New conversation',
-        'Desktop notifications',
-        'Export',
         'Panel menu',
         'Close Agent pane',
       ]);

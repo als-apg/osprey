@@ -9,10 +9,11 @@
  * rebuilds it from the lifecycle bus (chat-events.js) as the frames arrive. The
  * rendered text is the fallback when no source was captured.
  *
- * The conversation. The Export button in the Agent bar downloads the whole
- * transcript. It is read from the server with fetchHistory, not taken from the
- * log, so it is complete even when the page joined the conversation part-way.
- * Each tool call is one line with its decision and outcome, and no payloads.
+ * The conversation. The "Export conversation (Markdown)" row in the Agent
+ * pane's ⋯ (agent-menu.js) downloads the whole transcript. It is read from the
+ * server with fetchHistory, not taken from the log, so it is complete even when
+ * the page joined the conversation part-way. Each tool call is one line with
+ * its decision and outcome, and no payloads.
  *
  * Text from the wire goes in with textContent, and nothing here writes markup.
  *
@@ -21,8 +22,9 @@
 
 import { facilityDayKey } from '/design-system/js/facility-time.js';
 
+import { setAgentMenuRow } from './agent-menu.js';
+import { isTerminalSurface } from './agent-surface.js';
 import { fetchHistory } from './chat-client.js';
-import { barButton } from './chat-console.js';
 import { endsTurn } from './chat-frames.js';
 import { emitChat, onChat } from './chat-events.js';
 import { button, elem } from './chat-dom.js';
@@ -87,9 +89,9 @@ function downloadText(name, text) {
 }
 
 /**
- * Start the copy control on finished replies and the export button in the
- * session bar. Called once by initChatFeatures.
- * @param {Pick<ChatFeatureContext, 'bar' | 'messages' | 'getKey'>} ctx
+ * Start the copy control on finished replies and the export row in the Agent
+ * pane's ⋯. Called once by initChatFeatures.
+ * @param {Pick<ChatFeatureContext, 'messages' | 'getKey'>} ctx
  */
 export function initChatExport(ctx) {
   /**
@@ -269,14 +271,20 @@ export function initChatExport(ctx) {
 
   // ---- The conversation, as a file ---- //
 
-  const exportButton = barButton('op-export', 'share', 'Export');
-  exportButton.title = 'Export: download the conversation as Markdown';
-  exportButton.addEventListener('click', () => void exportConversation());
-  ctx.bar.append(exportButton);
+  /** Whether an export is reading the transcript; the row waits for it. */
+  let exporting = false;
+
+  // The export reads the chat console's conversation, so the row is inert
+  // while the pane shows the terminal.
+  setAgentMenuRow('export', () => ({
+    label: 'Export conversation (Markdown)',
+    disabled: exporting || isTerminalSurface(),
+    run: () => void exportConversation(),
+  }));
 
   async function exportConversation() {
     const key = ctx.getKey();
-    exportButton.disabled = true;
+    exporting = true;
     try {
       const now = new Date();
       const turns = await fetchHistory(key);
@@ -286,7 +294,7 @@ export function initChatExport(ctx) {
       ctx.messages.append(elem('div', 'op-system', text));
       emitChat('notice', { text });
     } finally {
-      exportButton.disabled = false;
+      exporting = false;
     }
   }
 }
