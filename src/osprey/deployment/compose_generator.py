@@ -3050,7 +3050,7 @@ def _fragment_context(config):
     :return: Only the listed names
     :rtype: dict
     """
-    context = {}
+    context: dict[str, Any] = {}
     for name in FRAGMENT_CONTEXT:
         if name.endswith(".j2"):
             continue
@@ -3575,6 +3575,7 @@ def _refuse_fragment_output(output_filepath, config):
     key = config["service_key"]
     if path.suffix not in (".yml", ".yaml"):
         return
+    document: Any
     if path.name == COMPOSE_FILE_NAME:
         document = _load_compose_document(path)
     else:
