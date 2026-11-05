@@ -77,24 +77,40 @@ function paint(rail) {
 }
 
 /**
- * Keep the heading where it was. The rail scrolls, so folding the last group
- * shrinks its content and the browser clamps scrollTop, which drags the heading
- * down the screen. A bottom spacer the size of the shortfall restores the
- * scroll range; it is dropped again before the next fold or unfold.
+ * The rail scrolls, so folding its last group shrinks the content and the
+ * browser clamps scrollTop, dragging the heading down. A spacer element at the
+ * end of the rail keeps the scroll range: its height is always recomputed from
+ * scratch as max(0, scrollTop + clientHeight - contentHeight), never added to,
+ * so it is the exact shortfall and shrinks to nothing as the operator scrolls
+ * up, unfolds, or resizes.
  * @param {HTMLElement} rail
- * @param {Element | null} head
- * @param {number} before the heading's viewport top before the change
+ * @returns {HTMLElement}
  */
-function holdHeading(rail, head, before) {
-  if (!head) return;
-  const moved = head.getBoundingClientRect().top - before;
-  if (moved > 0) {
-    rail.style.paddingBottom = `${parseFloat(rail.style.paddingBottom || '0') + moved}px`;
-    rail.scrollTop += moved;
-  } else if (moved < 0 && rail.style.paddingBottom) {
-    rail.scrollTop += moved;
-    rail.style.paddingBottom = '';
+function spacerOf(rail) {
+  let spacer = /** @type {HTMLElement | null} */ (
+    rail.querySelector(':scope > .sidebar-fold-spacer')
+  );
+  if (!spacer) {
+    spacer = document.createElement('div');
+    spacer.className = 'sidebar-fold-spacer';
+    spacer.setAttribute('aria-hidden', 'true');
+    spacer.style.flex = 'none';
   }
+  if (rail.lastElementChild !== spacer) rail.append(spacer);
+  return spacer;
+}
+
+/**
+ * Size the spacer to the shortfall for `scrollTop` and restore it.
+ * @param {HTMLElement} rail
+ * @param {number} scrollTop the position to hold
+ */
+function holdScroll(rail, scrollTop) {
+  const spacer = spacerOf(rail);
+  spacer.style.height = '0px';
+  const need = scrollTop + rail.clientHeight - rail.scrollHeight;
+  spacer.style.height = `${Math.max(0, Math.ceil(need))}px`;
+  if (need > 0) rail.scrollTop = scrollTop;
 }
 
 /**
@@ -106,12 +122,9 @@ function toggle(rail, id) {
   if (folded.has(id)) folded.delete(id);
   else folded.add(id);
   writeFolded(folded);
-  const head = rail.querySelector(
-    `:scope > [data-group="${CSS.escape(id)}"] > .sidebar-group-head`
-  );
-  const before = head?.getBoundingClientRect().top ?? 0;
+  const held = rail.scrollTop;
   paint(rail);
-  holdHeading(rail, head, before);
+  holdScroll(rail, held);
   document.dispatchEvent(new CustomEvent(FOLD_EVENT));
 }
 
@@ -125,6 +138,12 @@ export function initSidebarFold(rail) {
   folded = readFolded();
   paint(rail);
   document.addEventListener(SIDEBAR_RENDERED_EVENT, () => paint(rail));
+  // Scrolling up or resizing only ever shrinks the spacer (to the current shortfall).
+  const settle = () => {
+    if (rail.querySelector(':scope > .sidebar-fold-spacer')) holdScroll(rail, rail.scrollTop);
+  };
+  rail.addEventListener('scroll', settle, { passive: true });
+  window.addEventListener('resize', settle);
 
   /**
    * The id of the group whose heading an event landed on, or null when it

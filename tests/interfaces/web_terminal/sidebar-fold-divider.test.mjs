@@ -118,13 +118,42 @@ describe('folding a group', () => {
     expect(rail().querySelector('.sidebar-group-chevron')).toBeNull();
   });
 
-  test('folding restores the scroll range when the browser clamped it', async () => {
+  test('the spacer is the exact scroll shortfall, recomputed and never accumulated', async () => {
     await boot();
-    // Layout is stubbed: folding the last group slides its heading 40px down.
-    head('tools').getBoundingClientRect = () =>
-      /** @type {DOMRect} */ ({ top: group('tools').hasAttribute('data-folded') ? 340 : 300 });
+    // Layout is stubbed: 500px viewport, content 900px open / 700px with Tools folded.
+    let top = 400;
+    const spacer = () =>
+      /** @type {HTMLElement | null} */ (rail().querySelector('.sidebar-fold-spacer'));
+    const px = () => parseFloat(spacer()?.style.height || '0');
+    Object.defineProperty(rail(), 'clientHeight', { configurable: true, get: () => 500 });
+    Object.defineProperty(rail(), 'scrollHeight', {
+      configurable: true,
+      get: () => (group('tools').hasAttribute('data-folded') ? 700 : 900) + px(),
+    });
+    Object.defineProperty(rail(), 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      // The browser clamps to the scroll range.
+      set: (v) => {
+        top = Math.min(v, rail().scrollHeight - 500);
+      },
+    });
+    // Invariant: scrollTop is held and spacer == max(0, scrollTop + clientHeight - content).
+    for (let cycle = 0; cycle < 3; cycle++) {
+      dbl(head('tools')); // fold
+      expect(top).toBe(400);
+      expect(px()).toBe(200);
+      dbl(head('tools')); // unfold
+      expect(top).toBe(400);
+      expect(px()).toBe(0);
+    }
     dbl(head('tools'));
-    expect(rail().style.paddingBottom).toBe('40px');
+    top = 250; // scrolling up releases the blank space
+    rail().dispatchEvent(new Event('scroll'));
+    expect(px()).toBe(50);
+    top = 150;
+    rail().dispatchEvent(new Event('scroll'));
+    expect(px()).toBe(0);
   });
 
   test('Enter and Space on the name toggle', async () => {
