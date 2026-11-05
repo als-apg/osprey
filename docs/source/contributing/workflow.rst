@@ -147,7 +147,7 @@ escape hatch.
 Model-Spending Lanes: ``full-ci`` on a PR, On Demand on ``main``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Eleven CI lanes drive real agent sessions against a live model endpoint: the
+Ten CI lanes drive real agent sessions against a live model endpoint: the
 agentic per-preset flows, the E2E suite, the two dispatch stacks, the
 single-user narrowing and host-record lanes, the scan-stack and
 control-target-switch agentic lanes, and the two chat bridges. Together they

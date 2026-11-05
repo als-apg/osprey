@@ -13,6 +13,9 @@ Environment Setup
 **Prerequisites:** Python 3.11+, Git, a GitHub account, and `uv <https://docs.astral.sh/uv/>`_.
 The check command in step 4 also needs `Node.js <https://nodejs.org/>`_ with ``npm``, for the
 front-end checks, and Claude Code at the version this tree pins, for the test sweep.
+``uv run python scripts/pinned_claude.py --pin`` prints that version. A binary of the
+pinned version at ``~/.local/share/claude/versions/<pin>`` is found beside the
+``claude`` on your ``PATH``, so you do not have to replace the one you use.
 Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the ``dot`` command).
 
 **1. Fork and Clone**
@@ -53,8 +56,8 @@ Hooks auto-fix formatting and prevent commits with common problems.
    uv run python scripts/check.py quick
 
 This runs the quick tier of the merge gate: lint, format, type and import
-checks, and the parallel test sweep, which selects tests from the same
-declaration as CI's unit lane and leaves out the tests marked ``slow``.
+checks, and the parallel test sweep. The sweep selects tests from the same
+declaration as CI's unit lane, and leaves out the tests marked ``slow``.
 Before any check runs, the command puts the tree's pins in place: it runs
 ``npm ci`` when ``node_modules`` differs from ``package-lock.json``, and puts the
 pinned Claude Code first on ``PATH``. When a tool it needs is missing, it runs

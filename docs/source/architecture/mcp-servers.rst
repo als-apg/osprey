@@ -9,9 +9,10 @@ with every tool each one can register. The **10 core servers** are the ones a
 deployment normally renders: ``control_system``, the four channel-finder
 variants, ``workspace``, ``python_executor``, ``ariel``,
 ``osprey_facility_knowledge`` and ``graph``. Four more ship in-tree but are off
-in every preset until a profile enables them with
-``claude_code.servers.<name>.enabled: true``: ``phoebus``, ``optimizer``,
-``bluesky`` and ``health``. Build profiles can inject additional servers beyond
+by default: ``phoebus``, ``optimizer``, ``bluesky`` and ``health``. A profile
+enables one with ``claude_code.servers.<name>.enabled: true``. The
+``control-assistant`` preset enables ``bluesky`` and ``health``; ``phoebus`` and
+``optimizer`` stay off in every preset. Build profiles can inject additional servers beyond
 these.
 
 .. raw:: html
@@ -39,9 +40,9 @@ safety-limits enforcement on all write operations.
 
 - ``channel_read`` -- Read current values from one or more control system channels.
 - ``channel_write`` -- Write values to one or more control system channels. Every write
-  passes the writes check and the limits check. The write switch's position then decides:
-  at *asked* the operator approves the write at a prompt, and at *allowed* it runs
-  unprompted (see :ref:`architecture-safety-chain-order`).
+  goes through the writes check and the limits check. The write switch's position then
+  decides: at *off* the write is refused, at *asked* the operator approves it at a prompt,
+  and at *allowed* it runs unprompted (see :ref:`architecture-safety-chain-order`).
 - ``archiver_read`` -- Retrieve historical archived data for one or more channels over a
   time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
   ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
@@ -461,10 +462,11 @@ Bluesky
 
 Package: ``osprey.mcp_server.bluesky``
 
-A thin HTTP client of the facility-side Bluesky bridge: it lists plans and
-devices, stages a shared plan draft, queues and starts it, stops a run, reads
-run data, and authors and validates session plans. It is off in every preset and
-enabled with ``claude_code.servers.bluesky.enabled: true``. ``queue_add`` and
+A thin HTTP client of the facility-side Bluesky bridge. It lists plans and
+devices, and stages a shared plan draft. It queues and starts that draft, stops
+a run and reads run data. It also writes and validates session plans. It is off
+by default and enabled with ``claude_code.servers.bluesky.enabled: true``; the
+``control-assistant`` preset enables it. ``queue_add`` and
 ``queue_start`` can set hardware in motion, so they are governed writes, like
 ``channel_write``: the writes check runs first, then the write switch's position
 decides whether the operator is asked. See :doc:`/how-to/bluesky/queue`.
@@ -522,8 +524,9 @@ Health
 
 Package: ``osprey.mcp_server.health``
 
-Runs the facility health suite for the agent. It is off in every preset and
-enabled with ``claude_code.servers.health.enabled: true``. Its tools take only a
+Runs the facility health suite for the agent. It is off by default and enabled
+with ``claude_code.servers.health.enabled: true``; the ``control-assistant``
+preset enables it. Its tools take only a
 category filter, so every probe they run is declared in config and read-only.
 See :doc:`/how-to/health-and-monitoring/configure-health-checks`.
 

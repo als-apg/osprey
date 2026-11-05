@@ -9,7 +9,7 @@ guard holds all of it, in both directions:
 
 * every server package under ``src/osprey/mcp_server/`` with a ``server.py``
   has a section on the page, introduced by its ``Package:`` line;
-* every tool the server can register is named in its section;
+* every tool the server can register has a bullet in its section;
 * every tool a section's bullets name is one the server can register.
 
 "Can register" is wider than what one process lists. The live FastMCP
@@ -47,8 +47,6 @@ _PACKAGE_LINE = re.compile(r"^Package: ``(osprey\.mcp_server\.[a-z_]+)``\s*$", r
 
 #: A tool bullet: ``- ``name`` -- description``.
 _TOOL_BULLET = re.compile(r"^- ``([a-z_]+)`` --", re.M)
-
-_LITERAL = re.compile(r"``([a-z_]+)``")
 
 
 def _server_modules() -> list[str]:
@@ -143,11 +141,24 @@ def test_every_section_names_a_server_package():
     assert not unknown, f"{_PAGE.name} has sections for no server package: {sorted(unknown)}"
 
 
+def _unlisted(module: str, section: str) -> set[str]:
+    """Tools *module* can register that *section* gives no bullet of their own."""
+    return set(_registrable_tools(module)) - set(_TOOL_BULLET.findall(section))
+
+
+def test_a_tool_named_only_in_prose_is_reported():
+    """Negative control: a deleted bullet fails even where the intro names the tool."""
+    module = "osprey.mcp_server.bluesky"
+    section = _sections()[module]
+    pruned = re.sub(r"^- ``queue_add`` --.*$", "", section, flags=re.M)
+    assert "``queue_add``" in pruned, "the control needs a prose mention to stay meaningful"
+    assert _unlisted(module, pruned) == {"queue_add"}
+
+
 @pytest.mark.parametrize("module", _server_modules())
-def test_every_registered_tool_is_named_in_its_section(module):
-    section = _sections().get(module, "")
-    missing = _registrable_tools(module) - set(_LITERAL.findall(section))
-    assert not missing, f"{_PAGE.name}, section {module}, does not name {sorted(missing)}"
+def test_every_registered_tool_has_a_bullet_in_its_section(module):
+    missing = _unlisted(module, _sections().get(module, ""))
+    assert not missing, f"{_PAGE.name}, section {module}, has no bullet for {sorted(missing)}"
 
 
 @pytest.mark.parametrize("module", _server_modules())
