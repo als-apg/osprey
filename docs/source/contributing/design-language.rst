@@ -131,7 +131,7 @@ Primitives
 ----------
 
 The shared primitives are in ``design_system/static/css/primitives.css``.
-Load it after ``base.css``. Their behaviour is in five modules in
+Load it after ``base.css``. Their behaviour is in the modules in
 ``design_system/static/js/``:
 
 .. list-table::
@@ -164,6 +164,16 @@ Load it after ``base.css``. Their behaviour is in five modules in
    * - ``.osprey-dot``, ``.osprey-kbd``, ``.osprey-count``, ``.osprey-switch``,
        ``.osprey-search``
      - Status dot, keyboard hint, count pill, switch and search field.
+   * - ``.osprey-panel-toolbar``, ``.osprey-seg``, ``.osprey-search-field``,
+       ``.osprey-chip``
+     - The panel toolbar, the text segmented control, the search field and the
+       status chip of a panel.
+   * - ``.osprey-panel-sidebar``, ``panel-sidebar.js``
+     - The panel sidebar. It is 260 px wide, it resizes, and it is stored for
+       each user. In a narrow panel it opens over the content.
+   * - ``.osprey-state``, ``panel-state.js``, ``info-popover.js``,
+       ``.osprey-content-strip``, ``content-strip.js``
+     - The centred state, the info popover and the content strip.
 
 ``DESIGN.md`` section 9 lists every class and the API of each module. The
 reference page, ``/design-system/reference.html``, shows each primitive in all
@@ -195,10 +205,13 @@ paths. The terminal proxy serves its own copy:
    <link rel="stylesheet" href="/design-system/css/base.css">
    <link rel="stylesheet" href="/design-system/css/primitives.css">
 
-When the terminal embeds a panel, the panel hides its own top bar and sends
-its controls to the pane header through ``header-contrib.js`` (header
-contract version 1). :doc:`/how-to/web-terminal/panels` gives the panel
-contract, and :doc:`/how-to/web-terminal/theming` gives the theme families.
+When the terminal embeds a panel, the tile bar shows the title of the panel.
+The panel sends only its subtitle, at most three panel icons and its entries
+for the ⋯ menu, through ``header-contrib.js`` (protocol v3). Toolbars live in
+the panel: the toolbar, the sidebar and the states of a panel stay in the
+panel, embedded and standalone. ``DESIGN.md`` section 12 gives the rules.
+:doc:`/how-to/web-terminal/panels` gives the panel contract, and
+:doc:`/how-to/web-terminal/theming` gives the theme families.
 
 Enforcement
 -----------
