@@ -1702,27 +1702,27 @@ describe('a hide (panel_visibility) hands the view on without replacing a panel'
 
   test('a hide of the panel on view gives the view to the panel left on screen — the first member is not opened into its tile', async () => {
     const { api, holder, op, emit } = await bootWorkspace({
-      panels: ['artifacts', 'ariel', 'lattice'],
+      panels: ['artifacts', 'ariel', 'channel-finder'],
     });
-    // ariel | lattice on screen, ariel on view. artifacts, the first member in
-    // the catalog, holds no tile: opening it would replace lattice.
+    // ariel | channel-finder on screen, ariel on view. artifacts, the first member in
+    // the catalog, holds no tile: opening it would replace channel-finder.
     op(
       'open_arrangement',
       {
         name: 'pair',
-        members: ['ariel', 'lattice'],
+        members: ['ariel', 'channel-finder'],
         layout: { split: 'row', items: [{ tabs: [0] }, { tabs: [1] }] },
       },
       null
     );
-    expect(tileTabs(holder)).toEqual([['ariel'], ['lattice'], ['terminal']]);
+    expect(tileTabs(holder)).toEqual([['ariel'], ['channel-finder'], ['terminal']]);
     expect(activeStamp()).toBe('ariel');
 
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
 
-    expect(tileTabs(holder)).toEqual([['lattice'], ['terminal']]);
-    expect(dockedTiles(api)).toEqual(['lattice']);
-    expect(activeStamp()).toBe('lattice');
+    expect(tileTabs(holder)).toEqual([['channel-finder'], ['terminal']]);
+    expect(dockedTiles(api)).toEqual(['channel-finder']);
+    expect(activeStamp()).toBe('channel-finder');
   });
 });
 
