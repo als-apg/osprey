@@ -15,15 +15,16 @@ import sys
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
-# Add project root and src directories
+# Add project root and src directories. The osprey-connectors workspace package
+# keeps its own src tree; the API reference under reference/connectors-api/
+# autodocs it, and the framework imports it.
 project_root = os.path.abspath("../..")
 src_root = os.path.abspath("../../src")
+connectors_src_root = os.path.abspath("../../packages/osprey-connectors/src")
 
 sys.path.insert(0, project_root)
+sys.path.insert(0, connectors_src_root)
 sys.path.insert(0, src_root)
-
-# Framework is now the only package we need
-# NO backwards compatibility for old paths
 
 # Imported here rather than at the top of the file: the sys.path setup above is what
 # makes ``osprey`` importable when the docs build from an uninstalled checkout.
@@ -231,14 +232,15 @@ autodoc_mock_imports = [
     "google.genai.types",
     "ollama",
     "litellm",
-    # Data science stack - too heavy for docs CI, interfaces documented
-    "pandas",
-    "numpy",
+    # Data science stack - too heavy for docs CI, interfaces documented. numpy,
+    # pandas and scipy are not mocked: osprey-connectors depends on numpy and
+    # pandas directly and on scipy through lume-base and beamphysics, so the docs
+    # extra installs all three, and the simulation modules (and beamphysics)
+    # compute with them at import time, which a mock cannot answer.
     "matplotlib",
     "plotly",
     "seaborn",
     "scikit-learn",
-    "scipy",
     # Database clients - connection logic mocked, interfaces documented
     "pymongo",
     "neo4j",
@@ -297,7 +299,10 @@ napoleon_include_special_with_doc = True
 napoleon_use_admonition_for_examples = False
 napoleon_use_admonition_for_notes = False
 napoleon_use_admonition_for_references = False
-napoleon_use_ivar = False
+# A Google-style "Attributes:" section renders as a field list, not as attribute
+# entries: autodoc already documents a dataclass's fields, and both at once
+# describe each field twice.
+napoleon_use_ivar = True
 napoleon_use_param = True
 napoleon_use_rtype = True
 napoleon_preprocess_types = False

@@ -1,0 +1,13 @@
+control_system:
+  type: epics
+  connector:
+    epics:
+      timeout_s: 5.0
+      pva_channels:
+        - "*:IMAGE*"
+        - "BL:CAM?:ARRAY"
+      pva_gateway:
+        address: pvagw.facility.edu   # or "cam1 cam2 cam3" for many servers
+        use_name_server: false
+      gateways:
+        read_only: { address: cagw.facility.edu, port: 5064 }

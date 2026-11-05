@@ -1242,6 +1242,26 @@ keys:
   control_system.connector.epics.gateways.write_access.address: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: ''}
   control_system.connector.epics.gateways.write_access.port: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: 5064}
   control_system.connector.epics.gateways.write_access.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
+  control_system.connector.epics.pva_channels:
+    rendered: false
+    evidence: 'config\.get\("pva_channels"\)'
+    note: >-
+      Glob patterns of the addresses the EPICS connector reads over PVAccess
+      (p4p) instead of Channel Access. Absent or empty is pure Channel Access:
+      p4p is not imported and no PVA variable is set. No preset spells it; the
+      use-connectors guide shows it.
+    default: []
+  control_system.connector.epics.pva_gateway:
+    rendered: false
+    evidence: 'config\.get\("pva_gateway"\)'
+    note: >-
+      Where PVA searches go, read only when `pva_channels` is non-empty. The one
+      route: the connector host scrubs every inherited EPICS_PVA_* variable
+      before connect() runs.
+    default: {}
+  control_system.connector.epics.pva_gateway.address: {rendered: false, evidence: 'pva_gateway\.get\("address", ""\)', default: ''}
+  control_system.connector.epics.pva_gateway.port: {rendered: false, evidence: 'pva_gateway\.get\("port"\)', default: derived, default_note: "5075 under use_name_server; otherwise no port is appended, and PVA's UDP search port 5076 applies"}
+  control_system.connector.epics.pva_gateway.use_name_server: {rendered: false, evidence: 'pva_gateway\.get\("use_name_server"\)', default: false}
   # The DOOCS and TANGO connector blocks. No preset renders either one —
   # `control-assistant` documents both as commented examples — so the parents
   # and every leaf below them are `rendered: false` together.

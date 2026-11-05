@@ -1,0 +1,4 @@
+archiver:
+  type: my_facility.connectors.FacilityArchiver
+  settings:
+    server: history.facility.edu

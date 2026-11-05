@@ -1,0 +1,13 @@
+control_system:
+  type: epics
+  connector:
+    epics:
+      gateways:
+        # EPICS uses one process-wide CA context, so the connector points at a
+        # single gateway. When writes are armed for this connector type and a
+        # write_access gateway is set, writes route through it; otherwise the
+        # connector uses read_only (so a read-only deployment rejects writes at
+        # the network layer as well).
+        read_only:   { address: cagw.facility.edu, port: 5064 }
+        write_access: { address: cagw.facility.edu, port: 5084 }
+      timeout_s: 5.0
