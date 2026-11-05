@@ -27,7 +27,7 @@ Overview
 ========
 
 The bridge turns a Teams conversation into a way of talking to the agent.
-Someone mentions the bot in a channel or writes to it in a chat, the question is
+Someone mentions the bot in a channel or writes to it in a chat. The question is
 handed to the :doc:`event dispatch pipeline <../event-dispatch>`, and the answer
 is posted back in the same conversation.
 
@@ -43,29 +43,29 @@ deployment has two pieces rather than one:
 - The **bridge** itself, running in your stack beside the dispatcher. It pulls
   that queue, and posts replies back through the bot connector.
 
-The bridge is therefore still a **reader of a queue, not a server**: it opens no
-port and nothing has to be able to reach it, which is what lets it run on a
+The bridge is therefore still a **reader of a queue, not a server**. It opens no
+port, and nothing has to be able to reach it. That is what lets it run on a
 control-room network with no inbound path from the internet. The relay is the
 only public surface, and the only thing it can do is put a validated message on
 your queue.
 
 Like every bridge, it :ref:`remembers each question and conversation
 <bridge-memory>`. What is particular to Teams is that there is no reading
-position to keep: a message the bridge has not finished with stays on the queue,
-so anything sent while the bridge was down is waiting when it comes back.
+position to keep. A message the bridge has not finished with stays on the queue.
+So anything sent while the bridge was down is waiting when it comes back.
 
-Each question gets an acknowledgement as soon as it is picked up and the answer
-when the run finishes, each as its own message; any plots and files follow as
-further messages. Nothing is edited after it is posted. In a channel all of them are
-threaded under the question itself; in a one-to-one or group chat, where Teams
-has no threads, the acknowledgement and the answer open with a quote of the
-question's first line so it is clear which message is being answered.
+Each question gets an acknowledgement as soon as it is picked up, and the answer
+when the run finishes, each as its own message. Any plots and files follow as
+further messages. Nothing is edited after it is posted. In a channel all of them
+are threaded under the question itself. A one-to-one or group chat has no
+threads in Teams. There the acknowledgement and the answer open with a quote of
+the question's first line, so it is clear which message is being answered.
 
 .. note::
 
    **If your tenant is GCC High**, the differences are two configuration values,
    not a different deployment. Set ``TEAMS_CLOUD=gcchigh`` on the bridge and the
-   same setting on the relay; the sovereign-cloud login host, token scope,
+   same setting on the relay. The sovereign-cloud login host, token scope,
    signing-key metadata address and issuer are all selected from that one value.
    Point the CLI at the right cloud first with ``az cloud set --name
    AzureUSGovernment``, and read ``azurewebsites.us`` wherever the commands below
@@ -74,9 +74,12 @@ question's first line so it is clear which message is being answered.
 Enable It in a Profile
 ======================
 
-Add a ``teams_bridge:`` block to your build profile. Two settings: which
-dispatcher trigger the bridge fires — that trigger decides what the agent is
-allowed to do with a chat question — and whether the agent may @mention people.
+Add a ``teams_bridge:`` block to your build profile. It holds two settings:
+
+- Which dispatcher trigger the bridge fires. That trigger decides what the agent
+  is allowed to do with a chat question.
+- Whether the agent may @mention people.
+
 The block is only meaningful next to a ``dispatch:`` block:
 
 .. literalinclude:: ../examples/profile-teams-bridge.yml
@@ -87,16 +90,16 @@ The block is only meaningful next to a ``dispatch:`` block:
 
    The bridge and the dispatch pair must sit on the same network. Workers go on
    the host's network whenever the agent has to reach a control system or a
-   co-deployed bridge at a loopback address (:ref:`deployment-network-attachment`),
-   and this bridge then has to move with them: add
+   co-deployed bridge at a loopback address (:ref:`deployment-network-attachment`).
+   This bridge then has to move with them: add
    ``services.teams_bridge.network: host`` to your profile's ``config:`` block.
    ``osprey build`` refuses a split pair and names the key to change.
 
 The bot's credentials and the queue it reads are **not** profile settings. Which
 tenant this deployment authenticates in and which queue it drains differ per
-deployment — and the client secret and the connection string are secrets that
+deployment. The client secret and the connection string are also secrets that
 must never be baked into a build. Listing them under ``env.required`` documents
-them in ``.env.example``; fill the values into the **profile's** ``.env``, which
+them in ``.env.example``. Fill the values into the **profile's** ``.env``, which
 is where a secret survives a rebuild. The build derives the project's ``.env``
 from it (created mode ``0600``, readable only by you).
 
@@ -154,13 +157,14 @@ the missing variables at once.
 .. warning::
 
    **One bridge per queue.** Deploy exactly one bridge against a given queue.
-   Service Bus hands each message to only *one* of a queue's readers, so a second
-   deployment pointed at the same queue — a staging stack, a container someone
-   forgot to remove, another facility reusing the name — does not get its own
-   copy of every message. It **silently splits** them: each bridge answers only
-   the messages it happened to receive, the other questions look to your team
-   like they were ignored, and nothing anywhere logs an error. Give every
-   deployment its own queue, and its own relay writing to it.
+   Service Bus hands each message to only *one* of a queue's readers. So a
+   second deployment pointed at the same queue does not get its own copy of
+   every message. It **silently splits** them: each bridge answers only the
+   messages it happened to receive. The other questions look to your team like
+   they were ignored, and nothing anywhere logs an error. The second deployment
+   can be a staging stack, a container someone forgot to remove, or another
+   facility reusing the name. Give every deployment its own queue, and its own
+   relay writing to it.
 
 .. dropdown:: Settings that are filled in for you, or safe to leave alone
    :icon: gear
@@ -237,10 +241,10 @@ the missing variables at once.
 Bring It Up
 ===========
 
-The commands below use one set of names throughout — resource group
-``osprey-teams``, namespace ``osprey-teams-bus``, queue ``osprey-questions``,
-Function App ``osprey-teams-relay`` — so you can paste them in order and change
-the names once, at the top. Namespace, Function App and storage-account names are
+The commands below use one set of names throughout: resource group
+``osprey-teams``, namespace ``osprey-teams-bus``, queue ``osprey-questions`` and
+Function App ``osprey-teams-relay``. You can paste them in order and change the
+names once, at the top. Namespace, Function App and storage-account names are
 part of a public address, so they must be unique across Azure; pick something
 with your facility in it if these are taken.
 
@@ -293,7 +297,7 @@ and 8; they are credentials.
      --query primaryConnectionString --output tsv
 
 **4. Register the bot and the identity it speaks as.** The registration's name
-is internal; the name your team sees replying is the one you give the Teams app
+is internal. The name your team sees replying is the one you give the Teams app
 in step 7. Single-tenant keeps the bot usable only inside your own directory.
 
 .. code-block:: bash
@@ -310,9 +314,9 @@ a client secret, which is shown once and never again:
    az ad app credential reset --id <app id> --display-name teams-bridge \
      --query password --output tsv
 
-Now create the bot resource. Its messaging endpoint is the relay's address,
-which you can write down before the relay exists — it is the Function App name
-you are going to use in step 5:
+Now create the bot resource. Its messaging endpoint is the relay's address. You
+can write it down before the relay exists. It is the Function App name you are
+going to use in step 5:
 
 .. code-block:: bash
 
@@ -325,9 +329,10 @@ you are going to use in step 5:
 The second command turns on the Teams channel; without it the bot exists but
 Teams will not talk to it.
 
-**5. Create the relay's Function App.** Flex Consumption with one always-ready
-instance: Teams expects an answer from the endpoint within 15 seconds, and an
-app that has scaled to nothing spends most of that budget starting up.
+**5. Create the relay's Function App.** Use Flex Consumption with one
+always-ready instance. Teams expects an answer from the endpoint within 15
+seconds. An app that has scaled to nothing spends most of that budget starting
+up.
 
 .. code-block:: bash
 
@@ -344,9 +349,9 @@ app that has scaled to nothing spends most of that budget starting up.
      --settings http=1
 
 Then give it its settings. These are the relay's own names and are **not** the
-bridge's: in particular the connection string here is the ``relay-send`` one, and
-the setting is called ``SERVICEBUS_CONNECTION``, because the Functions host reads
-it directly so the send key never passes through the relay's own code.
+bridge's. In particular, the connection string here is the ``relay-send`` one.
+The setting is called ``SERVICEBUS_CONNECTION`` because the Functions host reads
+it directly, so the send key never passes through the relay's own code.
 
 .. code-block:: bash
 
@@ -370,9 +375,9 @@ directory:
 
 The endpoint is then live at
 ``https://osprey-teams-relay.azurewebsites.net/api/messages`` — the address you
-gave the bot in step 4. It accepts anonymous requests on purpose: the proof that
-a message is genuine is the signed token Microsoft sends with it, which the relay
-checks against the bot's app id before anything reaches your queue. A request
+gave the bot in step 4. It accepts anonymous requests on purpose. The proof that
+a message is genuine is the signed token Microsoft sends with it. The relay
+checks that token against the bot's app id before anything reaches your queue. A request
 that fails that check is refused and never enqueued.
 
 **7. Install the app in Teams.** Build a Teams app package — a ``manifest.json``
@@ -410,9 +415,9 @@ conversations it has been added to.
 **9. Optional: give the bot one file library.** Without one, the bridge posts
 plots inline and names every other file it could not deliver. With one, it
 uploads those files there and shares each with the people in the conversation.
-Create or pick a SharePoint document library that **nobody else reads**: a
+Create or pick a SharePoint document library that **nobody else reads**. A
 shared file keeps the library's own permissions as well as the per-conversation
-share, so a library with broad membership shares wider than the conversation.
+share. So a library with broad membership shares wider than the conversation.
 
 First look up the site and the library ids:
 
@@ -471,10 +476,10 @@ it starts with everything else:
 
 Then mention the bot in a channel it has been added to and ask it something. If
 nothing happens, work outwards from the bridge: a missing credential stops it at
-startup with the missing variable named. A wrong app id is the quieter failure —
-the bridge runs happily and ignores every channel message, because nothing it
+startup with the missing variable named. A wrong app id is the quieter failure.
+The bridge runs happily and ignores every channel message, because nothing it
 sees looks like a mention of itself. If the bridge looks idle, check the Function
-App's logs: a message refused there never reaches the queue, and a relay whose
+App's logs. A message refused there never reaches the queue. A relay whose
 settings name the wrong queue writes where nobody is reading.
 
 .. important::
@@ -492,37 +497,38 @@ Who Can Ask, and What Is Shared
 Who may reach the agent, and what the trigger lets it do, is the same for every
 bridge — see :ref:`bridge-access`. What is particular to Microsoft Teams:
 
-**The conversations are the ones the app was added to.** Teams — not Osprey —
-decides who is in those teams and chats, so add the app as deliberately as you
+**The conversations are the ones the app was added to.** Teams, not Osprey,
+decides who is in those teams and chats. So add the app as deliberately as you
 would choose who gets an account.
 
 **In a channel or a group chat, only a real @mention of the bot is answered.**
-The bridge matches the mention Teams itself records, not the message text, so
+The bridge matches the mention Teams itself records, not the message text. So
 writing the bot's name in passing does not trigger it. A one-to-one chat has
 nobody else to address, so every message there is a question.
 
 **Other people's names survive the question.** When a question mentions a
-colleague as well as the bot, the bot's own mention is removed as addressing and
-every other mention becomes that person's display name, so the agent sees who was
-named.
+colleague as well as the bot, the bot's own mention is removed as addressing.
+Every other mention becomes that person's display name, so the agent sees who
+was named.
 
 **Who is in the conversation, and @mentions.** Each question reaches the agent
 with who asked it and who is in the conversation; for a channel that is the
 channel's members. The bridge lists them with the bot's own sign-in, so there is
 no extra permission to grant. A member's name is the one Teams lists. If Teams
 lists none, it is the name the bridge has seen that person use or be @mentioned
-under; otherwise the member is listed without a name, and the agent is told not
-to guess. The agent may @mention a member of the same conversation only when
+under. If the bridge has seen none either, the member is listed without a name,
+and the agent is told not to guess. The agent may @mention a member of the same conversation only when
 someone in it asks the agent to pass something on or to notify someone. It
 never does so on its own. Anyone not in the conversation is written as plain
 text. Set ``mentions: false`` in the profile block to have every mention posted
 as plain text instead.
 
 **Plots and files.** Each plot arrives as its own message directly after the
-answer, one image per message, attached inline. Every other file — a table, a
-PDF, an image too large to attach — goes into the one file library set aside for
-the bot (step 9), into a folder of its own for the run, and is shared with the
-people in the conversation at the moment it was sent. One message per file
+answer, one image per message, attached inline. Every other file goes into the
+one file library set aside for the bot (step 9). That covers a table, a PDF, or
+an image too large to attach. Each run's files go into a folder of their own,
+and each file is shared with the people in the conversation at the moment it
+was sent. One message per file
 carries an **Open** button; opening it takes a Microsoft 365 sign-in. People who
 join a channel later cannot open older files, the files do not appear in the
 channel's Files tab, and the library's own retention rules apply to them. No
@@ -535,7 +541,7 @@ links.
    **What the agent cannot exchange in Teams.**
 
    - *Inline images are PNGs up to 1 MB.* Each one is fitted into a 1024×1024
-     box and re-encoded before posting; one still over 1 MB after that goes to
+     box and re-encoded before posting. One still over 1 MB after that goes to
      the file library at its original size instead.
    - *Documents need the file library.* Without ``TEAMS_FILES_DRIVE_ID``, PDFs,
      CSVs and other files are not delivered, and one last message names each one
@@ -545,6 +551,6 @@ links.
      ``teams`` extra, which the shipped image uses. Without it every image takes
      the file library, or is named in the note when there is none.
    - *Files attached to a question are ignored.* Teams attachments are not
-     downloaded, so a question that says "look at this log" and attaches one gets
-     an answer written without it. Paste the relevant part into the message
+     downloaded. So a question that says "look at this log" and attaches one
+     gets an answer written without it. Paste the relevant part into the message
      instead.
