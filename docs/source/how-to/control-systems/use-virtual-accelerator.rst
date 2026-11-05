@@ -60,13 +60,13 @@ The Virtual Accelerator is a **local physics simulator**, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
 exactly as it does a real machine; only the backend changes.
 
-The physics behind the channels comes from the profile's
-``simulation.models``. The container builds each served physics model through
-the engine its record names. It serves those models together with the texture
-model as one composite. The shipped engine is pyAT, built on the facility-agnostic
-``lume-pyat`` package, over the deck your facility tree stages. A render that
-serves ``texture`` alone serves the same channels with no physics behind them:
-a setpoint holds the value written to it and a readback follows its seed. A
+The physics behind the channels comes from the profile's ``simulation.models``.
+The container builds each served physics model through the engine its record
+names. It serves those models together with the texture model as one composite.
+The shipped engine is pyAT, built on the facility-agnostic ``lume-pyat``
+package, over the deck your facility tree stages. A render that serves
+``texture`` alone serves the same channels with no physics behind them: a
+setpoint holds the value written to it and a readback follows its seed. A
 physics engine other than pyAT is an engine plug-in, covered in
 :ref:`va-serving-your-own-model`.
 
@@ -91,11 +91,11 @@ Nothing is invented, and no other channel list feeds the set:
 A channel's role, not its address, says what it is. A channel record with
 ``role: setpoint`` is written, and its readback is the record's ``pair``. A
 setpoint that names none is paired by the build with the one readback on the
-same device whose signal names the same quantity, else it is its own readback.
-A setpoint's ``tolerance``, next to its ``pair``, says how close that readback
+same device whose signal names the same quantity, else it is its own readback. A
+setpoint's ``tolerance``, next to its ``pair``, says how close that readback
 must come before a move counts as done. The build stops when the readback's
-seeded motion is wider than the tolerance. A channel with no role is a readback. The
-address text is the facility's own and is served as it is written: no token
+seeded motion is wider than the tolerance. A channel with no role is a readback.
+The address text is the facility's own and is served as it is written: no token
 inside it means anything to OSPREY.
 
 A facility whose models wire no channel is served by the texture alone. A
@@ -153,7 +153,7 @@ the archive lives, so the deployment already reads a real store.
 
 A deployment with no archive of its own still reads the mock archiver, which
 makes its history up as it is asked for it. On such a deployment the build
-**refuses** the profile, and says what to do instead. Do one of these:
+**refuses** the profile, and says what to do instead, one of:
 
 - Point ``archiver.type`` at a store this deployment writes
   (``mongodb_archiver`` for the store the preset deploys).
@@ -281,14 +281,14 @@ served simulator: loopback, on the port ``services.virtual_accelerator.port``
 publishes. The simulator in process serves nothing on the network to sample, so
 the recorder stops writing and idles. Pointing the ``va`` block's gateways at
 another host idles it the same way, and so does taking the simulator out of the
-deployment. It re-reads the project's ``config.yml`` every 30 seconds, so a change
-takes effect within one poll and no restart or rebuild is involved. Nothing is
-deleted --- the history already in the store stays readable, it simply stops
-growing, and it ages out under the retention window as usual. ``osprey health``
-will report the archive as **stale** once the newest sample is older than the
-freshness threshold. Stale is a warning, not an error: it is the honest answer
-to "is this archive still being written". Flipping back to ``served`` restarts
-recording within a poll too.
+deployment. It re-reads the project's ``config.yml`` every 30 seconds, so a
+change takes effect within one poll and no restart or rebuild is involved.
+Nothing is deleted --- the history already in the store stays readable, it
+simply stops growing, and it ages out under the retention window as usual.
+``osprey health`` will report the archive as **stale** once the newest sample is
+older than the freshness threshold. Stale is a warning, not an error: it is the
+honest answer to "is this archive still being written". Flipping back to
+``served`` restarts recording within a poll too.
 
 A stand-in beside the simulator changes none of this: it is never what the
 recorder samples.
@@ -304,9 +304,9 @@ Connecting to the IOC
 =====================
 
 The container serves Channel Access on ``127.0.0.1:5064`` in EPICS name-server
-mode. That is the one host-to-container configuration that works reliably
-across container runtimes, since broadcast discovery does not cross the
-container VM boundary. The project's ``virtual_accelerator`` connector block is configured to
+mode. That is the one host-to-container configuration that works reliably across
+container runtimes, since broadcast discovery does not cross the container VM
+boundary. The project's ``virtual_accelerator`` connector block is configured to
 match and sets ``EPICS_CA_NAME_SERVERS`` itself, so no client-side EPICS
 environment setup is needed.
 
@@ -403,9 +403,9 @@ Scenarios
 scenario writes the project's ``var/agent_data/simulation/active_scenarios``
 file; the in-container engine polls it and, within about a second, composed
 channel values reflect the new scenario. There is one behavioral difference
-between the venues. Served, a scenario switch only refreshes the
-engine-composed channels: setpoints you wrote during the session live in the
-IOC's own records and **survive** the switch. (In process, written values are reset.) ``osprey sim
+between the venues. Served, a scenario switch only refreshes the engine-composed
+channels: setpoints you wrote during the session live in the IOC's own records
+and **survive** the switch. (In process, written values are reset.) ``osprey sim
 apply still`` serves every reading without drift, couplings or noise.
 
 The served simulator's container mounts two directories:
@@ -549,9 +549,9 @@ archive instead, and never this store. See `Rehearsing against a live target`_.
 
 Retention is enforced by the store itself. Dense samples expire after the hot
 span and the coarse ones after the retention window, so a long-running
-deployment stays bounded rather than growing forever. The collection is zstd-compressed;
-the project's end-to-end test budgets the seeded store at under 2 GiB on disk at
-these defaults.
+deployment stays bounded rather than growing forever. The collection is
+zstd-compressed; the project's end-to-end test budgets the seeded store at under
+2 GiB on disk at these defaults.
 
 .. note::
 
@@ -574,9 +574,9 @@ current pulse — is archived beside the scalars, not among them:
 - **one trace a minute.** The seed and the recorder both write a waveform at the
   tail cadence: **every 60 seconds** at the shipped defaults
   (``tail_cadence_sec``). Neither writes one at the 10-second scalar cadence, so
-  the hot span holds no denser waveform history than the rest of the window. The build
-  requires the recorder's waveform cadence (``recorder_tail_cadence_sec``) to
-  equal the seed's, so both write one history on one grid.
+  the hot span holds no denser waveform history than the rest of the window. The
+  build requires the recorder's waveform cadence (``recorder_tail_cadence_sec``)
+  to equal the seed's, so both write one history on one grid.
 - **raw reads only.** The archiver connector returns a waveform channel's value
   as ``list[float]``, every stored trace in range, unbinned. Raw is the only
   processing defined for a waveform; asking for an average, a min/max or any
@@ -609,7 +609,7 @@ There is one configuration this stack refuses: a machine the deployment stands
 up for itself and serves over the network, paired with the **mock archiver**.
 Such a machine is the ``virtual_accelerator`` control system served from its
 container, or the ``live_standin`` one. No archiver set at all resolves to the
-same thing as the mock archiver.
+same thing as the mock archiver, so it is refused the same way.
 
 The reason is what the two do differently. The Virtual Accelerator serves
 channels that move for modelled reasons: you step a corrector, the orbit
