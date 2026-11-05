@@ -95,12 +95,16 @@ _KEY_PATTERN = re.compile(r"^(?:" + "|".join(_SECTIONS) + r")\.[a-z0-9_.-]+$")
 
 #: Documented keys that are deliberately absent from the manifest, each with
 #: the reason it is allowed to be. Keyed by the dotted key so that an edit to
-#: the surrounding prose does not silently inherit the exemption. Empty by
-#: design: an exemption here is a promise to a reader that the key works, made
+#: the surrounding prose does not silently inherit the exemption. Keep it
+#: short: an exemption here is a promise to a reader that the key works, made
 #: without the guard's evidence behind it, so every entry needs an argument.
 _EXEMPTIONS: dict[str, str] = {
     "api.js": "a file of the ARIEL frontend, named in the contract's module table",
     "facility.json": "a file name on the channel-finder contract page, not a key",
+    "provenance.deviation_marker": (
+        "a key of the build profile's top-level provenance: block, read by the "
+        "profile loader (cli/build_profile_load.py), never a config.yml key"
+    ),
     "ariel.database.uri": (
         "recorded as deleted so no preset renders it live, but an explicit uri "
         "is still read and wins (services/ariel_search/config.py); the "

@@ -2216,6 +2216,9 @@ keys:
       the companion-server registry (config_web_subkey="web").
     default: derived
     default_note: host 127.0.0.1 and the layout's channel_finder slot at this deployment's port base
+  channel_finder.web.host: {rendered: false, covered-by: channel_finder.web, default: 127.0.0.1}
+  channel_finder.web.port: {rendered: false, covered-by: channel_finder.web, default: derived, default_note: the layout's channel_finder slot at this deployment's port base}
+  channel_finder.web.auto_launch: {rendered: false, covered-by: channel_finder.web, default: true}
   channel_finder.pipeline_mode: {evidence: 'pipeline_mode', default: derived, default_note: "the paradigm implied by whichever pipeline database paths are configured"}
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
@@ -2334,6 +2337,9 @@ keys:
       companion-server registry (config_web_subkey="web").
     default: derived
     default_note: host 127.0.0.1 and the layout's ariel slot at this deployment's port base
+  ariel.web.host: {rendered: false, covered-by: ariel.web, default: 127.0.0.1}
+  ariel.web.port: {rendered: false, covered-by: ariel.web, default: derived, default_note: the layout's ariel slot at this deployment's port base}
+  ariel.web.auto_launch: {rendered: false, covered-by: ariel.web, default: true}
   ariel.entry_url_template:
     rendered: false
     evidence: 'get_config_value\("ariel\.entry_url_template"'
@@ -3464,14 +3470,6 @@ keys:
     evidence: 'get_config_value\("provenance\.preset_hash", None\)'
     default: derived
     default_note: the preset's resolved-content hash build_profile_emit stamps, absent without a preset
-  provenance.deviation_marker:
-    rendered: false
-    evidence: 'provenance_raw\.get\("deviation_marker", DEFAULT_DEVIATION_MARKER\)'
-    note: >-
-      A profile key, not a config: key: the tag of the `# <TAG>:` comment that
-      claims a deliberate difference from the preset. Read by the profile
-      loader and `osprey init --revalidate`, never stamped into config.yml.
-    default: DEVIATION
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)', default: {}}
   web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)', default: true}
   web.channel_suggestions.max_channels:

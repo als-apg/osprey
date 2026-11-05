@@ -19,21 +19,30 @@ A block is read one of three ways, by its root keys:
   config section (``name:``, ``dispatch:``), or the block has a ``config:``
   block. Every root must be one the loader accepts, the ``config:`` block is
   checked as config form, and the profile blocks the loader closes
-  (``mcp_servers:`` entries, ``services:`` entries, ``bluesky:``, ...) may only
-  spell the keys the loader accepts there.
+  (``mcp_servers:``, ``services:`` and ``watchdogs:`` entries, ``bluesky:``,
+  ``dispatch:``, ...) may only spell the keys the loader accepts there. Only
+  that first level is checked: the closed sets below it
+  (``bluesky.external``, an mcp server's ``hooks``, ``agent_record``'s
+  ClickHouse block, ``deploy.registry``) and the free-form
+  ``services.<name>.config`` are not.
 * **either** — every root is both (``services:``, ``bluesky:``,
   ``agent_record:``). The block passes if it is valid in either reading.
+  ``watchdogs:`` is read as a profile block only, since the manifest holds it
+  as a data map.
+
+A list is one leaf, so the keys inside list items (a roster entry, a health
+check) are not checked against the ledger.
 
 A ``health:`` block is also handed to ``parse_health_config``, which refuses
 what the manifest cannot see: a category's ``checks:`` are the facility's own
 data, so leaves under ``health.categories.<name>`` are checked by the parser,
 not the ledger.
 
-A block that is not configuration at all (a facility file, ``providers.yml``,
-a trigger file, a compose template, an elided list) is listed in
-:data:`_NOT_CONFIG` with the file it belongs to; a key the manifest cannot
+A Jinja template (a block carrying ``{{`` or ``{%``) is skipped. Any other
+block that is not configuration (a facility file, ``providers.yml``, a trigger
+file) is listed in :data:`_NOT_CONFIG` with the file it belongs to; a key the manifest cannot
 declare is listed in :data:`_UNDECLARED` with its reason. Both are keyed by
-page and content rather than by line number, so an edit elsewhere on a page
+page and content (a block's ``:caption:`` or first line) rather than by line number, so an edit elsewhere on a page
 does not move an entry, and both are held empty of stale entries.
 """
 
@@ -65,6 +74,9 @@ from osprey.cli.build_profile_load import (
 )
 from osprey.cli.build_profile_schema import ServiceDef
 from osprey.health.config import parse_health_config
+from osprey.services.watchdog.config import _AGENT_KEYS as _WATCHDOG_AGENT_KEYS
+from osprey.services.watchdog.config import _COMMON_KEYS as _WATCHDOG_COMMON_KEYS
+from osprey.services.watchdog.config import _DECISION_KEYS as _WATCHDOG_DECISION_KEYS
 from osprey_connectors.errors import ConfigurationError
 from tests.docs.test_connector_config_examples import _declared_spelling, _leaves
 
@@ -85,7 +97,13 @@ _PLACEHOLDER = re.compile(r"<[^<>\n]+>")
 _ENTRY_KEYS: dict[str, frozenset[str]] = {
     "mcp_servers": _KNOWN_MCP_SERVER_KEYS,
     "services": frozenset(f.name for f in fields(ServiceDef)),
+    "watchdogs": _WATCHDOG_COMMON_KEYS | _WATCHDOG_DECISION_KEYS | _WATCHDOG_AGENT_KEYS,
 }
+
+#: Roots read as profile blocks even where the manifest also names them. The
+#: manifest's ``watchdogs`` is a data map, so its config reading checks nothing;
+#: the profile loader is what closes a watchdog entry's keys.
+_PROFILE_ROOTS = frozenset({"watchdogs"})
 
 #: Profile blocks the loader closes: block → keys it may spell.
 _BLOCK_KEYS: dict[str, frozenset[str]] = {
@@ -104,6 +122,9 @@ _BLOCK_KEYS: dict[str, frozenset[str]] = {
 #: parser rather than by the ledger: ``health.categories.<name>.*``.
 _PARSED_ELSEWHERE = ("health.categories.",)
 
+#: Jinja markup: a block carrying it is a template (``docker-compose.yml.j2``).
+_JINJA = re.compile(r"\{\{|\{%")
+
 #: A line that elides the rest of a list or mapping: ``...``.
 _ELISION = re.compile(r"^\s*\.\.\.\s*(#.*)?$", re.MULTILINE)
 
@@ -112,7 +133,7 @@ _PROVIDERS = "providers.yml, the provider catalog; its entries are data under ap
 _TRIGGERS = "triggers.yml, read by the event-dispatch trigger loader"
 
 #: Blocks that are not ``config.yml`` or a build profile, keyed by
-#: ``(page, first line of the block)``, with the file they belong to.
+#: ``(page, block name)`` (see :attr:`Block.name`), with the file they belong to.
 _NOT_CONFIG: dict[tuple[str, str], str] = {
     ("getting-started/hello-world-tutorial.rst", "records:"): _FACILITY,
     ("getting-started/hello-world-tutorial.rst", "- address: SR:MAG:CORR:01:CURRENT:SP"): _FACILITY,
@@ -123,17 +144,13 @@ _NOT_CONFIG: dict[tuple[str, str], str] = {
         "how-to/ariel/search-modes.rst",
         "concepts:",
     ): "an ARIEL concept file, read by the query expander",
-    ("how-to/bluesky/write-plans.rst", "# build/data/bluesky_devices.yml"): (
+    ("how-to/bluesky/write-plans.rst", "build/data/bluesky_devices.yml"): (
         "build/data/bluesky_devices.yml, the device file the queue server mounts"
     ),
     ("how-to/control-systems/use-virtual-accelerator.rst", "- name: <model>"): _FACILITY,
     ("how-to/deploy-a-facility.rst", "code: ca"): _FACILITY,
-    (
-        "how-to/deploy-project/compose-templates.rst",
-        "# services/postgresql/docker-compose.yml.j2",
-    ): ("a Jinja compose template, not YAML until rendered"),
-    ("how-to/deploy-project/networking.rst", "# services/site_api/docker-compose.yml.j2"): (
-        "a Jinja compose template"
+    ("how-to/deploy-project/networking.rst", "services/site_api/docker-compose.yml.j2"): (
+        "a compose template, rendered by the build"
     ),
     ("how-to/describe-your-facility.rst", "code: ca"): _FACILITY,
     ("how-to/describe-your-facility.rst", "- id: SR/SECT1"): _FACILITY,
@@ -158,7 +175,7 @@ _NOT_CONFIG: dict[tuple[str, str], str] = {
 }
 
 #: Blocks that show the inside of a config section, keyed by
-#: ``(page, first line of the block)``, with the section they sit under.
+#: ``(page, block name)``, with the section they sit under.
 _FRAGMENTS: dict[tuple[str, str], str] = {
     ("how-to/web-terminal/multi-user/login.rst", "oidc:"): "modules.web_terminals.auth",
     ("how-to/web-terminal/multi-user/login.rst", "shared:"): "modules.web_terminals",
@@ -197,6 +214,7 @@ class Block:
     page: str
     line: int
     text: str
+    caption: str = ""
 
     @property
     def where(self) -> str:
@@ -204,8 +222,22 @@ class Block:
 
     @property
     def first(self) -> str:
-        """The block's first non-blank line, stripped: its stable name."""
+        """The block's first non-blank line, stripped."""
         return next(line.strip() for line in self.text.splitlines() if line.strip())
+
+    @property
+    def name(self) -> str:
+        """The block's stable name: its ``:caption:``, else its first line, less a ``# ``.
+
+        A file-name comment (``# services/x.yml``) and the same name moved into a
+        ``:caption:`` give one name, so either spelling keys the same entry.
+        """
+        return (self.caption or self.first).removeprefix("#").strip()
+
+    @property
+    def is_template(self) -> bool:
+        """A Jinja template is not YAML until rendered, and is not config."""
+        return bool(_JINJA.search(self.text))
 
 
 def _blocks(path: Path, root: Path = DOCS) -> Iterator[Block]:
@@ -220,9 +252,12 @@ def _blocks(path: Path, root: Path = DOCS) -> Iterator[Block]:
             continue
         base = len(opener.group(1))
         # Directive options and blank lines precede the content.
+        caption = ""
         while index < len(lines) and (
             not lines[index].strip() or lines[index].strip().startswith(":")
         ):
+            if lines[index].strip().startswith(":caption:"):
+                caption = lines[index].strip().removeprefix(":caption:").strip()
             index += 1
         start = index
         body: list[str] = []
@@ -234,7 +269,7 @@ def _blocks(path: Path, root: Path = DOCS) -> Iterator[Block]:
             index += 1
         text = textwrap.dedent("\n".join(body)).strip("\n")
         if text:
-            yield Block(page, start + 1, text)
+            yield Block(page, start + 1, text, caption)
 
 
 @lru_cache(maxsize=1)
@@ -263,7 +298,7 @@ def _parse(block: Block) -> Any:
     """The block as YAML, placeholders filled and elisions dropped."""
     text = _ELISION.sub("", _PLACEHOLDER.sub("placeholder", block.text))
     document = yaml.safe_load(text)
-    parent = _FRAGMENTS.get((block.page, block.first))
+    parent = _FRAGMENTS.get((block.page, block.name))
     if parent is not None:
         for key in reversed(parent.split(".")):
             document = {key: document}
@@ -338,7 +373,7 @@ def _problems(block: Block) -> list[str]:
     # A dotted root (``web.panels.events.url:``) is a line of a ``config:`` block.
     in_config = all(root.split(".")[0] in sections for root in roots)
     in_profile = roots <= _KNOWN_PROFILE_KEYS
-    if "config" in roots or (in_profile and not in_config):
+    if "config" in roots or (in_profile and not in_config) or roots & _PROFILE_ROOTS:
         return _profile_problems(block.page, document)
     if in_config and not in_profile:
         return _config_problems(block.page, document)
@@ -357,7 +392,11 @@ def _problems(block: Block) -> list[str]:
 
 
 def _checked() -> list[Block]:
-    return [block for block in _all_blocks() if (block.page, block.first) not in _NOT_CONFIG]
+    return [
+        block
+        for block in _all_blocks()
+        if (block.page, block.name) not in _NOT_CONFIG and not block.is_template
+    ]
 
 
 @pytest.mark.parametrize("block", _checked(), ids=lambda block: block.where)
@@ -372,7 +411,7 @@ def test_the_pages_have_yaml_blocks() -> None:
 
 
 def test_every_not_config_and_fragment_entry_names_a_block() -> None:
-    present = {(block.page, block.first) for block in _all_blocks()}
+    present = {(block.page, block.name) for block in _all_blocks()}
     assert sorted(set(_NOT_CONFIG) - present) == []
     assert sorted(set(_FRAGMENTS) - present) == []
 
@@ -413,6 +452,10 @@ def test_every_undeclared_entry_is_still_spelled() -> None:
         ("services:\n  ariel_sync:\n    template: osprey.ariel_sync\n", []),
         ("health:\n  categories:\n    host:\n      checks: []\n", []),
         (
+            "watchdogs:\n  guard:\n    enabeld: true\n",
+            ["watchdogs.guard.enabeld is not a key one watchdogs entry accepts"],
+        ),
+        (
             "contrl_system:\n  type: epics\n",
             ["root keys ['contrl_system'] are neither config sections nor build-profile keys"],
         ),
@@ -449,4 +492,18 @@ def test_the_block_scanner_reads_nested_blocks(tmp_path: Path) -> None:
         "   Prose after the block.\n",
         encoding="utf-8",
     )
-    assert list(_blocks(page, tmp_path)) == [Block("page.rst", 8, "bluesky:\n  plan_dir: plans/")]
+    assert list(_blocks(page, tmp_path)) == [
+        Block("page.rst", 8, "bluesky:\n  plan_dir: plans/", "profile.yml")
+    ]
+
+
+def test_a_caption_and_a_file_name_comment_name_a_block_alike() -> None:
+    commented = Block("p.rst", 1, "# services/x/docker-compose.yml\nservices: {}")
+    captioned = Block("p.rst", 1, "services: {}", caption="services/x/docker-compose.yml")
+    assert commented.name == captioned.name == "services/x/docker-compose.yml"
+
+
+def test_a_jinja_template_is_not_checked() -> None:
+    template = Block("p.rst", 1, "services:\n  db:\n    image: {{ services.db.image }}\n")
+    assert template.is_template
+    assert not Block("p.rst", 1, "web:\n  theme: dark\n").is_template
