@@ -29,9 +29,10 @@ Event dispatch lets an external event start an agent run with no human at a
 keyboard. It is built from two services:
 
 - **Event dispatcher** (``python -m osprey.dispatch``, port ``10010``) — accepts
-  authenticated webhook ``POST``\s, interval and clock-time ticks and EPICS channel crossings,
-  matches each to a trigger, applies the trigger's tool allowlist and error policy, and forwards the run to
-  a worker. It also serves the monitoring **dashboard**.
+  authenticated webhook ``POST``\s, interval and clock-time ticks and EPICS
+  channel crossings. It matches each to a trigger, applies the trigger's tool
+  allowlist and error policy, and forwards the run to a worker. It also serves
+  the monitoring **dashboard**.
 - **Dispatch worker** (``python -m osprey.mcp_server.dispatch_worker``, port
   ``10011``) — runs the headless agent session and streams progress back.
 
@@ -182,15 +183,18 @@ The EVENTS Panel
 
 Projects built from the ``control-assistant`` preset surface this dashboard as
 an **EVENTS** tab inside the web terminal, so ``osprey web`` exposes it without a
-separate browser window. The tab health-gates itself: while the dispatcher is
-down the tab is disabled with an offline indicator rather than showing a broken
-frame, and it turns live once the dispatcher answers ``/health``.
+separate browser window. The tab health-gates itself. While the dispatcher is
+down, the tab is disabled with an offline indicator rather than showing a
+broken frame. It turns live once the dispatcher answers ``/health``.
 
-The panel points at ``http://localhost:<dispatcher_port>``, which works out of
-the box for the host-run flow in *Bring It Up* and for every tier built
-beside the deployment: per-user containers share the host's network, so the
-dispatcher answers on their loopback too, and the build copies this entry from
-the deployment's render into each tier (:doc:`/how-to/build-profiles`).
+The panel points at ``http://localhost:<dispatcher_port>``. That address works
+out of the box in two cases:
+
+- the host-run flow in *Bring It Up*;
+- every tier built beside the deployment. Per-user containers share the host's
+  network, so the dispatcher answers on their loopback too. The build copies
+  this entry from the deployment's render into each tier
+  (:doc:`/how-to/build-profiles`).
 
 Auto-derived URL
 ----------------
@@ -207,12 +211,14 @@ derives the whole panel entry from ``dispatch.dispatcher_port``:
    web.panels.events.health_endpoint: /health                  # what the tab health-gates on
 
 The ``url`` is the bare dispatcher host and ``path`` carries the ``/dashboard``
-route — the web terminal composes the backend target as ``url`` + ``path``, so
+route. The web terminal composes the backend target as ``url`` + ``path``, so
 baking ``/dashboard`` into ``url`` would double-prefix sub-routes. Keep them
-split. Any of these keys a profile already pins the build leaves untouched, and
-an explicit ``web.panels.events.url`` always wins — pin it on the **hosting**
-profile when the web terminals cannot reach the dispatcher on ``localhost``;
-every tier follows it, and a tier that pins a different one is refused.
+split.
+
+The build leaves untouched any of these keys a profile already pins, and an
+explicit ``web.panels.events.url`` always wins. Pin it on the **hosting**
+profile when the web terminals cannot reach the dispatcher on ``localhost``.
+Every tier follows it, and a tier that pins a different one is refused.
 
 .. _event-dispatch-from-a-session:
 
@@ -220,46 +226,46 @@ Firing a Trigger from a Session
 ===============================
 
 A deployment that declares the EVENTS panel also hands the agent in each web
-terminal a small ``event_dispatcher`` MCP server, so a job can be started from
-the session an operator is already working in. Three of its tools read and
+terminal a small ``event_dispatcher`` MCP server. With it, you can start a job
+from the session you are already working in. Three of its tools read and
 answer straight away — ``list_triggers``, ``trigger_status`` and
 ``trigger_history``. The times they report are in the facility zone. The
 fourth, ``manual_fire``, starts a job and asks first.
 
 Ask for it in plain language — *"fire the save-report trigger"* — and an
 approval prompt appears. It names the trigger the fire would start, and the
-payload where the call carries one, so the name to check is on the prompt
-rather than in the agent's message above it.
+payload where the call carries one. That way the name to check is on the
+prompt rather than in the agent's message above it.
 
 The job runs as you
 -------------------
 
-Approve, and the run is attributed to your account: the terminal's proxy stamps
+Approve, and the run is attributed to your account. The terminal's proxy stamps
 your name onto the call, and the worker starts the agent under it. Every
 control-system write that job makes then follows your tier and your
-:ref:`write switch <web-terminal-session-posture>` — turn the machine off and
+:ref:`write switch <web-terminal-session-posture>`. Turn the machine off and
 the job you fired refuses its next write, with the refusal you would have seen
 in the terminal. The worker reads your tier from the login→tier map the build
-renders into its config (:ref:`write-safety-config`). The name comes from the session the call left, never from a tool
-argument or a header the agent can set, so there is no way to fire on someone
-else's behalf.
+renders into its config (:ref:`write-safety-config`). The name comes from the
+session the call left, never from a tool argument or a header the agent can
+set. So there is no way to fire on someone else's behalf.
 
 The control system sees the job's writes under the worker's own service name,
 ``osprey-dispatch-<i>`` for worker *i*, not under yours: one worker runs jobs
 for everyone. Your name goes into the audit trail instead, as ``owner=`` on
-the job's write records beside the worker name, which is how a line in the
+the job's write records beside the worker name. That is how a line in the
 gateway's put-log is joined back to you. See :ref:`audit-trail-attribution`.
 
-A job that a trigger source started — an interval or clock-time tick, a channel
-crossing or an inbound webhook — carries no name, and neither does one whose
-account name the dispatcher cannot read — a name that is not a plain account
-spelling is refused, and the only trace is a warning in the dispatcher's own
-log. **A job with no name writes nothing**: no switch covers it, so each write
-is refused ``owner_unscheduled``. This is a breaking change from earlier
-releases, where such a job wrote at the deployment's own setting, and there is
-no route back yet: a schedule that names the login whose switch it follows is
-a later dispatch feature. Keep scheduled jobs to reads and reports, or fire the
-write from a terminal.
+A job that a trigger source started carries no name: an interval or
+clock-time tick, a channel crossing or an inbound webhook. Neither does a job
+whose account name the dispatcher cannot read. A name that is not a plain
+account spelling is refused, and the only trace is a warning in the
+dispatcher's own log. **A job with no name writes nothing**: no switch covers
+it, so each write is refused ``owner_unscheduled``. This is a breaking change
+from earlier releases, where such a job wrote at the deployment's own setting.
+There is no route back yet: a schedule that names the login whose switch it
+follows is a later dispatch feature. Keep scheduled jobs to reads and reports,
+or fire the write from a terminal.
 
 Where the tools work
 --------------------
@@ -273,8 +279,8 @@ tools. **The dispatcher tools are reachable from a web-terminal session only.**
 
 A job also cannot fire jobs. A trigger whose ``allowed_tools`` names any
 ``mcp__event_dispatcher__`` tool is refused when the triggers file loads, with
-an error naming both the trigger and the tool, and the worker's server-side
-denylist blocks ``manual_fire`` whatever a dispatch request asks for.
+an error naming both the trigger and the tool. The worker's server-side
+denylist also blocks ``manual_fire``, whatever a dispatch request asks for.
 
 How the call is authorized
 --------------------------
@@ -285,7 +291,7 @@ instead, and presents the panel token the agent already carries. The proxy is
 the one place in the container holding the dispatcher's bearer: it drops
 whatever the caller sent, injects the bearer, and adds your account name. It
 does that only for the events backend the configuration declares, and only when
-that backend answers on loopback — an EVENTS panel pointed at a dashboard
+that backend answers on loopback. An EVENTS panel pointed at a dashboard
 elsewhere receives neither the bearer nor your name.
 
 A shell can still reach the route
@@ -293,13 +299,15 @@ A shell can still reach the route
 
 The panel token is meant for the agent's MCP tools and hooks. Claude Code
 starts every ``Bash`` and ``Monitor`` command with the token removed from its
-environment, but the agent process itself keeps it, and a shell running as the
-same user can read it from that process (``/proc/$PPID/environ`` on Linux). So
-a tier whose file lifts the ``Bash`` deny — a build failure unless that file
-also declares its own ``PreToolUse`` gate covering the shell — can fire a job
-from a shell command with no approval prompt. What that skips is the prompt,
-not the rest: such a job still carries your name from the proxy, still meets
-your chip at every write, and still runs under the worker's denylist. Code
+environment. The agent process itself keeps it, though, and a shell running as
+the same user can read it from that process (``/proc/$PPID/environ`` on Linux).
+
+So a tier whose file lifts the ``Bash`` deny can fire a job from a shell
+command with no approval prompt. Lifting that deny is a build failure unless
+the same file also declares its own ``PreToolUse`` gate covering the shell.
+What that skips is the prompt, not the rest. Such a job still carries your name
+from the proxy, still meets your chip at every write, and still runs under the
+worker's denylist. Code
 running in a sandbox holds neither the panel token nor the terminal's port, so
 it cannot make this call.
 
@@ -375,9 +383,9 @@ A trigger's ``source:`` names what fires it, and its optional
 ``source_config:`` mapping carries that source's own settings. A
 ``source_config`` that is not a mapping, like an ``action`` or ``on_error``
 that is not one, stops the triggers file from loading, with an error naming
-the trigger; a blank one is empty. Three sources ship. A ``source:`` that no installed source registers is logged when the
-dispatcher starts, and its triggers are skipped while the rest of the file
-loads.
+the trigger. A blank one is empty. Three sources ship. A ``source:`` that no
+installed source registers is logged when the dispatcher starts. Its triggers
+are skipped while the rest of the file loads.
 
 .. literalinclude:: examples/triggers-sources.yml
    :language: yaml
@@ -388,9 +396,15 @@ loads.
    ``EVENT_DISPATCHER_TOKEN`` bearer, and takes no ``source_config``. The JSON
    body is folded into the prompt as untrusted payload. A body that is not a
    JSON object counts as empty, and one declared larger than 32 MB is refused
-   with HTTP 413. The answer is 202 with the ``dispatch_id``, 401 for a wrong
-   or missing bearer, 404 for an unknown trigger, 409 for a disabled one, 429
-   when the queue is full, and 503 while the token is unset.
+   with HTTP 413. The answer is one of these status codes:
+
+   - 202 with the ``dispatch_id``;
+   - 401 for a wrong or missing bearer;
+   - 404 for an unknown trigger;
+   - 409 for a disabled one;
+   - 429 when the queue is full;
+   - 503 while the token is unset.
+
    :ref:`Fire a Trigger <event-dispatch-fire>` walks through one call.
 
 ``source: cron``
@@ -419,9 +433,9 @@ loads.
    Nothing aligns to the wall clock, and a restart starts the count again, so
    ``interval_sec: 86400`` means once a day counted from start, not at a set
    hour. A trigger whose value is missing, a boolean, or not a finite number
-   greater than zero is not armed (a quoted number such as ``"90"`` is read as
-   that number): the dispatcher logs a warning naming it, and
-   the file still loads with every other trigger running. A tick on a disabled
+   greater than zero is not armed. The dispatcher logs a warning naming it, and
+   the file still loads with every other trigger running. A quoted number such
+   as ``"90"`` is read as that number. A tick on a disabled
    trigger is recorded in its history as ``ignored: disabled``. A tick that
    meets a full queue is dropped with a warning and not retried; the next one
    comes an interval later. The payload carries ``source``, ``trigger`` and
@@ -437,9 +451,9 @@ loads.
    next fire, and the dashboard's trigger list shows the next fire. Times must
    be quoted, because YAML reads an unquoted ``17:00`` as a number. A schedule
    the dispatcher cannot read stops it from starting, with an error naming the
-   trigger: a bad time or day, ``days`` without ``at``, ``at`` beside
-   ``interval_sec``, or any other key beside ``at``, whereas a bad
-   ``interval_sec`` only skips its trigger. A tick on a disabled trigger, and a
+   trigger. A schedule it cannot read is a bad time or day, ``days`` without
+   ``at``, ``at`` beside ``interval_sec``, or any other key beside ``at``. A bad
+   ``interval_sec``, by contrast, only skips its trigger. A tick on a disabled trigger, and a
    tick that meets a full queue, behave as for an interval trigger.
 
 ``source: epics_ca``
@@ -474,8 +488,8 @@ loads.
      back.
    - A value that is not a number is ignored with a warning.
    - A trigger with no ``pv``, an ``edge`` outside the three, or a
-     ``threshold`` or ``cool_down_sec`` that is not such a number is not armed;
-     the dispatcher logs a warning naming it and the value, and its siblings
+     ``threshold`` or ``cool_down_sec`` that is not such a number is not armed.
+     The dispatcher logs a warning naming it and the value, and its siblings
      still arm. A blank value takes the default.
    - The payload carries ``source``, ``pv``, ``value``, ``previous_value``,
      ``threshold``, ``edge`` and ``timestamp``.
@@ -492,9 +506,9 @@ Reaching the Machine
 ====================
 
 A trigger's ``source:`` decides what wakes it. ``webhook`` and ``cron`` need
-nothing from the network; ``epics_ca`` monitors channels and does, and on a
-site where those channels live behind a gateway the dispatcher has to be told
-where the gateway is. Both halves of the pair take that from the deployment's
+nothing from the network. ``epics_ca`` monitors channels and does. On a site
+where those channels live behind a gateway, the dispatcher has to be told where
+the gateway is. Both halves of the pair take that from the deployment's
 env chain, through one profile key:
 
 .. code-block:: yaml
@@ -547,23 +561,23 @@ profile's ``.env`` and rebuild:
 
 Anything that drives the pipeline from outside holds both. A :doc:`chat bridge
 <chat-bridges/index>`, for instance, fires its trigger at the dispatcher with
-``EVENT_DISPATCHER_TOKEN`` and then collects the finished answer and its files
-from the worker with ``DISPATCH_WORKER_TOKEN``, so a bridge that has only one of
+``EVENT_DISPATCHER_TOKEN``. It then collects the finished answer and its files
+from the worker with ``DISPATCH_WORKER_TOKEN``. A bridge that has only one of
 them stalls partway through every question.
 
 ``EVENT_DISPATCHER_TOKEN`` is an admin credential. One value covers the
-webhook, the ``/mcp`` transport and every dashboard write — re-firing a
+webhook, the ``/mcp`` transport and every dashboard write: re-firing a
 trigger, cancelling a run, clearing the run history, and enabling or disabling
-a trigger — and there is no narrower per-trigger token. Hand it only to the
-web terminal and to the bridges that fire triggers.
+a trigger. There is no narrower per-trigger token. Hand it only to the web
+terminal and to the bridges that fire triggers.
 
 The dispatcher records who asked, but it does not check it. A fire or re-fire
 made from the web terminal carries your account name, added by the terminal's
-panel proxy, and the dispatcher stores it as ``owner`` on the trigger's history
-entry and on the run record; cancelling a run, clearing the history and
+panel proxy. The dispatcher stores it as ``owner`` on the trigger's history
+entry and on the run record. Cancelling a run, clearing the history and
 enabling or disabling a trigger log the same name. A webhook, a ``cron``
 trigger and a chat-bridge fire name nobody and are recorded without an owner.
-The recorded owner is attribution, never authorization: the token decides what
+The recorded owner is attribution, never authorization. The token decides what
 a request may do, and anyone holding it can call the dispatcher's port directly
 under any account name or none.
 
