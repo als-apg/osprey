@@ -20,14 +20,17 @@ from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.interval_thread import IntervalThread
 from osprey_optimizer.utils.job_keys import (
     all_meta_scan_pattern,
+    config_key,
     job_scan_pattern,
     meta_key,
+    state_prefix,
 )
 from osprey_optimizer.utils.redis_client import StrRedis, as_str
 from osprey_optimizer.utils.redis_state_store import (
     CREATED_STATE_TTL_SECONDS,
     RUNNING_STATE_TTL_SECONDS,
 )
+from osprey_optimizer.utils.serialization import serialize_obj
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +69,29 @@ _REGISTER_IF_ACTIVE_LUA = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
     redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
     return 1
+end
+return 0
+"""
+
+# Start a job that has just claimed the slot: CREATED -> RUNNING only while its
+# stored config is still the exact JSON the start checked. KEYS[1]=the job's
+# pickled status key, KEYS[2]=its config key, KEYS[3]=ACTIVE_JOB_KEY,
+# KEYS[4]=meta_key. ARGV[1]=pickled CREATED, ARGV[2]=pickled RUNNING, ARGV[3]=the
+# config JSON, ARGV[4]=running ttl, ARGV[5]=job_id, ARGV[6]=CREATED-meta JSON,
+# ARGV[7]=created ttl. On a miss (a cancel or an edit won) the claim is undone in
+# the same step: the slot is released if this job holds it, and a draft still
+# CREATED gets its CREATED meta back. Returns 1 on start, 0 on a miss.
+_START_CLAIMED_JOB_LUA = """
+local status = redis.call('GET', KEYS[1])
+if status == ARGV[1] and redis.call('GET', KEYS[2]) == ARGV[3] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[4]))
+    return 1
+end
+if redis.call('GET', KEYS[3]) == ARGV[5] then
+    redis.call('DEL', KEYS[3])
+end
+if status == ARGV[1] then
+    redis.call('SET', KEYS[4], ARGV[6], 'EX', tonumber(ARGV[7]))
 end
 return 0
 """
@@ -218,6 +244,34 @@ class JobTracker:
             return True
         logger.info("Job %s could not claim active slot; another job is already active", job_id)
         return False
+
+    def start_claimed_job(self, job_id: str, config_json: str, job_type: JobType) -> bool:
+        """Move a job that holds the slot from CREATED to RUNNING, in one step.
+
+        Only while its status is still CREATED and its stored config is still
+        ``config_json``, the exact value the start read. Otherwise (a cancel or
+        an edit landed first) nothing starts and the claim is undone: the slot
+        is released if this job holds it, and a still-CREATED draft gets its
+        CREATED meta back. Returns True when the job is now RUNNING.
+        """
+        started = self._script(_START_CLAIMED_JOB_LUA)(
+            keys=[
+                f"{state_prefix(job_id)}:status",
+                config_key(job_id),
+                ACTIVE_JOB_KEY,
+                meta_key(job_id),
+            ],
+            args=[
+                serialize_obj(JobStatus.CREATED),
+                serialize_obj(JobStatus.RUNNING),
+                config_json,
+                RUNNING_STATE_TTL_SECONDS,
+                job_id,
+                _meta_json(job_id, 0, JobStatus.CREATED, job_type),
+                CREATED_STATE_TTL_SECONDS,
+            ],
+        )
+        return bool(started == 1)
 
     def get_active_job(self) -> str | None:
         """Get the currently active job ID, if any.

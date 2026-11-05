@@ -7,7 +7,7 @@ of type.
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 
 from osprey_optimizer.api.dependencies import (
     get_environment_registry,
@@ -15,11 +15,17 @@ from osprey_optimizer.api.dependencies import (
     require_job_meta,
 )
 from osprey_optimizer.api.environment_ops import guard_environment_start, load_environment
-from osprey_optimizer.api.job_control import cancel_with_reread, raise_control_conflict_409
+from osprey_optimizer.api.job_control import (
+    cancel_with_reread,
+    draft_changed_409,
+    raise_control_conflict_409,
+)
 from osprey_optimizer.api.job_status import read_job_status
 from osprey_optimizer.api.job_tracker import JobMeta, JobTracker, create_job_state
 from osprey_optimizer.api.optimization_lifecycle import (
+    draft_revision,
     read_optimization_config,
+    read_optimization_draft,
     require_model_file_under_results,
     start_optimization_job,
     update_optimization_config,
@@ -38,6 +44,8 @@ from osprey_optimizer.utils.cancellation import get_cancellation_token
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+CONFIG_REVISION_HEADER = "X-Config-Revision"
 
 
 def _cancel_job(job_id: str, job_type: JobType, tracker: JobTracker) -> None:
@@ -70,11 +78,11 @@ def _control_action(
     required source is the sole gate — it rejects a terminal job (worker drove it
     done in the gap) and a wrong-source job (e.g. CREATED) alike. The cancellation
     token is toggled only after the swap commits, so a rejected action never
-    poisons a job's token.
+    poisons a job's token, and the token (whose key a draft does not own) is
+    built only then.
     """
     logger.info("%s request for job %s", action.capitalize(), job_id)
     try:
-        token = get_cancellation_token(job_id)
         state_writer = get_optimization_writer(job_id)
 
         if action == "pause":
@@ -85,6 +93,7 @@ def _control_action(
         if not state_writer.set_status_cas(required_source, new_status):
             raise_control_conflict_409(job_id, action, required_source, state_writer)
 
+        token = get_cancellation_token(job_id)
         if action == "pause":
             token.pause()
         else:
@@ -140,19 +149,12 @@ def read_current_job(
     return CurrentJobResponse(job_id=tracker.get_current_job())
 
 
-@router.put(
-    "/current",
-    response_model=CurrentJobResponse,
-    dependencies=[Depends(require_launch_token)],
-)
+@router.put("/current", response_model=CurrentJobResponse)
 def put_current_job(
     body: CurrentJobRequest,
     tracker: JobTracker = Depends(get_job_tracker),
 ) -> CurrentJobResponse:
-    """Set the UI 'current job' pointer to an existing job (404 if unknown).
-
-    Gated: the cockpit's Start launches the job this pointer names.
-    """
+    """Set the UI 'current job' pointer to an existing job (404 if unknown)."""
     if not tracker.job_exists(body.job_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {body.job_id} not found"
@@ -225,6 +227,7 @@ def cancel_job(
 )
 def start_job(
     job_id: str,
+    config_revision: str = Query(),
     override_unhealthy: bool = Query(default=False),
     x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
     tracker: JobTracker = Depends(get_job_tracker),
@@ -237,8 +240,14 @@ def start_job(
     (:mod:`osprey_optimizer.api.owner`): its tier and switch govern them. With
     no usable owner the run starts owner-less, and on a deployment that holds
     the control-context tree the connector refuses its writes ``owner_unknown``.
+
+    ``config_revision`` is the draft revision the caller showed (the
+    ``X-Config-Revision`` of ``GET /jobs/{id}/config``): 409 when the draft
+    changed since, checked first and again atomically with the start.
     """
-    config = read_optimization_config(job_id)  # 404 when no config is stored
+    config, config_json = read_optimization_draft(job_id)  # 404 when no config is stored
+    if config_revision != draft_revision(config):
+        raise draft_changed_409(job_id)
     env_name = config.environment_name
     target = config.control_target
     if env_name is None or target is None:
@@ -257,14 +266,10 @@ def start_job(
     require_model_file_under_results(config)
     run_start_gates(config, load_environment(env_name, registry, env_config), env_name=env_name)
     owner = owner_from_header(x_osprey_owner)
-    return start_optimization_job(job_id, tracker, config, owner=owner)
+    return start_optimization_job(job_id, tracker, config, config_json, owner=owner)
 
 
-@router.put(
-    "/{job_id}/config",
-    response_model=JobResponse,
-    dependencies=[Depends(require_launch_token)],
-)
+@router.put("/{job_id}/config", response_model=JobResponse)
 def update_job_config(
     job_id: str,
     request: OptimizationConfig,
@@ -280,11 +285,17 @@ def update_job_config(
 @router.get("/{job_id}/config", response_model=OptimizationConfig)
 def get_job_config(
     job_id: str,
+    response: Response,
     meta: JobMeta = Depends(require_job_meta),
 ) -> OptimizationConfig:
-    """Return an optimization job's stored config (read-side of live-sync)."""
+    """Return an optimization job's stored config (read-side of live-sync).
+
+    ``X-Config-Revision`` carries its revision, the value a start must name.
+    """
     _require_optimization(meta, "config read")
-    return read_optimization_config(job_id)
+    config = read_optimization_config(job_id)
+    response.headers[CONFIG_REVISION_HEADER] = draft_revision(config)
+    return config
 
 
 @router.post("/{job_id}/pause", response_model=JobResponse)

@@ -23,11 +23,9 @@ rule to every read, whatever protocol answered it: values within an element
 budget come back inline as JSON lists, and anything larger is saved to the
 artifact gallery and reported as a summary plus a handle to it.
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-read-budget.yml
+   :language: yaml
 
-   control_system:
-     read_inline_max_elements: 2000        # per-value element budget
-     channel_read_artifact_retention: 20   # readings kept per channel
 
 Only arrays are measured -- strings and single scalars are always inline. One
 ``channel_read`` call also has an aggregate budget of four times
@@ -117,16 +115,16 @@ A write is **confirmed** when the channel it wrote now holds the value that was
 sent. The connector establishes that itself: it re-reads the channel once the
 control system has accepted the put, and reports what it found as a single word
 on :class:`~osprey_connectors.control_system.ChannelWriteResult`, which every
-``write_channel()`` call returns.
+``write_channel()`` call returns; ``write_multiple_channels()`` returns one per
+operation. The program in :ref:`how-to-write-from-a-program` reads it after a
+batch, with :class:`~osprey_connectors.control_system.WriteOutcome` imported
+from ``osprey_connectors.control_system``:
 
-.. code-block:: python
-
-   from osprey_connectors.control_system import WriteOutcome
-
-   result = await connector.write_channel("BEAM:CURRENT", 100.0)
-
-   if result.outcome is WriteOutcome.CONFIRMED:
-       print("the channel now holds the value that was sent")
+.. literalinclude:: ../../how-to/control-systems/examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: outcome begins
+   :end-before: # docs: outcome ends
+   :dedent: 4
 
 Every write ends in exactly one of six outcomes:
 
@@ -222,10 +220,9 @@ points to.
 
 **The tier key** is the furthest position a login may put its switch at:
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-writes.yml
+   :language: yaml
 
-   control_system:
-     writes: asked            # never | asked | allowed; silence is never
 
 It is spelled in ``tiers/*.yml``, in the deployment root for the root or
 single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
@@ -550,17 +547,9 @@ executor subprocesses and kernels where ``osprey`` may not be importable.
 Limits Checking
 ~~~~~~~~~~~~~~~
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-limits.yml
+   :language: yaml
 
-   control_system:
-     limits_checking:
-       enabled: true                     # Enable limits validation
-       mode: exclusive                   # Only channels in the database can be written
-     connector:
-       virtual_accelerator:
-         limits_checking:                # This connector type's own posture,
-           enabled: true                 # replacing the pair above for it alone
-           mode: optional
 
 When enabled, every ``write_channel()`` call is validated against the limits
 database before the write reaches hardware. The database format is the

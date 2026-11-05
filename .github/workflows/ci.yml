@@ -3543,6 +3543,27 @@ jobs:
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         df -h /
 
+    # The four stacks build the same layers under four project names. Docker's
+    # containerd image store (the runner default since Docker 29) keeps each
+    # layer compressed AND unpacked, and while a cached stack's images build in
+    # parallel it unpacks a shared layer once per image: on a 37 GB cap (the
+    # free disk of an AWS 72 GB runner; measured on amd64) the first stack
+    # peaked at 29.9 GiB, the second at 34.8, and the fourth hit ENOSPC, while
+    # the classic overlay2 store ran all four at a 16.7 GiB peak. Switched before
+    # anything touches Docker, so every image lands in the one store. A
+    # workaround: drop it once the lane builds less per stack.
+    - name: Use the overlay2 image store
+      run: |
+        sudo mkdir -p /etc/docker
+        [ -s /etc/docker/daemon.json ] || echo '{}' | sudo tee /etc/docker/daemon.json >/dev/null
+        sudo jq '.features["containerd-snapshotter"] = false' /etc/docker/daemon.json \
+          | sudo tee /etc/docker/daemon.json.new >/dev/null
+        sudo mv /etc/docker/daemon.json.new /etc/docker/daemon.json
+        sudo systemctl restart docker
+        driver=$(docker info --format '{{.Driver}}')
+        echo "storage driver: $driver"
+        [ "$driver" = overlay2 ]
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:

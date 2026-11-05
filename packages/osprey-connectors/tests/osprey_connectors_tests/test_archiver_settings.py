@@ -53,7 +53,7 @@ def test_a_builtin_still_reads_its_own_name_block():
 
 
 def test_a_registered_short_name_reads_its_own_name_block():
-    section = {"type": "moat_archiver", "moat_archiver": {"x": 1}}
+    section = {"type": "site_archiver", "site_archiver": {"x": 1}}
     assert resolve_archiver_settings(section) == {"x": 1}
 
 
@@ -128,7 +128,7 @@ class TestArchiverSettingsErrors:
         [
             {"type": "a.b.C", "settings": {"server": "s"}},
             {"type": "epics_archiver", "epics_archiver": {"url": "u"}},
-            {"type": "moat_archiver", "moat_archiver": {"x": 1}},
+            {"type": "site_archiver", "site_archiver": {"x": 1}},
             {"type": "a.b.C", "settings": {}, "epics_archiver": {"url": "u"}},
             {"type": "mock_archiver", "auto_bin_points": 10000},
             {},

@@ -8,6 +8,7 @@ runs the atomic :func:`launch_job` claim+spawn.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 
@@ -227,16 +228,17 @@ def update_optimization_config(
     """Replace a CREATED job's stored config and refresh its TTL (live-sync).
 
     409 unless the job is in CREATED state — a running/finished job's config is
-    immutable. Partial configs are allowed; full validation (objective present,
-    objective exists in the env) happens at start, so the explicit-objective rule
-    is untouched.
+    immutable. Checked again atomically with the write, since preparing the
+    draft reads setpoints and a start can land meanwhile. Partial configs are
+    allowed: the objective is checked (present, known to the environment) only
+    when the worker builds the run, so the explicit-objective rule is untouched.
     """
     require_created_or_409(job_id, "update", get_optimization_reader(job_id).get_status())
     _require_environment(config, registry, action="update")
     _apply_preset(config, registry)
     _prepare_draft(config, registry)
 
-    store_created_config(tracker, job_id, config.model_dump_json())
+    store_created_config(job_id, config.model_dump_json())
 
     logger.info("Updated config for optimization job %s", job_id)
     return read_job_status(tracker, job_id)
@@ -248,27 +250,41 @@ def read_optimization_config(job_id: str) -> OptimizationConfig:
     404 if no config is stored (job never existed, or the CREATED draft expired).
     Readable in any status — config is immutable once running, but still readable.
     """
+    return read_optimization_draft(job_id)[0]
+
+
+def read_optimization_draft(job_id: str) -> tuple[OptimizationConfig, str]:
+    """:func:`read_optimization_config`, with the stored JSON it was parsed from."""
     raw = load_stored_config(
         job_id,
         missing_status=status.HTTP_404_NOT_FOUND,
         missing_detail=f"No stored config for job {job_id} (unknown or expired).",
     )
-    return OptimizationConfig.model_validate_json(raw)
+    return OptimizationConfig.model_validate_json(raw), raw
+
+
+def draft_revision(config: OptimizationConfig) -> str:
+    """The SHA-256 of a draft config's JSON: the revision a start must name."""
+    return hashlib.sha256(config.model_dump_json().encode()).hexdigest()
 
 
 def start_optimization_job(
     job_id: str,
     tracker: JobTracker,
     config: OptimizationConfig,
+    config_json: str,
     *,
     owner: str | None = None,
 ) -> JobResponse:
     """Start the worker for a CREATED optimization job on *config*, for *owner*.
 
-    *config* is the one the caller ran the start gates on, never a second read
-    of the stored draft: a config written in between would otherwise run
-    without passing them. 409 unless the job is in CREATED state; runs the
-    atomic ``launch_job`` claim+spawn (409 if another job is already running).
+    *config* is the one the caller ran the start gates on, parsed from
+    *config_json*, the stored draft as the caller read it. The start goes
+    ahead only while the stored draft is still that value, so a config
+    written in between never runs without passing the gates and is never left
+    stored as the running job's config. 409 unless the job is in CREATED state;
+    runs the atomic ``launch_job`` claim+spawn (409 if another job is already
+    running, or the draft changed or was cancelled meanwhile).
     *owner* is handed to the worker, which stamps it before it opens a
     connector (:func:`osprey_optimizer.api.owner.stamp_owner`).
     """
@@ -288,6 +304,7 @@ def start_optimization_job(
         tracker=tracker,
         job_id=job_id,
         job_type=JobType.OPTIMIZATION,
+        config_json=config_json,
         make_writer=get_optimization_writer,
         spawn_target=run_optimization_process,
         spawn_args=(job_id, config.model_dump(), results_dir_str, owner),

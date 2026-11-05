@@ -2330,7 +2330,7 @@ def _connector_writes_type(path: str) -> str | None:
 
     ``None`` for any other path. The type is everything between the two fixed
     ends rather than one segment, because a custom connector's type key is its
-    dotted module path (``mypackage.MoatConnector``) and rejoining it is what
+    dotted module path (``mypackage.SiteConnector``) and rejoining it is what
     keeps the message naming the key the operator would have to write.
     """
     parts = path.split(".")

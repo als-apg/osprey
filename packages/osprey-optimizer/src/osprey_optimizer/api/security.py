@@ -1,13 +1,16 @@
 """The deployment's gate on what a caller may make the optimizer do.
 
-**The launch token.** The routes that move hardware, the ones that write what a
-start will run (a draft's config, the current-job pointer the cockpit starts
-from), and the one that accepts code (a pickled surrogate model is executed
-when it is loaded) require the ``X-Launch-Token`` header to match
-``OPTIMIZER_LAUNCH_TOKEN``. The gate fails
+**The launch token.** The routes that move hardware, and the one that accepts
+code (a pickled surrogate model is executed when it is loaded), require the
+``X-Launch-Token`` header to match ``OPTIMIZER_LAUNCH_TOKEN``. The gate fails
 closed: with no token configured those routes answer 503 rather than run for
 anyone. Routes that only read, and the ones that stop motion (pause, cancel),
 are not gated: stopping a run must never wait on a credential.
+
+Drafts are open: a draft write reads setpoints, never writes them. A start
+names the draft revision its caller was shown, which holds only if the
+token-holding relay forwards the revision it actually displayed; the revision
+covers the config, not the contents of the model or environment files it names.
 """
 
 from __future__ import annotations

@@ -41,6 +41,12 @@ dependencies = [
     "lume-base==0.5.0",
 ]
 
+[project.urls]
+Documentation = "https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors.html"
+Repository = "https://github.com/als-apg/osprey"
+Issues = "https://github.com/als-apg/osprey/issues"
+Changelog = "https://github.com/als-apg/osprey/blob/main/packages/osprey-connectors/CHANGELOG.md"
+
 [tool.hatch.version]
 source = "vcs"
 # The package has its own calendar stream, on its own tags:

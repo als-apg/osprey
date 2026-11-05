@@ -1,7 +1,7 @@
 """Connector type constants, and the fallbacks a factory applies to them.
 
 Single source of truth for built-in connector type name strings.
-Custom connectors use dotted module paths (e.g., 'mypackage.MoatConnector')
+Custom connectors use dotted module paths (e.g., 'mypackage.SiteConnector')
 and don't need constants here.
 
 The resolvers at the bottom are here rather than in
@@ -991,7 +991,7 @@ class LimitsPosture:
         ``control_system.connector.<type>.limits_checking.<leaf>`` when a
         connector block answered, and ``control_system.limits_checking.<leaf>``
         when the deployment-wide block did. A custom connector's dotted module
-        path (``'mypackage.MoatConnector'``) is one key and is interpolated
+        path (``'mypackage.SiteConnector'``) is one key and is interpolated
         whole, never split on its dots.
 
         A posture holding no type at all — the deployment-wide answer, and the
@@ -1044,7 +1044,7 @@ def type_limits_posture(section: Any, connector_type: str | None) -> LimitsPostu
     ``control_system.connector.<type>.limits_checking`` when that block is
     there, and ``control_system.limits_checking`` when it is not, where
     *connector_type* is one key. A custom connector's dotted module path
-    (``'mypackage.MoatConnector'``) names a single block, never a path through
+    (``'mypackage.SiteConnector'``) names a single block, never a path through
     several, so the type is looked up whole and never split on its dots.
 
     The per-type block overrides **whole**, and that is the rule the rest of the

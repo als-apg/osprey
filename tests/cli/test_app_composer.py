@@ -390,7 +390,7 @@ def test_permissions_are_unioned_in_one_spelling(tmp_path: Path, spelling: dict)
         {"control_system.connector.epics.writes_enabled": True},
         {"control_system.connector": {"epics": {"writes_enabled": True}}},
         {"control_system.connector.tango.writes_enabled": True},
-        {"control_system.connector": {"mypackage.Moat": {"writes_enabled": True}}},
+        {"control_system.connector": {"mypackage.Site": {"writes_enabled": True}}},
         {"control_system.writes": "allowed"},
         {"control_system": {"writes": "allowed"}},
     ],
@@ -456,8 +456,8 @@ def test_a_dotted_custom_type_gets_no_per_type_pin(tmp_path: Path) -> None:
     host = dict(
         _HOST,
         config={
-            "control_system.type": "mypackage.Moat",
-            "control_system.connector": {"mypackage.Moat": {"writes_enabled": True, "url": "x"}},
+            "control_system.type": "mypackage.Site",
+            "control_system.connector": {"mypackage.Site": {"writes_enabled": True, "url": "x"}},
         },
     )
     config = _resolve(_repo(tmp_path, _APP, host=host))["config"]
@@ -680,7 +680,7 @@ def test_lint_refuses_a_render_that_can_patch_its_setup() -> None:
         {_WRITES: "never", "control_system.connector.epics.writes_enabled": True},
         {
             _WRITES: "never",
-            "control_system.connector": {"mypackage.Moat": {"writes_enabled": "true"}},
+            "control_system.connector": {"mypackage.Site": {"writes_enabled": "true"}},
         },
         {
             _WRITES: "never",

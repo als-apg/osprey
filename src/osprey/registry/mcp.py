@@ -668,6 +668,38 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__bluesky__.*")],
     ),
+    "optimizer": ServerDefinition(
+        name="optimizer",
+        module="osprey.mcp_server.optimizer",
+        # Off by default: a profile that deploys the optimizer service (an
+        # `optimizer:` block) switches it on with
+        # claude_code.servers.optimizer.enabled = true, as for bluesky.
+        default_enabled=False,
+        env={
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+            # Empty when unset, which optimizer_url reads as "no override":
+            # the rendered config's services.optimizer.port wins.
+            "OPTIMIZER_URL": "${OPTIMIZER_URL:-}",
+        },
+        # Every tool only reads, so there is nothing to gate.
+        permissions_allow=[
+            "list_environments",
+            "get_environment",
+            "environment_status",
+            "read_observables",
+            "list_presets",
+            "initial_bounds",
+            "list_jobs",
+            "get_job",
+            "current_job",
+            "get_job_config",
+            "list_results",
+            "get_result",
+            "list_models",
+        ],
+        hooks_post=[_post_error("mcp__optimizer__.*")],
+    ),
     "health": ServerDefinition(
         name="health",
         module="osprey.mcp_server.health",
