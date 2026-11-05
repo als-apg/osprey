@@ -91,7 +91,7 @@ What ``osprey init`` writes
      data/           the facility tree (data/facility/) and the agent's other data
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
-     .env            your values and secrets (only when your shell had keys to seed)
+     .env            your values and secrets (when your shell had keys to seed, or the profile declares env.defaults)
      .env.lock       the lock file beside .env; it comes and goes with .env
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
@@ -135,16 +135,16 @@ the render, never back into ``data/facility/``:
 .. code-block:: text
 
    build/
-     facility.json                    the facility file
-     data/channel_limits.json         the limits view
-     data/facility_facts.json         the facts view
-     data/simulator/                  the simulator view and its decks
-     data/pyaml/<model>/              the pyAML view, per served model with a measurement file
-     data/graph/facility.ttl          the graph view
+     facility.json                        the facility file
+     data/channel_limits.json             the limits view
+     data/facility_facts.json             the facts view
+     data/simulator/                      the simulator view and its decks
+     data/pyaml/<model>/                  the pyAML view, per served model with a measurement file
+     data/graph/facility.ttl              the graph view
      data/channel_databases/graph.duckdb  the channel search index, when the profile has a graph store
-     data/channel_finder/<mode>.json  the channel-finder view, in the in_context and hierarchical modes
-     data/bluesky_devices.yml         the device view, when Bluesky is configured
-     data/benchmarks/queries.json     the benchmarks view, when a benchmark dataset is configured
+     data/channel_finder/<mode>.json      the channel-finder view, in every mode but graph
+     data/bluesky_devices.yml             the device view, when Bluesky is configured
+     data/benchmarks/queries.json         the benchmarks view, when a benchmark dataset is configured
 
 ``osprey facility show`` prints the facility the tree builds and each view's
 path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
@@ -1072,8 +1072,9 @@ What the build does
    working directory, or the one under ``--repo``) and read it.
 2. Resolve and validate the profile, including any tier merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
-4. Start the new render in ``build/.tmp``. The previous ``build/`` stays as it
-   was until the render succeeds, and only then is it replaced.
+4. Start the new render in ``build/.tmp``. The previous ``build/``, apart from
+   its venv, stays as it was until the render succeeds, and only then is it
+   replaced.
 5. Run ``pre_build`` commands.
 6. Create the project venv and install OSPREY plus the profile's dependencies.
 7. Render the base template and the profile's ``data/`` tree. No env file is
@@ -1162,7 +1163,7 @@ are (see the table above), or into ``project/`` for anything without one.
 
 **"is already an OSPREY deployment repo"** — ``osprey init`` will not lay a
 source zone over one that is already there. To re-render the project, run
-``osprey build`` in the repo: it wipes and re-renders ``build/`` in place and
+``osprey build`` in the repo: it wipes and re-renders ``build/`` and
 leaves the source zone alone. To replace the source zone itself from the
 preset, re-run ``osprey init --force`` — which rewrites ``profile.yml``,
 ``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/``,

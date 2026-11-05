@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 import textwrap
 from functools import cache
@@ -33,9 +34,13 @@ PRESETS = ("control-assistant", "hello-world")
 #: Tree entries a fresh ``osprey init`` need not write, each with the reason.
 PAGE_ONLY_ENTRIES = {
     "build/": "absent until the first `osprey build`",
-    ".env": "written only when the shell exports a key to seed",
-    ".env.lock": "written beside .env, so only when .env is",
 }
+
+#: Entries whose own tree line states when init writes them, so the
+#: preset-specific paragraph does not name them. With no provider key in the
+#: environment, ``.env`` (and its lock) comes only from a profile's
+#: ``env.defaults``, which ``control-assistant`` declares and ``hello-world`` not.
+SELF_DESCRIBED_ENTRIES = {".env", ".env.lock"}
 
 #: Each message quoted under "Troubleshooting", whitespace-normalized, mapped
 #: to the string-literal text it is copied from. A literal's ``{...}`` fields
@@ -123,7 +128,8 @@ def init_listings(tmp_path_factory: pytest.TempPathFactory) -> dict[str, set[str
         result = CliRunner().invoke(
             init,
             [str(repo), "--preset", preset, "--no-git"],
-            env={"ANTHROPIC_API_KEY": "sk-ant-test"},
+            # No provider key from the shell: `.env` must come from the preset.
+            env={name: None for name in os.environ if name.endswith("_API_KEY")},
         )
         assert result.exit_code == 0, result.output
         # `--no-git`: the page states the git repo and first commit in prose.
@@ -155,7 +161,7 @@ def test_conditional_entries_paragraph_names_the_preset_specific_ones(
 ) -> None:
     written = set().union(*init_listings.values())
     common = set.intersection(*init_listings.values())
-    conditional = written - common - set(PAGE_ONLY_ENTRIES)
+    conditional = written - common - set(PAGE_ONLY_ENTRIES) - SELF_DESCRIBED_ENTRIES
     paragraph = _paragraph_containing(
         _section("What ``osprey init`` writes"), "appear only when the preset calls for them"
     )
@@ -187,7 +193,7 @@ def test_build_options_table_names_every_build_option() -> None:
         opt
         for param in build.params
         for opt in param.opts
-        if opt.startswith("--") and opt != "--help"
+        if opt.startswith("--") and opt != "--help" and not getattr(param, "hidden", False)
     }
     assert listed == declared
 
