@@ -34,8 +34,12 @@ line where it needs one, only once it is merged on main (WPF #2123, RLF
   (#2222). Until #2222 lands,
   the Removed entry for `web.bar_items` below does not say what a build does
   with a config that still sets it.
+- #2397 (deny path for a waiting write-authorization request) needs another
+  connectors release; whether it is in this release is open. If it lands,
+  drop its Known gaps line and add that connectors release.
 - Final fold (after APP #2109, H1, TAB #2345 and ARS): fragments from FU2A
-  #2369, the ARIEL mail client #2391, #2222 (bar-key-ignored) and #2026
+  #2369, the ARIEL mail client #2391, the optimizer stream (#2353, #2398,
+  #2399, #2403), #2222 (bar-key-ignored) and #2026
   (artifacts-gallery-markdown, security), plus the follow-up PR that labels
   the 2026.11.3 write-authorization API provisional.
 -->
@@ -45,7 +49,7 @@ on a facility machine. Install with
 
     uv tool install osprey-framework
 
-The framework now requires `osprey-connectors>=2026.11.1`, which is released
+The framework now requires `osprey-connectors>=2026.11.3`, which is released
 on its own version stream (see the migration guide). Read **Breaking changes**
 before upgrading a deployment: most of them stop `osprey build` with a message
 naming the fix, and `osprey init --revalidate` rewrites a repo for many of them.
@@ -85,6 +89,12 @@ naming the fix, and `osprey init --revalidate` rewrites a repo for many of them.
   the facility's models from its container or inside the asking process.
 - **The agent record** keeps prompts, answers, tool calls, safety decisions,
   dispatch runs and bridge turns in one place, and replaces OpenObserve.
+- **The optimizer** ships as its own package, `osprey-optimizer`, released
+  with the framework at the same version. An Xopt-driven run writes only under
+  one bounded write authorization, approved from the write chip or
+  `osprey write-authorization approve`, and an `optimizer:` profile block
+  deploys its API and job store; a read-only `optimizer` MCP server lets the
+  agent read it. (#2353, #2398, #2399, #2403)
 - **Facility follow-ups** from the first facility deployment: process stops,
   the deployment record, connector failures and test ports. (#2182)
 
@@ -176,12 +186,13 @@ osprey-connectors:
   variables; #2318) and 2026.11.3 (a program writes under one bounded write
   authorization, #2332, released in #2351). 2026.10.0 and later do not support
   framework 2026.9.0b1 to b3. This release requires
-  `osprey-connectors>=2026.11.1` (raised in #2288): the framework does not yet
-  call the write authorization, so 2026.11.3 is optional.
-  The write-authorization API (`osprey_connectors.write_authorization`, the
+  `osprey-connectors>=2026.11.3` (raised in #2353), because the web terminal's
+  approvals, `osprey write-authorization` and the optimizer's writes use the
+  write authorization; `osprey-optimizer` and `pyaml-cs-osprey` state the same
+  floor. The write-authorization API (`osprey_connectors.write_authorization`, the
   `ConnectorHostPool` `owner=` and `authorization=` keys) and its on-disk
-  schemas are provisional until their first holder, the optimizer, uses them,
-  and may change shape then.
+  schemas are provisional until their first holder, the optimizer, has run on
+  them in a deployment, and may change shape then.
   Migration: a deployment that pins versions pins two streams now, the
     framework and `osprey-connectors`, and upgrades them together. A checkout
     that builds the package needs the `osprey-connectors-v*` tags fetched; a
@@ -283,6 +294,20 @@ Facility description and build:
   deployment that names no model now runs Sonnet 5, and the als-apg entry no
   longer lists Opus 5.
 
+Optimizer:
+
+- **Breaking change:** the optimizer moves out of the framework into the
+  `osprey-optimizer` distribution (`import osprey_optimizer`); the framework's
+  `optimizer` extra installs its base, and `osprey-optimizer[service]` the
+  engine and HTTP service. `POST /jobs/{id}/start` requires
+  `?config_revision=` and answers `409` when the draft changed since it was
+  shown. A deployed optimizer drives `va` and `standin` only; `live` is
+  refused at build. (#2353, #2399)
+  Migration: imports of the optimizer come from `osprey_optimizer`. A client
+    that starts runs reads the draft with `GET /jobs/{id}/config` and sends
+    its `X-Config-Revision`. Rebuild and `osprey up`: the deploy provisions
+    the write ledger `var/write_ledger/` and mints `OPTIMIZER_LAUNCH_TOKEN`.
+
 Logbook (ARIEL):
 
 - **Breaking change:** the ARIEL web interface is one Logbook screen with
@@ -306,6 +331,9 @@ Logbook (ARIEL):
   through OSPREY, are not governed by the write switch: they run at the lane's
   ceiling. Fixed in the next release.
 - Scheduled and triggered dispatch jobs cannot write (see Breaking changes).
+- A program's write-authorization request can be approved but not denied:
+  closing the review card changes nothing, so an operator who does not want it
+  cancels the run, or the run waits out its timeout (#2397).
 
 ### Added
 

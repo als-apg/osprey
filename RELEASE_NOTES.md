@@ -8,7 +8,7 @@ machine.** Install with
 
     uv tool install osprey-framework
 
-It requires `osprey-connectors>=2026.11.1`, which now ships on its own version
+It requires `osprey-connectors>=2026.11.3`, which now ships on its own version
 stream; a deployment that pins versions pins both.
 
 **A three-position write switch over every write surface, safety watchdogs
@@ -31,6 +31,8 @@ the build.**
 - `data/facility/` drives the limits, channel-finder indexes, knowledge graph,
   simulator and facility facts; `osprey facility import mml` brings a Middle
   Layer export in.
+- The optimizer ships as its own package, `osprey-optimizer`, and every run
+  writes under one bounded write authorization a person approves.
 - The `mock` type is retired: one virtual accelerator, served or in process.
 - Known gaps: the write switch does not yet govern PVAccess puts or
   external-worker Bluesky lanes; see Known gaps in the CHANGELOG.
