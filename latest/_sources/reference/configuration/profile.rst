@@ -78,7 +78,7 @@ Profile YAML reference
    * - ``web_panels``
      - list
      - ``[]``
-     - Panel tabs the web workspace offers beside the terminal. A framework
+     - Panels the web workspace offers beside the terminal. A framework
        panel is named by its id; your own is a list entry plus its address
        under ``config:`` (``web.panels.<id>.url`` and its siblings).
    * - ``default_panel``
@@ -91,8 +91,10 @@ Profile YAML reference
      - mapping
      - ``{}``
      - Named web-terminal layouts, as label to dock layout: a tile
-       ``{tabs: [<panel id>, ...], showing?, size?}`` or a split
-       ``{split: row|column, items: [...]}``, never naming the terminal. The
+       ``{tabs: [<panel id>], size?}`` or a split
+       ``{split: row|column, items: [...]}``, never naming the terminal. A tile
+       holds one panel, so ``showing`` may be omitted, and a tile naming several
+       fails the build. The
        ``label: [ids]`` list form fails the build with the layout to write.
        Renders ``web.presets``.
    * - ``config``

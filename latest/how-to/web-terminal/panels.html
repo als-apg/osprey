@@ -545,7 +545,7 @@
                   
   <section id="panels">
 <h1>Panels<a class="headerlink" href="#panels" title="Link to this heading">#</a></h1>
-<p>A <strong>panel</strong> is a self-contained, themed mini-app the Web Terminal shows as a tab
+<p>A <strong>panel</strong> is a self-contained, themed mini-app the Web Terminal shows
 beside the chat. OSPREY’s own tools — Channel Finder, the Logbook, the lattice
 dashboard, the artifact gallery — are all panels, and you can add your own.
 A panel that takes its colors from the shared design tokens (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>)
@@ -602,17 +602,18 @@ box. <a class="reference internal" href="lattice-dashboard.html"><span class="do
 <section id="where-the-panels-live">
 <h2>Where the panels live<a class="headerlink" href="#where-the-panels-live" title="Link to this heading">#</a></h2>
 <p>Panels have a row in the sidebar on the left of the window.
-<strong>Artifacts</strong> (and <strong>Events</strong>, when the deployment enables it) is in the
-<strong>Workspace</strong> section, with <strong>Agent</strong>. All other panels are in the <strong>Tools</strong>
-section, followed by <strong>+ Add panel</strong>. See <a class="reference internal" href="operate.html#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p>
+<strong>Events</strong> (when the deployment enables it) is in the <strong>Workspace</strong> section,
+with <strong>Agent</strong>. <strong>Artifacts</strong> has no row: its artifacts are in the Agent row’s
+session tree, and the palette opens the panel. All other panels are in the
+<strong>Tools</strong> section, followed by <strong>+ Add panel</strong>. See <a class="reference internal" href="operate.html#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p>
 </section>
 <section id="dragging-sidebar-rows">
 <h2>Dragging sidebar rows<a class="headerlink" href="#dragging-sidebar-rows" title="Link to this heading">#</a></h2>
 <p>Drag a Tools row up or down to change the order. The order is the same for
 everyone on the same terminal, and it stays after a reload. Drag a row onto
 the work pane instead to open the panel as a new tile where you drop it: on a
-tile’s edge, or along an edge of the work pane (see
-<a class="reference internal" href="operate.html#web-terminal-tiles"><span class="std std-ref">Tiles and tabs</span></a>).</p>
+tile’s edge, or along an edge of the work pane; a drop on a tile’s header or
+centre does nothing (see <a class="reference internal" href="operate.html#web-terminal-tiles"><span class="std std-ref">Tiles</span></a>).</p>
 </section>
 <section id="taking-panels-out-of-the-sidebar">
 <h2>Taking panels out of the sidebar<a class="headerlink" href="#taking-panels-out-of-the-sidebar" title="Link to this heading">#</a></h2>
@@ -901,20 +902,28 @@ menu label and each value is the tiles:</p>
 <span class="w">    </span><span class="s">&quot;Machine</span><span class="nv"> </span><span class="s">setup&quot;</span><span class="p p-Indicator">:</span>
 <span class="w">      </span><span class="nt">split</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">row</span>
 <span class="w">      </span><span class="nt">items</span><span class="p">:</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">channel-finder</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">lattice</span><span class="p p-Indicator">]</span>
-<span class="w">          </span><span class="nt">showing</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lattice</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">channel-finder</span><span class="p p-Indicator">]</span>
 <span class="w">          </span><span class="nt">size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">artifacts</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">okf</span><span class="p p-Indicator">]</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">split</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">column</span>
+<span class="w">          </span><span class="nt">items</span><span class="p">:</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">lattice</span><span class="p p-Indicator">]</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">okf</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="s">&quot;Logbook</span><span class="nv"> </span><span class="s">review&quot;</span><span class="p p-Indicator">:</span>
-<span class="w">      </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ariel</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">artifacts</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">split</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">row</span>
+<span class="w">      </span><span class="nt">items</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ariel</span><span class="p p-Indicator">]</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">artifacts</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
-<p>A tile is <code class="docutils literal notranslate"><span class="pre">tabs</span></code>, its panel ids in bar order, with an optional <code class="docutils literal notranslate"><span class="pre">showing</span></code>
-(the tab in front, by default the first) and <code class="docutils literal notranslate"><span class="pre">size</span></code> (a positive weight
-against its siblings). A split is <code class="docutils literal notranslate"><span class="pre">split:</span> <span class="pre">row</span></code> or <code class="docutils literal notranslate"><span class="pre">split:</span> <span class="pre">column</span></code> with
-<code class="docutils literal notranslate"><span class="pre">items</span></code>, which are tiles or splits. A layout never names the Agent pane. The
-list form <code class="docutils literal notranslate"><span class="pre">&quot;Logbook</span> <span class="pre">review&quot;:</span> <span class="pre">[ariel,</span> <span class="pre">artifacts]</span></code> is not read: the profile
-build refuses it and says what to write instead.</p>
+<p>A tile is <code class="docutils literal notranslate"><span class="pre">tabs</span></code> — the engine’s field name, always a list of one panel id —
+with an optional <code class="docutils literal notranslate"><span class="pre">size</span></code> (a positive weight against its siblings); a tile
+shows its one panel, so <code class="docutils literal notranslate"><span class="pre">showing</span></code> may be omitted. A tile names one panel: to
+show several, put them side by side in tiles of their own. A tile that names
+several is refused, and the profile build says so (<code class="docutils literal notranslate"><span class="pre">puts</span> <span class="pre">several</span> <span class="pre">panels</span> <span class="pre">in</span>
+<span class="pre">one</span> <span class="pre">tile</span></code>). A split is <code class="docutils literal notranslate"><span class="pre">split:</span> <span class="pre">row</span></code> or <code class="docutils literal notranslate"><span class="pre">split:</span> <span class="pre">column</span></code> with <code class="docutils literal notranslate"><span class="pre">items</span></code>,
+which are tiles or splits. A layout never names the Agent pane. The list form
+<code class="docutils literal notranslate"><span class="pre">&quot;Logbook</span> <span class="pre">review&quot;:</span> <span class="pre">[ariel,</span> <span class="pre">artifacts]</span></code> is not read: the profile build
+refuses it and says what to write instead.</p>
 <p>Each layout appears under a <strong>Layouts</strong> section at the top of the panel <code class="docutils literal notranslate"><span class="pre">+</span></code>
 menu. Picking one replaces the service tiles with the layout’s and leaves the
 Agent pane where it is; every panel not in the layout leaves the sidebar.
@@ -937,19 +946,21 @@ sidebar row, which ask the operator first.</p>
 <p>What is on screen:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> — the panels this deployment has, the dock’s tiles with
-their tabs and the tab in front of each (the terminal included), the panels
-in pop-out windows, and the configured layouts.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> — put a panel on screen by the opening rule: a new tab in
-front of the service tile used last. It gets a sidebar row if it had none.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">open_panel_set</span></code> — open several panels in one call: as tabs of one tile,
-or side by side.</p></li>
+the panel each shows (the terminal included), the panels in pop-out
+windows, and the configured layouts.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> — put a panel on screen by the opening rule: it replaces the
+panel in the service tile used last, which keeps its sidebar row. A panel
+already open is brought forward where it is. It gets a sidebar row if it
+had none.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel_set</span></code> — open several panels in one call, side by side in tiles
+of their own.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> — apply a configured layout, or an exact one, in place
-of the service tiles; the terminal keeps its place.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">drop_panel</span></code> — drop a new panel, an open tab or a whole tile on a tile’s
-centre, a tab position or an edge, along a whole side of the dock, or
-between two tiles.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tab</span></code> — close a panel’s tab, leaving its sidebar row.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">close_panel_tile</span></code> — close a whole tile with its tabs.</p></li>
+of the service tiles; the terminal keeps its place. A layout tile holds one
+panel: one with several is refused <code class="docutils literal notranslate"><span class="pre">one_panel_per_tile</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">drop_panel</span></code> — drop a new panel, an open panel or a whole tile on a tile’s
+edge, along a whole side of the dock, or between two tiles. A drop on a
+tile’s centre is refused <code class="docutils literal notranslate"><span class="pre">one_panel_per_tile</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">close_panel</span></code> — close a panel’s tile, leaving its sidebar row.</p></li>
 </ul>
 <p>The agent never moves or closes the terminal, and never moves or closes a
 panel you put in a window of its own; <code class="docutils literal notranslate"><span class="pre">open_panel</span></code> brings that window

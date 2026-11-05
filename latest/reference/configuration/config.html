@@ -490,8 +490,8 @@ authoring side, and this page catalogues what the rendered result means.</p>
 <p>The parts of that file gathered here are the models its simulator serves
 (<code class="docutils literal notranslate"><span class="pre">simulation:</span></code>), the
 diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>), the browser UI’s documentation and feedback
-settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), the artifact gallery’s own
-categories (<code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code>), the Python sandbox’s run ceiling
+settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), the artifact gallery’s
+extension types (<code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code>), the Python sandbox’s run ceiling
 (<code class="docutils literal notranslate"><span class="pre">python_executor:</span></code>), where screenshots are written (<code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code>), the
 links from an answer to a
 logbook entry (<code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code>), the login the agent’s SQL tool
@@ -1322,31 +1322,32 @@ cards shows no heading.</p>
 <code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code>, <code class="docutils literal notranslate"><span class="pre">seed_base</span></code> or <code class="docutils literal notranslate"><span class="pre">image</span></code> at the top of its tier or app file
 instead.</p>
 </section>
-<section id="artifact-server-the-workspace-gallery-s-own-categories">
-<span id="config-artifact-server"></span><h2><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories<a class="headerlink" href="#artifact-server-the-workspace-gallery-s-own-categories" title="Link to this heading">#</a></h2>
-<p>Every artifact carries a <strong>category</strong>, and the category decides the badge the
-gallery draws on its card. OSPREY ships a general set — <code class="docutils literal notranslate"><span class="pre">visualization</span></code>,
-<code class="docutils literal notranslate"><span class="pre">diagnostic_report</span></code>, <code class="docutils literal notranslate"><span class="pre">lattice_analysis</span></code> and the rest — which is a
-laboratory’s vocabulary rather than yours. <code class="docutils literal notranslate"><span class="pre">artifact_server.categories</span></code> adds
-your own to it, from the build profile, one dotted line per category:</p>
+<section id="artifact-server-the-workspace-gallery-s-extension-types">
+<span id="config-artifact-server"></span><h2><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s extension types<a class="headerlink" href="#artifact-server-the-workspace-gallery-s-extension-types" title="Link to this heading">#</a></h2>
+<p>The gallery and the sidebar group artifacts by base form: <code class="docutils literal notranslate"><span class="pre">plots</span></code>,
+<code class="docutils literal notranslate"><span class="pre">trends</span></code>, <code class="docutils literal notranslate"><span class="pre">tables</span></code>, <code class="docutils literal notranslate"><span class="pre">documents</span></code>, <code class="docutils literal notranslate"><span class="pre">dashboards</span></code>, <code class="docutils literal notranslate"><span class="pre">images</span></code>, <code class="docutils literal notranslate"><span class="pre">data</span></code>
+(<code class="docutils literal notranslate"><span class="pre">runs</span></code> is the script-run group, not declarable).
+<code class="docutils literal notranslate"><span class="pre">artifact_server.extension_types</span></code> adds your own kinds, one dotted line per
+type:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">artifact_server.categories.beam_diagnostics</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">Beam Diagnostics</span><span class="p p-Indicator">,</span><span class="nt"> color</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;#f59e0b&quot;</span><span class="p p-Indicator">}</span>
-<span class="w">  </span><span class="nt">artifact_server.categories.rf_conditioning</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">RF Conditioning</span><span class="p p-Indicator">,</span><span class="nt"> color</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;#38bdf8&quot;</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">artifact_server.extension_types.beam_study</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">Beam study</span><span class="p p-Indicator">,</span><span class="nt"> base_form</span><span class="p">:</span><span class="w"> </span><span class="nv">plots</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">artifact_server.extension_types.rf_scan</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">RF scan</span><span class="p p-Indicator">,</span><span class="nt"> base_form</span><span class="p">:</span><span class="w"> </span><span class="nv">tables</span><span class="p p-Indicator">,</span><span class="nt"> viewer</span><span class="p">:</span><span class="w"> </span><span class="nv">viewers/rf_scan.mjs</span><span class="p p-Indicator">}</span>
 </pre></div>
 </div>
-<p>Each entry takes a <code class="docutils literal notranslate"><span class="pre">label</span></code> (what the badge says) and a <code class="docutils literal notranslate"><span class="pre">color</span></code> (a
-<code class="docutils literal notranslate"><span class="pre">#RRGGBB</span></code> hex value, and nothing else — a malformed entry is skipped with a
-warning rather than stopping the launch). The names are yours: nothing in
-OSPREY validates the vocabulary, and a category you do not declare here is
-simply not one the gallery knows.</p>
-<p>An artifact handed in under an undeclared category is still stored. What it
-loses is the badge — and the save logs <code class="docutils literal notranslate"><span class="pre">Unregistered</span> <span class="pre">category</span> <span class="pre">...</span> <span class="pre">declare</span> <span class="pre">it</span>
-<span class="pre">under</span> <span class="pre">artifact_server.categories</span></code>, which is the one place that mismatch shows
-up. The categories are read once, when the artifact server and the MCP
-workspace server start, so a new one arrives with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a
-restart.</p>
-<p>The four commented stanzas in the shipped presets have nothing to do but say
-this: a shipped value would be one facility’s vocabulary handed to every other.</p>
+<p>Each type takes a <code class="docutils literal notranslate"><span class="pre">label</span></code> (what the sidebar and gallery show), a
+<code class="docutils literal notranslate"><span class="pre">base_form</span></code> it conforms to, and an optional <code class="docutils literal notranslate"><span class="pre">viewer</span></code>: a <code class="docutils literal notranslate"><span class="pre">.js</span></code> or
+<code class="docutils literal notranslate"><span class="pre">.mjs</span></code> path relative to the project root (see
+<a class="reference internal" href="../../how-to/build-profiles.html#profile-artifact-viewer"><span class="std std-ref">A facility artifact kind and its viewer</span></a>). An installed package declares types under the
+<code class="docutils literal notranslate"><span class="pre">osprey.artifact_types</span></code> entry-point group, its viewer inside the package.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses an unknown base form, a key or label that collides
+with a base form or another type, and a missing or out-of-tree viewer; at
+runtime a bad type is logged and skipped, and a bad viewer is dropped. Types
+are read when the artifact server and the MCP workspace server start, so a new
+one arrives with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart.</p>
+<p>The old <code class="docutils literal notranslate"><span class="pre">categories</span></code> block under <code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> is retired:
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses it and says to declare
+<code class="docutils literal notranslate"><span class="pre">artifact_server.extension_types</span></code> instead.</p>
 <p>Two other keys sit in this block. <code class="docutils literal notranslate"><span class="pre">artifact_server.max_timeseries_file_mb</span></code>
 (default 200) is the largest timeseries data file the gallery will draw as a
 chart or lay out as a table. Over it, those two views refuse with a <code class="docutils literal notranslate"><span class="pre">413</span></code> and
@@ -1937,7 +1938,7 @@ the surface that refused it.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#modules-web-terminals-the-landing-page-and-the-render-catalog"><code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> — the landing page and the render catalog</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-extension-types"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s extension types</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry"><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-database-readonly-uri-the-sql-tool-s-login-on-your-own-database"><code class="docutils literal notranslate"><span class="pre">ariel.database.readonly_uri</span></code> — the SQL tool’s login on your own database</a></li>

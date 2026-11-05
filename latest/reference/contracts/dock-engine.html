@@ -508,6 +508,17 @@ records the runtime commit, path and git blob of each copy and of the bundle.</p
 a copy no longer matches its blob, when a copy is missing or extra, or when the
 manifest’s sha256 names other bytes than the vendored engine.</p>
 </section>
+<section id="osprey-s-policy">
+<h2>OSPREY’s policy<a class="headerlink" href="#osprey-s-policy" title="Link to this heading">#</a></h2>
+<p>The engine’s layout grammar lets a tile hold several panels (a tile’s <code class="docutils literal notranslate"><span class="pre">tabs</span></code>
+field is a list). OSPREY holds one panel per tile, as a policy of its own
+above the engine. It lives in three places: the browser’s <code class="docutils literal notranslate"><span class="pre">dock-policy.js</span></code>
+and <code class="docutils literal notranslate"><span class="pre">dock-open.js</span></code>, the layout holder <code class="docutils literal notranslate"><span class="pre">dock-apply.js</span></code>, and the server’s
+<code class="docutils literal notranslate"><span class="pre">presets.crowded_tile</span></code>, which the agent operation routes, the layout report
+and the profile build all use. Each refuses a layout with a crowded tile for
+the one reason <code class="docutils literal notranslate"><span class="pre">one_panel_per_tile</span></code>. The vendored engine and its pinned
+cases are unchanged: a tile’s <code class="docutils literal notranslate"><span class="pre">tabs</span></code> is always one entry.</p>
+</section>
 <section id="changing-the-engine">
 <h2>Changing the engine<a class="headerlink" href="#changing-the-engine" title="Link to this heading">#</a></h2>
 <p>A rule changes in the runtime, with its cases. OSPREY then re-copies the bundle
@@ -564,6 +575,7 @@ two manifest entries, and changes <code class="docutils literal notranslate"><sp
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-holds">What OSPREY holds</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-s-policy">OSPREY’s policy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-the-engine">Changing the engine</a></li>
 </ul>
   </nav></div>

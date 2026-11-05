@@ -994,6 +994,25 @@ overrides a framework-generated artifact by claiming it for you (see
 <p>Before reaching for a claim, check whether a config key or an environment
 variable already covers your need — most service knobs (ports, images,
 credentials, retention) are configurable without owning the template.</p>
+<section id="a-facility-artifact-kind-and-its-viewer">
+<span id="profile-artifact-viewer"></span><h3>A facility artifact kind and its viewer<a class="headerlink" href="#a-facility-artifact-kind-and-its-viewer" title="Link to this heading">#</a></h3>
+<p>The sidebar and gallery group artifacts by base form (<code class="docutils literal notranslate"><span class="pre">plots</span></code>, <code class="docutils literal notranslate"><span class="pre">trends</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tables</span></code>, <code class="docutils literal notranslate"><span class="pre">documents</span></code>, <code class="docutils literal notranslate"><span class="pre">dashboards</span></code>, <code class="docutils literal notranslate"><span class="pre">images</span></code>, <code class="docutils literal notranslate"><span class="pre">data</span></code>). A kind of
+your own is an extension type that conforms to one of them; a writer tags an
+entry with it (<code class="docutils literal notranslate"><span class="pre">kind=&quot;beam_study&quot;</span></code> on the store’s save). Declare it in the
+profile:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">artifact_server.extension_types.beam_study</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">Beam study</span><span class="p p-Indicator">,</span><span class="nt"> base_form</span><span class="p">:</span><span class="w"> </span><span class="nv">plots</span><span class="p p-Indicator">,</span><span class="nt"> viewer</span><span class="p">:</span><span class="w"> </span><span class="nv">viewers/beam_study.mjs</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>and ship the viewer through <code class="docutils literal notranslate"><span class="pre">project/</span></code> (here
+<code class="docutils literal notranslate"><span class="pre">project/viewers/beam_study.mjs</span></code>). The viewer is an ES module exporting
+<code class="docutils literal notranslate"><span class="pre">render(container,</span> <span class="pre">artifact,</span> <span class="pre">ctx)</span></code>, with <code class="docutils literal notranslate"><span class="pre">ctx</span> <span class="pre">=</span> <span class="pre">{fileUrl,</span> <span class="pre">theme,</span> <span class="pre">tokens}</span></code>;
+it draws only into <code class="docutils literal notranslate"><span class="pre">container</span></code>. A viewer that fails to load, lacks
+<code class="docutils literal notranslate"><span class="pre">render</span></code> or throws falls back to the base form’s viewer. What <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> refuses is listed under <a class="reference internal" href="../reference/configuration/config.html#config-artifact-server"><span class="std std-ref">artifact_server: — the workspace gallery’s extension types</span></a>.</p>
+</section>
 </section>
 <section id="custom-hooks">
 <span id="profile-custom-hooks"></span><h2>Custom hooks<a class="headerlink" href="#custom-hooks" title="Link to this heading">#</a></h2>
@@ -1679,7 +1698,10 @@ relax the constraint in the profile.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-profile-is-self-contained">A profile is self-contained</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#taking-ownership-of-a-framework-artifact">Taking ownership of a framework artifact</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#taking-ownership-of-a-framework-artifact">Taking ownership of a framework artifact</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-facility-artifact-kind-and-its-viewer">A facility artifact kind and its viewer</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-hooks">Custom hooks</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#unwiring-a-hook-in-a-tier">Unwiring a hook in a tier</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#replacing-a-built-in-hook">Replacing a built-in hook</a></li>

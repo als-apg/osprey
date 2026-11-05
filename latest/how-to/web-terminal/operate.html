@@ -594,10 +594,10 @@ agent when you open one from the pane’s <strong>⋯</strong> menu. It survives
 and you can keep a few background conversations alive and hop between them.
 Close the pane with its <strong>×</strong>; the <strong>Agent</strong> row in the sidebar opens it again.</p></li>
 <li><p><strong>Work pane</strong> (middle) — the artifacts and panels you open from the sidebar,
-as tabs in tiles you arrange by dragging (<a class="reference internal" href="#tiles-and-tabs">Tiles and tabs</a>). New artifacts,
-plots, and data files appear in
-the sidebar’s <strong>Artifacts</strong> list as the agent creates them, with no refresh.
-On a fresh deployment the list is not empty: the control-assistant preset
+in tiles you arrange by dragging (<a class="reference internal" href="#tiles">Tiles</a>). New artifacts,
+plots, and data files appear under their session in the sidebar
+(<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>) as the agent creates them, with no refresh.
+On a fresh deployment the tree is not empty: the control-assistant preset
 ships one interactive example plot (synthetic data). It is there for you,
 not the agent, which never lists or cites it. Delete it when you no longer
 want it; it does not come back. It is switched on by
@@ -618,35 +618,33 @@ plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
 this to work in every browser — on a plain <code class="docutils literal notranslate"><span class="pre">http://</span></code> page copying falls
 back to an older browser mechanism that Safari may refuse.</p>
 </section>
-<section id="tiles-and-tabs">
-<span id="web-terminal-tiles"></span><h2>Tiles and tabs<a class="headerlink" href="#tiles-and-tabs" title="Link to this heading">#</a></h2>
-<p>The work pane is tiles, and a tile holds one or more tabs. A tile’s header
-shows the tab in front — its tabs, once it holds more than one — with that
-tab’s controls, <strong>Pop out</strong> and <strong>×</strong> beside them. Click a tab to bring it in
-front; with the header’s tab strip focused, the arrow keys do the same and
-Delete closes the tab in front.</p>
-<p>A panel you open — from its sidebar row, from a link, or one the agent opens
-for you — lands as a new tab, in front, in the service tile you used last;
-nothing resizes, and the tab it covers is one click away. A panel already
-open is brought forward where it is. To open a panel in a tile of its own,
-pick <strong>Open in a new tile</strong> from its row’s menu, or drag the row (below).</p>
-<p>Drag a tab, a whole tile (by its header), or a sidebar row, and drop it on the
-tile under the pointer:</p>
+<section id="tiles">
+<span id="web-terminal-tiles"></span><h2>Tiles<a class="headerlink" href="#tiles" title="Link to this heading">#</a></h2>
+<p>The work pane is tiles, and a tile shows one panel. Its header shows the
+panel’s name, the panel’s controls, <strong>Pop out</strong> and <strong>×</strong>.</p>
+<p>A panel you open — from its sidebar row, from a link, from the <strong>+</strong> menu,
+from a pop-out window coming back, or one the agent opens for you — takes the
+service tile you used last and replaces the panel it showed. Nothing resizes,
+and the panel it replaced stays in the sidebar, one click away. A panel
+already open is brought forward where it is. To open a panel in a tile of
+its own, pick <strong>Open in a new tile</strong> from its row’s menu, or drag the row
+(below).</p>
+<p>Drag a whole tile (by its header) or a sidebar row, and drop it on a tile’s
+edge or on the work pane’s edge:</p>
 <ul class="simple">
-<li><p><strong>Header row or centre</strong>: the tab joins that tile, in front. A sidebar row
-never lands here; it makes a new tile.</p></li>
 <li><p><strong>Edge</strong>, the outer band of a tile on each side: the tile splits in two, the
 dropped item on that side. No other tile changes size.</p></li>
 <li><p><strong>Dock edge</strong>, the outermost strip of the work pane: a new tile along that
 whole side.</p></li>
 </ul>
-<p>The highlight during the drag is where the item lands. The agent pane is
-always its own tile: a drop onto it splits it, and it never becomes a tab of
-another tile.</p>
-<p><strong>×</strong> closes the tab in front, and a tile closes with its last tab; its space
-goes to the tile it was split from. The panel stays in the sidebar, and its
-row opens it again. The arrangement — tiles, tabs, the tab in front of each,
-sizes — is remembered by the browser you set it in.</p>
+<p>The highlight during the drag is where the item lands. A drop on a tile’s
+header or centre does nothing. The agent pane is always its own tile: a drop
+onto it splits it, and a panel never replaces it.</p>
+<p><strong>×</strong> closes the tile; its space goes to the tile it was split from. The panel
+stays in the sidebar, and its row opens it again. The arrangement — tiles, the
+panel each shows, sizes — is remembered by the browser you set it in. A layout
+saved by an earlier release with several panels in one tile comes back
+showing the panel that was in front; the others are in the sidebar.</p>
 </section>
 <section id="the-chat-and-the-terminal">
 <span id="web-terminal-one-session"></span><h2>The chat and the terminal<a class="headerlink" href="#the-chat-and-the-terminal" title="Link to this heading">#</a></h2>
@@ -1005,7 +1003,7 @@ machine, reaches the next cell you run. See <a class="reference internal" href="
 address is a <strong>service door, not a terminal</strong>. Log in there directly and the
 deployment has no name to put on what you do, so no switch covers it: a
 plan queued from that page writes nothing (<code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code>). Reaching the
-same panel from its tab in the terminal is the named path, and the one the
+same panel from its place in the terminal is the named path, and the one the
 chip governs.</p>
 </div>
 </section>
@@ -1026,13 +1024,11 @@ Ctrl+K on other systems.</p></li>
 <ul class="simple">
 <li><p><strong>Workspace</strong> starts with these rows:</p>
 <ul>
-<li><p><strong>Agent</strong> opens the agent pane, or moves the focus to it. When the pane
+<li><p><strong>Agent</strong> opens the agent pane, or moves the focus to it, and opens
+your session tree below it (<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>). When the pane
 is closed, the row shows a hollow dot. When the agent waits for your
 answer, the row shows the number of open questions. <strong>Agent</strong> is always
 the first row of the first group.</p></li>
-<li><p><strong>Artifacts</strong> opens the work pane and lists the artifacts of the agent.
-Click a row to show that artifact in the work pane.</p></li>
-<li><p><strong>Script runs</strong> lists the run records. It is always below <strong>Artifacts</strong>.</p></li>
 <li><p><strong>Events</strong> shows only when the deployment enables the events panel.</p></li>
 </ul>
 </li>
@@ -1045,9 +1041,39 @@ last row of the last group. See <a class="reference internal" href="panels.html"
 out</strong> shows only on a multi-user deployment. See
 <a class="reference internal" href="#web-terminal-sign-out"><span class="std std-ref">Sign out</span></a>.</p></li>
 </ul>
-<p>When the window is short, only the group that holds <strong>Artifacts</strong> and
-<strong>Script runs</strong> scrolls. The other groups and the footer always stay on the
-screen.</p>
+<p>When the window is short, only the group that holds the session tree
+scrolls. The other groups and the footer always stay on the screen.</p>
+<section id="sessions-and-artifacts">
+<span id="web-terminal-sessions"></span><h3>Sessions and artifacts<a class="headerlink" href="#sessions-and-artifacts" title="Link to this heading">#</a></h3>
+<p>The <strong>Agent</strong> row’s ▾ opens your sessions, newest first. A session is named
+from your first prompt (“naming…” until the name arrives); <code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts a
+new one. Under a session, its artifacts are grouped by kind: <strong>Runs</strong>,
+<strong>Plots</strong>, <strong>Trends</strong>, <strong>Tables</strong>, <strong>Documents</strong>, <strong>Dashboards</strong>, <strong>Images</strong>,
+<strong>Data</strong>, plus any kind the deployment registers. A script run is one row with
+a dot for <strong>succeeded</strong>, <strong>failed</strong> or <strong>not run</strong> (none while it runs); its
+approval preview, code and outputs are its parts. A run that was never run
+opens on its proposed code. <strong>Earlier</strong> holds your artifacts that have no
+session; <strong>More sessions</strong> loads older ones.</p>
+<ul class="simple">
+<li><p>Click a session name to switch to it: the Agent pane opens on it and shows
+the artifact last open there (its newest if none). ▸ only browses.</p></li>
+<li><p>Click an artifact to show it. This never changes the session.</p></li>
+<li><p>The title in the agent tile’s header has its own ▾ switcher: your sessions
+with state, age and message count, and <strong>+ New session</strong>.</p></li>
+<li><p>While the agent is answering in chat, a switch from any of these asks
+first: <strong>Cancel</strong>, or <strong>Stop &amp; switch</strong>.</p></li>
+</ul>
+<p>Right-click a session to rename it, export its transcript or group its
+artifacts by day (<strong>Group by Activity</strong>); a run to open its result, approval
+preview or code; an artifact to pin it. Runs and artifacts also have
+<strong>Delete…</strong>.</p>
+<p>A reload, a new tab or another device resumes your last session. Its
+last-open artifact is shown in the Artifacts panel if that panel is docked,
+otherwise highlighted in the tree; the layout does not change. The command
+palette finds your sessions and artifacts (by name, kind, or session name);
+opening a result enters its session. The Artifacts panel has no sidebar row;
+open it from the palette.</p>
+</section>
 <section id="arrange-the-groups">
 <span id="web-terminal-sidebar-groups"></span><h3>Arrange the groups<a class="headerlink" href="#arrange-the-groups" title="Link to this heading">#</a></h3>
 <p>You can rename the groups, add your own groups, and move rows between them.</p>
@@ -1070,9 +1096,8 @@ rows of the group go back to <strong>Tools</strong>. You cannot delete <strong>W
 group. Then type the name of the new group.</p></li>
 <li><p>Drag the row into the other group. Release it where it must go.</p></li>
 </ul>
-<p>You can move each row except <strong>Agent</strong>. <strong>Script runs</strong> moves with
-<strong>Artifacts</strong>. A group without rows shows “No panels — move one here from a
-row’s menu”.</p>
+<p>You can move each row except <strong>Agent</strong>. A group without rows shows “No
+panels — move one here from a row’s menu”.</p>
 <p>Your groups are kept in this browser, for your user only. They do not change
 the sidebar of other users.</p>
 </section>
@@ -1080,8 +1105,8 @@ the sidebar of other users.</p>
 <h3>Hide the labels<a class="headerlink" href="#hide-the-labels" title="Link to this heading">#</a></h3>
 <p>To hide the labels, click the toggle at the top of the sidebar, or press ⌘\
 (Ctrl+\ on other systems). The sidebar then shows only icons. Put the pointer
-on an icon to see its name. In this state, a click on <strong>Artifacts</strong> opens the
-artifact list next to the sidebar. To show the labels again, click the toggle
+on an icon to see its name. In this state, a click on <strong>Agent</strong> opens the
+session tree next to the sidebar. To show the labels again, click the toggle
 or press the same keys.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -1093,8 +1118,8 @@ program. To hide or show the labels in this state, click the toggle.</p>
 <section id="pop-a-pane-out">
 <span id="web-terminal-pop-out"></span><h3>Pop a pane out<a class="headerlink" href="#pop-a-pane-out" title="Link to this heading">#</a></h3>
 <p>You can move a panel out of the workspace into its own browser window. This
-works for each service panel, Artifacts included. The agent pane stays in the
-workspace.</p>
+works for each service panel, the Artifacts panel included. The agent pane
+stays in the workspace.</p>
 <p>To pop a panel out, do one of these:</p>
 <ul class="simple">
 <li><p>Click the <strong>Pop out</strong> button in the header of its tile, left of the close
@@ -1298,7 +1323,7 @@ verbs that read the results back.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-get">What you get</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tiles-and-tabs">Tiles and tabs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tiles">Tiles</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-chat-and-the-terminal">The chat and the terminal</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#clearing-a-conversation">Clearing a conversation</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#attaching-a-file">Attaching a file</a></li>
@@ -1314,6 +1339,7 @@ verbs that read the results back.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-sidebar">The sidebar</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sessions-and-artifacts">Sessions and artifacts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#arrange-the-groups">Arrange the groups</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hide-the-labels">Hide the labels</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pop-a-pane-out">Pop a pane out</a></li>

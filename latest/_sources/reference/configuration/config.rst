@@ -11,8 +11,8 @@ authoring side, and this page catalogues what the rendered result means.
 The parts of that file gathered here are the models its simulator serves
 (``simulation:``), the
 diagnostic suite (``health:``), the browser UI's documentation and feedback
-settings (``web:``), the artifact gallery's own
-categories (``artifact_server:``), the Python sandbox's run ceiling
+settings (``web:``), the artifact gallery's
+extension types (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), where screenshots are written (``screen_capture:``), the
 links from an answer to a
 logbook entry (``ariel.entry_url_template``), the login the agent's SQL tool
@@ -843,36 +843,36 @@ instead.
 
 .. _config-artifact-server:
 
-``artifact_server:`` — the workspace gallery's own categories
--------------------------------------------------------------
+``artifact_server:`` — the workspace gallery's extension types
+--------------------------------------------------------------
 
-Every artifact carries a **category**, and the category decides the badge the
-gallery draws on its card. OSPREY ships a general set — ``visualization``,
-``diagnostic_report``, ``lattice_analysis`` and the rest — which is a
-laboratory's vocabulary rather than yours. ``artifact_server.categories`` adds
-your own to it, from the build profile, one dotted line per category:
+The gallery and the sidebar group artifacts by base form: ``plots``,
+``trends``, ``tables``, ``documents``, ``dashboards``, ``images``, ``data``
+(``runs`` is the script-run group, not declarable).
+``artifact_server.extension_types`` adds your own kinds, one dotted line per
+type:
 
 .. code-block:: yaml
 
    config:
-     artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-     artifact_server.categories.rf_conditioning: {label: RF Conditioning, color: "#38bdf8"}
+     artifact_server.extension_types.beam_study: {label: Beam study, base_form: plots}
+     artifact_server.extension_types.rf_scan:
+       {label: RF scan, base_form: tables, viewer: viewers/rf_scan.mjs}
 
-Each entry takes a ``label`` (what the badge says) and a ``color`` (a
-``#RRGGBB`` hex value, and nothing else — a malformed entry is skipped with a
-warning rather than stopping the launch). The names are yours: nothing in
-OSPREY validates the vocabulary, and a category you do not declare here is
-simply not one the gallery knows.
+Each type takes a ``label`` (what the sidebar and gallery show), a
+``base_form`` it conforms to, and an optional ``viewer``: a ``.js`` or
+``.mjs`` path relative to the project root (see
+:ref:`profile-artifact-viewer`). An installed package declares types under the
+``osprey.artifact_types`` entry-point group, its viewer inside the package.
+``osprey build`` refuses an unknown base form, a key or label that collides
+with a base form or another type, and a missing or out-of-tree viewer; at
+runtime a bad type is logged and skipped, and a bad viewer is dropped. Types
+are read when the artifact server and the MCP workspace server start, so a new
+one arrives with ``osprey build`` and a restart.
 
-An artifact handed in under an undeclared category is still stored. What it
-loses is the badge — and the save logs ``Unregistered category ... declare it
-under artifact_server.categories``, which is the one place that mismatch shows
-up. The categories are read once, when the artifact server and the MCP
-workspace server start, so a new one arrives with ``osprey build`` and a
-restart.
-
-The four commented stanzas in the shipped presets have nothing to do but say
-this: a shipped value would be one facility's vocabulary handed to every other.
+The old ``categories`` block under ``artifact_server:`` is retired:
+``osprey build`` refuses it and says to declare
+``artifact_server.extension_types`` instead.
 
 Two other keys sit in this block. ``artifact_server.max_timeseries_file_mb``
 (default 200) is the largest timeseries data file the gallery will draw as a
