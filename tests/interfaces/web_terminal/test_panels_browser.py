@@ -3362,7 +3362,12 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_agent_header_menu(page)
-        assert _menu_labels(page) == ["Reset layout", "Close Agent pane"], _menu_labels(page)
+        labels = _menu_labels(page)
+        # "This panel": the chat's own rows (Export conversation, Desktop
+        # notifications); "Tile": the layout rows, with no PTY verb in chat.
+        assert "Restart terminal" not in labels, labels
+        assert labels[0].startswith("Export conversation"), labels
+        assert labels[-2:] == ["Reset layout", "Close Agent pane"], labels
 
         page.keyboard.press("Escape")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
@@ -3395,7 +3400,8 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
 
         _open_agent_header_menu(page)
-        assert _menu_labels(page) == [
+        # The chat's "This panel" rows come first; the Tile rows close the menu.
+        assert _menu_labels(page)[-3:] == [
             "Restart terminal",
             "Reset layout",
             "Close Agent pane",

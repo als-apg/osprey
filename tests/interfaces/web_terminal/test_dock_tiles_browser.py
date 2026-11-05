@@ -1389,31 +1389,28 @@ _ARTIFACTS_HEADER_JS = """async (title) => {
   const { headerItems } = await import('/static/js/artifacts-pane-header.js');
   const shown = { id: 'x', filename: 'plot.png', title };
   window.__picked = [];
-  contributeLocal('artifacts', headerItems(shown, { index: 3, count: 12, last: false }),
-    (id) => { window.__picked.push(id); });
+  contributeLocal('artifacts', headerItems(shown), (id) => { window.__picked.push(id); });
 }"""
 
-#: The tile ⋯ row for each control the artifacts header can fold (an icon button's
+#: The tile ⋯ row for each panel icon the artifacts header can fold (an icon's
 #: row is named by its title).
 _ARTIFACT_FOLD_LABELS = {
-    "button:open": "Open full size",
-    "button:save": "Save",
-    "button:prev": "Previous artifact",
-    "button:next": "Next artifact",
+    "icon:info": "Artifact details",
+    "icon:download": "Download",
 }
 
 
 def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_tile_menu(tmp_path, chromium_browser):
-    """In a quarter-width tile the artifacts bar spans its tile and the tile ⋯ holds what folded.
+    """In a narrow tile the artifacts bar spans its tile and the tile ⋯ holds what folded.
 
-    The tab release's defect: the artifacts header (its crumb, the pager, Open
-    full size and Save) collapsed the header of a tile holding several panels
-    to nothing and folded every control away, and the menu that held them
-    closed itself as the clipped region scrolled to the focused button. With
-    one panel per tile the bar is the tile's whole header. The folded controls
-    take class `contrib-hidden` and are rows under the tile menu's "This panel"
-    heading, a real click on ⋯ keeps the menu open, and a row runs the control
-    it stands for.
+    The tab release's defect: the artifacts header collapsed the header of a
+    tile holding several panels to nothing and folded every control away, and
+    the menu that held them closed itself as the clipped region scrolled to
+    the focused button. With one panel per tile the bar is the tile's whole
+    header. The panel icons the width cannot hold (Info, Download) take class
+    `contrib-hidden` and are rows under the tile menu's "This panel" heading,
+    a real click on ⋯ keeps the menu open, and a row runs the control it
+    stands for.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
@@ -1424,8 +1421,8 @@ def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_tile_menu(tmp_path,
             page,
             _split(
                 "row",
-                _tile("t1", "artifacts", size=0.25),
-                _tile("t2", "a", size=0.45),
+                _tile("t1", "artifacts", size=0.15),
+                _tile("t2", "a", size=0.55),
                 _tile("t3", TERMINAL, size=0.3),
             ),
         )
@@ -1434,7 +1431,7 @@ def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_tile_menu(tmp_path,
         title = "A fairly long artifact name for the crumb"
         page.evaluate(_ARTIFACTS_HEADER_JS, title)
         bar = _bar(page, "artifacts")
-        expect(bar.locator(".osprey-crumb-leaf")).to_have_text(title, timeout=5_000)
+        expect(bar.locator(".contrib-text")).to_have_text(title, timeout=5_000)
 
         state = _settle(page)
         tile = state["tiles"][_tile_of(state, "artifacts")]
