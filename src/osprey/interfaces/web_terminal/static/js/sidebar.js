@@ -36,6 +36,9 @@
  *     rather than clipped. A group made later is watched from the render
  *     that adds it.
  *
+ *   - GROUPS. A double-click folds a group to its heading (sidebar-fold.js);
+ *     a divider below the Workspace group sets its height (sidebar-divider.js).
+ *
  * Changing the width closes every sidebar popover and the tooltip, since each
  * is placed against a sidebar edge that is about to move.
  */
@@ -49,6 +52,8 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
 import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { initSidebarResize } from './sidebar-resize.js';
+import { initSidebarFold } from './sidebar-fold.js';
+import { initSidebarDivider } from './sidebar-divider.js';
 
 /** The width's storage key, shared with sidebar-boot.js (pre-paint). */
 export const SIDEBAR_STORAGE_KEY = 'osprey-sidebar';
@@ -378,6 +383,8 @@ export function initSidebar() {
   initDisclosures(sidebar);
   initAgentRow();
   initFades(sidebar);
+  initSidebarFold(document.getElementById('panel-rail'));
+  initSidebarDivider(document.getElementById('panel-rail'));
   document.addEventListener('keydown', onTreeKeydown);
 
   document.addEventListener('osprey-collapsible-change', (event) => {
