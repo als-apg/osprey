@@ -16,6 +16,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
 | `facility_demo/facility_overview.py` | Generate the control-assistant facility overview, booster and storage-ring sector screens from the example records | < 1 s | After changing the example facility's records or the generated screens' layout |
 | `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
+| `docs/snippet_coverage.py` | Per-page count of docs code blocks a test reads; `--check` is the ratchet | < 1 s | After adding or removing a code block on a docs page, or a test that reads one |
 
 ## Scripts
 
@@ -315,6 +316,33 @@ Needs Docker.
 ```bash
 uv run python scripts/va/capture_nominals.py --out tests/facility/golden/nominal_va.json
 uv run python scripts/va/capture_nominals.py --check tests/facility/golden/nominal_va.json
+```
+
+---
+
+### docs/snippet_coverage.py
+
+**Purpose**: Show, page by page, how many code blocks under `docs/source` a test
+reads, and keep that number from falling. Every `code-block`, `literalinclude`
+and `::` literal block is counted; `scripts/docs/snippet_coverage.yml` is the
+ledger of which tests read which pages and languages, and how (`runs`, `checks`
+or `pins`). The default output is a Markdown table, the pages with the most
+untested blocks first, with the line of each untested block; `--page` narrows
+it to one page and lists what tests the rest, `--json` is for scripts and
+`--with-pending` previews the coverage once the ledger's pending pull requests
+merge. `--check` fails when a page has more untested blocks than
+`snippet_coverage_baseline.json` allows, or fewer (so the allowance is
+shrunk with `--update-baseline`); `tests/docs/test_snippet_coverage.py` runs it
+in CI.
+
+---
+
+**Usage**:
+```bash
+uv run python scripts/docs/snippet_coverage.py
+uv run python scripts/docs/snippet_coverage.py --page how-to/build-profiles.rst
+uv run python scripts/docs/snippet_coverage.py --check
+uv run python scripts/docs/snippet_coverage.py --update-baseline
 ```
 
 ---
