@@ -1575,6 +1575,10 @@ draft write reads the target's setpoints and writes nothing to the machine.
 answers ``409`` rather than run. The image is built locally on the first
 ``osprey up``; set ``OSPREY_OPTIMIZER_IMAGE`` to run a published one.
 
+The agent reaches the service through the ``optimizer`` MCP server
+(:doc:`/architecture/mcp-servers`), switched on by
+``claude_code.servers.optimizer.enabled: true`` under ``config:``.
+
 A run writes only under one **write authorization** (:ref:`how-to-write-from-a-program`),
 never under the owner's switch alone, so the switch can stay off for the whole
 run and turning it on does not widen the run:

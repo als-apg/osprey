@@ -869,6 +869,41 @@ time range, bound to the archiver when <code class="docutils literal notranslate
 </ul>
 </section>
 </section>
+<section id="optimizer">
+<h2>Optimizer<a class="headerlink" href="#optimizer" title="Link to this heading">#</a></h2>
+<section id="id6">
+<h3><code class="docutils literal notranslate"><span class="pre">optimizer</span></code><a class="headerlink" href="#id6" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.optimizer</span></code></p>
+<p>Reads the optimizer service a profile deploys with its <code class="docutils literal notranslate"><span class="pre">optimizer:</span></code> section
+(<a class="reference internal" href="../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>). It is off in every preset and
+switched on with <code class="docutils literal notranslate"><span class="pre">claude_code.servers.optimizer.enabled:</span> <span class="pre">true</span></code>. The build
+refuses that switch on a render with no optimizer to dial: a deployment that
+does not run one, or an attached render whose host publishes no
+<code class="docutils literal notranslate"><span class="pre">services.optimizer.port</span></code>. The server dials <code class="docutils literal notranslate"><span class="pre">services.optimizer.port</span></code> on
+loopback, or <code class="docutils literal notranslate"><span class="pre">OPTIMIZER_URL</span></code> when that is set.</p>
+<p>The server holds no launch token and cannot start a run: a person starts
+every run. A tool that reads a machine (<code class="docutils literal notranslate"><span class="pre">environment_status</span></code>,
+<code class="docutils literal notranslate"><span class="pre">read_observables</span></code>, <code class="docutils literal notranslate"><span class="pre">initial_bounds</span></code>) asks about the session’s current
+control target unless it is given a <code class="docutils literal notranslate"><span class="pre">target</span></code>; the optimizer serves only the
+targets its profile lists (<code class="docutils literal notranslate"><span class="pre">va</span></code> and <code class="docutils literal notranslate"><span class="pre">standin</span></code> today), and refuses any other.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_environments</span></code> – List the optimization environments the service offers.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_environment</span></code> – Read one environment’s variable and observable definitions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">environment_status</span></code> – Check whether an environment is reachable on a machine.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">read_observables</span></code> – Read the current values of an environment’s observables.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_presets</span></code> – List the run presets an environment offers.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">initial_bounds</span></code> – Resolve each variable’s starting bounds from its current setpoint.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_jobs</span></code> – List the jobs that have not finished.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_job</span></code> – Read one job’s status, optionally with its result summary or full data.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">current_job</span></code> – Read the current-job pointer, the job a start launches.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_job_config</span></code> – Read an optimization job’s stored config and its revision.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_results</span></code> – List the stored runs.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_result</span></code> – Read one stored run: config, best point and evaluated records.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_models</span></code> – List the saved surrogate model files.</p></li>
+</ul>
+</section>
+</section>
 </section>
 
 
@@ -951,6 +986,10 @@ time range, bound to the archiver when <code class="docutils literal notranslate
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phoebus">Phoebus</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id5"><code class="docutils literal notranslate"><span class="pre">phoebus</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optimizer">Optimizer</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id6"><code class="docutils literal notranslate"><span class="pre">optimizer</span></code></a></li>
 </ul>
 </li>
 </ul>

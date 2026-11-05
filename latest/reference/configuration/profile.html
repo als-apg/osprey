@@ -2099,6 +2099,9 @@ draft write reads the target’s setpoints and writes nothing to the machine.
 (<code class="docutils literal notranslate"><span class="pre">?config_revision=</span></code>): when the draft changed since it was shown, the start
 answers <code class="docutils literal notranslate"><span class="pre">409</span></code> rather than run. The image is built locally on the first
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; set <code class="docutils literal notranslate"><span class="pre">OSPREY_OPTIMIZER_IMAGE</span></code> to run a published one.</p>
+<p>The agent reaches the service through the <code class="docutils literal notranslate"><span class="pre">optimizer</span></code> MCP server
+(<a class="reference internal" href="../../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a>), switched on by
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers.optimizer.enabled:</span> <span class="pre">true</span></code> under <code class="docutils literal notranslate"><span class="pre">config:</span></code>.</p>
 <p>A run writes only under one <strong>write authorization</strong> (<a class="reference internal" href="../../how-to/control-systems/use-connectors.html#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a>),
 never under the owner’s switch alone, so the switch can stay off for the whole
 run and turning it on does not widen the run:</p>
