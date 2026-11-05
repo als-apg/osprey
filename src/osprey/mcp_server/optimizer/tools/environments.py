@@ -53,11 +53,9 @@ async def get_environment(name: str) -> str:
 async def environment_status(name: str, target: Target | None = None) -> str:
     """Check whether an environment is reachable and healthy on a machine.
 
-    The optimizer serves only va and standin today: a session on live is refused unless ``target`` names one of those.
-
     Args:
         name: Environment name.
-        target: Machine to check (va or standin). Default: the session's current control target.
+        target: Machine to check (va, standin or live). Default: the session's current control target.
     """
     return json.dumps(await request("GET", f"{_env(name)}/status", params=_machine(target)))
 
@@ -66,12 +64,10 @@ async def environment_status(name: str, target: Target | None = None) -> str:
 async def read_observables(name: str, names: list[str], target: Target | None = None) -> str:
     """Read the current values of an environment's observables (objective measurements) on a machine.
 
-    The optimizer serves only va and standin today: a session on live is refused unless ``target`` names one of those.
-
     Args:
         name: Environment name.
         names: Observable names, as get_environment lists them.
-        target: Machine to read (va or standin). Default: the session's current control target.
+        target: Machine to read (va, standin or live). Default: the session's current control target.
     """
     params = {**_machine(target), "names": names}
     return json.dumps(await request("GET", f"{_env(name)}/observables", params=params))
@@ -93,12 +89,10 @@ async def initial_bounds(name: str, preset: str | None = None, target: Target | 
 
     Without a preset every variable gets its safety range; with one, only the preset's variables, with its overrides applied around the current setpoints. Returns ``bounds`` and ``current_values`` (each variable's current setpoint reading).
 
-    The optimizer serves only va and standin today: a session on live is refused unless ``target`` names one of those.
-
     Args:
         name: Environment name.
         preset: Preset name, from list_presets.
-        target: Machine to read setpoints from (va or standin). Default: the session's current control target.
+        target: Machine to read setpoints from (va, standin or live). Default: the session's current control target.
     """
     params = _machine(target)
     if preset is not None:

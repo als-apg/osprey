@@ -138,13 +138,6 @@ _REFUSALS = [
         "validation_error",
         [{"loc": ["names"]}],
     ),
-    (
-        "environment_status",
-        httpx.Response(403, json={"detail": "does not drive 'live' (allowed: standin, va)"}),
-        "optimizer_target_refused",
-        "does not drive 'live' (allowed: standin, va)",
-    ),
-    # A 403 on a request that named no target is not a target refusal.
     ("get_job", httpx.Response(403, json={"detail": "forbidden"}), "optimizer_error", "forbidden"),
     ("get_job", httpx.Response(503, text="upstream down"), "optimizer_error", "upstream down"),
     ("list_models", httpx.Response(500, json={"detail": "boom"}), "optimizer_error", "boom"),
@@ -153,7 +146,6 @@ _REFUSALS = [
 _KWARGS = {
     "get_job": (jobs, {"job_id": "j1"}),
     "read_observables": (environments, {"name": "lin", "names": ["q"]}),
-    "environment_status": (environments, {"name": "lin"}),
     "list_models": (results, {}),
 }
 
@@ -170,13 +162,6 @@ async def test_a_non_2xx_is_typed_by_its_status(optimizer, name, response, error
         await _tool(module, name)(**kwargs)
     assert ctx["envelope"]["details"] == {"status": response.status_code, "detail": detail}
     assert str(response.status_code) in ctx["envelope"]["error_message"]
-
-
-async def test_a_target_refusal_hints_to_name_the_target(optimizer):
-    optimizer.respond = lambda _r: httpx.Response(403, json={"detail": "allowed: va"})
-    with assert_raises_error(error_type="optimizer_target_refused") as ctx:
-        await _tool(environments, "initial_bounds")(name="lin")
-    assert any("`target`" in hint for hint in ctx["envelope"]["suggestions"])
 
 
 async def test_a_2xx_body_that_is_not_json_is_an_error_envelope(optimizer):

@@ -115,9 +115,6 @@ ERROR_CLASS_MAP = {
     "limits_violation": "Validation",
     # This deployment simply has no such target to switch to.
     "target_switch_unavailable": "Validation",
-    # The optimizer does not serve the target asked about; the detail lists
-    # the ones it does, and naming one changes which machine is described.
-    "optimizer_target_refused": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
     # A panel url that is not a root-relative path or an http(s) URL: pass one.

@@ -412,8 +412,7 @@ loopback, or ``OPTIMIZER_URL`` when that is set.
 The server holds no launch token and cannot start a run: a person starts
 every run. A tool that reads a machine (``environment_status``,
 ``read_observables``, ``initial_bounds``) asks about the session's current
-control target unless it is given a ``target``; the optimizer serves only the
-targets its profile lists (``va`` and ``standin`` today), and refuses any other.
+control target unless it is given a ``target``.
 
 **Tools:**
 
