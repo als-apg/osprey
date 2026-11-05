@@ -13,10 +13,10 @@
  *     (panel-menu-policy.js), the same menu a right-click on the bar opens.
  *     The × closes the tile LOCALLY (the panel keeps its sidebar row;
  *     dock-sync routes the click to a vacate handler).
- *   the Agent tile — an adopted live bar, ⋯, Open in new window and close. In chat it adopts
- *     the console's `.op-session-bar` (status dot, `Agent`, New conversation,
- *     notifications); on the terminal surface it adopts the `.terminal-header`
- *     (session label, session selector, "+ New"). The bar is chosen when the
+ *   the Agent tile — an adopted live bar (agent-bar.js: the session label ▾
+ *     and +), then ⋯ and close; Open in new window is a ⋯ row. In chat it
+ *     adopts the console's `.op-session-bar`; on the terminal surface the
+ *     `.terminal-header`, the same shape. The bar is chosen when the
  *     tab is built and swapped on a change of surface. Its close runs
  *     dock-workspace's closeTerminalPanel, which keeps `html[data-agent]` and
  *     the `osprey-agent-pane` event in step.
@@ -551,7 +551,8 @@ class TileTab {
     root.appendChild(actions);
     this._element = root;
     // Fixed at the right edge, never folded: ⋯ on every bar, then Open in new
-    // window and × on a tile, Reattach in the pane's own window.
+    // window (a service tile's; the Agent's is a ⋯ row) and × on a tile,
+    // Reattach in the pane's own window.
     actions.appendChild(
       buildTileMenuButton(() => (terminal ? TERMINAL_RAIL_ID : this._servicePanelId), root)
     );
@@ -562,9 +563,7 @@ class TileTab {
       return;
     }
 
-    actions.appendChild(
-      buildWindowButton(terminal ? TERMINAL_RAIL_ID : (this._servicePanelId ?? id))
-    );
+    if (!terminal) actions.appendChild(buildWindowButton(this._servicePanelId ?? id));
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'tile-tab-close osprey-icon-btn';

@@ -101,21 +101,15 @@ function detachedTerminalHeader() {
 
 /**
  * The chat console's Agent bar as the page has it before the dock adopts it:
- * built by chat-console.js, with the bell the feature modules add,
- * and its label marked as the session switcher's button the way
- * attachSessionSwitcher marks it, inside a detached console container.
+ * built by chat-console.js (agent-bar.js), with its label marked as the
+ * session switcher's button the way attachSessionSwitcher marks it, inside a
+ * detached console container.
  * @returns {HTMLElement}
  */
 function detachedConsoleBar() {
   const { bar, label: switcher } = buildConsole();
   switcher.setAttribute('role', 'button');
   switcher.setAttribute('aria-label', 'Switch session');
-  for (const [cls, label] of [['op-attention-toggle', 'Desktop notifications']]) {
-    const btn = document.createElement('button');
-    btn.className = `osprey-icon-btn ${cls}`;
-    btn.setAttribute('aria-label', label);
-    bar.append(btn);
-  }
   document.createElement('div').append(bar);
   return bar;
 }
@@ -205,7 +199,7 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has the same button, before its close, moving the Agent pane', async () => {
+  test('the Agent tile has ⋯ and its close only: Open in new window is a ⋯ row', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const tab = createTileTab('terminal');
@@ -214,14 +208,9 @@ describe('tile-tab renderer', () => {
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
       'Panel menu',
-      'Open in new window',
       'Close Agent pane',
     ]);
-    /** @type {HTMLElement} */ (actions.querySelector('.tile-tab-window')).dispatchEvent(
-      new MouseEvent('click', { bubbles: true, cancelable: true })
-    );
-    expect(detach).toHaveBeenCalledExactlyOnceWith('terminal');
-    expect(closeTerminalPanel).not.toHaveBeenCalled();
+    expect(actions.querySelector('.tile-tab-window')).toBeNull();
   });
 
   test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
@@ -370,7 +359,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: dot, session switcher, pen, bell, share, close', async () => {
+    test('the chat adopts the console bar: session switcher, +, then ⋯ and close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -389,12 +378,9 @@ describe('tile-tab renderer', () => {
         (el) => el.getAttribute('aria-label') ?? el.textContent
       );
       expect(parts).toEqual([
-        '',
         'Switch session',
         'New conversation',
-        'Desktop notifications',
         'Panel menu',
-        'Open in new window',
         'Close Agent pane',
       ]);
     });
@@ -978,7 +964,7 @@ describe('the bar of a pane in its own window', () => {
     setTileContextMenuHandler(handler);
     const bar = detachedConsoleBar();
     setTerminalConsoleBarSource(bar);
-    const led = /** @type {HTMLElement} */ (bar.querySelector('.op-session-led'));
+    const led = /** @type {HTMLElement} */ (bar.querySelector('.agent-bar-spacer'));
     const docked = createTileTab('terminal');
     document.body.append(docked.element);
     led.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));

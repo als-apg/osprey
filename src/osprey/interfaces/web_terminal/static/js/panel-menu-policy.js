@@ -70,7 +70,6 @@ import { isListOpen, setListOpen, toggleEverySession } from './sidebar.js';
 import { showUndoNotice } from './undo-notice.js';
 import { closeDetached, detach, detachBlocker, focusWindow, reattach } from './pane-window.js';
 import { isDetached } from './dock-apply.js';
-import { exportConversation } from './chat-export.js';
 import {
   NEW_GROUP_LABEL,
   addGroup,
@@ -617,9 +616,10 @@ function tilelessAgentRows() {
 
 /**
  * The Agent tile's ⋯ menu (tile-menu.js): "This panel", the rows registered
- * through {@link setServiceMenuExtras} under TERMINAL_RAIL_ID, then "Tile":
- * {@link paneWindowRow}, Export conversation in chat, Restart terminal on the
- * terminal, Reset layout, Close Agent pane. The Agent row in the sidebar
+ * through {@link setServiceMenuExtras} under TERMINAL_RAIL_ID (agent-menu.js:
+ * Export conversation in chat, Desktop notifications), then "Tile":
+ * {@link paneWindowRow}, Restart terminal on the terminal, Reset layout,
+ * Close Agent pane. The Agent row in the sidebar
  * heads the session tree and has its own menu (buildAgentRowMenuItems,
  * sidebar-artifact-menus.js), which is where New session lives.
  *
@@ -649,14 +649,7 @@ function terminalTileRows({ mode = 'tile', noticeIn }) {
           { label: 'Reset layout', run: () => resetDockLayout() },
           { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
         ];
-  if (!isTerminalSurface()) {
-    return [
-      paneWindowRow(TERMINAL_RAIL_ID, noticeIn),
-      // The conversation as a Markdown file (chat-export.js).
-      { label: 'Export conversation', run: () => void exportConversation() },
-      ...layout,
-    ];
-  }
+  if (!isTerminalSurface()) return [paneWindowRow(TERMINAL_RAIL_ID, noticeIn), ...layout];
   return [
     paneWindowRow(TERMINAL_RAIL_ID, noticeIn),
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it

@@ -26,7 +26,6 @@ const paneWindow = vi.hoisted(() => ({
   reattach: vi.fn(),
   isDetached: vi.fn(() => false),
 }));
-const chatExport = vi.hoisted(() => ({ exportConversation: vi.fn(async () => {}) }));
 const term = vi.hoisted(() => ({
   focusTerminal: vi.fn(),
   restartTerminal: vi.fn(async () => {}),
@@ -59,7 +58,6 @@ vi.mock(
   '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js',
   async (original) => ({ .../** @type {object} */ (await original()), ...frames })
 );
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-export.js', () => chatExport);
 vi.mock(
   '../../../src/osprey/interfaces/web_terminal/static/js/session-model.js',
   () => sessionModel
@@ -139,18 +137,23 @@ describe('the Agent tile header', () => {
     );
   });
 
-  test('in chat the PTY verb is withheld and Export conversation is offered', async () => {
+  test("in chat the PTY verb is withheld, and the chat's rows head the menu as This panel", () => {
     surface.terminal = false;
-    /** @type {Item[]} */
+    const run = vi.fn();
+    policy.setServiceMenuExtras(TERMINAL_RAIL_ID, () => [{ label: 'Export conversation', run }]);
+    /** @type {any[]} */
     const items = policy.buildTerminalMenuItems();
-    expect(items.filter((i) => i.label).map((i) => i.label)).toEqual([
-      'Open in new window',
+    expect(items.map((i) => i.heading ?? i.label).filter(Boolean)).toEqual([
+      'This panel',
       'Export conversation',
+      'Tile',
+      'Open in new window',
       'Reset layout',
       'Close Agent pane',
     ]);
-    await items.find((i) => i.label === 'Export conversation')?.run?.();
-    expect(chatExport.exportConversation).toHaveBeenCalledTimes(1);
+    items.find((i) => i.label === 'Export conversation')?.run?.();
+    expect(run).toHaveBeenCalledTimes(1);
+    policy.setServiceMenuExtras(TERMINAL_RAIL_ID, null);
   });
 
   test('the Sessions row with the pane in its window: Reattach and Close Agent pane', () => {
@@ -328,7 +331,6 @@ describe('the Agent bar in its own window', () => {
     surface.terminal = false;
     expect(labels(policy.buildTerminalMenuItems({ mode: 'detached' }))).toEqual([
       'Open in new window',
-      'Export conversation',
     ]);
   });
 

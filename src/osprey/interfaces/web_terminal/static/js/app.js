@@ -44,7 +44,7 @@ import { initControlTargetChip } from './control-target-chip.js';
 import { insertPrompt } from './first-contact.js';
 import { initControlTargetPopover } from './control-target-popover.js';
 import { initFeedback } from './feedback-boot.js';
-import { initSidebar } from './sidebar.js';
+import { hydrateIcons, initSidebar } from './sidebar.js';
 import { initSidebarTarget } from './sidebar-target.js';
 import {
   initSidebarArtifacts,
@@ -254,6 +254,9 @@ function initControlSystemBlock() {
 function initNewSessionButton() {
   const btn = /** @type {HTMLButtonElement} */ (document.getElementById('new-session-btn'));
   if (!btn) return;
+  // Its `+` is a placeholder svg; the dock may hold the bar off the page when
+  // the sidebar fills the page's icons.
+  hydrateIcons(btn);
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;

@@ -467,12 +467,10 @@ def _open_rail_menu(page: Page, panel_id: str):
 def _open_agent_header_menu(page: Page):
     """Right-click the Agent tile's header bar and wait for its context menu.
 
-    The press lands on the bar's status dot: the session label beside it is
+    The press lands on the bar's bare spacer: the session label beside it is
     the session switcher, an interactive child the bar's menu yields to.
     """
-    _terminal_tab(page).locator(".op-session-led:visible, .session-led:visible").first.click(
-        button="right"
-    )
+    _terminal_tab(page).locator(".agent-bar-spacer:visible").first.click(button="right")
     menu = _context_menu(page)
     expect(menu).to_have_count(1, timeout=5_000)
     return menu
@@ -3327,12 +3325,13 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_agent_header_menu(page)
-        assert _menu_labels(page) == [
-            "Open in new window",
-            "Export conversation",
-            "Reset layout",
-            "Close Agent pane",
-        ], _menu_labels(page)
+        labels = _menu_labels(page)
+        # "This panel": the chat's own rows (Export conversation, Desktop
+        # notifications); "Tile": the window and layout rows, no PTY verb.
+        # The notifications row names a browser that blocks them; headless may.
+        assert labels[0] == "Export conversation", labels
+        assert labels[1].startswith("Desktop notifications"), labels
+        assert labels[2:] == ["Open in new window", "Reset layout", "Close Agent pane"], labels
 
         page.keyboard.press("Escape")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
@@ -3369,7 +3368,8 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
 
         _open_agent_header_menu(page)
-        assert _menu_labels(page) == [
+        # The pane's "This panel" rows come first; the Tile rows close the menu.
+        assert _menu_labels(page)[-4:] == [
             "Open in new window",
             "Restart terminal",
             "Reset layout",

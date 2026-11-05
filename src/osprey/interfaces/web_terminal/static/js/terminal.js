@@ -378,8 +378,6 @@ export function startTerminal(
           const msg = JSON.parse(e.data);
           if (msg.type === 'exit') {
             term.write(`\r\n\x1b[33m[Process exited with code ${msg.code}]\x1b[0m\r\n`);
-            const led = document.getElementById('session-led');
-            if (led) led.classList.remove('active');
 
             // If this was our page-load auto-resume attempt, treat the exit
             // as the resume having failed: drop the dead id and fall back to
@@ -733,16 +731,12 @@ export function stopTerminal() {
 }
 
 /**
- * Single owner of the connection-status indicators: the header LED
- * (`#session-led`) and the terminal-body glow track PTY WebSocket
- * connectedness together. (The process-exit branch in onMessage
- * deliberately dims only the LED — the chrome keeps its glow until the
- * connection itself closes.)
+ * Single owner of the connection-status indicator: the terminal-body glow
+ * tracks PTY WebSocket connectedness. (A process exit leaves it on: the glow
+ * goes when the connection itself closes.)
  * @param {boolean} connected
  */
 function setConnectionIndicator(connected) {
-  const led = document.getElementById('session-led');
-  if (led) led.classList.toggle('active', connected);
   const body = queryAllDocuments('.terminal-body')[0];
   if (body) body.classList.toggle('active', connected);
 }

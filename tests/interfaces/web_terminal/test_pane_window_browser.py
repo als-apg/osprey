@@ -88,7 +88,7 @@ def page(chromium_browser):
 def _boot(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
-    expect(page.locator(f"{_AGENT_TILE} .tile-tab-window")).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(page.locator(f"{_AGENT_TILE} .tile-tab-more")).to_be_visible(timeout=_TIMEOUT_MS)
 
 
 def _boot_with_artifacts(page: Page, hub) -> None:
@@ -120,8 +120,10 @@ def _send(box, prompt: str) -> None:
 
 
 def _detach_agent(page: Page) -> Page:
+    """The Agent tile's Open in new window is a row of its ⋯."""
+    page.locator(f"{_AGENT_TILE} .tile-tab-more").click()
     with page.expect_popup() as info:
-        page.locator(f"{_AGENT_TILE} .tile-tab-window").click()
+        page.locator(_MENU).get_by_role("menuitem", name="Open in new window").click()
     popup = info.value
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
@@ -163,7 +165,7 @@ def test_the_agent_pane_leaves_the_dock_chats_from_the_window_and_reattaches(hub
     # The window is on the hub's own shell page, not about:blank, and its bar
     # names the pane above the chat, which fills the window.
     assert popup.url == f"{hub.base_url.rstrip('/')}/static/attached-window.html"
-    expect(popup.locator(f"{_BAR} .op-session-bar .op-session-led")).to_be_visible()
+    expect(popup.locator(f"{_BAR} .op-session-bar .agent-bar-new")).to_be_visible()
     expect(popup.locator(_BAR_REATTACH)).to_have_text("Reattach")
     # The mirrored stylesheets load on their own time, so the box settles once they have.
     popup.wait_for_function(
@@ -685,7 +687,7 @@ def test_a_right_click_on_the_window_bar_opens_there_without_the_docks_verbs(
 def test_a_right_click_on_the_agent_windows_bar_has_no_layout_rows(hub, page):
     _boot(page, hub)
     popup = _detach_agent(page)
-    popup.locator(f"{_BAR} .op-session-led").click(button="right")
+    popup.locator(f"{_BAR} .agent-bar-spacer").click(button="right")
     menu = popup.locator(_MENU)
     expect(menu).to_be_visible(timeout=5_000)
     labels = menu.locator(".rail-context-label").all_inner_texts()
@@ -764,7 +766,7 @@ def test_reloading_the_agent_window_keeps_it_detached_with_its_bar_and_reattache
     popup.reload(wait_until="domcontentloaded")
 
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
-    expect(popup.locator(f"{_BAR} .op-session-bar .op-session-led")).to_be_visible(
+    expect(popup.locator(f"{_BAR} .op-session-bar .agent-bar-new")).to_be_visible(
         timeout=_TIMEOUT_MS
     )
     expect(popup.locator(_BAR_REATTACH)).to_be_visible()
@@ -772,7 +774,7 @@ def test_reloading_the_agent_window_keeps_it_detached_with_its_bar_and_reattache
 
     # The console and its bar kept their listeners over the reload: a discarded
     # document takes every listener on its nodes with it.
-    popup.locator(f"{_BAR} .op-session-led").click(button="right")
+    popup.locator(f"{_BAR} .agent-bar-spacer").click(button="right")
     expect(popup.locator(_MENU)).to_be_visible(timeout=5_000)
     popup.keyboard.press("Escape")
     popup.locator(f"{_BAR} .op-session-label").click()
@@ -784,7 +786,7 @@ def test_reloading_the_agent_window_keeps_it_detached_with_its_bar_and_reattache
 
     popup.locator(_BAR_REATTACH).click()
     expect(page.locator(_AGENT_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
-    expect(page.locator(f"{_AGENT_TILE} .op-session-bar .op-session-led")).to_be_visible()
+    expect(page.locator(f"{_AGENT_TILE} .op-session-bar .agent-bar-new")).to_be_visible()
     expect(page.locator(_COMPOSER)).to_be_visible()
 
 

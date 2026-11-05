@@ -91,13 +91,15 @@ html[data-agent-surface="terminal"] #operator-container {
 
 /* ---- Agent bar ---- */
 
-/* The Agent pane's one header row (chat-console.js): status dot, `Agent`, and
-   the icon buttons (`.osprey-icon-btn`, primitives.css) — New conversation,
-   the bell, Export, ⋯. It has the pane header's metrics: 40px tall, 16px in
-   from the card's left edge, 8px from its right, 8px between items. In the
-   dock the Agent tile adopts it as its tile bar (dock-tab.js); here it is the
+/* The Agent pane's one header row, the same on both surfaces (agent-bar.js):
+   the session switcher's label, a spacer and `+` (an `.osprey-icon-btn`,
+   primitives.css); the tile's ⋯ and × follow. The chat console builds it
+   (`.op-session-bar`); the terminal's is index.html's `.terminal-header`. It
+   has the pane header's metrics: 40px tall, 16px in from the card's left edge,
+   8px from its right, 8px between items. In the dock the Agent tile adopts the
+   bar of the surface showing as its tile bar (dock-tab.js); here it is the
    look it keeps at the top of the card without a dock. */
-.op-session-bar {
+.agent-bar {
   flex: none;
   display: flex;
   align-items: center;
@@ -113,7 +115,7 @@ html[data-agent-surface="terminal"] #operator-container {
 /* Adopted into the tile bar the bar IS the tile's bar: it fills it and leaves
    the padding, the hairline and the surface to the tile bar
    (dockview-overrides.css). Anchored on .tile-tab so the drag clone keeps it. */
-.tile-tab .op-session-bar {
+.tile-tab .agent-bar {
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
@@ -122,10 +124,10 @@ html[data-agent-surface="terminal"] #operator-container {
   border-bottom: 0;
 }
 
-/* `Agent`: the pane's name, set like every tile's name (.tile-tab-title). It
-   takes the free space, so the buttons sit at the bar's right edge. */
-.op-session-label {
-  flex: 1 1 auto;
+/* The session's name, set like every tile's name (.tile-tab-title). It keeps
+   to its text and gives way first, so `+` holds its place at the right. */
+.agent-bar-label {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -133,6 +135,12 @@ html[data-agent-surface="terminal"] #operator-container {
   font-size: var(--text-lg);
   font-weight: var(--weight-medium);
   color: var(--text-primary);
+}
+
+/* The free space between the label and `+`: bare bar, so the tile drags from it. */
+.agent-bar-spacer {
+  flex: 1 1 auto;
+  align-self: stretch;
 }
 
 /* ---- Session hand-off overlay ---- */
@@ -2315,14 +2323,6 @@ html[data-agent-surface="terminal"] #operator-container {
   outline-offset: 2px;
 }
 
-/* ── Attention signal ── */
-
-/* The bell that opts the console into desktop notifications: an
-   `.osprey-icon-btn` in the Agent bar, tinted while on. */
-.op-attention-toggle[aria-pressed="true"] {
-  color: var(--color-accent);
-}
-
 /* ── Reply copy ── */
 
 /* A finished reply's copy control sits under the reply. It is quiet until the
@@ -2371,42 +2371,12 @@ html[data-agent-surface="terminal"] #operator-container {
 
 /* ── The Agent bar replaces the terminal header in chat ── */
 
-/* The console's Agent bar is the Agent pane's one header row in chat; the card's
-   .terminal-header (session label, picker, "+ New", ⋯) is the terminal
-   surface's. In the dock the Agent tile adopts whichever bar the surface uses
-   (dock-tab.js) and the other stays behind, so this hides the header wherever
-   it is left in the card. */
+/* The console's Agent bar is the Agent pane's one header row in chat; the
+   card's .terminal-header is the terminal surface's copy of it. In the dock the
+   Agent tile adopts whichever bar the surface uses (dock-tab.js) and the other
+   stays behind, so this hides the header wherever it is left in the card. */
 html:not([data-agent-surface="terminal"]) .terminal-card > .terminal-header {
   display: none;
-}
-
-/* ── Earlier conversations (the Agent bar's ⋯ menu, sessions.js) ── */
-
-/* The menu's last row: the way to the other surface, deliberately quiet. */
-.op-conversations .op-surface-row {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-/* Body-level `.osprey-popover`: the primitives draw the surface, the title and
-   the rows. A row is a conversation's first message, ellipsized, with how
-   long ago beside it and the check on the one the tab is on. */
-.op-conversations {
-  width: 320px;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.op-conversation-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.op-conversations .osprey-popover-check {
-  margin-left: 0;
 }
 
 /* ── Accessibility ── */
