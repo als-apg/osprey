@@ -39,7 +39,6 @@ from __future__ import annotations
 import ast
 import asyncio
 import re
-import textwrap
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -55,6 +54,7 @@ from osprey.dispatch.trigger_config import (
     load_triggers,
 )
 from osprey.utils.seconds import positive_seconds
+from tests.docs._rst_blocks import code_blocks
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PAGE = REPO_ROOT / "docs/source/how-to/agent-interfaces/event-dispatch.rst"
@@ -90,27 +90,10 @@ _ENV_ASSIGNMENT = re.compile(r"(?:^|\s)([A-Z][A-Z0-9_]*)=")
 _DENYLIST_START = "**Tool denylist (defence in depth).**"
 
 
-def _code_blocks(text: str, language: str) -> list[str]:
-    """The bodies of every ``.. code-block:: <language>`` on the page, dedented."""
-    lines = text.splitlines()
-    blocks: list[str] = []
-    for i, line in enumerate(lines):
-        if line.strip() != f".. code-block:: {language}":
-            continue
-        indent = len(line) - len(line.lstrip())
-        body: list[str] = []
-        for following in lines[i + 1 :]:
-            if following.strip() and len(following) - len(following.lstrip()) <= indent:
-                break
-            body.append(following)
-        blocks.append(textwrap.dedent("\n".join(body)).strip("\n"))
-    return blocks
-
-
 def _env_names_set_on_page() -> set[str]:
     """Every variable a ``bash`` block on the page assigns, outside ``$(...)``."""
     names: set[str] = set()
-    for block in _code_blocks(PAGE.read_text(encoding="utf-8"), "bash"):
+    for block in code_blocks(PAGE.read_text(encoding="utf-8"), "bash"):
         for line in block.splitlines():
             if line.lstrip().startswith("export "):
                 continue  # the token-generation step; its names are checked as set below
@@ -181,7 +164,7 @@ def test_the_page_includes_every_trigger_example():
     included = set(re.findall(r"^\s*\.\. literalinclude:: examples/(\S+)$", text, re.M))
     assert {path.name for path in TRIGGER_EXAMPLES} <= included
     trigger_blocks = [
-        b for b in _code_blocks(text, "yaml") if re.search(r"^(triggers|dispatcher):", b, re.M)
+        b for b in code_blocks(text, "yaml") if re.search(r"^(triggers|dispatcher):", b, re.M)
     ]
     assert trigger_blocks == [], "a triggers.yml example is inline; move it under examples/"
 
@@ -314,7 +297,7 @@ def test_the_exported_tokens_are_the_ones_the_processes_read():
     """The token step exports the two bearers the worker and dispatcher read."""
     exported = {
         match
-        for block in _code_blocks(PAGE.read_text(encoding="utf-8"), "bash")
+        for block in code_blocks(PAGE.read_text(encoding="utf-8"), "bash")
         for match in re.findall(r"^export ([A-Z][A-Z0-9_]*)=", block, re.M)
     }
     assert exported == {"EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"}

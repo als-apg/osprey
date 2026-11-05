@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import ast
 import re
-import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +52,7 @@ from osprey.bridges.nextcloud_talk.config import NextcloudBridgeConfig
 from osprey.bridges.teams.config import CLOUDS, TeamsBridgeConfig
 from osprey.cli.build_profile import load_profile
 from osprey_connectors.errors import BuildProfileError
+from tests.docs._rst_blocks import code_blocks
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PAGES = REPO_ROOT / "docs/source/how-to/agent-interfaces/chat-bridges"
@@ -119,30 +119,11 @@ _COMPOSE_ENV_ENTRY = re.compile(rf"^\s+{_ENV_NAME}:\s")
 _ENV_LINE = re.compile(rf"^(?:#\s*)?({_ENV_NAME})=")
 
 
-def _code_blocks(text: str, language: str) -> list[str]:
-    """The bodies of every ``.. code-block:: <language>`` in *text*, dedented."""
-    lines = text.splitlines()
-    blocks: list[str] = []
-    for i, line in enumerate(lines):
-        if line.strip() != f".. code-block:: {language}":
-            continue
-        indent = len(line) - len(line.lstrip())
-        body: list[str] = []
-        for following in lines[i + 1 :]:
-            if following.strip() and len(following) - len(following.lstrip()) <= indent:
-                break
-            body.append(following)
-        dedented = textwrap.dedent("\n".join(body)).splitlines()
-        # Directive options (``:caption: .env``) are not part of the block.
-        blocks.append("\n".join(ln for ln in dedented if not ln.startswith(":")).strip("\n"))
-    return blocks
-
-
 def _env_blocks(text: str) -> list[str]:
     """The ``bash`` blocks that are ``.env`` fragments: every line ``NAME=...``."""
     return [
         block
-        for block in _code_blocks(text, "bash")
+        for block in code_blocks(text, "bash")
         if block and all(_ENV_LINE.match(line) for line in block.splitlines() if line.strip())
     ]
 
@@ -236,7 +217,7 @@ def _write_profile(bridge: Bridge, directory: Path, declared_trigger: str | None
 def test_the_page_includes_its_profile_example(bridge: Bridge):
     text = (PAGES / bridge.page).read_text(encoding="utf-8")
     assert f".. literalinclude:: ../examples/{bridge.example}" in text
-    inline = [b for b in _code_blocks(text, "yaml") if f"{bridge.profile_key}:" in b]
+    inline = [b for b in code_blocks(text, "yaml") if f"{bridge.profile_key}:" in b]
     assert inline == [], f"{bridge.page} shows a {bridge.profile_key}: block inline"
 
 
@@ -293,9 +274,9 @@ def test_an_exempt_variable_is_one_the_compose_template_sets(bridge: Bridge):
 def test_the_page_names_each_teams_cloud():
     """The ``TEAMS_CLOUD`` row names exactly the clouds the bridge accepts."""
     text = (PAGES / "microsoft-teams.rst").read_text(encoding="utf-8")
-    start = text.index("   * - ``TEAMS_CLOUD``")
-    row = text[start : text.index("   * - ", start + 1)]
-    named = set(re.findall(r"``([a-z]+)``", row))
+    row = re.search(r"^(\s*)\* - ``TEAMS_CLOUD``\n(.*?)(?=^\1\* - )", text, re.M | re.S)
+    assert row, "no TEAMS_CLOUD row on the Teams page"
+    named = {literal for literal in re.findall(r"``([^`]+)``", row.group(2)) if literal in CLOUDS}
     assert named == set(CLOUDS)
 
 
@@ -328,9 +309,7 @@ def _relay_settings() -> set[str]:
 def test_the_relay_settings_on_the_page_are_the_relays():
     """The ``appsettings set`` command, plus the GCC High addition, sets every relay setting."""
     text = (PAGES / "microsoft-teams.rst").read_text(encoding="utf-8")
-    (command,) = [
-        b for b in _code_blocks(text, "bash") if "functionapp config appsettings set" in b
-    ]
+    (command,) = [b for b in code_blocks(text, "bash") if "functionapp config appsettings set" in b]
     on_page = set(re.findall(rf"\b({_ENV_NAME})=", command))
     on_page |= set(re.findall(rf"add ``({_ENV_NAME})=\w+`` to that same command", text))
     assert len(_relay_settings()) >= 3
@@ -340,7 +319,7 @@ def test_the_relay_settings_on_the_page_are_the_relays():
 def test_the_teams_env_blocks_are_split_from_commands():
     """A shell command and ``.env`` lines never share one block on the Teams page."""
     text = (PAGES / "microsoft-teams.rst").read_text(encoding="utf-8")
-    for block in _code_blocks(text, "bash"):
+    for block in code_blocks(text, "bash"):
         lines = [line for line in block.splitlines() if line.strip()]
         env_lines = [line for line in lines if _ENV_LINE.match(line) and "$(" not in line]
         assert not env_lines or len(env_lines) == len(lines), f"mixed block:\n{block}"
