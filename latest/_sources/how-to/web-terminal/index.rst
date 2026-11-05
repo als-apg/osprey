@@ -52,14 +52,6 @@ created, and switch between companion tools without ever leaving the page.
 
       Add your own tools as themed side panels that sit beside the chat.
 
-   .. grid-item-card:: Lattice dashboard
-      :link: lattice-dashboard
-      :link-type: doc
-      :shadow: md
-
-      Draw the optics of the models your simulator serves, and try a magnet
-      change before it is written.
-
    .. grid-item-card:: Notebooks
       :link: notebooks
       :link-type: doc
@@ -90,7 +82,6 @@ created, and switch between companion tools without ever leaving the page.
    operate
    theming
    panels
-   lattice-dashboard
    notebooks
    canopy
    canopy-library

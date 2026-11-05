@@ -676,22 +676,6 @@ artifact with a form, so the artifact tools above list, read and delete them
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">archiver_downsample</span></code> – Downsample an archiver artifact to a target point count.</p></li>
 </ul>
-<p><strong>Lattice Dashboard:</strong></p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_state</span></code> – Get current lattice state (summary, families, figures, baseline).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_set_param</span></code> – Set a magnet family parameter override.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_refresh</span></code> – Recompute figures: a figure name refreshes that one figure,
-<code class="docutils literal notranslate"><span class="pre">verify</span></code> runs <code class="docutils literal notranslate"><span class="pre">da</span></code> and <code class="docutils literal notranslate"><span class="pre">lma</span></code>, and no argument refreshes the selected model’s fast figures.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_set_baseline</span></code> – Snapshot the current state as the comparison baseline.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_clear_baseline</span></code> – Discard the saved comparison baseline.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_figure</span></code> – Return a named figure with its status and key when it is current for
-the inputs on screen, else an error naming its status (stale, computing, failed, not yet
-computed) or the reason the model cannot draw it.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_data</span></code> – Return the numeric data behind a named figure with its status and key
-when it is current for the inputs on screen, else the same errors as <code class="docutils literal notranslate"><span class="pre">lattice_get_figure</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_settings</span></code> – Get current dashboard settings (display options, baselines).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_update_settings</span></code> – Update dashboard settings.</p></li>
-</ul>
 <p><strong>Panels:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> – List the panels available in the Web Terminal (built-in and

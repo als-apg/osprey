@@ -401,7 +401,6 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
-<li class="toctree-l2"><a class="reference internal" href="web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy.html">CANOPY</a></li>
 
@@ -1192,7 +1191,7 @@ A key the profile does not carry is a silent no-op; a key that holds anything
 other than a list is refused.</p>
 <p>An excluded <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> entry renders no tab, whatever the render still
 inherits about that panel under <code class="docutils literal notranslate"><span class="pre">config:</span></code>. <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> takes entries out of
-lists, never scalars — a <code class="docutils literal notranslate"><span class="pre">web.panels.lattice.label</span></code> or a custom panel’s
+lists, never scalars — a <code class="docutils literal notranslate"><span class="pre">web.panels.okf.label</span></code> or a custom panel’s
 <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code> the base profile set is still in the render —
 but <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> is what shows a tab: the build writes <code class="docutils literal notranslate"><span class="pre">enabled</span></code> onto every
 <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;</span></code> block a render carries, <code class="docutils literal notranslate"><span class="pre">true</span></code> for a selected panel and

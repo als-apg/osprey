@@ -61,7 +61,7 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Lattice Dashboard" href="lattice-dashboard.html" />
+    <link rel="next" title="Notebooks" href="notebooks.html" />
     <link rel="prev" title="Theming" href="theming.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -401,7 +401,6 @@
 <li class="toctree-l2"><a class="reference internal" href="operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="theming.html">Theming</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Panels</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="canopy.html">CANOPY</a></li>
 
@@ -546,8 +545,8 @@
   <section id="panels">
 <h1>Panels<a class="headerlink" href="#panels" title="Link to this heading">#</a></h1>
 <p>A <strong>panel</strong> is a self-contained, themed mini-app the Web Terminal shows
-beside the chat. OSPREY’s own tools — Channel Finder, the Logbook, the lattice
-dashboard, the artifact gallery — are all panels, and you can add your own.
+beside the chat. OSPREY’s own tools — Channel Finder, the Logbook, the
+knowledge reader, the artifact gallery — are all panels, and you can add your own.
 A panel that takes its colors from the shared design tokens (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>)
 matches your theme automatically, in light and dark, with no extra work. A
 service that brings its own colors — most facility dashboards do — follows
@@ -558,7 +557,7 @@ to do.</p>
 <span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">ariel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">channel-finder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">lattice</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">system-health</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
 <section id="panels-that-need-a-section-as-well-as-a-tick">
@@ -593,11 +592,8 @@ saying the panel is unavailable.</p>
 </tbody>
 </table>
 </div>
-<p>The lattice tab launches from the <code class="docutils literal notranslate"><span class="pre">lattice:</span> <span class="pre">true</span></code> tick alone; a
-<code class="docutils literal notranslate"><span class="pre">lattice_dashboard</span></code> section (<code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code>, <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code>) only moves
-where it listens. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships that tick, and
-the sections for KNOWLEDGE and CHANNELS, which is why all three work out of the
-box. <a class="reference internal" href="lattice-dashboard.html"><span class="doc">Lattice Dashboard</span></a> describes the tab.</p>
+<p>The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships the sections for KNOWLEDGE and
+CHANNELS, which is why both work out of the box.</p>
 </section>
 <section id="where-the-panels-live">
 <h2>Where the panels live<a class="headerlink" href="#where-the-panels-live" title="Link to this heading">#</a></h2>
@@ -906,7 +902,7 @@ menu label and each value is the tiles:</p>
 <span class="w">          </span><span class="nt">size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">split</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">column</span>
 <span class="w">          </span><span class="nt">items</span><span class="p">:</span>
-<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">lattice</span><span class="p p-Indicator">]</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">system-health</span><span class="p p-Indicator">]</span>
 <span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tabs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">okf</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="s">&quot;Logbook</span><span class="nv"> </span><span class="s">review&quot;</span><span class="p p-Indicator">:</span>
 <span class="w">      </span><span class="nt">split</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">row</span>
@@ -1046,11 +1042,11 @@ shape of it.</p>
       </div>
     </a>
     <a class="right-next"
-       href="lattice-dashboard.html"
+       href="notebooks.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Lattice Dashboard</p>
+        <p class="prev-next-title">Notebooks</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
