@@ -41,6 +41,7 @@ export function applyFacilityTimezone(capabilities) {
  * @property {string[]} [keywords]
  * @property {string[]} [highlights]
  * @property {string[]|null} [matched_via]
+ * @property {Array<{start: number, end: number, target: string, records?: Array<*>|null}>|null} [facility_references]
  */
 
 /**

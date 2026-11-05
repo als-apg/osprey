@@ -29,6 +29,7 @@ at = pytest.importorskip("at")
 import numpy as np  # noqa: E402
 from fastmcp.exceptions import ToolError  # noqa: E402
 
+from osprey.facility.records import FacilityRecords  # noqa: E402
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
 from osprey.mcp_server.errors import MISSING_KEY  # noqa: E402
 from osprey.mcp_server.python_executor import executor  # noqa: E402
@@ -259,7 +260,7 @@ class TestSolve:
         steps = {column["address"]: column["step"] for column in result["columns"]}
         expected = engine.response_matrix(
             sr_render / "data" / "simulator" / "decks" / "SR.json",
-            simulator_wiring(facility, "SR"),
+            simulator_wiring(FacilityRecords(facility), "SR"),
             record.get("settings"),
             [CORRECTOR_X, CORRECTOR_Y],
             steps,
@@ -289,7 +290,9 @@ class TestSolve:
         request = tool.resolve_model_request("SR", [CORRECTOR_X], render_root=sr_render)
         facility = json.loads((sr_render / "facility.json").read_text(encoding="utf-8"))
         (record,) = [
-            entry for entry in simulator_wiring(facility, "SR") if entry["address"] == CORRECTOR_X
+            entry
+            for entry in simulator_wiring(FacilityRecords(facility), "SR")
+            if entry["address"] == CORRECTOR_X
         ]
         curve = curve_from_record(record["calibration"]["curve"])
         width = request.steps[CORRECTOR_X]

@@ -115,6 +115,8 @@ class EnhancedLogbookEntry(TypedDict):
     attachment_captions: NotRequired[dict[str, Any] | None]
     subject: NotRequired[str | None]  # Stored subject line (services.ariel_search.subject)
     has_images: NotRequired[bool]  # Selected by reads via enhancement.status.has_images_sql
+    # The ids raw_text quotes, as FacilityReference JSON; None = not checked.
+    facility_refs: NotRequired[list[dict[str, Any]] | None]
 
 
 def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
@@ -156,6 +158,8 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
         entry["subject"] = row_dict["subject"]
     if row_dict.get("has_images") is not None:
         entry["has_images"] = bool(row_dict["has_images"])
+    if "facility_refs" in row_dict:
+        entry["facility_refs"] = row_dict["facility_refs"]
 
     return entry
 

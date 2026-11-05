@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Subsystem
 title: Transport and Delivery (TD)
 description: Beam transport, switching, and delivery to experimental stations including magnets, steering, and interlock systems.

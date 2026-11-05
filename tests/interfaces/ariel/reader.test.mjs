@@ -132,6 +132,28 @@ describe('container rendering', () => {
     );
   });
 
+  test('the sidebar shows a Facility references card between Metadata and Keywords', () => {
+    const e = entry('e-3');
+    e.raw_text = 'subject\nreset DEV';
+    e.keywords = ['rf'];
+    e.facility_references = [{ start: 14, end: 17, target: 'DEV', records: [{ kind: 'device' }] }];
+    renderEntryDetail(container, e);
+    const cards = [...container.querySelectorAll('.entry-detail-sidebar .metadata-card h4')];
+    expect(cards.map((h) => h.textContent)).toEqual([
+      'Metadata',
+      'Facility references',
+      'Keywords',
+    ]);
+    expect(container.querySelector('.entry-detail-text .entry-facility-link')?.textContent).toBe(
+      'DEV'
+    );
+  });
+
+  test('no Facility references card without references', () => {
+    renderEntryDetail(container, entry('e-4'));
+    expect(container.textContent).not.toContain('Facility references');
+  });
+
   test('the Session Context names the agent, not the MCP server it wrote through', () => {
     const e = entry('e-3');
     e.metadata = { session_metadata: { operator: 'Ada', created_via: 'ariel-mcp' } };

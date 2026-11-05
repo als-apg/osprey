@@ -174,6 +174,8 @@ Key ``config.yml`` settings:
            duckdb_path: data/channel_finder/middle_layer.duckdb
        # graph has no entry: it is configured by the `services.graphdb` block.
      benchmark:
+       # Stated by the build when the facility ships benchmark query sources;
+       # the benchmarks view writes the mode's query file here.
        dataset_path: data/benchmarks/queries.json
        # Concurrency and output dir are set per run via CLI flags
        # (osprey channel-finder benchmark --concurrency / --output-dir);

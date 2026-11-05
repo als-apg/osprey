@@ -1492,7 +1492,7 @@ def vocab_check_command(path: Path | None, output_json: bool) -> None:
     \b
     Example:
         osprey ariel vocab-check                     # the configured file
-        osprey ariel vocab-check data/ariel/vocabulary.yml
+        osprey ariel vocab-check data/facility/ariel/vocabulary.yml
         osprey ariel vocab-check --json              # one JSON document
     """
     from osprey.services.ariel_search.cli_operations import check_vocabulary

@@ -479,6 +479,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         None,  # Always runs
     ),
     (
+        "facility_refs_column",
+        "osprey.services.ariel_search.database.facility_refs_migration",
+        "FacilityRefsColumnMigration",
+        None,  # Always runs
+    ),
+    (
         "als_logbook_plain_text",
         "osprey.services.ariel_search.ingestion.adapters.als_text_migration",
         "ALSPlainTextMigration",

@@ -309,6 +309,40 @@ body.embedded .header {
   overflow-y: auto;
 }
 
+.entry-facility-link {
+  font-family: var(--font-mono);
+  cursor: help;
+  border-bottom: 1px dotted currentColor;
+}
+
+.entry-facility-link--dangling {
+  font-family: var(--font-mono);
+  cursor: help;
+  color: var(--text-muted);
+  border-bottom: 1px dashed var(--text-muted);
+}
+
+.facility-ref-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+}
+
+.facility-ref-target {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.facility-ref-record {
+  color: var(--text-secondary);
+}
+
+.facility-ref-none {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .entry-detail-sidebar {
   display: flex;
   flex-direction: column;
@@ -544,7 +578,6 @@ body.embedded .header {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   background: var(--color-accent);
 }
-
 
 /* Icon strip: rows keep their icons; row names and the saved-search caption go.
    Reached through ARIEL's own containers so no design-system primitive is restyled. */

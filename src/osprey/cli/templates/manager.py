@@ -285,15 +285,6 @@ class TemplateManager:
         shutil.copytree(context_src, context_dst, dirs_exist_ok=True)
         logger.debug("Installed web-terminal context to %s", context_dst)
 
-        # 6b. Copy the mode's benchmark query set into place and drop the
-        # facility tree's channel-finder staging subtrees from the render. The
-        # data copy above lands before the Claude Code render below, which reads
-        # the rendered config.yml; the channel-finder indexes are the build's
-        # views, and the build's re-render embeds the hierarchical one.
-        channel_finder_mode = ctx.get("channel_finder_mode")
-        if channel_finder_mode is not None:
-            scaffolding.materialize_benchmark_queries(project_dir, channel_finder_mode)
-
         # 7. Create Claude Code integration files
         # Load rendered config.yml so conditional sections (confluence, etc.)
         # are available to Claude Code templates (mcp.json.j2, CLAUDE.md.j2).

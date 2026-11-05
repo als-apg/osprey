@@ -53,6 +53,9 @@ ZONES: dict[str, str] = {
     "src/osprey/services/virtual_accelerator/entrypoint.py": (
         "spells the addresses file only in its fatal message; opens the view through SimulatorView"
     ),
+    "packages/osprey-connectors/tests/**": (
+        "the package's unit fixtures write a view to read it back, as the framework's do"
+    ),
 }
 
 

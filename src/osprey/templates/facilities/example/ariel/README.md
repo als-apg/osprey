@@ -1,3 +1,4 @@
+<!-- Bundled with OSPREY: the example facility. Delete this line to make the file yours. -->
 # Logbook Vocabulary
 
 Operators search in shorthand. Logbook entries are written in words. A search
@@ -20,12 +21,8 @@ expand the query only once the entries are expanded too (`expand_entries`):
 expanding the query alone makes them worse than not expanding at all. Entry
 expansion applies to semantic and hybrid only.
 
-The file shipped here is an **example**, not your vocabulary. Its twenty
-concepts are the ones most storage-ring facilities share, so it is useful on
-day one — but it is meant to be edited down to what your control room
-actually says. The orbit and ring group (storage ring, beam based alignment,
-orbit response matrix, fast/slow orbit feedback) is storage-ring-specific —
-a linac or FEL should delete it first.
+The file shipped here is an **example**: the example facility's concepts; your
+facility's vocabulary replaces this file.
 
 ## The format
 
@@ -151,7 +148,7 @@ results. The example file ships no ambiguous forms.
 ## Check every edit
 
 ```bash
-osprey ariel vocab-check data/ariel/vocabulary.yml
+osprey ariel vocab-check data/facility/ariel/vocabulary.yml
 ```
 
 It needs no database. Exit code 0 means the file loads; 1 means it lists the

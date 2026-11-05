@@ -264,6 +264,19 @@ describe('a reload restores tiles, the showing tab and sizes', () => {
     expect(stored.layout.items[0].tabs).toEqual(['ariel', 'artifacts']);
   });
 
+  test('a change the page leaves inside the persist debounce is stored on pagehide', async () => {
+    localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL));
+    const page = await boot(null);
+    localStorage.removeItem(KEY);
+
+    await openService(page, 'artifacts');
+    window.dispatchEvent(new Event('pagehide'));
+
+    const raw = localStorage.getItem(KEY);
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw ?? '').layout).toEqual(page.holder.layout);
+  });
+
   test('a key the dock can no longer build is closed; the rest is kept', async () => {
     localStorage.setItem(
       KEY,

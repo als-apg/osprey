@@ -411,11 +411,9 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     treat a served tree differently.
 
     The exports enter the facility description through ``facility import
-    mml``: the stop it makes over the preset's authored sources is obeyed line
-    by line, the tree's reviewed ``imported/mml/mapping.yaml`` is
-    installed, and every export goes in one call. The import lists the demo
-    scenarios it leaves stale, and exactly those are removed. The first build
-    then stops on a setpoint that starts outside its seeded band; ``facility
+    mml``: the tree's reviewed ``imported/mml/mapping.yaml`` is installed, every
+    export goes in one call, and the import replaces the preset's bundled
+    facility. The first build then stops on a setpoint that starts outside its seeded band; ``facility
     validate`` names every such setpoint, the limits records those lines name
     are widened in the deployment, never in the fixture, and the set is held
     against the tree's own.
@@ -430,22 +428,13 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     runner = CliRunner()
     repo = destination / "deployment"
     recipes.invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
-    recipes.clear_authored(runner, repo, exports)
-    imported = recipes.import_facility(runner, repo, exports, recipes.facility_mapping(fixture))
+    recipes.import_facility(runner, repo, exports, recipes.facility_mapping(fixture))
     recipes.invoke(
         runner,
         "set",
         "--repo",
         str(repo),
-        "config.control_system.connector.virtual_accelerator.probe_channel="
-        + recipes.imported_probe(repo),
-    )
-    recipes.remove_stale_scenarios(repo, imported)
-    recipes.invoke(
-        runner,
-        "set",
-        "--repo",
-        str(repo),
+        recipes.NO_START_SET,
         *recipes.MIDDLE_LAYER_SETTINGS,
     )
     recipes.invoke(runner, "validate", "--repo", str(repo), "--drift=warn")

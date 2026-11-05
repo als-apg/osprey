@@ -1596,9 +1596,10 @@ async def create_ariel_service(
     """
     from osprey.services.ariel_search.database.connection import create_connection_pool
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.ingestion.facility_references import load_facility_records
 
     pool = await create_connection_pool(config.database)
-    repository = ARIELRepository(pool, config)
+    repository = ARIELRepository(pool, config, facility_records=load_facility_records())
     readonly_pool = await _open_readonly_pool(config) if serves_sql_tool else None
 
     return ARIELSearchService(

@@ -284,9 +284,10 @@ and every rewrite is reported back with the results, so a hit that looks
 surprising always arrives with the reason it appeared.
 
 Nothing is built in. With no vocabulary configured, no query is ever rewritten.
-The ``control-assistant`` template ships a twenty-concept example at
-``data/ariel/vocabulary.yml`` as a starting point and a format tutorial; it is
-meant to be edited down to what your control room actually says.
+``osprey build`` turns expansion on when the facility ships
+``data/facility/ariel/vocabulary.yml``, and states that path. The example
+facility ships one as a starting point and a format tutorial; it is meant to be
+edited down to what your control room actually says.
 
 The vocabulary file
 ~~~~~~~~~~~~~~~~~~~
@@ -463,6 +464,8 @@ Turning expansion off, for a deployment or for one search
 
 ``ariel.vocabulary.enabled: false`` switches the whole thing off: nothing is
 read, and a stale ``path`` left behind is inert rather than a startup failure.
+A profile that states ``true`` and no ``path`` of its own, for a facility that
+ships no ``data/facility/ariel/vocabulary.yml``, is refused at ``osprey build``.
 
 For a single search, every surface takes an ``expand_query`` argument --- the
 **Expand vocabulary** toggle in the web interface's advanced options, and an
@@ -566,14 +569,14 @@ Configuration
 
    ariel:
      vocabulary:
-       enabled: true                       # default: false
-       path: data/ariel/vocabulary.yml     # required when enabled
-       expand_by_default: true             # default: true
-       expand_entries: false               # default: false
-       canonical_to_acronym: true          # default: true
-       canonical_to_shorthand: false       # default: false
-       # expand_modes: [keyword, semantic] # default: every enabled module
-                                           # (semantic/hybrid only with expand_entries)
+       enabled: true                                # stated by the build when the file exists
+       path: data/facility/ariel/vocabulary.yml     # stated by the build when the file exists
+       expand_by_default: true                      # default: true
+       expand_entries: false                        # default: false
+       canonical_to_acronym: true                   # default: true
+       canonical_to_shorthand: false                # default: false
+       # expand_modes: [keyword, semantic]          # default: every enabled module
+                                                    # (semantic/hybrid only with expand_entries)
 
      search_modules:
        keyword:
@@ -615,7 +618,7 @@ Checking the file, and reading the status
 .. code-block:: bash
 
    osprey ariel vocab-check                            # the configured file
-   osprey ariel vocab-check data/ariel/vocabulary.yml  # any file
+   osprey ariel vocab-check data/facility/ariel/vocabulary.yml  # any file
    osprey ariel vocab-check --json                     # one JSON document
 
 Neither this command nor the vocabulary line of ``osprey ariel status`` needs a
@@ -673,6 +676,10 @@ everything else running:
   or repoint ``ariel.vocabulary.path`` from the panel itself, then restart.
 * The MCP server refuses to start, naming the same key, so the OSPREY agent
   never gets a half-working search.
+
+A stated ``ariel.vocabulary.path`` that is not a file stops ``osprey build``
+while the vocabulary is on, so a missing file never reaches this mode (see
+:ref:`architecture-facility-settings`).
 
 If the broken file is baked into a deployed image, the panel's editor cannot
 reach it: ``vocabulary.yml`` ships inside the image, like the channel databases.

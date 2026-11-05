@@ -63,8 +63,8 @@ directory, re-read when its modification time changes. A change rebuilds every
 physics child with the active scenarios' writes and fault seeds as its start
 state, and hands the texture the active writes it owns and the active drivers,
 couplings and noise replacements; session writes are dropped. The readings
-any active scenario stills, ``nominal`` included, are stilled; ``all`` stills
-every one. A set whose scenarios touch one target twice is served without its
+any active scenario's ``still`` list names, ``nominal`` included, are stilled.
+A set whose scenarios touch one target twice is served without its
 scenarios.
 
 **The model log.** Each physics child appends JSON lines ``{instance, pid,
@@ -94,7 +94,6 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
-from osprey_connectors.simulation.envelope import STILL_ALL
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -483,7 +482,6 @@ class Composite(LUMEModel):
         couple: dict[str, list[Mapping[str, Any]]] = {}
         noise: dict[str, Mapping[str, Any]] = {}
         still: set[str] = set()
-        still_all = False
         channel_faults: dict[str, str] = {}
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
@@ -499,11 +497,7 @@ class Composite(LUMEModel):
             for address, terms in (scenario.get("couple") or {}).items():
                 couple.setdefault(str(address), []).extend(terms)
             noise.update(scenario.get("noise") or {})
-            stilled = scenario.get("still")
-            if stilled == STILL_ALL:
-                still_all = True
-            elif stilled and not isinstance(stilled, str):
-                still.update(str(address) for address in stilled)
+            still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
 
         resolved: dict[str, list[Mapping[str, Any]]] = {}
@@ -514,7 +508,7 @@ class Composite(LUMEModel):
                     logger.warning(f"{address} couples to undeclared driver {term['driver']!r}")
                     continue
                 resolved.setdefault(address, []).append({**term, "drive": drive})
-        self._texture.set_motion(resolved, noise, still=frozenset(still), still_all=still_all)
+        self._texture.set_motion(resolved, noise, still=frozenset(still))
         self._moving = frozenset(
             address
             for address in self._owner

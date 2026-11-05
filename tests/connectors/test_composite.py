@@ -859,9 +859,9 @@ def test_a_partial_still_leaves_the_other_readings_moving(tmp_path: Path) -> Non
     assert len({read["M:RB"] for read in before}) == len(before)
 
 
-def test_still_all_with_a_noise_scenario_serves_nominal_alone(tmp_path: Path) -> None:
+def test_still_with_a_noise_scenario_on_its_reading_serves_nominal_alone(tmp_path: Path) -> None:
     scenarios = [
-        {"name": "quiet", "still": "all"},
+        {"name": "quiet", "still": ["T:NOISY"]},
         {"name": "loud", "noise": {"T:NOISY": {"absolute": 2.0}}},
     ]
     composite = _composite(tmp_path, scenarios=scenarios)
@@ -876,7 +876,7 @@ def test_still_all_with_a_noise_scenario_serves_nominal_alone(tmp_path: Path) ->
 def test_moving_excludes_stilled_readings(tmp_path: Path) -> None:
     scenarios = [
         {"name": "quiet", "still": ["T:NOISY", "M:RB"]},
-        {"name": "hush", "still": "all"},
+        {"name": "hush", "still": ["T:NOISY", "M:RB", "M:BPM:X", "M:BPM:Y"]},
     ]
     composite = _composite(tmp_path, scenarios=scenarios)
 
@@ -892,7 +892,9 @@ def test_a_nominal_scenario_stating_still_applies_with_no_state_file(tmp_path: P
     _patch(
         view,
         "scenarios.json",
-        lambda doc: doc.update(scenarios=[{"name": "nominal", "still": "all"}]),
+        lambda doc: doc.update(
+            scenarios=[{"name": "nominal", "still": ["T:NOISY", "M:RB", "M:BPM:X", "M:BPM:Y"]}]
+        ),
     )
     clock = [T0]
     composite = Composite(view, state_dir=None, clock=lambda: clock[0])

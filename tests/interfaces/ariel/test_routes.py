@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.facility.records import FacilityRecords
 from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts
@@ -756,6 +757,61 @@ def test_status_endpoint_carries_enhancement_coverage(client, mock_ariel_service
 
     assert response.status_code == 200
     assert response.json()["enhancement_coverage"] == coverage
+
+
+def _entry_with_references(spans):
+    return {
+        "entry_id": "e1",
+        "source_system": "Test",
+        "timestamp": datetime(2024, 1, 1, 12, 0, 0),
+        "author": "op",
+        "raw_text": "DEV-7 and GONE",
+        "attachments": [],
+        "metadata": {},
+        "created_at": datetime(2024, 1, 1, 12, 0, 0),
+        "updated_at": datetime(2024, 1, 1, 12, 0, 0),
+        "facility_refs": spans,
+    }
+
+
+def _response_with_references(spans, records):
+    return routes._entry_to_response(
+        _entry_with_references(spans),
+        attachment_rows=None,
+        model_id=None,
+        file_source=False,
+        facility_records=records,
+    )
+
+
+def test_entry_response_carries_reference_spans_with_their_records():
+    records = FacilityRecords({"devices": [{"id": "DEV-7"}]})
+    spans = [{"start": 0, "end": 5, "target": "DEV-7", "kinds": ["device"]}]
+
+    result = _response_with_references(spans, records).model_dump()
+
+    assert result["facility_references"] == [
+        {
+            "start": 0,
+            "end": 5,
+            "target": "DEV-7",
+            "kinds": ["device"],
+            "label": None,
+            "records": [{"kind": "device", "id": "DEV-7"}],
+        }
+    ]
+
+
+def test_a_dangling_reference_has_no_records():
+    spans = [{"start": 10, "end": 14, "target": "GONE", "kinds": ["channel"]}]
+
+    (found,) = _response_with_references(spans, FacilityRecords({})).facility_references
+
+    assert found.records == []
+
+
+def test_an_unchecked_entry_has_null_facility_references():
+    assert _response_with_references(None, FacilityRecords({})).facility_references is None
 
 
 def test_entry_to_response_helper():

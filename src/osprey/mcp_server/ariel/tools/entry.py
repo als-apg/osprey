@@ -211,6 +211,14 @@ async def entry_get(
         )
         if entry_url is not None:
             result["entry_url"] = entry_url
+        spans = entry.get("facility_refs")
+        if isinstance(spans, list):
+            from osprey.facility.references import FacilityReference, resolved_references
+
+            result["facility_references"] = resolved_references(
+                [FacilityReference.from_json(span) for span in spans],
+                service.repository.facility_records,
+            )
         return json.dumps(result, default=str)
 
     except ToolError:

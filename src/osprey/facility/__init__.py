@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["DEFAULT_ROLE", "FACILITY_FILE", "PN_LOCAL", "TEXTURE", "fold_code"]
+__all__ = ["DEFAULT_ROLE", "FACILITY_FILE", "PN_LOCAL", "STILL_ALL", "TEXTURE", "fold_code"]
 
 PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -20,6 +20,9 @@ TEXTURE = "texture"
 
 #: The role of a channel record that states none, as the schema's ``role`` slot defines it.
 DEFAULT_ROLE = "readback"
+
+#: The ``still`` value that stills every float reading of the scenario stating it.
+STILL_ALL = "all"
 
 _OUTSIDE_PN_LOCAL = re.compile(r"[^A-Za-z0-9_]")
 

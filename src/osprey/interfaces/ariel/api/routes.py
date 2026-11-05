@@ -35,6 +35,7 @@ from osprey.interfaces.ariel.api.schemas import (
     EntryView,
     ExpandedTermResponse,
     FacetsResponse,
+    FacilityReferenceResponse,
     ModuleCard,
     RelatedResponse,
     RowResponse,
@@ -48,6 +49,7 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
+    from osprey.facility.records import FacilityRecords
     from osprey.services.ariel_search import ARIELSearchService
     from osprey.services.ariel_search.enhancement.status import EnhancementContext
     from osprey.services.ariel_search.entry_fields import ResolvedEntryWrite
@@ -226,6 +228,7 @@ def _entry_to_response(
     score: float | None = None,
     highlights: list[str] | None = None,
     enhancement: EnhancementContext | None = None,
+    facility_records: FacilityRecords | None = None,
 ) -> EntryResponse:
     """Convert a database entry to the web response model.
 
@@ -244,10 +247,13 @@ def _entry_to_response(
         highlights: The search highlights, if any.
         enhancement: The enhancement context, resolved once per request; None
             leaves the stored status without computed states.
+        facility_records: The records the entry's references resolve in, or None
+            when no facility file was read.
 
     Returns:
         The entry response.
     """
+    from osprey.facility.references import FacilityReference, resolved_references
     from osprey.imaging.formats import skip_reason_text
     from osprey.services.ariel_search.attachments.summaries import (
         build_attachment_summary_pairs,
@@ -279,6 +285,18 @@ def _entry_to_response(
             )
         )
 
+    spans = entry.get("facility_refs")
+    facility_references = (
+        [
+            FacilityReferenceResponse(**resolved)
+            for resolved in resolved_references(
+                [FacilityReference.from_json(span) for span in spans], facility_records
+            )
+        ]
+        if isinstance(spans, list)
+        else None
+    )
+
     # Render the three timestamp fields facility-local (ISO with offset) via the
     # shared egress helper, so the web wire format matches the MCP path
     # (serialize_entry) instead of leaking the DB's raw UTC. The schema fields are
@@ -302,6 +320,7 @@ def _entry_to_response(
         subject=entry_subject(entry),
         entry_url=_entry_url(entry),
         enhancement_status=_enhancement_status(entry, enhancement),
+        facility_references=facility_references,
     )
 
 
@@ -367,6 +386,7 @@ async def _entry_responses(
             score=e.get("_score") if with_scores else None,
             highlights=e.get("_highlights") if with_scores else None,
             enhancement=enhancement,
+            facility_records=service.repository.facility_records,
         )
         for e in entries
     ]

@@ -4,6 +4,8 @@ Data Ingestion
 
 ARIEL's ingestion system converts facility-specific logbook data into a common schema and optionally enriches it through a pipeline of enhancement modules. Before ARIEL can search anything, logbook data must be ingested into its PostgreSQL database. Logbook systems differ in their APIs, file formats, field names, and conventions; ARIEL's ingestion layer abstracts over these differences through pluggable `facility adapters`_ that normalize entries into a common schema and store them in the :doc:`database </reference/contracts/ariel>`. After ingestion, optional `enhancement modules <Enhancement Pipeline_>`_ can enrich the stored entries with additional computed fields --- vector embeddings for semantic search, LLM-extracted keywords and summaries, or any other derived metadata. Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.
 
+The repository stores each entry's text as the source wrote it and, beside it, the channel addresses and device ids it quotes, looked up in the built facility file. Device names stay prose. An entry stored before the facility file was built carries none until it is re-ingested.
+
 Ingestion Architecture
 ----------------------
 
@@ -273,7 +275,7 @@ The built-in enhancement modules:
       **Turning it on, or editing the vocabulary while it is on.** The
       vocabulary file ships inside the image, so do these steps in order:
 
-      #. Edit ``data/ariel/vocabulary.yml`` and/or set ``expand_entries: true``;
+      #. Edit ``data/facility/ariel/vocabulary.yml`` and/or set ``expand_entries: true``;
          run ``osprey ariel vocab-check``.
       #. Rebuild and redeploy the image.
       #. Restart the sync service. Its startup line prints the new key, and its

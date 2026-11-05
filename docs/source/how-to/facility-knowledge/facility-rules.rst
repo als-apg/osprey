@@ -22,8 +22,9 @@ What the ``control-assistant`` preset ships
      - Holds
      - Facility-specific
    * - ``facility.md``
-     - Facility identity (name, type, mission), a pointer to the on-demand
-       knowledge tools, and where to read the facts the build generates.
+     - The operator's guidance, a pointer to the on-demand knowledge tools, and
+       where to read the identity and the facts the build generates
+       (``data/facility_facts.md``).
      - Yes
    * - ``control-system-safety.md``
      - Which control protocol the deployment's connector speaks (EPICS Channel

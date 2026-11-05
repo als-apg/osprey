@@ -10,7 +10,6 @@ imported from their own modules.
 from collections.abc import Mapping
 from typing import Any
 
-from osprey_connectors.simulation.envelope import STILL_ALL
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     DEFAULT_SCENARIO,
@@ -41,7 +40,6 @@ __all__ = [
     "GATED_TYPES",
     "LABELLED_TYPES",
     "OVERLAP_EVENT",
-    "STILL_ALL",
     "STATUS_NO_DECK",
     "STILL_SCENARIO",
     "Overlap",

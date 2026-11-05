@@ -609,6 +609,7 @@ class TestRepositoryUpsertReturning:
             "attachments": [self.UPSTREAM],
             "attachment_text": None,
             "attachment_captions": None,
+            "facility_refs": None,
         }
 
     async def test_upsert_returning_reingest_keeps_web_uploaded_native_item(

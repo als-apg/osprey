@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import FACILITY_FILE
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs
 
 __all__ = [
@@ -62,37 +63,37 @@ def _source(facility_file: Path) -> Any:
     )
 
 
-def _records(doc: Mapping[str, Any], facility_file: Path) -> list[Any]:
+def _records(records: FacilityRecords, facility_file: Path) -> list[Any]:
     from osprey.channel_roster import channel_record
 
     source = _source(facility_file)
-    return [channel_record(channel, source) for channel in doc.get("channels", [])]
+    return [channel_record(channel, source) for channel in records.of_kind("channel")]
 
 
-def _tolerances(doc: Mapping[str, Any]) -> dict[str, Mapping[str, float]]:
+def _tolerances(records: FacilityRecords) -> dict[str, Mapping[str, float]]:
     """Each setpoint's declared ``tolerance`` record, by address."""
     return {
         channel["id"]: channel["tolerance"]
-        for channel in doc.get("channels", [])
+        for channel in records.of_kind("channel")
         if channel.get("tolerance")
     }
 
 
-def _motion_bands(doc: Mapping[str, Any]) -> dict[str, float]:
+def _motion_bands(records: FacilityRecords) -> dict[str, float]:
     """Each channel's motion envelope, by address."""
     from osprey_connectors.simulation.envelope import motion_envelope
 
     return {
         channel["id"]: motion_envelope(channel.get("simulation"))
-        for channel in doc.get("channels", [])
+        for channel in records.of_kind("channel")
     }
 
 
-def bluesky_document(doc: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]]:
     """The device document of one facility file.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
 
     Returns:
         ``{settables, readables}`` as the worker's device file holds them.
@@ -100,7 +101,7 @@ def bluesky_document(doc: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
     from osprey.services.bluesky_bridge.substrate_devices import devices_document
 
     return devices_document(
-        _records(doc, Path(FACILITY_FILE)), _tolerances(doc), _motion_bands(doc)
+        _records(records, Path(FACILITY_FILE)), _tolerances(records), _motion_bands(records)
     )
 
 
@@ -179,12 +180,12 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     target = root / BLUESKY_DEVICES_FILE
     write_devices_file(
         target,
-        _records(inputs.doc, facility_file),
+        _records(inputs.records, facility_file),
         source=_source(facility_file),
         schema=BLUESKY_DEVICES_SCHEMA,
-        tolerances=_tolerances(inputs.doc),
-        motion_bands=_motion_bands(inputs.doc),
+        tolerances=_tolerances(inputs.records),
+        motion_bands=_motion_bands(inputs.records),
     )
-    for warning in tolerance_warnings(inputs.doc, _lanes(inputs)):
+    for warning in tolerance_warnings(inputs.records.document, _lanes(inputs)):
         _warn_once(inputs, warning)
     return [target]

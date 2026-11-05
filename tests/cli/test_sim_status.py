@@ -26,6 +26,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
+from osprey.facility.records import FacilityRecords
 from osprey_connectors.control_system._va_in_process_connector import (
     JOURNAL_REJECTED_EVENT,
     simulation_state_dir,
@@ -394,10 +395,10 @@ def test_list_names_the_built_in_still(lifecycle_repo: Path) -> None:
     render_simulator_view(
         _view(lifecycle_repo),
         ViewInputs(
-            doc=doc,
+            records=FacilityRecords(doc),
             rendered_config=config,
             facility_dir=facility,
-            served=resolve_served(config, doc),
+            served=resolve_served(config, FacilityRecords(doc)),
             reported=None,
         ),
     )

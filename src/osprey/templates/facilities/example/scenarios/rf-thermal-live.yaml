@@ -1,3 +1,4 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 description: 'Live thermal wander on cavity 01: one slow cooling-water driver moves body temperature,
   reflected power, forward power and tuner position together, each with its own readback noise, so a live
   correlation plot of temperature against reflected power (or tuner) shows a noisy, elongated cloud whose

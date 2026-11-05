@@ -81,6 +81,15 @@ characters of each entry's ``raw_text``, and ``entries_by_ids`` the first
 ``raw_text_truncated: true`` and its full ``raw_text_length``. ``entry_get``
 returns the whole entry. See :ref:`config-ariel-entry-text`.
 
+Entries carry ``facility_references``, one ``{start, end, target, kinds, label,
+records}`` per channel address or device id the text quotes. ``records`` lists the
+records the target names (``{kind, id, unit?, description?}``, channel before
+device); it is empty when the facility file no longer holds the target and
+``null`` when no facility file was read. An entry never checked against a facility
+file carries no key, and a cut entry lists only the references inside the text
+shown. ``start`` and ``end`` are Unicode code-point offsets into the entry text.
+Search and embeddings read the stored text unchanged.
+
 ``entries_by_ids`` names each requested ID the logbook does not hold under
 ``missing``, mapped to ``null``; when it holds none of them the call fails as
 ``nothing_answered``. See :doc:`partial-answers`.
@@ -810,10 +819,13 @@ Core Tables
      - Entry author
    * - ``raw_text``
      - ``TEXT``
-     - Full entry text (subject + details)
+     - Full entry text as the source wrote it (subject + details)
    * - ``subject``
      - ``TEXT``
      - Subject line derived from the entry (``''`` when it has none)
+   * - ``facility_refs``
+     - ``JSONB``
+     - The channel addresses and device ids the text quotes, as ``{start, end, target, kinds}``; ``start`` and ``end`` are Unicode code-point offsets into ``raw_text``. ``NULL`` = not checked against a facility file
    * - ``summary``
      - ``TEXT``
      - LLM-generated summary (from semantic processor)

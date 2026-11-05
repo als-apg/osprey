@@ -27,7 +27,7 @@ import {
   escapeHtml,
   sourceName,
 } from './components.js';
-import { parseEntryText } from './entries-helpers.js';
+import { renderEntryTextHtml, renderFacilityReferencesList } from './reader-facility.js';
 import { seam, place, renderActionButtons, renderTabStrip } from './reader-seam.js';
 
 export {
@@ -458,16 +458,14 @@ export function renderEntryDetail(container, entry) {
   const attachments = entry.attachments || [];
   const time = formatTimestamp(entry.timestamp);
 
-  // The title is the row's subject: the stored/derived one, else raw_text's first line
-  const parsed = parseEntryText(entry.raw_text);
-  const subject = entry.subject || parsed.subject;
-  const { details } = parsed;
+  const { titleHtml, bodyHtml } = renderEntryTextHtml(entry);
+  const references = renderFacilityReferencesList(entry.facility_references);
 
   container.innerHTML = `
     <div class="entry-detail">
       <div class="entry-detail-header">
         <div class="entry-detail-title-row">
-          <h2 class="entry-detail-title">${escapeHtml(subject)}</h2>
+          <h2 class="entry-detail-title">${titleHtml}</h2>
           <button type="button" class="btn btn-secondary btn-sm entry-follow-up"
                   data-follow-up="${escapeHtml(entry.entry_id)}">\u21a9 Follow up</button>
           ${renderActionButtons()}
@@ -485,7 +483,7 @@ export function renderEntryDetail(container, entry) {
         <div class="entry-detail-main">
           <div class="entry-detail-content">
             <h3>Content</h3>
-            <div class="entry-detail-text">${escapeHtml(details)}</div>
+            <div class="entry-detail-text">${bodyHtml}</div>
           </div>
 
           ${
@@ -522,6 +520,8 @@ export function renderEntryDetail(container, entry) {
               ${metadata.shift ? renderMetaItem('Shift', metadata.shift) : ''}
             </div>`
           )}
+
+          ${references ? renderMetaCard('Facility references', references) : ''}
 
           ${
             keywords.length > 0

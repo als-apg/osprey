@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.port_layout import default_port, resolve_port_base
+from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey_connectors.archiver import field_name
 from osprey_connectors.config import get_facility_timezone, load_config
 from osprey_connectors.logger import get_logger
@@ -329,10 +330,6 @@ def require_view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]]:
 def _active_state(config: dict, project_dir: Path) -> tuple[list[str], float | None]:
     """The scenario names and anchor the project's state file records."""
     return read_active_state(resolve_simulation_state_dir(config, project_dir))
-
-
-#: The config key naming the scenarios a deployment that never chose a set starts in.
-DEFAULT_SCENARIOS_KEY = "simulation.default_scenarios"
 
 
 def resolve_default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:

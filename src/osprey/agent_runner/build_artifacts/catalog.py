@@ -197,7 +197,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="rules/facility",
             template_path="claude/rules/facility.md.j2",
             output_path=".claude/rules/facility.md",
-            description="Facility identity & context",
+            description="Operator guidance for the facility",
         ),
         BuildArtifact(
             canonical_name="rules/workflows",

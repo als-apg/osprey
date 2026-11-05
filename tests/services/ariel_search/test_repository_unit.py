@@ -27,6 +27,7 @@ from typing import Any
 import psycopg
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.imaging.formats import CAPTION_NOT_DONE_SQL, image_table_not_done_sql, viewable_sql
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database import repository as repository_module
@@ -410,7 +411,7 @@ class TestUpsertEntryReingestHazards:
         await repo.upsert_entry(seed_entry_factory())
 
         update_clause = self._update_clause(fake_pool)
-        for column in ("source_system", "timestamp", "author", "raw_text"):
+        for column in ("source_system", "timestamp", "author", "raw_text", "facility_refs"):
             assert f"{column} = EXCLUDED.{column}" in update_clause
         assert "metadata = CASE" in update_clause
         assert "ELSE EXCLUDED.metadata" in update_clause
@@ -510,7 +511,7 @@ class TestUpsertEntryReingestHazards:
 
         params = fake_pool.calls[0][1]
         assert params[3] == ""
-        assert params[5:] == ["[]", "{}", "{}", "text"]
+        assert params[5:] == ["[]", "{}", "{}", None, "text"]
 
 
 # ---------------------------------------------------------------------------
@@ -2748,3 +2749,97 @@ class TestOneQueryOneExpression:
 
         clock.now += 2
         assert await searched_with_v2()
+
+
+# ---------------------------------------------------------------------------
+# Facility references (both upserts)
+# ---------------------------------------------------------------------------
+
+_QUOTING_TEXT = "Swapped DEV-7 and read SR:BPM:01:X."
+_QUOTED_REFS = [
+    {"start": 8, "end": 13, "target": "DEV-7", "kinds": ["device"]},
+    {"start": 23, "end": 34, "target": "SR:BPM:01:X", "kinds": ["channel"]},
+]
+
+
+def _facility_records() -> FacilityRecords:
+    return FacilityRecords({"channels": [{"id": "SR:BPM:01:X"}], "devices": [{"id": "DEV-7"}]})
+
+
+_RETURNING_ROWS = {
+    "INSERT INTO enhanced_entries": [
+        {
+            "attachments": [],
+            "attachment_text": None,
+            "attachment_captions": None,
+            "facility_refs": None,
+        }
+    ]
+}
+
+
+class TestUpsertFacilityReferences:
+    """Each upsert stores the text as given and the references it quotes beside it."""
+
+    @staticmethod
+    def _params(pool) -> Any:
+        """The parameters of the entry's INSERT."""
+        calls = [call for call in pool.calls if "INSERT INTO enhanced_entries" in call[0]]
+        assert len(calls) == 1
+        return calls[0][1]
+
+    async def test_upsert_stores_the_text_unchanged_and_its_references_beside_it(
+        self, fake_pool, seed_entry_factory
+    ) -> None:
+        repo = ARIELRepository(fake_pool, _make_config(), facility_records=_facility_records())
+
+        await repo.upsert_entry(seed_entry_factory(raw_text=_QUOTING_TEXT))
+
+        params = self._params(fake_pool)
+        assert params[4] == _QUOTING_TEXT
+        assert json.loads(params[8]) == _QUOTED_REFS
+
+    async def test_upsert_returning_stores_the_text_unchanged_and_its_references_beside_it(
+        self, fake_pool_factory, seed_entry_factory
+    ) -> None:
+        pool = fake_pool_factory(rows_for=_RETURNING_ROWS)
+        repo = ARIELRepository(pool, _make_config(), facility_records=_facility_records())
+
+        await repo.upsert_entry_returning(seed_entry_factory(raw_text=_QUOTING_TEXT))
+
+        params = self._params(pool)
+        assert params["raw_text"] == _QUOTING_TEXT
+        assert json.loads(params["facility_refs"]) == _QUOTED_REFS
+
+    async def test_upsert_without_facility_records_stores_no_references_checked(
+        self, fake_pool, seed_entry_factory
+    ) -> None:
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.upsert_entry(seed_entry_factory(raw_text=_QUOTING_TEXT))
+
+        assert self._params(fake_pool)[8] is None
+
+    async def test_upsert_returning_without_facility_records_stores_no_references_checked(
+        self, fake_pool_factory, seed_entry_factory
+    ) -> None:
+        pool = fake_pool_factory(rows_for=_RETURNING_ROWS)
+        repo = ARIELRepository(pool, _make_config())
+
+        stored = await repo.upsert_entry_returning(seed_entry_factory(raw_text=_QUOTING_TEXT))
+
+        assert self._params(pool)["facility_refs"] is None
+        assert stored["facility_refs"] is None
+
+    async def test_a_rewrite_of_the_text_replaces_its_references(
+        self, fake_pool, fake_pool_factory, seed_entry_factory
+    ) -> None:
+        await ARIELRepository(fake_pool, _make_config()).upsert_entry(seed_entry_factory())
+        returning = fake_pool_factory(rows_for=_RETURNING_ROWS)
+        await ARIELRepository(returning, _make_config()).upsert_entry_returning(
+            seed_entry_factory()
+        )
+
+        for pool in (fake_pool, returning):
+            insert = next(c[0] for c in pool.calls if "INSERT INTO enhanced_entries" in c[0])
+            assert "facility_refs = EXCLUDED.facility_refs" in _sql_body(insert)
