@@ -2233,7 +2233,8 @@ ENV_EXAMPLE = """\
 # keeps `.env.auth` there, for one) — kept out of git, and not edited by hand.
 
 # API key for the provider this assistant uses.
-# Set this only when using the Anthropic API directly; a Claude login needs no key.
+# Needed when the web terminals run in containers or call the Anthropic API
+# directly; a host `osprey web` signed in to Claude needs none.
 # ANTHROPIC_API_KEY=your-anthropic-api-key-here
 
 # Other providers OSPREY supports. Uncomment one if you switch to it with
