@@ -149,14 +149,14 @@ from osprey_hook_log import load_osprey_config, log_hook
 try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
-    _target_state = None
+    _target_state = None  # type: ignore[assignment]  # the sibling is absent
 
 # The stdlib-only file helper the memo is written through; without it no memo
 # is kept, which costs one redundant context block on the next prompt.
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 #: The event that always emits: a context that has just been built or rebuilt.
 _SESSION_START = "SessionStart"

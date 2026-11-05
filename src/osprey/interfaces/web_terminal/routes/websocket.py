@@ -17,7 +17,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool

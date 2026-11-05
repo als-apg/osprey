@@ -1154,6 +1154,15 @@ REASONS = (
     "launch_pinned",
     "switching",
     "stopped_since",
+    "auth_unreadable",
+    "auth_holder",
+    "auth_channel",
+    "auth_range",
+    "auth_exhausted",
+    "auth_lease_lapsed",
+    "auth_expired",
+    "auth_revoked",
+    "auth_overlap",
 )
 
 # Mirrors ``refusals._PHRASES`` word for word.
@@ -1200,6 +1209,43 @@ _PHRASES = {
     "stopped_since": (
         "Writes are off because a stop came after the turn-on began; "
         "turn it on again from the chip."
+    ),
+    "auth_unreadable": (
+        "Writes are refused because this program's write authorization cannot be read; "
+        "retry, then ask the deployment admin."
+    ),
+    "auth_holder": (
+        "Writes are refused because this write authorization was approved for another "
+        "program or login; ask the operator to approve one for this program."
+    ),
+    "auth_channel": (
+        "Writes are refused because this channel is not in the program's write "
+        "authorization; ask the operator to approve one that lists it."
+    ),
+    "auth_range": (
+        "Writes are refused because this value is outside the range the program's write "
+        "authorization allows; ask the operator to approve a wider range."
+    ),
+    "auth_exhausted": (
+        "Writes are refused because the program has used every write its authorization "
+        "allows; ask the operator to approve a new authorization."
+    ),
+    "auth_lease_lapsed": (
+        "Writes are refused because the program holding this write authorization stopped "
+        "renewing it; ask the operator to approve a new authorization."
+    ),
+    "auth_expired": (
+        "Writes are refused because the program's write authorization has expired; "
+        "ask the operator to approve a new authorization."
+    ),
+    "auth_revoked": (
+        "Writes are refused because the program's write authorization has ended: a stop "
+        "came, or the switch is no longer at allowed; ask the operator to approve a new "
+        "authorization."
+    ),
+    "auth_overlap": (
+        "The authorization is refused because another program holds one on a channel of "
+        "this machine it names; wait for that run to end, or stop it from the chip."
     ),
 }
 

@@ -843,7 +843,7 @@ def drain_visible(
     """
     if isinstance(scope, (All, Reader)):
         return None
-    base = scope.person if isinstance(scope, Own) else scope.identity  # type: ignore[union-attr]
+    base = scope.person if isinstance(scope, Own) else scope.identity
     targets = set()
     for identity in {base, *also}:
         try:

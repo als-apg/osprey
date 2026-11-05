@@ -209,6 +209,11 @@ class ChannelWriteBlockedError(ChannelError):
     ``reason`` is a :class:`RefusalReason` member when the reason is a known
     one, and then names its refuser and remedy. An unknown reason, or no reason
     at all, is kept as given and names neither: no refuser is guessed.
+
+    ``verdict_reason`` narrows ``WRITES_DISABLED`` to the reason the write
+    verdict gave, a member of :data:`osprey_connectors.refusals.REASONS`, when
+    it gave one: ``switch_off``, ``auth_exhausted``, ``auth_range`` and the
+    rest, so a program branches on the word rather than the message.
     """
 
     @classmethod
@@ -223,9 +228,16 @@ class ChannelWriteBlockedError(ChannelError):
         known = _known_reason(reason)
         return known.remedy if known is not None else ()
 
-    def __init__(self, channel_address: str, reason: str | None, message: str | None = None):
+    def __init__(
+        self,
+        channel_address: str,
+        reason: str | None,
+        message: str | None = None,
+        verdict_reason: str | None = None,
+    ):
         self.channel_address = channel_address
         self.reason: str | None = _known_reason(reason) or reason
+        self.verdict_reason = verdict_reason
         refuser = self.refuser(reason)
         if refuser is not None:
             fallback = f"Write to '{channel_address}' refused by {refuser} ({reason})"

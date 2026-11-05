@@ -2114,7 +2114,7 @@ def _dispatch_worker_corpus_mounts(config, source_dir, layer_root=None):
     repo_root = resolve_repo_root(config)
     tier = entry["render"]
     project_dir = entry["container_project_dir"]
-    mounts = {"bundle": None, "mirror": None}
+    mounts: dict[str, dict[str, str] | None] = {"bundle": None, "mirror": None}
 
     knowledge = config.get("facility_knowledge")
     bundle_path = knowledge.get("bundle_path") if isinstance(knowledge, dict) else None
@@ -4441,7 +4441,7 @@ def dispatch_worker_audit_identities(config):
     worker = ((config or {}).get("services") or {}).get("dispatch_worker")
     raw = worker.get("worker_count") if isinstance(worker, dict) else None
     try:
-        count = int(raw)
+        count = int(raw) if raw is not None else 1
     except (TypeError, ValueError):
         # The template's own `| default(1)` for the same unset/unusable value.
         count = 1
@@ -6074,8 +6074,8 @@ def setup_build_dir(
                 raise
     os.makedirs(out_dir, exist_ok=True)
     if kept_tiered_config is not None:
-        with open(os.path.join(out_dir, "config.yml"), "wb") as f:
-            f.write(kept_tiered_config)
+        with open(os.path.join(out_dir, "config.yml"), "wb") as kept_file:
+            kept_file.write(kept_tiered_config)
 
     # Copy the service's own files (except templates) and stage the dev wheel
     # BEFORE rendering the compose template: the render context's dev_mode flag
@@ -6163,8 +6163,10 @@ def setup_build_dir(
                     dst_dir = os.path.join(out_dir, dir_spec)
                 elif isinstance(dir_spec, dict):
                     # Dictionary: allows custom source -> destination mapping
-                    src_dir = dir_spec.get("src")
-                    dst_dir = os.path.join(out_dir, dir_spec.get("dst", src_dir))
+                    if not dir_spec.get("src"):
+                        continue  # names nothing to copy
+                    src_dir = dir_spec["src"]
+                    dst_dir = os.path.join(out_dir, dir_spec.get("dst") or src_dir)
                 else:
                     continue
 
@@ -6236,9 +6238,9 @@ def setup_build_dir(
                 adjust_src_paths_recursive(flattened_config)
 
                 config_yml_dst = os.path.join(out_dir, "config.yml")
-                with open(config_yml_dst, "w") as f:
+                with open(config_yml_dst, "w") as config_file:
                     yaml_loader.safe_dump(
-                        flattened_config, f, default_flow_style=False, sort_keys=False
+                        flattened_config, config_file, default_flow_style=False, sort_keys=False
                     )
                 logger.debug(f"Created flattened config.yml at {config_yml_dst}")
             except Exception as e:

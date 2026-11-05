@@ -912,7 +912,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
                         leak_measured, [0.0] * len(leak_names), params.leakage_tolerance
                     )
                     if leaks:
-                        offenders = ", ".join(
+                        leaked = ", ".join(
                             f"{leak_names[index]} ({leak_measured[index]:+.4g})" for index in leaks
                         )
                         if params.best_effort:
@@ -922,13 +922,13 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
                                 "best_effort is set, recording the step and continuing",
                                 step_label,
                                 params.leakage_tolerance,
-                                offenders,
+                                leaked,
                             )
                         else:
                             raise RuntimeError(
                                 f"orbit_bump_sweep plan: {step_label} leaked outside "
                                 f"±{params.leakage_tolerance:g} BPM units at monitor BPM(s) "
-                                f"{offenders} relative to the reference orbit"
+                                f"{leaked} relative to the reference orbit"
                                 + (
                                     " at the terminal working-point step — the machine did "
                                     "not come back to its reference orbit"

@@ -28,9 +28,10 @@ try:
     import osprey_safety_file as _safety_file
 except ImportError:
     try:
-        from osprey_connectors import safety_file as _safety_file
+        # The packaged copy of the same helper, so the same module type.
+        from osprey_connectors import safety_file as _safety_file  # type: ignore[no-redef]
     except ImportError:
-        _safety_file = None
+        _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 __all__ = [
     "BASE_IMAGE_ACCOUNTS",
