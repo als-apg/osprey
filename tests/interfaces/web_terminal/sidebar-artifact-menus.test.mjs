@@ -135,13 +135,33 @@ describe('the Agent row', () => {
   });
 });
 
+describe('the Agent row: Expand all', () => {
+  test('never opens a session without a disclosure (that would switch to it)', () => {
+    const other = document.createElement('div');
+    other.className = 'osprey-tree-session osprey-tree-d0';
+    other.dataset.sessionId = 't2';
+    other.setAttribute('aria-expanded', 'false');
+    const clicked = vi.fn();
+    other.addEventListener('click', clicked);
+    $('[data-session-tree]').append(other);
+    const disc = $('[data-session-id="t1"] [data-tree-disc]');
+    disc.addEventListener('click', () => {
+      const row = /** @type {HTMLElement} */ (disc.parentElement);
+      row.setAttribute('aria-expanded', String(row.getAttribute('aria-expanded') !== 'true'));
+    });
+    menus.setAllOpen(true);
+    expect($('[data-session-id="t1"]').getAttribute('aria-expanded')).toBe('true');
+    expect(other.getAttribute('aria-expanded')).toBe('false');
+    expect(clicked).not.toHaveBeenCalled();
+  });
+});
+
 describe('a session row', () => {
   test('offers exactly PROPOSAL’s items', async () => {
     const ev = await rightClick($('.osprey-tree-title'));
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
       'Open in Agent',
-      'Browse',
       'Group by Kind',
       'Group by Activity',
       'Rename…',

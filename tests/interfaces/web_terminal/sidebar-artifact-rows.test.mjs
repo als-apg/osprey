@@ -250,6 +250,20 @@ describe('a session row', () => {
     expect(cls(/** @type {Element} */ (idle.querySelector('.osprey-dot')))).toContain('hollow');
   });
 
+  test('only the active session has a disclosure; another keeps an empty slot of its width', () => {
+    const active = rows.sessionRow(session(), { active: true, open: false, count: 0 });
+    expect(active.querySelector('[data-tree-disc]')).not.toBeNull();
+    const other = rows.sessionRow(session(), { active: false, open: false, count: 0 });
+    expect(other.querySelector('[data-tree-disc]')).toBeNull();
+    const slot = /** @type {Element} */ (other.firstElementChild);
+    expect(cls(slot)).toContain('osprey-tree-disc');
+    expect(slot.getAttribute('aria-hidden')).toBe('true');
+    expect(slot.childElementCount).toBe(0);
+    expect(
+      rows.earlierRow({ count: 1, open: false }).querySelector('[data-tree-disc]')
+    ).not.toBeNull();
+  });
+
   test('shows "naming…" while the name is pending', () => {
     const row = rows.sessionRow(session({ naming: 'pending', title: 'tune the orbit please' }), {
       active: false,

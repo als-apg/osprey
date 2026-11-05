@@ -6,7 +6,7 @@
  * menu (panel-context-menu.js):
  *
  *   Agent row   New session · Expand all / Collapse all
- *   Session     Open in Agent · Browse · Group by Kind / Activity · Rename… ·
+ *   Session     Open in Agent · Group by Kind / Activity · Rename… ·
  *               Use automatic name · Export transcript · Copy ID · Delete…
  *   Group head  Expand / Collapse
  *   Run         Open result · Open approval preview · Open code · Delete…
@@ -39,7 +39,9 @@ const SESSION_SELECTOR = '.osprey-tree-session[data-session-id]';
 const GROUP_SELECTOR = '[data-group-head]';
 const RUN_SELECTOR = '.osprey-list-row.osprey-tree-run[data-id]';
 const ARTIFACT_SELECTOR = '.osprey-list-row[data-id]';
-/** Top-level rows Expand/Collapse all acts on: sessions and Earlier. */
+/** Top-level rows Expand/Collapse all acts on: sessions and Earlier. Only a
+ * row with a disclosure folds (the session in use, Earlier); another session
+ * opens only by switching to it. */
 const TOP_SELECTOR = `${SESSION_SELECTOR}, [data-tree-earlier]`;
 
 // ---- Row lookups ----
@@ -83,7 +85,7 @@ export function setAllOpen(open) {
   const limit = document.querySelectorAll(TOP_SELECTOR).length + 1;
   for (let i = 0; i < limit; i += 1) {
     const row = [...document.querySelectorAll(TOP_SELECTOR)].find(
-      (r) => r instanceof HTMLElement && isOpen(r) !== open
+      (r) => r instanceof HTMLElement && isOpen(r) !== open && r.querySelector('[data-tree-disc]')
     );
     if (!(row instanceof HTMLElement)) return;
     clickDisc(row);
@@ -229,7 +231,6 @@ export function sessionMenuItems(row) {
   const view = readTreeView();
   return [
     { label: 'Open in Agent', run: () => void openSession(treeId) },
-    { label: 'Browse', run: () => (isOpen(row) ? undefined : clickDisc(row)) },
     { divider: true },
     { label: 'Group by Kind', checked: view === 'kind', run: () => void applyView('kind') },
     {

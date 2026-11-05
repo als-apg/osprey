@@ -557,7 +557,8 @@ session; **More sessions** loads older ones.
 
 - Click a session name to switch to it: the Agent pane opens on it and shows
   the artifact last open there (its newest if none). Click the current
-  session's name to fold or unfold it. ▸ only browses.
+  session's name to fold or unfold it. Only the current session shows its
+  artifacts; the others stay folded until you switch to them.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.

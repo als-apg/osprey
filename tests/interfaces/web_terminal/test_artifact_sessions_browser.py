@@ -152,7 +152,11 @@ def _open_all(page: Page) -> None:
 
 
 def _open_session(page: Page, sid: str) -> None:
+    """Show a session's artifacts: only the session in use opens, so enter it first."""
     row = _session(page, sid)
+    if "active" not in (row.get_attribute("class") or "").split():
+        row.locator(".osprey-tree-title").click()
+        expect(row).to_have_class(_re(r"\bactive\b"), timeout=_TIMEOUT_MS)
     if row.get_attribute("aria-expanded") != "true":
         row.locator("[data-tree-disc]").click()
     expect(row).to_have_attribute("aria-expanded", "true")
@@ -608,13 +612,14 @@ def _remove_artifacts_from_rail(page: Page) -> None:
 # --- the streaming guard and browsing -----------------------------------------------
 
 
-def test_a_session_click_while_streaming_asks_and_browsing_leaves_the_agent_alone(hub, page):
+def test_a_session_click_while_streaming_asks_and_another_session_never_opens_in_place(hub, page):
     _boot(page, hub)
     before = _active(page).get_attribute("data-session-id")
 
-    # Browsing another session opens it in the tree; the Agent stays where it was.
-    _session(page, _PROFILE.transcript_id).locator("[data-tree-disc]").click()
-    expect(_session(page, _PROFILE.transcript_id)).to_have_attribute("aria-expanded", "true")
+    # Only the session in use shows its artifacts: another has no disclosure.
+    other = _session(page, _PROFILE.transcript_id)
+    expect(other).to_have_attribute("aria-expanded", "false")
+    expect(other.locator("[data-tree-disc]")).to_have_count(0)
     expect(_active(page)).to_have_attribute("data-session-id", before)
 
     hub.chat.delay_s = 30.0

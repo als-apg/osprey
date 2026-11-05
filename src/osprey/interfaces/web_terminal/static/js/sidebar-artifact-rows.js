@@ -226,7 +226,8 @@ export function agentDisclosure(open) {
 }
 
 /**
- * One session row: a disclosure, the live dot, the title (or "naming…"), the
+ * One session row: a disclosure (the active row only: no other session can be
+ * opened without switching to it), the live dot, the title (or "naming…"), the
  * artifact count from the session summary (`data-count` once it is summarized).
  * @param {SessionRow} session
  * @param {{active: boolean, open: boolean, count: number, summarized?: boolean}} options
@@ -242,7 +243,7 @@ export function sessionRow(session, { active, open, count, summarized = false })
   title.title = title.textContent ?? '';
   const dot = document.createElement('span');
   dot.className = `osprey-dot ${session.state === 'live' ? 'ok' : 'hollow'}`;
-  const row = topRow('osprey-tree-session', open, [dot, title]);
+  const row = topRow('osprey-tree-session', open, [dot, title], active);
   row.dataset.sessionId = session.transcript_id;
   if (active) row.classList.add('active');
   if (summarized) row.dataset.count = String(count);
@@ -538,17 +539,27 @@ function treeRow(entry, iconName, { shownId, highlightId }, depth) {
 
 /**
  * A session-level row (a session or Earlier): disclosure first, then `kids`.
+ * Without `foldable` an empty slot of the disclosure's width keeps the titles
+ * aligned.
  * @param {string} className
  * @param {boolean} open
  * @param {Node[]} kids
+ * @param {boolean} [foldable]
  * @returns {HTMLElement}
  */
-function topRow(className, open, kids) {
+function topRow(className, open, kids, foldable = true) {
   const row = plainRow(`${className} osprey-tree-d0`);
   row.setAttribute('aria-expanded', String(open));
-  const disc = icon(open ? 'chevron-down' : 'chevron-right');
+  /** @type {Element} */
+  let disc;
+  if (foldable) {
+    disc = icon(open ? 'chevron-down' : 'chevron-right');
+    disc.setAttribute('data-tree-disc', '');
+  } else {
+    disc = document.createElement('span');
+    disc.setAttribute('aria-hidden', 'true');
+  }
   disc.classList.add('osprey-tree-disc');
-  disc.setAttribute('data-tree-disc', '');
   row.append(disc, ...kids);
   return row;
 }
