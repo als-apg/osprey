@@ -138,8 +138,7 @@ Tips
 Build and run
 =============
 
-The setup ends inside the deployment repository it built. Run these commands
-from that repository:
+The setup leaves you inside the deployment repository it built:
 
 .. code-block:: bash
 

@@ -95,8 +95,7 @@ works. The duration at the end of each step is how long that slice took:
 .. Renderer-generated block, not a captured run: a real seed needs a container
    runtime, the store, and several minutes, so the shape below was produced by
    printing the deploy path's own strings through the real phase reporter. The
-   counts and durations are historical, carried over from an earlier capture,
-   and the prose below says so.
+   counts and durations are historical, carried over from an earlier capture.
    To regenerate: build each line the way ``container_lifecycle`` does (the two
    ``_report_step`` literals around the seed, plus
    ``SeedReport.describe()`` for the last one) and print them through
@@ -178,7 +177,7 @@ terminal with ``osprey chat``; the web terminal from Hello World
 Step 3: Find Channels by Description
 -------------------------------------
 
-This is the headline capability. In Hello World you had to know the exact PV:
+This is the headline capability. Until now you had to know the exact PV, as in Hello World:
 
 .. code-block:: text
 
@@ -224,9 +223,8 @@ facility file. The channel-finder agent works with five tools:
 
 - **Keyword lookup.** ``search_channels`` reads the search index that
   ``osprey build`` derives from the graph. It matches your words against each
-  channel's address, description, device, signals, class names and their
-  alternative labels. It returns matching channels a page at a time, with
-  counts by section, system, class, signal and direction to narrow the search.
+  channel's address, description, device, signals and class names, and returns
+  the matches a page at a time with counts that help narrow the search.
 - **Graph queries.** For questions about structure, such as what a device
   carries or how classes relate, the agent queries the graph store that
   ``osprey up`` loads. It adapts an example from ``example_queries``, can check

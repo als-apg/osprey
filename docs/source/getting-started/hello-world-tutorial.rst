@@ -93,8 +93,8 @@ write-safety chain), three rules, and one output style:
      - approval       # Gate hardware-write tool calls on human approval prompt
      - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
 
-The build also copies three helper scripts into ``build/.claude/hooks/``. The
-hooks import them; no event runs them.
+``build/.claude/hooks/`` also holds three helper scripts. The hooks import
+them; they are not hooks themselves.
 
 And all remaining configuration lives in the ``config:`` block, one dotted key
 per line:
