@@ -155,6 +155,14 @@ class TestLookups:
         entry.metadata = {"first_ts": "2026-10-01T00:00:00+00:00"}
         assert owner_of(entry, ledger) == KEY
 
+    def test_removing_a_transcript_drops_its_rows_and_keeps_the_rest(self, tmp_path):
+        self._ledger(tmp_path)
+        assert session_ledger.remove_transcript(tmp_path, T2) == 2
+        ledger = session_ledger.load(tmp_path)
+        assert ledger.transcripts() == [KEY, T1]
+        assert ledger.current(KEY) == T1 and ledger.current(OTHER_KEY) is None
+        assert session_ledger.remove_transcript(tmp_path, T2) == 0
+
 
 @pytest.fixture
 def clean_env(monkeypatch):

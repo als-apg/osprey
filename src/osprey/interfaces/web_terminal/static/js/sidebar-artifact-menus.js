@@ -7,7 +7,7 @@
  *
  *   Agent row   New session · Expand all / Collapse all
  *   Session     Open in Agent · Browse · Group by Kind / Activity · Rename… ·
- *               Use automatic name · Export transcript · Copy ID
+ *               Use automatic name · Export transcript · Copy ID · Delete…
  *   Group head  Expand / Collapse
  *   Run         Open result · Open approval preview · Open code · Delete…
  *   Artifact    Open · Pin · Delete… · Copy ID
@@ -167,6 +167,48 @@ export function exportTranscript(id) {
   a.remove();
 }
 
+/** The tip on a disabled session Delete…: the Agent is on that session. */
+export const DELETE_ACTIVE_TIP = 'Switch to another session to delete this one';
+
+/**
+ * Ask first, then delete a past session with its artifacts
+ * (DELETE /api/sessions/{id}). The count is the row's, once the tree has
+ * summarized it. On success the row leaves the model at once; other tabs drop it on the
+ * hub's `session_deleted` frame.
+ * @param {HTMLElement} row  @param {string} transcriptId
+ */
+export function confirmDeleteSession(row, transcriptId) {
+  const name = row.querySelector('.osprey-tree-title')?.textContent || 'Untitled session';
+  const n = row.dataset.count;
+  const what = n === undefined ? 'its artifacts' : `its ${n} artifact${n === '1' ? '' : 's'}`;
+  showConfirm({
+    title: 'Delete session?',
+    body: [['This deletes the session ', { em: name }, ` and ${what}.`]],
+    live: null,
+    confirmLabel: 'Delete',
+    focus: 'cancel',
+    onConfirm: async (ui) => {
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(transcriptId)}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          const detail = await res.json().then(
+            (b) => b?.detail,
+            () => null
+          );
+          throw new Error(typeof detail === 'string' ? detail : `HTTP ${res.status}`);
+        }
+        ui.done();
+        (await sessionModel()).forgetSession(transcriptId);
+      } catch (err) {
+        ui.error.textContent = `Delete failed: ${err instanceof Error ? err.message : err}`;
+        ui.error.hidden = false;
+      }
+    },
+  });
+}
+
 /** @param {string} text */
 function copyText(text) {
   void navigator.clipboard?.writeText(text).catch(() => {});
@@ -182,6 +224,8 @@ export function sessionMenuItems(row) {
   // A synthesized row (`key:<K>`) has no transcript yet: nothing to name,
   // export or copy.
   const tid = treeId && !treeId.startsWith('key:') ? treeId : null;
+  // Only a past session: the one the Agent is on draws `.active`.
+  const active = row.classList.contains('active');
   const view = readTreeView();
   return [
     { label: 'Open in Agent', run: () => void openSession(treeId) },
@@ -198,6 +242,14 @@ export function sessionMenuItems(row) {
     { label: 'Use automatic name', disabled: !tid, run: () => tid && void putTitle(tid, '') },
     { label: 'Export transcript', disabled: !tid, run: () => tid && exportTranscript(tid) },
     { label: 'Copy ID', disabled: !tid, run: () => tid && copyText(tid) },
+    { divider: true },
+    {
+      label: 'Delete…',
+      danger: true,
+      disabled: !tid || active,
+      tip: active ? DELETE_ACTIVE_TIP : undefined,
+      run: () => tid && confirmDeleteSession(row, tid),
+    },
   ];
 }
 

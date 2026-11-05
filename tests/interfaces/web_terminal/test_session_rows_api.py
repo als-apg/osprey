@@ -439,3 +439,152 @@ class TestEndpoints:
         rows_before = len(ledger)
         session_handoff._record_spawn(app, new_key, spawn.resume_id)
         assert len(session_ledger.load(session_meta.ledger_state_dir())) == rows_before
+
+
+# --- deleting a session ----------------------------------------------------------------
+
+
+class _Pty:
+    is_alive = True
+
+
+class _Ptys:
+    def __init__(self, *keys: str) -> None:
+        self._keys = set(keys)
+
+    def session_keys(self) -> list[str]:
+        return sorted(self._keys)
+
+    def get_session(self, key: str):
+        return _Pty() if key in self._keys else None
+
+
+class _Chats:
+    def __init__(self, **busy: bool) -> None:
+        self.chats = {key: SimpleNamespace(is_busy=b) for key, b in busy.items()}
+        self.terminated: list[str] = []
+
+    def keys(self) -> list[str]:
+        return list(self.chats)
+
+    def get(self, key: str):
+        return self.chats.get(key)
+
+    async def terminate(self, key: str):
+        self.terminated.append(key)
+        return self.chats.pop(key, None)
+
+
+class TestDelete:
+    @pytest.fixture
+    def hub(self, client, tmp_path, monkeypatch):
+        """The client's app with an artifact store and a transcript directory;
+        KEY went T1 → T2 → T3, so T2 is a past session."""
+        from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+        from osprey.stores.artifact_store import ArtifactStore
+
+        app = client.app
+        data_root = tmp_path / "data"
+        app.state.panel_status_root = data_root
+        app.state.project_cwd = str(tmp_path / "demo")
+        sessions_dir = tmp_path / "projects" / "demo"
+        sessions_dir.mkdir(parents=True)
+        monkeypatch.setattr(SessionDiscovery, "_resolve_sessions_dir", lambda _self: sessions_dir)
+        _ledger(
+            (KEY, T1, "2026-11-01T09:00:00+00:00"),
+            (KEY, T2, "2026-11-01T09:20:00+00:00"),
+            (KEY, T3, "2026-11-01T09:40:00+00:00"),
+        )
+        store = ArtifactStore(workspace_root=data_root, auto_launch=False)
+
+        def save(title: str, minute: int, **meta) -> str:
+            first_ts = f"2026-11-01T09:{minute:02d}:30+00:00"
+            return store.save_file(
+                b"x",
+                f"{title}.txt",
+                "text",
+                title,
+                mime_type="text/plain",
+                session_id=KEY,
+                metadata={"first_ts": first_ts, **meta},
+            ).id
+
+        ids = {
+            "t1": save("one", 5),
+            "t2a": save("two-a", 25),
+            "t2b": save("two-b", 30),
+            "t3": save("three", 45),
+            "stamped": save("stamped", 5, transcript_id=T2),
+        }
+        (sessions_dir / f"{T2}.jsonl").write_text("{}\n")
+        (sessions_dir / T2 / "subagents").mkdir(parents=True)
+        (sessions_dir / T2 / "subagents" / "agent-1.jsonl").write_text("{}\n")
+        (sessions_dir / f"{T3}.jsonl").write_text("{}\n")
+        return SimpleNamespace(app=app, data_root=data_root, ids=ids, sessions_dir=sessions_dir)
+
+    def test_deletes_artifacts_ledger_meta_map_and_transcript_files(self, client, hub):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        session_meta.set_title(hub.app, T2, "Named")
+        other_key = str(uuid.uuid4())
+        transcript_map.set(hub.app, other_key, T2)
+        _ledger((other_key, T2, "2026-11-01T09:50:00+00:00"))
+
+        resp = client.delete(f"/api/sessions/{T2}")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        owned = [hub.ids["t2a"], hub.ids["t2b"], hub.ids["stamped"]]
+        assert sorted(body["deleted_artifacts"]) == sorted(owned)
+        assert body["transcript_files"] == 2
+        store = ArtifactStore(workspace_root=hub.data_root, auto_launch=False)
+        assert {e.id for e in store.list_entries()} == {hub.ids["t1"], hub.ids["t3"]}
+        ledger = session_ledger.load(session_meta.ledger_state_dir())
+        assert T2 not in ledger.transcripts() and ledger.current(KEY) == T3
+        assert transcript_map.get(hub.app, other_key) == other_key
+        meta = session_meta.get(hub.app, T2)
+        assert meta["deleted"] and meta["title"] is None
+        assert not (hub.sessions_dir / f"{T2}.jsonl").exists()
+        assert not (hub.sessions_dir / T2).exists()
+        assert (hub.sessions_dir / f"{T3}.jsonl").exists()
+        assert hub.app.state.broadcaster.frames[-1] == {
+            "type": session_meta.SESSION_DELETED_FRAME,
+            "transcript_id": T2,
+        }
+
+    def test_the_tombstone_hides_it_although_the_record_keeps_its_rows(self, client, record, hub):
+        record.answers["list_sessions"] = _answer([_row(T3, 30), _row(T2, 20), _row(T1, 10)])
+        assert client.delete(f"/api/sessions/{T2}").status_code == 200
+        listed = [r["transcript_id"] for r in client.get("/api/sessions").json()["sessions"]]
+        assert listed == [T3, T1]
+        restarted = TestClient(_app())  # the tombstone is on disk, not only in memory
+        listed = [r["transcript_id"] for r in restarted.get("/api/sessions").json()["sessions"]]
+        assert listed == [T3, T1]
+        # Nothing writes it back: a transcript report, entering it, a second delete.
+        assert not session_meta.record_transcript_move(hub.app, KEY, T2)
+        assert client.post(f"/api/sessions/{T2}/enter").status_code == 404
+        assert client.delete(f"/api/sessions/{T2}").status_code == 404
+
+    def test_the_session_the_agent_is_on_is_409(self, client, hub):
+        session_meta.set_last_active(hub.app, KEY)
+        resp = client.delete(f"/api/sessions/{T3}")
+        assert resp.status_code == 409 and "Switch to another session" in resp.json()["detail"]
+        assert client.delete(f"/api/sessions/{T2}").status_code == 200
+
+    def test_a_running_turn_or_an_open_terminal_is_409(self, client, hub):
+        hub.app.state.operator_registry = SimpleNamespace(chats=_Chats(**{KEY: True}))
+        resp = client.delete(f"/api/sessions/{T3}")
+        assert resp.status_code == 409 and "turn is running" in resp.json()["detail"]
+        hub.app.state.operator_registry = SimpleNamespace(chats=_Chats())
+        hub.app.state.pty_registry = _Ptys(KEY)
+        assert client.delete(f"/api/sessions/{T3}").status_code == 409
+        assert session_meta.get(hub.app, T3)["deleted"] is None
+
+    def test_an_idle_chat_still_holding_it_is_stopped(self, client, hub):
+        chats = _Chats(**{KEY: False})
+        hub.app.state.operator_registry = SimpleNamespace(chats=chats)
+        assert client.delete(f"/api/sessions/{T3}").status_code == 200
+        assert chats.terminated == [KEY]
+
+    def test_another_operators_session_is_404(self, client, hub):  # noqa: ARG002
+        assert client.delete(f"/api/sessions/{OTHER}").status_code == 404
+        assert client.delete("/api/sessions/not-a-uuid").status_code == 422

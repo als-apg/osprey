@@ -565,8 +565,9 @@ session; **More sessions** loads older ones.
   first: **Cancel**, or **Stop & switch**.
 
 Right-click a session to rename it, export its transcript or group its
-artifacts by day or by kind; a run to open its result, approval preview or
-code; an artifact to pin it. Runs and artifacts also have **Delete…**.
+artifacts by day or by kind, or delete a past session with its artifacts;
+a run to open its result, approval preview or code; an artifact to pin it.
+Runs and artifacts also have **Delete…**.
 
 A reload, a new tab or another device resumes your last session. Its
 last-open artifact is shown in the Artifacts panel if that panel is docked,

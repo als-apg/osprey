@@ -63,6 +63,7 @@ class TestMetaRoundTrip:
             "auto_title": None,
             "naming": None,
             "last_artifact_id": None,
+            "deleted": None,
         }
         assert session_meta.get_last_active(app) is None
 
@@ -84,12 +85,25 @@ class TestMetaRoundTrip:
             "auto_title": "Beam orbit check",
             "naming": "done",
             "last_artifact_id": "art-1",
+            "deleted": None,
         }
         t2 = session_meta.get(fresh, T2)
         assert (t2["title"], t2["title_source"], t2["naming"]) == ("My session", "user", "failed")
         last = session_meta.get_last_active(fresh)
         assert last is not None and last["session_key"] == KEY and last["at"]
         assert session_meta.naming_since(fresh) == since
+
+    def test_a_tombstone_replaces_the_record_and_survives_a_reload(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_title(app, T1, "My session")
+        session_meta.set_last_artifact(app, T1, "art-1")
+        session_meta.mark_deleted(app, T1)
+        fresh = _app()
+        session_meta.load(fresh)
+        record = session_meta.get(fresh, T1)
+        assert record["deleted"] and record["title"] is None and record["last_artifact_id"] is None
+        assert session_meta.deleted_ids(fresh) == {T1}
 
     def test_the_document_is_beside_the_transcript_map(self):
         app = _app()
@@ -275,6 +289,13 @@ class TestBackfill:
             (KEY, KEY, session_ledger.EPOCH),
             (KEY, T1, "2026-10-01T08:00:00+00:00"),
         ]
+
+    def test_a_deleted_transcript_is_not_seeded(self, hub):
+        _write_map({KEY: T1})
+        _jsonl(hub.sessions_dir, T1, "2026-10-01T08:00:00.000Z")
+        session_meta.mark_deleted(hub.app, T1)
+        assert session_meta.backfill_ledger(hub.app) == 1
+        assert _rows() == [(KEY, KEY, session_ledger.EPOCH)]
 
     def test_a_cleared_key_whose_transcript_is_gone_keeps_only_its_first_row(self, hub):
         _write_map({KEY: T1})
