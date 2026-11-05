@@ -253,7 +253,7 @@ except Exception:  # pragma: no cover - render without the helper
 try:
     import osprey_prompt_render as _prompt_render
 except Exception:  # pragma: no cover - render without the renderer
-    _prompt_render = None
+    _prompt_render = None  # type: ignore[assignment]  # the sibling is absent
 
 #: When this hook process entered, as a `time.monotonic` instant.
 #:
