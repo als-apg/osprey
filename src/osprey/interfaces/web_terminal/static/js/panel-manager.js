@@ -708,17 +708,19 @@ function vacateForPopout(panelId) {
  * at, in the default arrangement — else the landing's choice. A dock that
  * still shows a service tile is left as it is: opening anything into it
  * would replace that tile's panel (the open rule). Nothing opens while the
- * boot layout may still arrive (the landing waits for it).
+ * boot layout may still arrive (the landing waits for it), nor into a
+ * session's own layout (`asLeft`, session-layout.js): it shows as it was left.
+ * @param {{ asLeft?: boolean }} [options]
  */
-function settleAppliedLayout() {
+function settleAppliedLayout({ asLeft = false } = {}) {
   hydrateRestoredTiles();
   const holder = getLayoutHolder();
   if (!holder || serviceTileTarget(holder.layout, holder.context())) return;
-  const keep = activeTabId;
+  const keep = asLeft ? null : activeTabId;
   clearActivePanel();
   const kept = keep && visiblePanels.has(keep) && panelState[keep]?.healthy && !isPoppedOut(keep);
   if (kept) activateTab(/** @type {string} */ (keep));
-  else ensureActivePanel();
+  else if (!asLeft) ensureActivePanel();
 }
 
 /**

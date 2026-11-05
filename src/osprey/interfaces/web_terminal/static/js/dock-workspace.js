@@ -638,20 +638,78 @@ function safeKeys(value) {
  * @returns {boolean}
  */
 function applyStoredLayout() {
-  const holder = layoutHolder;
   const stored = readStored();
-  if (!holder || !stored) return false;
+  if (!stored) return false;
+  const applied = applyRepaired(stored, { keepTerminal: true });
+  if (applied === false) forgetStored();
+  return applied === true;
+}
+
+/**
+ * Repair a stored layout against what the dock can build and apply it with
+ * its panel records. `keepTerminal` gives a layout without the terminal its
+ * tile back, as a reload's restore does.
+ * @param {{ layout: unknown, panels: Record<string, PanelRecord> }} stored
+ * @param {{ keepTerminal: boolean }} options
+ * @returns {boolean | null} whether it applied; null when nothing was left to apply
+ */
+function applyRepaired(stored, { keepTerminal }) {
+  const holder = layoutHolder;
+  if (!holder) return null;
   let layout = reconcile(stored.layout, buildableKeys(stored.layout));
-  if (!layout) return false;
-  if (!keysOf(layout).includes(PANEL_TERMINAL)) {
+  if (!layout) return null;
+  if (keepTerminal && !keysOf(layout).includes(PANEL_TERMINAL)) {
     layout = reopenTerminal(layout, holder.dock()).layout;
   }
   const previous = restoredPanels;
   restoredPanels = { ...stored.panels };
   if (applyHeld(layout)) return true;
   restoredPanels = previous;
-  forgetStored();
   return false;
+}
+
+/** True while {@link applyDock} applies. @type {boolean} */
+let sessionApply = false;
+
+/**
+ * The arrangement on screen in the stored form — what a session keeps as its
+ * layout (session-layout.js). Null before the dock exists.
+ * @returns {StoredDock|null}
+ */
+export function currentDock() {
+  return dockApi ? storedValue() : null;
+}
+
+/**
+ * Apply a session's stored arrangement live, as it was left: panels the dock
+ * cannot build any more are dropped, and an Agent pane the session had closed
+ * stays closed. False (nothing changes) for a value that is not a stored dock
+ * or has nothing left to show.
+ * @param {any} value
+ * @returns {boolean}
+ */
+export function applyDock(value) {
+  if (!dockApi || !value || typeof value !== 'object' || value.version !== STORE_VERSION) {
+    return false;
+  }
+  const panels = value.panels && typeof value.panels === 'object' ? value.panels : {};
+  sessionApply = true;
+  try {
+    return applyRepaired({ layout: value.layout, panels }, { keepTerminal: false }) === true;
+  } finally {
+    sessionApply = false;
+  }
+}
+
+/**
+ * Whether the apply under way is a session's own layout. The iframe adapter
+ * hands it to panel-manager's settle: a dock a session left with no service
+ * tile stays that way,
+ * where a reset fills the slot again.
+ * @returns {boolean}
+ */
+export function applyingSessionLayout() {
+  return sessionApply;
 }
 
 /** Drop the stored value, so the next reload starts from the default. */

@@ -67,7 +67,7 @@
  * export for the exact signature its consumer wires against.
  */
 
-import { getDockApi, setServiceRedock } from './dock-workspace.js';
+import { applyingSessionLayout, getDockApi, setServiceRedock } from './dock-workspace.js';
 import { setDragShield } from './dock-drop.js';
 import {
   PLACEHOLDER_COMPONENT,
@@ -270,14 +270,15 @@ function concealEntry(entry) {
  * stored-layout restore): orphaned placeholders leave the layout, geometry is
  * re-synced — which shows every managed panel the applied layout docks and
  * conceals every one it lacks — and panel-manager's placeholders-applied
- * handler runs. Registered with dock-workspace's setServiceRedock.
+ * handler runs, told whether the layout is a session's own (`asLeft`).
+ * Registered with dock-workspace's setServiceRedock.
  */
 function reconcilePlaceholders() {
   const api = getDockApi();
   if (!api || !overlayEl) return;
   pruneOrphanPlaceholders();
   syncGeometry();
-  placeholdersAppliedHandler?.();
+  placeholdersAppliedHandler?.({ asLeft: applyingSessionLayout() });
 }
 
 /**
@@ -287,11 +288,11 @@ function reconcilePlaceholders() {
  * that was open, but only the landing panel's activation creates an iframe;
  * without this the other restored tiles would stay empty cards until their
  * sidebar rows are clicked.
- * @type {(() => void) | null}
+ * @type {((options: { asLeft: boolean }) => void) | null}
  */
 let placeholdersAppliedHandler = null;
 
-/** @param {(() => void) | null} fn */
+/** @param {((options: { asLeft: boolean }) => void) | null} fn */
 export function setPlaceholdersAppliedHandler(fn) {
   placeholdersAppliedHandler = fn;
 }
