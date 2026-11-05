@@ -14,18 +14,12 @@ explains how it fits with the other checks. It is off until you turn it on.
 Turn it on
 ==========
 
-Add the section to your profile. The two hooks have to be in the ``hooks:`` list as well;
-``osprey build`` refuses to turn code review on without them:
+Add the ``code_review`` section under ``config:`` in your profile. The two hooks have to
+be in the top-level ``hooks:`` list as well; ``osprey build`` refuses to turn code review
+on without them:
 
-.. code-block:: yaml
-
-   code_review:
-     enabled: true
-     level: block          # stop unsafe code; `flag` only reports it
-
-   hooks:
-     - code-review         # reviews the notebook cells the agent writes
-     - memory-guard        # keeps those edits inside the agent-data root
+.. literalinclude:: examples/profiles/code-review.yml
+   :language: yaml
 
 Run ``osprey build`` and reload the session. The reviewer uses the same model and provider
 as the OSPREY agent and needs no setup of its own.
