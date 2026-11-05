@@ -653,7 +653,9 @@ no history page; each terminal still shows its own past sessions.
 
 Who sees what is decided per person, from the roster, every time a page loads.
 In ``profile.yml``, the roster goes under ``config:`` and ``agent_record:`` is a
-top-level key:
+top-level key. Merge these keys into the ``modules.web_terminals:`` and
+``agent_record:`` entries already there; a second copy of either key silently
+replaces the first.
 
 .. code-block:: yaml
 

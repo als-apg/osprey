@@ -218,16 +218,23 @@ def test_every_theme_value_a_page_writes_is_a_theme_or_family(page: Path) -> Non
 
 
 def _lint_codes() -> set[str]:
-    codes: set[str] = set()
-    for root in ("deployment", "cli"):
-        for path in sorted((_SRC / root).rglob("*.py")):
-            codes |= set(re.findall(r"[\"'](web_terminals\.[a-z_]+)[\"']", path.read_text("utf-8")))
-    return codes
+    """The codes the web-terminals lint reports.
+
+    Its own findings are the ``code="web_terminals.<code>"`` sites in
+    ``lint.py``; the roster checks it reports are the code strings in
+    ``roster.py``.
+    """
+    pkg = _SRC / "deployment" / "web_terminals"
+    lint = (pkg / "lint.py").read_text(encoding="utf-8")
+    roster = (pkg / "roster.py").read_text(encoding="utf-8")
+    return set(re.findall(r'code="(web_terminals\.[a-z_]+)"', lint)) | set(
+        re.findall(r'"(web_terminals\.[a-z_]+)"', roster)
+    )
 
 
 @pytest.mark.parametrize("page", [_LOGIN, _MULTI_USER], ids=lambda p: p.name)
 def test_every_lint_code_a_page_names_is_one_the_lint_emits(page: Path) -> None:
-    """A quoted ``web_terminals.<code>`` is a code the lint or a build gate reports.
+    """A quoted ``web_terminals.<code>`` is a code the web-terminals lint reports.
 
     Config keys on these pages are spelled from ``modules.``, so a literal that
     starts at ``web_terminals.`` is a finding code.
@@ -273,3 +280,25 @@ def test_the_subset_check_catches_a_value_the_preset_does_not_set() -> None:
     assert not _is_subset({"auth": {"method": "oidc"}}, preset)
     assert not _is_subset({"auth": {"method": "password", "port": 1}}, preset)
     assert not _is_subset({"users": [{"name": "alice"}, {"name": "bob"}]}, preset)
+
+
+_NESTED_MODULES = re.compile(r"^modules:\n +web_terminals:", re.MULTILINE)
+
+
+@pytest.mark.parametrize("page", [_LOGIN, _THEMING, _MULTI_USER], ids=lambda p: p.name)
+def test_profile_snippets_spell_modules_web_terminals_as_one_key(page: Path) -> None:
+    """No profile snippet nests ``web_terminals:`` under ``modules:``.
+
+    Under ``config:`` in ``profile.yml`` a nested ``modules:`` replaces the whole
+    rendered ``modules`` subtree. The two multi-user blocks that show the built
+    ``config.yml`` are nested on purpose and are exempt by content: the
+    "Switching it on" excerpt and the registry worked example.
+    """
+    exempt = ("# osprey up builds the images itself", "url: registry.example.org/")
+    nested = [
+        body.splitlines()[0:3]
+        for body in _blocks(page, "yaml")
+        if _NESTED_MODULES.search(body) and not any(mark in body for mark in exempt)
+    ]
+
+    assert nested == []
