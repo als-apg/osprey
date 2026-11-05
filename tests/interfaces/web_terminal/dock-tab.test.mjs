@@ -78,21 +78,29 @@ function detachedTerminalHeader() {
   card.className = 'terminal-card';
   const header = document.createElement('div');
   header.className = 'terminal-header';
-  const sel = document.createElement('select');
-  sel.id = 'session-selector';
-  header.appendChild(sel);
+  // The session switcher's label, as attachSessionSwitcher marks it: a
+  // keyboard-reachable button that opens the switcher popover.
+  const label = document.createElement('span');
+  label.className = 'terminal-label';
+  label.id = 'terminal-label';
+  label.setAttribute('role', 'button');
+  label.setAttribute('aria-label', 'Switch session');
+  header.appendChild(label);
   card.appendChild(header);
   return header;
 }
 
 /**
  * The chat console's Agent bar as the page has it before the dock adopts it:
- * built by chat-console.js, with the bell and Export the feature modules add
- * and the ⋯ chat.js appends last, inside a detached console container.
+ * built by chat-console.js, with the bell and Export the feature modules add,
+ * and its label marked as the session switcher's button the way
+ * attachSessionSwitcher marks it, inside a detached console container.
  * @returns {HTMLElement}
  */
 function detachedConsoleBar() {
-  const { bar, moreBtn } = buildConsole();
+  const { bar, label: switcher } = buildConsole();
+  switcher.setAttribute('role', 'button');
+  switcher.setAttribute('aria-label', 'Switch session');
   for (const [cls, label] of [
     ['op-attention-toggle', 'Desktop notifications'],
     ['op-export', 'Export'],
@@ -102,7 +110,6 @@ function detachedConsoleBar() {
     btn.setAttribute('aria-label', label);
     bar.append(btn);
   }
-  bar.append(moreBtn);
   document.createElement('div').append(bar);
   return bar;
 }
@@ -344,7 +351,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: dot, Agent, pen, bell, share, more, close', async () => {
+    test('the chat adopts the console bar: dot, session switcher, pen, bell, share, close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -364,11 +371,10 @@ describe('tile-tab renderer', () => {
       );
       expect(parts).toEqual([
         '',
-        'Agent',
+        'Switch session',
         'New conversation',
         'Desktop notifications',
         'Export',
-        'Earlier conversations',
         'Close Agent pane',
       ]);
     });
@@ -452,7 +458,7 @@ describe('tile-tab renderer', () => {
       tab.element.addEventListener('pointerdown', reachedRoot);
 
       tab.element
-        .querySelector('#session-selector')
+        .querySelector('#terminal-label')
         .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
       expect(reachedRoot).not.toHaveBeenCalled(); // contained — no tile drag
 
@@ -462,7 +468,7 @@ describe('tile-tab renderer', () => {
       expect(reachedRoot).toHaveBeenCalledTimes(1); // plain surface drags
     });
 
-    test("the console bar's buttons act instead of dragging; its plain surface drags", async () => {
+    test("the console bar's buttons and session switcher act instead of dragging; its plain surface drags", async () => {
       const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
       document.documentElement.removeAttribute('data-agent-surface');
       const bar = detachedConsoleBar();
@@ -480,6 +486,8 @@ describe('tile-tab renderer', () => {
       /** @type {HTMLElement} */ (bar.querySelector('.op-session-label')).dispatchEvent(
         new MouseEvent('pointerdown', { bubbles: true, cancelable: true })
       );
+      expect(reachedRoot).not.toHaveBeenCalled(); // the switcher label is a button
+      bar.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
       expect(reachedRoot).toHaveBeenCalledTimes(1);
     });
   });
@@ -603,16 +611,14 @@ describe('tile header context menu', () => {
     );
     expect(handler).toHaveBeenCalledTimes(1);
 
-    // The terminal bar's adopted header applies the same rule to its selector.
+    // The terminal bar's adopted header applies the same rule to its session switcher.
     const header = detachedTerminalHeader();
     setTerminalHeaderSource(header);
     const terminal = createTileTab('terminal');
     terminal.init({ title: 'Agent', params: {}, api: fakeApi() });
     document.body.appendChild(terminal.element);
     const onSelector = rightClick();
-    /** @type {HTMLElement} */ (header.querySelector('#session-selector')).dispatchEvent(
-      onSelector
-    );
+    /** @type {HTMLElement} */ (header.querySelector('#terminal-label')).dispatchEvent(onSelector);
     expect(handler).toHaveBeenCalledTimes(1);
     expect(onSelector.defaultPrevented).toBe(false);
   });
@@ -676,7 +682,8 @@ describe('tile header context menu', () => {
     tab.init({ title: 'Agent', params: {}, api: fakeApi() });
     document.body.appendChild(tab.element);
 
-    /** @type {HTMLElement} */ (bar.querySelector('.op-session-label')).dispatchEvent(rightClick());
+    // The bar's plain surface — the switcher label is a button and keeps its own click.
+    bar.dispatchEvent(rightClick());
     expect(handler).toHaveBeenCalledTimes(1);
     const { id, opts } = firstCall(handler);
     expect(id).toBe('terminal');

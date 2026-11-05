@@ -1296,7 +1296,7 @@ describe('renderChatBootFailure', () => {
 });
 
 describe('the Agent bar', () => {
-  test('reads dot, Agent, New conversation, bell, Export, then the ⋯', async () => {
+  test('reads dot, the session switcher, New conversation, bell, Export — no ⋯', async () => {
     await mountChat();
     const bar = /** @type {HTMLElement} */ (one('.op-session-bar'));
     const parts = [...bar.children].map(
@@ -1304,24 +1304,12 @@ describe('the Agent bar', () => {
     );
     expect(parts).toEqual([
       '',
-      'Agent',
+      'Switch session',
       'New conversation',
       'Desktop notifications',
       'Export',
-      'Earlier conversations',
     ]);
-  });
-
-  test('the ⋯ opens the earlier conversations menu', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sessions: [] }) }))
-    );
-    await mountChat();
-    /** @type {HTMLButtonElement} */ (one('.op-session-more')).click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const menu = /** @type {HTMLElement} */ (document.getElementById('agent-conversations-menu'));
-    expect(menu.hidden).toBe(false);
-    vi.unstubAllGlobals();
+    expect(bar.querySelector('.op-session-more')).toBeNull();
+    expect(document.getElementById('agent-conversations-menu')).toBeNull();
   });
 });
