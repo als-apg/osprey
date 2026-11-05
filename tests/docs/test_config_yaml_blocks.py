@@ -38,12 +38,19 @@ what the manifest cannot see: a category's ``checks:`` are the facility's own
 data, so leaves under ``health.categories.<name>`` are checked by the parser,
 not the ledger.
 
-A Jinja template (a block carrying ``{{`` or ``{%``) is skipped. Any other
-block that is not configuration (a facility file, ``providers.yml``, a trigger
-file) is listed in :data:`_NOT_CONFIG` with the file it belongs to; a key the manifest cannot
-declare is listed in :data:`_UNDECLARED` with its reason. Both are keyed by
-page and content (a block's ``:caption:`` or first line) rather than by line number, so an edit elsewhere on a page
-does not move an entry, and both are held empty of stale entries.
+A block that belongs to another file is recognised by its content and
+skipped (:func:`_other_file`): a Jinja template (it carries a ``{{ name`` or ``{%``);
+a list, which no config file or profile is; a mapping keyed by channel
+address whose entries are seeds, as ``seeds.yaml`` is; or a mapping whose
+roots are all root keys of one other file and not all config or profile keys.
+Those root sets come from the files' own schemas and loaders (the facility
+schema ``facility/schema/core.yaml``, the MML mapping loader, the bluesky
+device file, ``providers.yml``, the trigger loader), not from the pages. A
+block that shows the inside of one config section (``oidc:``, ``shared:``) is
+checked under that section (:func:`_fragment_parent`). A block no rule places is listed in :data:`_NOT_CONFIG`; a key the manifest
+cannot declare is listed in :data:`_UNDECLARED` with its reason. Both are keyed
+by page and content (a block's ``:caption:`` or first line) rather than by
+line number, and both are held empty of stale entries.
 """
 
 from __future__ import annotations
@@ -73,7 +80,13 @@ from osprey.cli.build_profile_load import (
     _KNOWN_VA_KEYS,
 )
 from osprey.cli.build_profile_schema import ServiceDef
+from osprey.facility.layers.mml.mapping import _TOP_OPTIONAL as _MML_TOP_OPTIONAL
+from osprey.facility.layers.mml.mapping import _TOP_REQUIRED as _MML_TOP_REQUIRED
 from osprey.health.config import parse_health_config
+from osprey.profiles.providers import _PROVIDERS_KEY
+from osprey.services.bluesky_bridge.devices._specs_from_file import (
+    ACCEPTED_KEYS as _BLUESKY_DEVICE_KEYS,
+)
 from osprey.services.watchdog.config import _AGENT_KEYS as _WATCHDOG_AGENT_KEYS
 from osprey.services.watchdog.config import _COMMON_KEYS as _WATCHDOG_COMMON_KEYS
 from osprey.services.watchdog.config import _DECISION_KEYS as _WATCHDOG_DECISION_KEYS
@@ -83,6 +96,8 @@ from tests.docs.test_connector_config_examples import _declared_spelling, _leave
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS = REPO_ROOT / "docs/source"
 MANIFEST = REPO_ROOT / "src/osprey/profiles/config_key_manifest.yml"
+_FACILITY_SCHEMA = REPO_ROOT / "src/osprey/facility/schema/core.yaml"
+_EXAMPLE_VOCABULARY = REPO_ROOT / "src/osprey/templates/facilities/example/ariel/vocabulary.yml"
 
 #: A YAML code block. Other directives (``literalinclude``) name files that
 #: their own tests read.
@@ -123,63 +138,19 @@ _BLOCK_KEYS: dict[str, frozenset[str]] = {
 _PARSED_ELSEWHERE = ("health.categories.",)
 
 #: Jinja markup: a block carrying it is a template (``docker-compose.yml.j2``).
-_JINJA = re.compile(r"\{\{|\{%")
+#: An expression opens on a name (``{{ services.x }}``, ``{{project_root}}``),
+#: so a ``str.format`` escape inside a prompt (``{{"keywords": ...}}``) is not one.
+_JINJA = re.compile(r"\{\{-?\s*[A-Za-z_]|\{%")
 
 #: A line that elides the rest of a list or mapping: ``...``.
 _ELISION = re.compile(r"^\s*\.\.\.\s*(#.*)?$", re.MULTILINE)
 
-_FACILITY = "a facility file under data/facility/, read by the facility loader"
-_PROVIDERS = "providers.yml, the provider catalog; its entries are data under api.providers"
-_TRIGGERS = "triggers.yml, read by the event-dispatch trigger loader"
-
-#: Blocks that are not ``config.yml`` or a build profile, keyed by
-#: ``(page, block name)`` (see :attr:`Block.name`), with the file they belong to.
+#: Blocks no content rule can place, keyed by ``(page, block name)`` (see
+#: :attr:`Block.name`), with the file they belong to.
 _NOT_CONFIG: dict[tuple[str, str], str] = {
-    ("getting-started/hello-world-tutorial.rst", "records:"): _FACILITY,
-    ("getting-started/hello-world-tutorial.rst", "- address: SR:MAG:CORR:01:CURRENT:SP"): _FACILITY,
-    ("how-to/agent-interfaces/event-dispatch.rst", "dispatcher:"): _TRIGGERS,
-    ("how-to/agent-interfaces/event-dispatch.rst", "triggers:"): _TRIGGERS,
-    ("how-to/ariel/picture-search.rst", "providers:"): _PROVIDERS,
-    (
-        "how-to/ariel/search-modes.rst",
-        "concepts:",
-    ): "an ARIEL concept file, read by the query expander",
-    ("how-to/bluesky/write-plans.rst", "build/data/bluesky_devices.yml"): (
-        "build/data/bluesky_devices.yml, the device file the queue server mounts"
-    ),
-    ("how-to/control-systems/use-virtual-accelerator.rst", "- name: <model>"): _FACILITY,
-    ("how-to/deploy-a-facility.rst", "code: ca"): _FACILITY,
     ("how-to/deploy-project/networking.rst", "services/site_api/docker-compose.yml.j2"): (
-        "a compose template, rendered by the build"
+        "a compose template with no Jinja markup, rendered by the build"
     ),
-    ("how-to/describe-your-facility.rst", "code: ca"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "- id: SR/SECT1"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "- id: SR:MAG:QF:01:CURRENT:SP"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "- class: Undulator"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "schema: osprey.facility.fixes/1"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "records:"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "SR:BEAM:CURRENT:"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "INJ:SEPTUM:PULSE:"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "SR:DIAG:DCCT:01:CURRENT:RB:"): _FACILITY,
-    ("how-to/describe-your-facility.rst", "- name: LINE"): _FACILITY,
-    (
-        "how-to/describe-your-facility.rst",
-        "kinds: [orm, dispersion, trm, crm, chromaticity_monitor]",
-    ): (_FACILITY),
-    ("how-to/import-mml-export.rst", "families:"): "an MML import mapping file",
-    ("how-to/import-mml-export.rst", "models:"): "an MML import mapping file",
-    ("how-to/llm-providers/configure-providers.rst", "providers:"): _PROVIDERS,
-    ("how-to/llm-providers/run-open-models.rst", "providers:"): _PROVIDERS,
-    ("how-to/run-scenarios.rst", "still:"): "a scenario file's channel selection",
-    ("reference/configuration/profile.rst", "providers:"): _PROVIDERS,
-}
-
-#: Blocks that show the inside of a config section, keyed by
-#: ``(page, block name)``, with the section they sit under.
-_FRAGMENTS: dict[tuple[str, str], str] = {
-    ("how-to/web-terminal/multi-user/login.rst", "oidc:"): "modules.web_terminals.auth",
-    ("how-to/web-terminal/multi-user/login.rst", "shared:"): "modules.web_terminals",
-    ("how-to/web-terminal/multi-user/login.rst", "landing:"): "modules.web_terminals",
 }
 
 #: Keys a block spells that no manifest entry can declare, keyed by
@@ -297,12 +268,31 @@ def _sections() -> frozenset[str]:
 def _parse(block: Block) -> Any:
     """The block as YAML, placeholders filled and elisions dropped."""
     text = _ELISION.sub("", _PLACEHOLDER.sub("placeholder", block.text))
-    document = yaml.safe_load(text)
-    parent = _FRAGMENTS.get((block.page, block.name))
-    if parent is not None:
-        for key in reversed(parent.split(".")):
-            document = {key: document}
-    return document
+    return yaml.safe_load(text)
+
+
+def _fragment_parent(document: Mapping[str, Any]) -> str | None:
+    """The one config section *document* is the inside of, or ``None``.
+
+    A block like ``oidc: {issuer: ...}`` shows keys below a section rather than
+    from the top. It belongs under a declared path ``P`` when every root ``r`` is
+    a declared key (or a declared key's parent) ``P.r``; with exactly one such
+    ``P`` the block is checked as if written there, and a misspelled root, which
+    names no declared ``P.r``, has no parent and fails.
+    """
+    roots = {str(root) for root in document}
+    if any(root.split(".")[0] in _sections() | _KNOWN_PROFILE_KEYS for root in roots):
+        return None
+    parents: set[str] | None = None
+    for root in roots:
+        found = set()
+        for key in _manifest()[0]:
+            parts = key.split(".")
+            found |= {".".join(parts[:i]) for i in range(1, len(parts)) if parts[i] == root}
+        parents = found if parents is None else parents & found
+    if parents is None or len(parents) != 1:
+        return None
+    return parents.pop()
 
 
 def _config_problems(page: str, document: Mapping[str, Any]) -> list[str]:
@@ -360,6 +350,56 @@ def _profile_problems(page: str, document: Mapping[str, Any]) -> list[str]:
     return problems
 
 
+@lru_cache(maxsize=1)
+def _other_file_roots() -> tuple[tuple[str, frozenset[str]], ...]:
+    """``(file, root keys)`` for each non-config file the docs show, from its own schema."""
+    schema = yaml.safe_load(_FACILITY_SCHEMA.read_text(encoding="utf-8"))["classes"]
+
+    def attributes(name: str) -> frozenset[str]:
+        return frozenset(schema[name]["attributes"])
+
+    vocabulary = yaml.safe_load(_EXAMPLE_VOCABULARY.read_text(encoding="utf-8"))
+    return (
+        ("data/facility/identity.yaml", attributes("Identity")),
+        ("data/facility/limits.yaml", attributes("Limits")),
+        ("data/facility/measurement/<model>.yaml", attributes("Measurement")),
+        ("a scenario under data/facility/scenarios/", attributes("Scenario")),
+        # Read by facility/combine.py: the header and the list of fixes.
+        ("data/facility/fixes.yaml", frozenset({"schema", "fixes"})),
+        ("the MML import mapping", _MML_TOP_REQUIRED | _MML_TOP_OPTIONAL),
+        ("build/data/bluesky_devices.yml", frozenset(_BLUESKY_DEVICE_KEYS)),
+        ("an ARIEL vocabulary file", frozenset(vocabulary)),
+        ("providers.yml", frozenset({_PROVIDERS_KEY})),
+        # load_triggers reads exactly these two keys.
+        ("triggers.yml", frozenset({"dispatcher", "triggers"})),
+    )
+
+
+def _other_file(document: Any) -> str | None:
+    """The file *document* belongs to when it is not config or a profile, else ``None``."""
+    if isinstance(document, list):
+        return "a list: a facility record file, which no config file or profile is"
+    if not isinstance(document, Mapping) or not document:
+        return None
+    roots = {str(root) for root in document}
+    if all(":" in root for root in roots):
+        seed_keys = frozenset(
+            yaml.safe_load(_FACILITY_SCHEMA.read_text(encoding="utf-8"))["classes"]["Seed"][
+                "attributes"
+            ]
+        )
+        if all(isinstance(seed, Mapping) and set(seed) <= seed_keys for seed in document.values()):
+            return "data/facility/seeds.yaml: seeds keyed by channel address"
+        return None
+    known = _sections() | _KNOWN_PROFILE_KEYS
+    if all(root.split(".")[0] in known for root in roots):
+        return None
+    for name, file_roots in _other_file_roots():
+        if roots <= file_roots:
+            return name
+    return None
+
+
 def _problems(block: Block) -> list[str]:
     """Why *block* is not configuration the code reads; empty when it is."""
     try:
@@ -368,6 +408,10 @@ def _problems(block: Block) -> list[str]:
         return [f"does not parse: {str(error).splitlines()[0]}"]
     if not isinstance(document, Mapping) or not document:
         return [f"is a {type(document).__name__}, not a config mapping"]
+    parent = _fragment_parent(document)
+    if parent is not None:
+        for key in reversed(parent.split(".")):
+            document = {key: document}
     roots = {str(root) for root in document}
     sections = _sections()
     # A dotted root (``web.panels.events.url:``) is a line of a ``config:`` block.
@@ -395,8 +439,17 @@ def _checked() -> list[Block]:
     return [
         block
         for block in _all_blocks()
-        if (block.page, block.name) not in _NOT_CONFIG and not block.is_template
+        if (block.page, block.name) not in _NOT_CONFIG
+        and not block.is_template
+        and _other_file(_parsed_or_none(block)) is None
     ]
+
+
+def _parsed_or_none(block: Block) -> Any:
+    try:
+        return _parse(block)
+    except yaml.YAMLError:
+        return None
 
 
 @pytest.mark.parametrize("block", _checked(), ids=lambda block: block.where)
@@ -410,10 +463,27 @@ def test_the_pages_have_yaml_blocks() -> None:
     assert len(_checked()) > 100
 
 
-def test_every_not_config_and_fragment_entry_names_a_block() -> None:
+def test_every_not_config_entry_names_a_block() -> None:
     present = {(block.page, block.name) for block in _all_blocks()}
     assert sorted(set(_NOT_CONFIG) - present) == []
-    assert sorted(set(_FRAGMENTS) - present) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "parent"),
+    [
+        ("oidc:\n  issuer: https://sso\n", "modules.web_terminals.auth"),
+        ("shared:\n  - logbook\n", "modules.web_terminals"),
+        ("landing:\n  groups: []\n", "modules.web_terminals"),
+        ("oidcc:\n  issuer: https://sso\n", None),
+    ],
+)
+def test_a_fragment_is_checked_under_its_one_section(text: str, parent: str | None) -> None:
+    assert _fragment_parent(_parse(Block("fake.rst", 1, text))) == parent
+
+
+def test_a_misspelled_key_in_a_fragment_fails() -> None:
+    [problem] = _problems(Block("fake.rst", 1, "oidc:\n  isuer: https://sso\n"))
+    assert problem == "modules.web_terminals.auth.oidc.isuer is not a key the code reads"
 
 
 def test_every_undeclared_entry_is_still_spelled() -> None:
@@ -507,3 +577,45 @@ def test_a_jinja_template_is_not_checked() -> None:
     template = Block("p.rst", 1, "services:\n  db:\n    image: {{ services.db.image }}\n")
     assert template.is_template
     assert not Block("p.rst", 1, "web:\n  theme: dark\n").is_template
+    prompt = 'ariel:\n  prompt_template: |\n    {{"keywords": []}}\n'
+    assert not Block("p.rst", 1, prompt).is_template
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("code: ca\nname: Demo\n", "data/facility/identity.yaml"),
+        ("records:\n  - address: X\n", "data/facility/limits.yaml"),
+        ("SR:BEAM:CURRENT:\n  nominal: 400\n", "data/facility/seeds.yaml"),
+        ("triggers:\n  - name: t\n", "triggers.yml"),
+        ("providers:\n  local: {}\n", "providers.yml"),
+        ("- id: SR\n", "a list"),
+        ("SR:BEAM:CURRENT:\n  nominl: 400\n", None),
+        ("name: demo\nconfig:\n  web.theme: dark\n", None),
+        ("contrl_system:\n  type: epics\n", None),
+        ("name: Demo\n", None),
+    ],
+)
+def test_another_files_block_is_told_by_its_content(text: str, expected: str | None) -> None:
+    """Facility, provider and trigger files are recognised by their own schemas' keys."""
+    found = _other_file(_parse(Block("fake.rst", 1, text)))
+    if expected is None:
+        assert found is None
+    else:
+        assert found is not None and found.startswith(expected)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "name: demo\nconfig:\n  ariel.ingestion.adaptr: x\n",
+        "name: demo\nextends: control-assistant\nconfig:\n  modules.web_terminals.tls.enabeld: true\n",
+        "config:\n  health:\n    titel: Beamline\n",
+    ],
+)
+def test_a_misspelled_key_in_a_profile_config_block_still_fails(text: str) -> None:
+    """No content rule takes a profile with a ``config:`` block out of the check."""
+    block = Block("fake.rst", 1, text)
+    assert _other_file(_parse(block)) is None
+    [problem] = _problems(block)
+    assert problem.startswith("config: ") and "is not a key the code reads" in problem
