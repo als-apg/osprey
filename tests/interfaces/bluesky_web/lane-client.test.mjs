@@ -21,6 +21,7 @@ import {
   LANE_QUERY_PARAM,
   laneIsKnown,
   laneLabel,
+  laneOptions,
   laneSearch,
   parseLaneRoster,
   resolveLaneFromSearch,
@@ -124,6 +125,29 @@ describe('laneLabel', () => {
 
   test('a target-less entry falls back to the service key, never blank', () => {
     expect(laneLabel({ lane: 'bluesky', laneTarget: null })).toBe('bluesky');
+  });
+});
+
+describe('laneOptions', () => {
+  test('one option per lane, labelled by its target, the document’s own lane selected', () => {
+    expect(laneOptions(TWO_LANES, 'bluesky_va')).toEqual([
+      { value: 'bluesky', label: 'live', selected: false, disabled: false },
+      { value: 'bluesky_va', label: 'va', selected: true, disabled: false },
+    ]);
+  });
+
+  test('an unknown lane leads, selected and disabled: named, never rerouted', () => {
+    // The picker still says where the panel points; every other option is a
+    // way out, and none of them is picked for the operator.
+    const options = laneOptions(TWO_LANES, 'bluesky_gone');
+    expect(options[0]).toEqual({
+      value: 'bluesky_gone',
+      label: 'bluesky_gone (not rendered)',
+      selected: true,
+      disabled: true,
+    });
+    expect(options.slice(1).some((option) => option.selected)).toBe(false);
+    expect(options.slice(1).map((option) => option.value)).toEqual(['bluesky', 'bluesky_va']);
   });
 });
 

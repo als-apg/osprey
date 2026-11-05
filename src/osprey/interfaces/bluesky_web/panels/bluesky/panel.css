@@ -11,9 +11,9 @@
  * that moves (its progress bar); the results view pairs the raw table with the
  * run's figure.
  *
- * Layout, outside in: the panel chrome, then the view switcher, then the
- * persistent status strip (queue state + the two halts — on screen for every
- * view), then exactly one of the three view containers.
+ * Layout, outside in: the panel toolbar (the view switcher, then the queue
+ * chip and the two halts — on screen for every view), the notes the halts and
+ * the queue writes raise under it, then exactly one of the three views.
  */
 
 /* Several containers below carry `display: flex/grid`, which would otherwise
@@ -27,7 +27,6 @@
 
 body {
   margin: 0;
-  padding: 0;
   font-family: var(--font-display);
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -44,8 +43,8 @@ body {
  * clipped and unreachable. A fixed height keeps the column at the viewport and
  * hands the overflow to `.view-scroll`, where it belongs.
  *
- * The body has no padding (the host frame supplies its own gutter), so the
- * column is a full viewport. */
+ * The body has no padding: the toolbar is the panel's top edge, and each view
+ * carries its own inset. */
 .panel {
   display: flex;
   flex-direction: column;
@@ -57,152 +56,138 @@ body {
   color: var(--text-muted);
 }
 
-/* ---- Queue control strip ----
+/* ---- Panel toolbar ----
  *
- * Queue state plus Start · Stop · Abort, on screen for EVERY view. Nothing here is ever contributed to the tile bar: a halt that
- * disappears with the chrome is not a halt. Which buttons SHOW is decided per tab in queue-view.js
- * (stripControls): the Queue tab is the control panel and shows them all; the
- * other tabs show a dormant queue as its badge alone. */
-.status-strip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-default);
-}
-.status-strip-spacer { flex: 1 1 auto; }
-.strip-kicker {
+ * The row itself is the design system's `.osprey-panel-toolbar`
+ * (primitives.css): the sidebar toggle and the Plans | Queue | Results
+ * switcher at its start, the queue's controls at its end. Nothing here is
+ * contributed to the tile bar: a halt that disappears with the chrome is not a
+ * halt. Which controls SHOW is
+ * decided per view in queue-view.js (stripControls): the Queue view is the
+ * control panel and shows them all; the other views show a dormant queue as
+ * its chip alone. */
+
+.toolbar-kicker {
+  flex: none;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
-/* On the Queue tab the strip IS the control panel: a filled band, so the row
-   of verbs reads as one instrument rather than a status line with buttons
-   appended. `#panel-root[data-view]` is stamped by panel.js on every switch. */
-#panel-root[data-view="queue"] .status-strip {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  padding: 10px 14px;
-  box-shadow: var(--shadow-panel);
-  /* The same reading measure as the Queue view's cards (.view-scroll), so the
-     panel sits as the first card of that column rather than as a full-width
-     band above a narrower stack. */
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 900px;
-  margin-left: auto;
-  margin-right: auto;
-}
-/* The verbs share one compact width, so the row reads as one instrument and
-   no label swap (Abort's and Clear's "Confirm") resizes its neighbour. The
-   floor is the longest label any of them shows at rest or armed — see the
-   `#abort-btn` note below for why that number is load-bearing. Stop's
-   withdrawal label is the one exception and is allowed to grow: Stop is
-   inboard of Abort, so its width moves nothing but itself. */
-.status-strip .btn {
-  box-sizing: content-box;
-  min-width: 7ch;
-  padding: 6px 12px;
-  text-align: center;
-}
-/* The halts while the panel affirmatively knows nothing is moving: quiet, so
-   the row shows which verbs have a job right now — but never disabled, and
-   never hidden on the Queue tab. A greyed halt is still a halt (see
-   queueControls / abortControl for why the two have no disabled state). */
-.status-strip .btn.halt-idle {
-  color: var(--text-secondary);
-  background: transparent;
-  border-color: var(--border-default);
-}
-.status-strip .btn.halt-idle:hover,
-.status-strip .btn.halt-idle:focus-visible {
-  color: var(--text-primary);
-  background: var(--neutral-tint-08);
-}
-.strip-divider {
-  width: 1px;
-  height: 22px;
-  background: var(--border-default);
-  margin: 0 2px;
-}
-/* The "?" beside the badge is the design system's shared info tip
-   (`.osprey-info` / `.osprey-tip` in base.css); nothing here restates it. */
 
-/* ---- Plan-lane picker ----
- * Hidden unless the deployment renders more than one plan lane (panel.js).
- * A segmented group rather than tabs: it sits inside the status strip and
- * names WHICH MACHINE this panel is pointed at, so the current lane reads as
- * a held-down state (`aria-pressed`), not as navigation chrome. Clicking the
- * other lane navigates to a fresh document — see lane-client.js. */
-.lane-strip {
-  display: inline-flex;
+/* The plan-lane picker: which machine this panel drives, shown with more
+   than one lane. It never shrinks or folds: it is safety-bearing context for
+   the chip and the two halts beside it. Picking another lane navigates to a
+   fresh document — see lane-client.js. */
+.lane-select {
+  flex: none;
+  height: 28px;
+  max-width: 16ch;
+  padding: 0 var(--space-2);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-.lane-tab {
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
-  padding: 4px 10px;
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.lane-tab + .lane-tab { border-left: 1px solid var(--border-default); }
-.lane-tab:hover { color: var(--text-primary); }
-.lane-tab.active {
-  color: var(--color-accent-light);
-  background: var(--bg-inset, transparent);
-  cursor: default;
-}
-.lane-tab:focus-visible {
-  outline: none;
+  background: var(--surface-well);
   color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+.lane-select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
-/* WIDTH FLOORS on the two halt buttons. The strip is a right-anchored cluster
- * (leading spacer), so a member's position depends only on the widths of the
- * members AFTER it — which makes the rightmost button, Abort, the thing that
- * positions Stop. Both buttons swap labels at runtime (arming, and the
- * stop-pending withdrawal), and every one of those swaps used to drag Stop
- * sideways under the operator's cursor at the exact moment they are choosing
- * between the two halts. Worse, the armed Abort then covered most of the
- * pixels Stop had just vacated, so a click aimed at Stop committed the abort —
- * the confirm gate defeating itself geometrically.
+/* A narrow panel drops the kicker first, and tightens the switcher; past
+   that the chip's label truncates (the end shrinks first). The halts and the
+   lane picker keep their size: they never fold. */
+@container panel (max-width: 560px) {
+  .toolbar-kicker {
+    display: none;
+  }
+  #view-switch > button {
+    padding: 0 var(--space-2);
+  }
+}
+
+/* The halts: raised while anything moves or is in doubt, and quiet
+   (`halt-idle`) while the panel affirmatively knows nothing is moving — a
+   visual weight, never a gate: both stay live (see queueControls /
+   abortControl for why the two have no disabled state). */
+#stop-btn,
+#abort-btn {
+  background: var(--surface-card);
+  border-color: var(--border-default);
+}
+#stop-btn:hover,
+#abort-btn:hover {
+  background: var(--surface-hover);
+}
+#stop-btn.halt-idle,
+#abort-btn.halt-idle {
+  background: none;
+  border-color: var(--surface-hairline);
+}
+#stop-btn.halt-idle {
+  color: var(--text-secondary);
+}
+#stop-btn.halt-idle:hover,
+#abort-btn.halt-idle:hover {
+  background: var(--surface-hover);
+}
+
+/* Abort keeps the danger colour on its label at rest and when quiet, so it is
+ * never read as Stop.
+ *
+ * And a WIDTH FLOOR. The toolbar's end is a right-anchored cluster, so a
+ * member's position depends only on the widths of the members AFTER it — which
+ * makes Abort, the rightmost halt, the thing that positions Stop. Both buttons
+ * swap labels at runtime (arming, and the stop-pending withdrawal), and every
+ * one of those swaps used to drag Stop sideways under the operator's cursor at
+ * the exact moment they are choosing between the two halts. Worse, the armed
+ * Abort then covered most of the pixels Stop had just vacated, so a click
+ * aimed at Stop committed the abort — the confirm gate defeating itself
+ * geometrically.
  *
  * Only ABORT needs the floor. Stop is inboard of it, so Stop's own label swaps
- * (the stop-pending withdrawal, and its confirm) move Stop's left edge into
- * the spacer and nothing else. Abort is the one whose width is load-bearing
- * for a neighbour.
+ * (the stop-pending withdrawal, and its confirm) move Stop's left edge and
+ * nothing else. Abort is the one whose width is load-bearing for a neighbour.
  *
- * The floor is one `ch` per character of the LONGER of its two labels, the
- * armed 'Confirm abort'. `ch` is the "0" advance, comfortably wider than the
- * mean glyph advance of this Latin string in a proportional face, so the
- * floor clears the text without anyone measuring a pixel — slack in the box
- * rather than a number that goes stale when the type changes. Both labels fit
- * inside it, so the box never changes size in either direction. */
+ * The floor is one `ch` per character of the LONGER of its two labels, plus
+ * the button's own padding and border. `ch` is the "0" advance, comfortably
+ * wider than the mean glyph advance of this Latin string in a proportional
+ * face, so the floor clears the text without anyone measuring a pixel — slack
+ * in the box rather than a number that goes stale when the type changes. Both
+ * labels fit inside it, so the box never changes size in either direction. */
 #abort-btn {
-  box-sizing: content-box;
-  min-width: 7ch; /* 'Confirm' — the armed label (queue-client.js) */
-  text-align: center;
+  color: var(--color-error);
+  /* 'Confirm' — the armed label (queue-client.js) — inside the padding. */
+  min-width: calc(7ch + 2 * var(--space-3) + 2px);
+  justify-content: center;
 }
 
-/* The body has no padding so the scrolling views can meet the tile edges, but
-   this strip is a fixed header band, not scrolling content, and carries its own
-   inset. */
-.status-strip {
-  padding-top: 10px;
-  padding-left: 14px;
-  padding-right: 14px;
+/* Armed — the next click commits (the stop withdrawal, the abort, and the
+   Confirm of a Clear's note): the caution colour, whatever the resting look. */
+.osprey-btn.confirm,
+#stop-btn.confirm,
+#abort-btn.confirm {
+  background: var(--color-accent-secondary);
+  border-color: transparent;
+  color: var(--color-on-accent);
+}
+.osprey-btn.confirm:hover,
+#stop-btn.confirm:hover,
+#abort-btn.confirm:hover {
+  background: var(--color-accent-secondary-hover);
+}
+
+/* The notes the halts and the queue writes raise, under the toolbar. */
+.panel-notes {
+  padding: 0 var(--space-3);
+}
+.panel-notes > .queue-note,
+.panel-notes > .banner {
+  margin: var(--space-2) 0;
 }
 
 /* ---- View containers ---- */
@@ -216,15 +201,19 @@ body {
   display: flex;
   flex-direction: column;
 }
-/* Queue and Results are scrolling documents held to a reading measure. The
-   width is what keeps `#results-table` and the figure plots (both `min-width:
-   480px`) full-width rather than squeezed into a column. */
+/* Queue and Results are scrolling documents: the view scrolls edge to edge,
+   and its cards keep a reading measure. The width is what keeps
+   `#results-table` and the figure plots (both `min-width: 480px`) full-width
+   rather than squeezed into a column. */
 .view-scroll {
   display: block;
   overflow-y: auto;
-  width: 100%;
+  padding: var(--space-4);
+}
+.view-scroll > * {
   max-width: 900px;
-  margin: 0 auto;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* ---- Banners ---- */
@@ -279,28 +268,15 @@ body {
   background: var(--bg-panel);
   border-color: var(--border-default);
 }
-.btn.confirm {
-  background: var(--color-accent-secondary);
-  color: var(--color-on-accent);
-}
-.btn.confirm:hover:not(:disabled) {
-  background: var(--color-accent-secondary-hover);
-}
-/* The Plans footer's pair sits alone at the bottom of a wide pane and carries
-   the roomier padding it always had; the strip's and the Queue view's buttons
-   sit in dense rows and keep the tighter base above. */
-.foot-actions .btn { padding: 8px 18px; }
-
 
 /* =========================================================================
    Plans view
    ========================================================================= */
 
-/* ---- Two-pane browser ---- */
-/* Two panes divided by a live splitter. No `gap` here: the 12px gutter is
-   made by the splitter's own margins (below), so the handle sits INSIDE the
-   gutter instead of adding a third column to it — the spacing reads exactly
-   as it did when this was a fixed grid. */
+/* ---- Two-pane browser ----
+   The panel sidebar (primitives.css, panel-sidebar.js) and the detail pane,
+   flush against each other with the shared splitter between them. In a
+   narrow tile the sidebar is an overlay over the detail pane instead. */
 .browser {
   flex: 1;
   min-height: 0;
@@ -308,51 +284,35 @@ body {
   display: flex;
 }
 
-/* No gutter: the panes sit flush and the splitter is the only thing between
-   them, so the grip pill reads as attached to the browser's edge rather than
-   floating in a gap. The same arrangement as every other two-pane surface in
-   the product — see design_system/css/base.css. */
-
-/* ---- Sidebar: dense file browser ---- */
-.sidebar {
-  /* Starting width; panel.js overrides flex-basis/max-width inline once the
-     operator drags the splitter, and restores that width on later loads. */
-  flex: 0 0 224px;
-  max-width: 224px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-height: 0;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
+/* ---- Sidebar: the plan filter, then a dense file browser ---- */
+/* The filter acts on this list only, so it sits at its top (DESIGN.md §12),
+   at the sidebar's full width. `[data-expanded]` in the markup keeps the
+   search field from folding to an icon in a narrow panel. */
+.plan-filter.osprey-search-field {
+  width: auto;
+  margin: var(--space-2);
 }
+
 .tree {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px;
+  padding: 0 var(--space-2) var(--space-2);
 }
-.sidebar-note {
-  padding: 10px;
-  margin: 0;
+/* Loading, no plans, no match: one centred state in the list's place. */
+.plan-list-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
-/* Provenance folders (native <details>/<summary>) */
+/* Provenance folders (native <details>/<summary>), captioned with the
+   design system's `.osprey-section-label`. */
 .folder { margin-bottom: 2px; }
 .folder-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   list-style: none;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
   user-select: none;
 }
 .folder-summary::-webkit-details-marker { display: none; }
@@ -372,42 +332,11 @@ body {
   padding: 1px 0 4px;
 }
 
-/* One plan = one compact, name-first row; status is a single dot. */
-.plan-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: none;
-  border-left: 2px solid transparent;
-  border-radius: var(--radius-none) var(--radius-md) var(--radius-md) var(--radius-none);
-  padding: 5px 8px 5px 10px;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.plan-row:hover,
-.plan-row:focus-visible {
-  background: var(--accent-tint-06);
-  outline: none;
-}
-.plan-row.selected {
-  background: var(--accent-tint-10);
-  border-left-color: var(--color-accent-light);
-}
-.plan-row-name {
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.plan-row.selected .plan-row-name { font-weight: var(--weight-semibold); }
+/* One plan = one `.osprey-list-row`, name-first; status is a single dot, and
+   the selected row sits on `--surface-selected` (`aria-selected`). */
+.plan-row .dot { margin-right: 2px; }
 
-/* Status dots (shared by sidebar rows and the detail status line) */
+/* Status dots (sidebar rows, and the draft indicator) */
 .dot {
   flex: none;
   width: 7px;
@@ -426,17 +355,12 @@ body {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-panel);
 }
+/* No plan to show: one centred state fills the pane (plan-states.js). */
 .detail-empty {
   flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
 }
 .detail-body {
   flex: 1;
@@ -449,33 +373,22 @@ body {
   padding: 12px 16px 0;
   border-bottom: 1px solid var(--border-default);
 }
+/* The plan's name, and the Info icon its description and status sit behind. */
 .detail-id {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
 }
 .detail-title {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: var(--text-2xl);
   font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
-.status-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  color: var(--text-muted);
-}
-.detail-desc {
-  margin: 4px 0 0;
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-}
-#session-note { margin: 4px 0 0; }
 
 /* ---- Plan draft: bound indicator, bind affordance, agent-edit note ---- */
 .draft-status {
@@ -673,7 +586,7 @@ body {
 }
 .field-label {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
 }
 .field-name {
@@ -683,10 +596,21 @@ body {
   color: var(--text-primary);
 }
 .field-required { color: var(--color-error); }
+/* Field help: a small Info icon beside the name whose tooltip is the help
+   sentence (hyperscript.js `infoTip`), never a line on the page. */
 .field-help {
-  margin: 0;
-  font-size: var(--text-base);
+  display: inline-flex;
+  border-radius: var(--radius-full);
   color: var(--text-muted);
+  cursor: help;
+}
+.field-help:hover,
+.field-help:focus-visible {
+  color: var(--text-primary);
+}
+.field-help:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 .field-control { min-width: 0; }
 
@@ -1102,15 +1026,10 @@ select.field-input { cursor: pointer; }
   font-size: var(--text-md);
   color: var(--color-accent-light);
 }
-.footnote {
-  font-size: var(--text-base);
-  color: var(--text-muted);
-}
 #unvalidated-note { font-family: var(--font-mono); }
 
-/* Secondary footer action (Reset): same geometry as .btn, deliberately
-   quieter than the primary Add-to-queue so the consequential action reads
-   first. */
+/* A quieter secondary button beside a primary one (the Results view's
+   "Remove from history"). */
 .btn-quiet {
   color: var(--text-secondary);
   background: transparent;
@@ -1225,13 +1144,6 @@ code {
   background: var(--accent-tint-06);
   border-color: var(--border-accent);
 }
-/* A stopped queue is a normal resting state, not a warning and not a success:
-   the neutral tone says "nothing happening" without colouring it. */
-.badge.neutral {
-  color: var(--text-secondary);
-  background: var(--neutral-tint-08);
-  border-color: var(--border-default);
-}
 
 .icon-btn {
   font-family: var(--font-mono);
@@ -1266,10 +1178,30 @@ code {
   font-size: var(--text-md);
   color: var(--text-secondary);
 }
-/* The armed withdrawal's consequence sentence — the caution family, matching
-   the button it explains. */
+/* An armed halt's consequence sentence — the caution family, matching the
+   button it explains. */
 .stop-note {
   color: var(--color-accent-secondary-light);
+}
+
+/* A Clear's confirm note, at the top of the card it empties (armed from the
+   ⋯): what goes, then Confirm and Cancel. The caution family as well. */
+.confirm-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 10px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent-secondary);
+  border-radius: var(--radius-lg);
+  background: var(--accent-secondary-tint-08);
+  font-size: var(--text-md);
+  color: var(--color-accent-secondary-light);
+}
+.confirm-note-text {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* ---- Running item ---- */
@@ -1841,20 +1773,10 @@ button.queue-label:focus-visible {
    Narrow hosts
    ========================================================================= */
 
-/* ---- Narrow hosts: stack panes, collapse form columns ---- */
+/* ---- Narrow hosts: collapse form columns ----
+   The plan sidebar takes care of itself: under 720 px of panel width it is an
+   overlay over the detail pane (panel-sidebar.js). */
 @media (max-width: 700px) {
-  /* Stacked: no side-by-side split to resize. The !important beats the
-     inline flex-basis/max-width plans-view.js writes while dragging —
-     otherwise a split chosen at a wide viewport would pin the stacked band's
-     height. */
-  .browser { flex-direction: column; }
-  .sidebar {
-    flex-basis: auto !important;
-    max-width: none !important;
-  }
-  .browser > .osprey-splitter { display: none; }
-  .panel { min-height: 0; }
-  .tree { max-height: 36vh; }
   .form-row { grid-template-columns: 1fr; }
   .foot-row { flex-direction: column; align-items: stretch; }
 }
