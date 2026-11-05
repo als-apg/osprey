@@ -36,6 +36,9 @@ def watchdog_config_overrides(block: Any) -> dict[str, Any]:
 def copy_enabled_watchdogs(block: Any, profile_dir: Path, render_dir: Path) -> list[str]:
     """Copy each enabled watchdog's directory from the profile into the render.
 
+    Each directory is a profile input, so the profile loader has already refused
+    any link in it that resolves outside the repository, through any number of hops.
+
     Args:
         block: The profile's ``watchdogs:`` map, already validated, which is what
             holds each enabled watchdog's directory to existing.

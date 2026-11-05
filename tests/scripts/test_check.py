@@ -193,21 +193,25 @@ def test_the_check_ids_are_the_public_names() -> None:
         "eslint",
         "prettier",
         "actionlint",
+        "hand-typed-sweeps",
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-wallclock-unit",
         "readonly-warmups-py314",
         "live-ca",
         "vitest",
         "docs",
         "linkcheck",
         "package",
+        "connectors-public-names",
         "canopy-marker",
         "canopy-contract",
     ]
     assert [c.id for c in check.CHECKS if "quick" not in c.tiers] == [
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-wallclock-unit",
         "readonly-warmups-py314",
         "live-ca",
         "docs",
@@ -226,19 +230,67 @@ _ROOT_WALKERS = frozenset({"text_files"})
 _Value = tuple[str, Any]
 
 
+def _import_names(node: ast.Import | ast.ImportFrom, here: tuple[str, ...]) -> list[str]:
+    """The dotted names one import statement in the module at repo-relative parts *here* binds.
+
+    A relative import resolves against the module's own package; ``from X import a``
+    names both ``X`` and ``X.a``, since ``a`` may be a module or a name in ``X``.
+    """
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    package = list(here[:-1])[: len(here) - node.level] if node.level else []
+    base = ".".join([*package, *([node.module] if node.module else [])])
+    return [base, *(f"{base}.{alias.name}" for alias in node.names)]
+
+
+def _module_file(name: str, root: Path) -> Path | None:
+    """The file under *root* that the ``tests`` module *name* loads, or None."""
+    if name != "tests" and not name.startswith("tests."):
+        return None
+    parts = name.split(".")
+    for candidate in (
+        root.joinpath(*parts).with_suffix(".py"),
+        root.joinpath(*parts, "__init__.py"),
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _imported_modules(
+    source: str, here: tuple[str, ...], *, root: Path = REPO_ROOT, follow: bool = False
+) -> frozenset[str]:
+    """Every dotted name *source*, the module at repo-relative parts *here*, imports.
+
+    With *follow*, the names each imported ``tests`` module under *root* imports
+    are added too, transitively; a module already read is not read again, so a
+    cycle ends.
+    """
+    names: set[str] = set()
+    visited: set[Path] = set()
+    pending: list[tuple[str, tuple[str, ...]]] = [(source, here)]
+    while pending:
+        text, parts = pending.pop()
+        for node in ast.walk(ast.parse(text)):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            for name in _import_names(node, parts):
+                names.add(name)
+                if not follow or (path := _module_file(name, root)) is None or path in visited:
+                    continue
+                visited.add(path)
+                pending.append((path.read_text(encoding="utf-8"), path.relative_to(root).parts))
+    return frozenset(names)
+
+
 def _imports_a_tree_reader(tree: ast.Module, here: tuple[str, ...]) -> bool:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            if any(alias.name in _TREE_READER_MODULES for alias in node.names):
-                return True
-        elif isinstance(node, ast.ImportFrom):
-            package = list(here[:-1])[: len(here) - node.level] if node.level else []
-            base = ".".join([*package, *([node.module] if node.module else [])])
-            if base in _TREE_READER_MODULES:
-                return True
-            if any(f"{base}.{alias.name}" in _TREE_READER_MODULES for alias in node.names):
-                return True
-    return False
+    """Whether *tree* imports a tree-reader module itself; a helper that does is not followed."""
+    return any(
+        name in _TREE_READER_MODULES
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for name in _import_names(node, here)
+    )
 
 
 def _resolve(node: ast.expr, env: dict[str, _Value | None], here: tuple[str, ...]) -> _Value | None:
@@ -493,6 +545,155 @@ def test_a_tree_reader_left_out_of_the_invariant_tests_is_named(reader: str) -> 
     assert _tree_readers_outside(tuple(p for p in INVARIANT_TESTS if p != reader)) == [reader]
 
 
+#: The container starters every recipe calls; a helper module that spells one
+#: of them is a container recipe.
+CONTAINER_STARTERS = ("start_or_skip(", "start_or_fail(")
+
+#: The markers that say a test needs a container engine. Their source is
+#: ``[tool.pytest.ini_options].markers`` in ``pyproject.toml``.
+ENGINE_MARKERS = ("dockerbuild", "e2e_services")
+
+
+def _container_recipes() -> frozenset[str]:
+    """The dotted names of the helper modules under ``tests/`` that start a container."""
+    found = set()
+    for path in (REPO_ROOT / "tests").rglob("_*.py"):
+        if "__pycache__" in path.parts or path.name.startswith("__"):
+            continue
+        if any(starter in path.read_text(encoding="utf-8") for starter in CONTAINER_STARTERS):
+            found.add(".".join(path.relative_to(REPO_ROOT).with_suffix("").parts))
+    return frozenset(found)
+
+
+def _is_engine_marker(node: ast.AST) -> bool:
+    """Whether *node* is ``pytest.mark.<engine marker>``."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr in ENGINE_MARKERS
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+    )
+
+
+def _engine_reaches(
+    source: str,
+    recipes: frozenset[str] | None = None,
+    *,
+    here: tuple[str, ...] = ("tests", "test_sample.py"),
+    root: Path = REPO_ROOT,
+) -> list[str]:
+    """Every place *source*, the module at repo-relative parts *here*, reaches a
+    container engine: an import of a recipe, directly, relatively or through a
+    ``tests`` helper that imports one, or an engine marker."""
+    recipes = _container_recipes() if recipes is None else recipes
+    reaches = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and _is_engine_marker(node):
+            reaches.append(f"line {node.lineno}: applies pytest.mark.{node.attr}")
+            continue
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        for name in _import_names(node, here):
+            if name in recipes:
+                reaches.append(f"line {node.lineno}: imports {name}")
+            elif (path := _module_file(name, root)) is not None:
+                closure = _imported_modules(
+                    path.read_text(encoding="utf-8"),
+                    path.relative_to(root).parts,
+                    root=root,
+                    follow=True,
+                )
+                reaches.extend(
+                    f"line {node.lineno}: imports {name}, which imports {recipe}"
+                    for recipe in sorted(closure & recipes)
+                )
+    return sorted(reaches)
+
+
+def test_no_invariant_test_reaches_a_container_engine() -> None:
+    """The invariant-tests check runs on every host, so a file it names imports no
+    container recipe and carries no engine marker."""
+    recipes = _container_recipes()
+    reaching = {
+        path: found
+        for path in fw.INVARIANT_TESTS
+        if (
+            found := _engine_reaches(
+                (REPO_ROOT / path).read_text(encoding="utf-8"), recipes, here=Path(path).parts
+            )
+        )
+    }
+    assert reaching == {}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import tests._mongo_container\n",
+        "from tests import _graphdb_container\n",
+        "import pytest\n\n@pytest.mark.dockerbuild\ndef test_x():\n    pass\n",
+    ],
+    ids=["imports-a-recipe", "imports-a-recipe-from-its-package", "carries-an-engine-marker"],
+)
+def test_a_source_that_reaches_a_container_engine_is_named(source: str) -> None:
+    assert _engine_reaches(source) != []
+
+
+@pytest.mark.parametrize(
+    ("source", "reaches"),
+    [
+        ("from .. import _rec\n", True),
+        ("import tests._helper\n", True),
+        ("from .._helper import x\n", True),
+        ("import tests._cycle_a\n", True),
+        ("import tests._plain\n", False),
+    ],
+    ids=[
+        "relative-import-of-a-recipe",
+        "helper-that-imports-a-recipe",
+        "relative-helper",
+        "helper-cycle",
+        "helper-without-a-recipe",
+    ],
+)
+def test_a_relative_or_helper_import_of_a_recipe_is_named(
+    tmp_path: Path, source: str, reaches: bool
+) -> None:
+    tests = tmp_path / "tests"
+    (tests / "sub").mkdir(parents=True)
+    modules = {
+        "__init__.py": "",
+        "sub/__init__.py": "",
+        "_rec.py": "start_or_skip(None)\n",
+        "_helper.py": "from tests import _rec\n",
+        "_cycle_a.py": "import tests._cycle_b\n",
+        "_cycle_b.py": "import tests._cycle_a\nimport tests._rec\n",
+        "_plain.py": "import json\n",
+    }
+    for name, text in modules.items():
+        (tests / name).write_text(text)
+    found = _engine_reaches(
+        source, frozenset({"tests._rec"}), here=("tests", "sub", "test_x.py"), root=tmp_path
+    )
+    assert (found != []) is reaches
+    assert all("tests._rec" in line for line in found)
+
+
+def test_an_engine_marker_spelled_as_text_reaches_nothing() -> None:
+    assert _engine_reaches('NEEDLE = "pytest.mark.dockerbuild"\n') == []
+
+
+def test_each_engine_marker_is_declared() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = {
+        line.split(":", 1)[0].split("(", 1)[0].strip()
+        for line in pyproject["tool"]["pytest"]["ini_options"]["markers"]
+    }
+    assert set(ENGINE_MARKERS) <= declared
+
+
 def test_the_need_probes_of_the_new_toolchains_name_their_install(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -566,6 +767,18 @@ def test_the_tree_reader_rule_follows_where_a_name_is_bound(body: str, reads: bo
     assert _source_reads_the_tests_tree(_PREAMBLE + body, ("tests", "test_sample.py")) is reads
 
 
+def test_the_tree_reader_question_reads_direct_imports_only(tmp_path: Path) -> None:
+    """Importing a helper that imports the tree reader does not walk the tree: only
+    the test's own import of the reader marks it (``tests._text_sweep``)."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "__init__.py").write_text("")
+    (tmp_path / "tests" / "_helper.py").write_text("import tests._tree_scan\n")
+    source = "import tests._helper\n"
+    here = ("tests", "test_x.py")
+    assert "tests._tree_scan" in _imported_modules(source, here, root=tmp_path, follow=True)
+    assert not _imports_a_tree_reader(ast.parse(source), here)
+
+
 def test_every_literal_scope_path_exists() -> None:
     scopes = (
         *(c.scope for c in check.CHECKS),
@@ -583,9 +796,9 @@ def test_every_ignored_path_exists_and_has_a_host() -> None:
 
 
 def test_an_ignore_whose_host_is_gone_is_reported() -> None:
-    without = tuple(lane for lane in check.LANES if lane.job != "channel-finder-benchmarks")
+    without = tuple(lane for lane in check.LANES if lane.job != "build-boot-smoke")
     assert unhosted(fw.UNIT_SELECTION, check.CHECKS, without) == [
-        "tests/services/channel_finder/graph_index/test_scale.py"
+        "tests/integration/test_build_boot.py"
     ]
 
 
@@ -643,7 +856,6 @@ SWEEP_IGNORES = [
     "--ignore=tests/e2e",
     "--ignore=tests/va/test_apply_fault.py",
     "--ignore=tests/va/test_lume_pva_seam.py",
-    "--ignore=tests/services/channel_finder/graph_index/test_scale.py",
     "--ignore=tests/integration/test_build_boot.py",
     "--ignore=tests/integration/test_preset_static.py",
     "--ignore=tests/integration/test_preset_build.py",
@@ -730,7 +942,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
             *selection,
             *SWEEP_MARKER,
             *CI_UNIT_EXEC_FLAGS,
-            *("--dist", "loadgroup"),
+            *fw.UNIT_SELECTION.dist,
             *pytest_report("pytest"),
         ]
     (pty,) = run("pytest-pty", "--", "-v", "--tb=short")
@@ -749,6 +961,13 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         *fw.UV_RUN,
         *("pytest", "tests/integration", "-m", "wallclock"),
         *pytest_report("pytest-wallclock"),
+    ]
+    (wallclock_unit,) = run("pytest-wallclock-unit")
+    assert after_bound(wallclock_unit) == [
+        *fw.UV_RUN,
+        *("pytest", "tests/", "--ignore=tests/e2e", "--ignore=tests/integration"),
+        *("-m", "wallclock"),
+        *pytest_report("pytest-wallclock-unit"),
     ]
     assert run("live-ca") == [[*fw.UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"]]
 
@@ -1085,7 +1304,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800", "1800"]
-    assert bounds("full") == ["5400", "600", "900", "900", "1800"]
+    assert bounds("full") == ["5400", "600", "900", "900", "900", "1800"]
 
 
 def test_both_tiers_deselect_the_canopy_contract() -> None:
@@ -1338,6 +1557,15 @@ def test_a_range_names_the_ci_lanes_it_touches() -> None:
     assert check.select("quick", ["README.md"], (), FILES).lanes == ()
 
 
+def test_a_spending_lane_names_its_prefix() -> None:
+    lane = kit.Lane("agentic", kit.SPENDS, ("tests/e2e/**",), "Agentic E2E")
+    assert kit.spending([lane, kit.Lane("plain", "containers", ())]) == {"agentic": "Agentic E2E"}
+    with pytest.raises(ValueError, match="agentic"):
+        kit.Lane("agentic", kit.SPENDS, ("tests/e2e/**",))
+    with pytest.raises(ValueError, match="plain"):
+        kit.Lane("plain", "containers", (), "Plain E2E")
+
+
 def test_a_named_vitest_file_alone_is_accepted_and_routed_to_vitest() -> None:
     got = selected("quick", named=(TW + "toast.test.mjs",))
     assert got["vitest"] == check.Selection(check.PATHS, (TW + "toast.test.mjs",))
@@ -1569,10 +1797,11 @@ class Recorder:
 
 @pytest.fixture
 def recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recorder:
-    """An empty root, every need met, the venue met, every install proven, and
-    no process started."""
+    """An empty root with no sweep exception, every need met, the venue met,
+    every install proven, and no process started."""
     recorder = Recorder()
     monkeypatch.setattr(kit, "ROOT", tmp_path)
+    monkeypatch.setattr(fw, "SWEEP_LINE_EXCEPTIONS", {})
     monkeypatch.setattr(kit, "run", recorder)
     monkeypatch.setattr(check, "probe_install", lambda install: recorder.install)
     monkeypatch.setattr(kit, "capture", lambda argv: (0, ""))
@@ -2483,7 +2712,8 @@ def test_run_passes_execution_flags_to_the_pytest_checks_only(recorder: Recorder
     assert check.main(["run", "ruff", "pytest", "--", *flags]) == 0
     ruff, sweep = recorder.calls
     assert ruff == [*fw.UV_RUN, "ruff", "check", "."]
-    assert sweep[:-3][-len(flags) - 2 :] == [*flags, "--dist", "loadgroup"]
+    dist = fw.UNIT_SELECTION.dist
+    assert sweep[:-3][-len(flags) - len(dist) :] == [*flags, *dist]
     assert sweep[-3].endswith("/pytest/junit.xml") and sweep[-2:] == ["-o", "junit_family=xunit1"]
     assert check.main(["run", "ruff", "--", "-v"]) == 2
 
@@ -2563,6 +2793,71 @@ def test_a_redirect_without_its_stub_page_is_reported(tmp_path: Path) -> None:
     (tmp_path / "guides").mkdir()
     (tmp_path / "guides" / "old.html").write_text("", encoding="utf-8")
     assert fw.missing_redirect_stubs(["guides/old", "guides/lost"], tmp_path) == ["guides/lost"]
+
+
+def test_a_hand_typed_parallel_sweep_is_named_with_its_line() -> None:
+    text = "# Tests\nuv run pytest tests/ -n 4 --dist loadgroup\n"
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
+        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
+    ]
+
+
+def test_a_serial_line_a_check_py_line_and_flag_prose_pass() -> None:
+    text = (
+        "pytest tests/x.py -v\n"
+        "uv run python scripts/check.py run pytest -- -n 4\n"
+        "A test that flakes under `-n 4` shares state.\n"
+    )
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == []
+
+
+def test_a_continued_sweep_command_is_read_as_one_line() -> None:
+    text = "intro\npython -m pytest tests/ \\\n  --ignore=tests/e2e \\\n  -n auto\n"
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
+        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
+    ]
+
+
+def test_an_exception_that_matches_no_line_is_named() -> None:
+    held = "pytest tests/e2e/ -n 4 --dist loadfile"
+    exceptions = {("doc.md", held): "the e2e lane", ("doc.md", "pytest gone -n 2"): "stale"}
+    assert fw.hand_typed_sweeps({"doc.md": f"It runs `{held}`.\n"}, exceptions=exceptions) == [
+        "stale exception: doc.md: pytest gone -n 2"
+    ]
+
+
+def test_an_exception_whose_document_is_gone_is_named() -> None:
+    exceptions = {("gone.md", "pytest tests/e2e/ -n 4"): "the e2e lane"}
+    assert fw.hand_typed_sweeps({"doc.md": "prose\n"}, exceptions=exceptions) == [
+        "stale exception: gone.md: pytest tests/e2e/ -n 4"
+    ]
+
+
+def test_a_document_that_is_not_utf8_is_named(tmp_path: Path) -> None:
+    (tmp_path / "good.md").write_text("prose\n", encoding="utf-8")
+    (tmp_path / "bad.rst").write_bytes("caf\xe9\n".encode("latin-1"))
+    texts, unreadable = fw.read_doc_texts(["bad.rst", "good.md"], tmp_path)
+    assert texts == {"good.md": "prose\n"}
+    assert unreadable == ["bad.rst"]
+
+
+def test_the_sweep_guard_reads_documents_only() -> None:
+    assert selected("quick", "src/osprey/cli/main.py")["hand-typed-sweeps"].state == (
+        check.NOT_TOUCHED
+    )
+    assert selected("quick", "tests/README.md")["hand-typed-sweeps"].state != check.NOT_TOUCHED
+    assert selected("quick", "docs/source/index.rst")["hand-typed-sweeps"].state != (
+        check.NOT_TOUCHED
+    )
+
+
+def test_the_tree_has_no_hand_typed_sweep() -> None:
+    read = fw.tracked_doc_texts()
+    assert read is not None, "git ls-files failed"
+    texts, unreadable = read
+    assert texts, "no tracked *.md or *.rst file was read"
+    assert unreadable == []
+    assert fw.hand_typed_sweeps(texts) == []
 
 
 @pytest.mark.usefixtures("recorder")
@@ -2728,9 +3023,10 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
     declared = [{**item, "scope": []} if item["id"] in derived else item for item in data["checks"]]
     assert tuple(rebuilt(item) for item in declared) == check.CHECKS
     assert "touched" not in data
-    assert tuple(check.Lane(i["job"], i["why"], tuple(i["scope"])) for i in data["lanes"]) == (
-        check.LANES
+    lanes = tuple(
+        check.Lane(i["job"], i["why"], tuple(i["scope"]), i["prefix"]) for i in data["lanes"]
     )
+    assert lanes == check.LANES
     assert data["tiers"] == ["quick", "full"]
     unit = data["unit_selection"]
     assert [tuple(pair) for pair in unit["ignores"]] == list(fw.UNIT_SELECTION.ignores)
@@ -3010,6 +3306,20 @@ def test_the_connectors_package_declares_its_own_lanes() -> None:
     assert own == {"connectors-standalone", "connectors-compat-plan", "connectors-compat"}
     assert own <= {lane.job for lane in check.LANES}
     assert not own & {lane.job for lane in fw.LANES}
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["quick"], ["full"], ["run", "pytest", "--", "-n", "4"]],
+    ids=["quick", "full", "run"],
+)
+def test_every_sweep_ends_when_a_worker_dies(recorder: Recorder, argv: list[str]) -> None:
+    assert check.main(argv) == 0
+    markers = {fw.UNIT_SELECTION.marker, fw.UNIT_SELECTION.quick_marker}
+    sweeps = [call for call in recorder.calls if markers.intersection(call)]
+    assert sweeps, recorder.calls
+    for sweep in sweeps:
+        assert "--max-worker-restart=0" in sweep, sweep
 
 
 # ---------------------------------------------------------------------------

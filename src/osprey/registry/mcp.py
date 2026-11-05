@@ -73,6 +73,14 @@ class HookRule:
     keeps_policy: bool = False
 
 
+@dataclass(frozen=True)
+class OptionalTool:
+    """The ctx key that offers one optional tool, and its value when the key is absent."""
+
+    key: str
+    default: bool = False
+
+
 @dataclass
 class ServerDefinition:
     """Metadata for one MCP server."""
@@ -110,18 +118,39 @@ class ServerDefinition:
     # derive_panel_servers); None for every definition spelled in this module
     # or declared by a facility.
     panel_id: str | None = None
-    # Tools the server registers only when the named ctx key is truthy, by
-    # short tool name. The key gates the server's registration of the tool and
-    # the tool's ``permissions_allow`` row; an approval-gated tool's ask row and
-    # hook rule render whatever the key says, so the write floor, the deny list
-    # and the approval set never depend on it.
-    optional_tools: dict[str, str] = field(default_factory=dict)
+    # Tools the server registers only when their ctx key says so, by short
+    # tool name. A tool is withheld when ``ctx.get(key, default)`` is falsy.
+    # The key gates the server's registration of the tool and the tool's
+    # ``permissions_allow`` row; an approval-gated tool's ask row and hook rule
+    # render whatever the key says, so the write floor, the deny list and the
+    # approval set never depend on it.
+    optional_tools: dict[str, OptionalTool] = field(default_factory=dict)
+    # Tools that stay callable while the session is in plan mode, by short tool
+    # name. Every other tool the side-effect classifier marks
+    # (:func:`server_side_effect_tools`) is refused in plan mode, and a tool
+    # listed here must be one the classifier marks: exempting a read is a no-op
+    # and a stale name is a test failure.
+    plan_mode_allowed: list[str] = field(default_factory=list)
+    # Approval-gated tools that only read, by short tool name. An audited read
+    # is approval-gated because what it reads is sensitive; it changes nothing,
+    # so plan mode never refuses it. Every approval-gated tool of a server is
+    # exactly one of side-effecting (refused in plan mode unless
+    # ``plan_mode_allowed``) or an audited read.
+    audited_reads: list[str] = field(default_factory=list)
     # The tools a custom server declares as writes (``mcp_servers.<n>.writes``),
     # bare names in declared order. ``None`` is a server with no list (it keeps
     # its whole-server hook rule); ``()`` is one that declares nothing writes.
     # Read by the headless block, the audit and the kill switch through
     # ``_server_to_dict``'s ``writes`` key and :func:`facility_write_tools`.
     writes: tuple[str, ...] | None = None
+
+    def withheld_optional_tools(self, ctx: Mapping) -> frozenset[str]:
+        """The optional tools ``ctx`` withholds: those whose key, or its default, is falsy."""
+        return frozenset(
+            tool
+            for tool, offer in self.optional_tools.items()
+            if not ctx.get(offer.key, offer.default)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +314,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
         hooks_post=[_post_error("mcp__controls__.*")],
+        audited_reads=["channel_read", "archiver_read"],
     ),
     "phoebus": ServerDefinition(
         name="phoebus",
@@ -372,8 +402,8 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=["model_response_matrix"],
         permissions_ask=["execute", "execute_file", "pyaml_measure"],
         optional_tools={
-            "pyaml_measure": "pyaml_view_present",
-            "model_response_matrix": "pyaml_view_present",
+            "pyaml_measure": OptionalTool("pyaml_view_present"),
+            "model_response_matrix": OptionalTool("pyaml_view_present"),
         },
         hooks_pre=[
             HookRule(
@@ -440,7 +470,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             # settings are carried across a re-init instead, so a settings
             # change stands until it is set back. Neither is worth a prompt.
             # lattice_clear_baseline is nonetheless auto-classified
-            # side-effecting by agent_runner.write_tools (it matches the
+            # side-effecting by the registry classifier (it matches the
             # "clear" destructive marker) and blocked under the headless
             # read-only floor regardless of this allow-listing — expected
             # posture; do not rename the tool to dodge it.
@@ -525,6 +555,11 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         # the hardware kill switch is one question for every non-hardware
         # write, and it is answered in one place, not here.
         permissions_ask=["entry_create", "entry_publish"],
+        optional_tools={
+            "attachment_view": OptionalTool("ariel_attachment_view", True),
+            "attachment_to_artifact": OptionalTool("ariel_attachment_view", True),
+            "sql_query": OptionalTool("ariel_sql_tool", True),
+        },
         hooks_pre=[
             HookRule(
                 matcher="mcp__ariel__entry_create",
@@ -589,7 +624,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             # Add-to-queue click might queue, so like the read tools above they need no approval
             # prompt and carry no _WRITES_CHECK hook. clear_draft is
             # nonetheless auto-classified side-effecting by
-            # agent_runner.write_tools (matches bsky.DESTRUCTIVE_MARKERS'
+            # server_side_effect_tools (matches bsky.DESTRUCTIVE_MARKERS'
             # "clear") and blocked under the headless read-only floor
             # regardless of this allow-listing — acceptable, expected
             # posture; do not rename the tool to dodge it.
@@ -663,6 +698,15 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
         hooks_post=[_post_error("mcp__bluesky__.*")],
+        plan_mode_allowed=[
+            # Halting the queue, aborting the run in motion and dropping a
+            # pending item are the safe direction: they stop motion, never start it.
+            bsky.QUEUE_STOP,
+            bsky.STOP_RUN,
+            bsky.QUEUE_REMOVE,
+            # A dry run against mock devices only; it reaches no hardware.
+            bsky.VALIDATE_PLAN,
+        ],
     ),
     "optimizer": ServerDefinition(
         name="optimizer",
@@ -717,6 +761,8 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=["health_check"],
         permissions_ask=["health_check_full"],
         hooks_post=[_post_error("mcp__health__.*")],
+        # The full check runs only the read-only probes the config declares.
+        plan_mode_allowed=["health_check_full"],
     ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
@@ -1214,6 +1260,106 @@ def rule_carries_both_write_hooks(hooks: list[dict]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Side-effect classification
+# ---------------------------------------------------------------------------
+
+
+def is_destructive_tool(tool: str) -> bool:
+    """True if a tool's name implies it removes or destroys stored state.
+
+    Matches the shared marker vocabulary in ``bsky.DESTRUCTIVE_MARKERS``, so a
+    tool auto-approved interactively (a human drives) but named for
+    destruction (``artifact_delete``, ``clear_draft``) is still classified
+    side-effecting.
+    """
+    lowered = tool.lower()
+    return any(marker in lowered for marker in bsky.DESTRUCTIVE_MARKERS)
+
+
+def server_side_effect_tools(sdef: ServerDefinition) -> list[str]:
+    """Side-effecting MCP tool names declared by ONE ServerDefinition.
+
+    The registry owns this classification; every consumer that needs "the
+    tools that act" reads it from here — the headless read-only floor
+    (``osprey.agent_runner.write_tools``) and the plan-mode deny list
+    (:func:`plan_mode_denied_tools`). Unions:
+
+    * ``permissions_ask`` + ``fixed_ask`` — the curated "needs approval because
+      it acts" sets (e.g. ``entry_create``, ``draft_concept``, ``setup_patch``,
+      ``channel_write``, ``execute``). Both render into the interactive ``ask``
+      list, so both are side-effecting.
+    * destructive-named tools in ``permissions_allow`` + ``fixed_allow`` — tools
+      auto-approved interactively but whose name implies destruction (e.g.
+      ``artifact_delete``). See :func:`is_destructive_tool`.
+    * every ``hooks_pre`` matcher gated by the writes-check hook (hardware
+      writes).
+
+    Deliberately NOT keyed on ``_APPROVAL``: that hook also wraps the server's
+    ``audited_reads``, which a read-only query must still be able to call.
+
+    Applies unchanged to a framework template, an ``extends`` clone and a
+    custom server built from a config spec.
+
+    Returns names as ``mcp__<server>__<tool>`` (writes-check matchers verbatim).
+    """
+    out = [f"mcp__{sdef.name}__{tool}" for tool in (*sdef.permissions_ask, *sdef.fixed_ask)]
+    out.extend(
+        f"mcp__{sdef.name}__{tool}"
+        for tool in (*sdef.permissions_allow, *sdef.fixed_allow)
+        if is_destructive_tool(tool)
+    )
+    out.extend(rule.matcher for rule in sdef.hooks_pre if _WRITES_CHECK in rule.hooks)
+    return out
+
+
+def _server_plan_mode_denied(sdef: ServerDefinition) -> list[str]:
+    """The side-effecting tools of *sdef* minus its exemptions and reads, deduplicated.
+
+    Neither a ``plan_mode_allowed`` tool nor an ``audited_reads`` tool is ever denied.
+    """
+    allowed = {
+        f"mcp__{sdef.name}__{tool}" for tool in (*sdef.plan_mode_allowed, *sdef.audited_reads)
+    }
+    out: list[str] = []
+    for name in server_side_effect_tools(sdef):
+        if name not in allowed and name not in out:
+            out.append(name)
+    return out
+
+
+def plan_mode_denied_tools(servers: list[dict], extra_write_tools: list[str]) -> list[str]:
+    """Every tool of one render that plan mode refuses, fully qualified.
+
+    Computed at render time from resolved servers because only there are
+    ``extends`` clones renamed and custom servers resolved. The result is the
+    ``plan_mode_denied`` list of each enabled server, in resolved order, then
+    each of *extra_write_tools* (the project's ``control_system.write_tools``)
+    not already present. A custom server's tool is in it when the server lists
+    it under ``permissions.ask`` or gates itself with ``writes_check``; a tool
+    in neither ``allow`` nor ``ask`` is not.
+
+    Args:
+        servers: Output of :func:`resolve_servers`.
+        extra_write_tools: The project's declared write tools.
+
+    Returns:
+        Deduplicated, in a stable order, so a rebuilt project's hook config
+        does not change.
+    """
+    tools: list[str] = []
+    for server in servers:
+        if not server.get("enabled"):
+            continue
+        for name in server.get("plan_mode_denied") or []:
+            if name not in tools:
+                tools.append(name)
+    for name in extra_write_tools:
+        if name not in tools:
+            tools.append(name)
+    return tools
+
+
+# ---------------------------------------------------------------------------
 # Agent data model and catalog
 # ---------------------------------------------------------------------------
 
@@ -1662,14 +1808,9 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 
     A context without ``phoebus_agent_access`` resolves as ``read``: the
     ``phoebus`` server and its ``extends`` clones come back without
-    ``phoebus_drive`` in their permission lists. A context without
-    ``ariel_attachment_view`` resolves as ``True``; with it ``False`` the
-    ``ariel`` server and its ``extends`` clones come back without
-    ``attachment_view`` and ``attachment_to_artifact``. An optional tool's
-    allow row renders only when its ctx key is truthy
-    (:attr:`ServerDefinition.optional_tools`); without ``pyaml_view_present``
-    the ``python`` server and its clones come back without
-    ``model_response_matrix``.
+    ``phoebus_drive`` in their permission lists. An optional tool's allow row
+    renders only when its ctx key, or the declared default when the key is
+    absent, is truthy (:attr:`ServerDefinition.optional_tools`).
     """
     servers: dict[str, ServerDefinition] = {
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
@@ -1775,7 +1916,6 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     # ── Phoebus agent access ──────────────────────────────────
     _withhold_phoebus_drive(servers, ctx.get("phoebus_agent_access", READ))
     _withhold_optional_tools(servers, ctx)
-    _withhold_ariel_attachment_view(servers, ctx.get("ariel_attachment_view", True))
 
     # ── Build output dicts ────────────────────────────────────
     # Every launch denies the plugin and connector tool namespaces, so a server
@@ -1819,16 +1959,17 @@ def _warn_writes_without_live_target(sdef: ServerDefinition, ctx: dict) -> None:
 
 
 def _withhold_optional_tools(servers: dict[str, ServerDefinition], ctx: dict) -> None:
-    """Drop the allow row of each optional tool whose ctx key is not truthy.
+    """Drop the allow row of each optional tool the ctx withholds.
 
-    Only ``permissions_allow`` follows the key: an optional tool that asks
+    A tool is withheld when its ctx key, or the declared default when the key
+    is absent, is falsy (:meth:`ServerDefinition.withheld_optional_tools`). Only ``permissions_allow`` follows the key: an optional tool that asks
     keeps its ask row and hook rule, so its gate renders whether or not the
     server registers it. A framework server and its ``extends`` clones carry
     the same optional tools under their own names.
     """
     for sdef in servers.values():
-        for tool, key in sdef.optional_tools.items():
-            if not ctx.get(key) and tool in sdef.permissions_allow:
+        for tool in sdef.withheld_optional_tools(ctx):
+            if tool in sdef.permissions_allow:
                 sdef.permissions_allow.remove(tool)
 
 
@@ -1854,35 +1995,6 @@ def _withhold_phoebus_drive(servers: dict[str, ServerDefinition], access: str) -
             continue
         sdef.permissions_ask = [t for t in sdef.permissions_ask if t != DRIVE_TOOL]
         sdef.permissions_allow = [t for t in sdef.permissions_allow if t != DRIVE_TOOL]
-
-
-ARIEL_SERVER_TEMPLATE = "ariel"
-#: The ariel tools ``ariel.attachments.view.enabled`` withholds: the server's
-#: ``VIEW_GATED_TOOLS``, spelled here so the registry imports no server module.
-ARIEL_VIEW_TOOLS = ("attachment_view", "attachment_to_artifact")
-
-
-def _withhold_ariel_attachment_view(servers: dict[str, ServerDefinition], enabled: bool) -> None:
-    """Remove the picture tools from the ariel permission lists when the view is off.
-
-    Applies to the ``ariel`` server and every ``extends: ariel`` clone, on
-    ``resolve_servers``'s deep copies, never on ``FRAMEWORK_SERVERS``. With
-    ``ariel.attachments.view.enabled: false`` the server hides
-    ``ARIEL_VIEW_TOOLS`` from ``tools/list``, so an allow entry for them would
-    grant nothing the agent can reach and the rendered allow list stays the one
-    without pictures.
-
-    Args:
-        servers: Resolved server definitions, keyed by name; edited in place.
-        enabled: The ``ariel_attachment_view`` context value.
-    """
-    if enabled:
-        return
-    for name, sdef in servers.items():
-        if (sdef.extends_of or name) != ARIEL_SERVER_TEMPLATE:
-            continue
-        sdef.permissions_ask = [t for t in sdef.permissions_ask if t not in ARIEL_VIEW_TOOLS]
-        sdef.permissions_allow = [t for t in sdef.permissions_allow if t not in ARIEL_VIEW_TOOLS]
 
 
 def build_extended_server(name: str, spec: dict) -> ServerDefinition | None:
@@ -1915,7 +2027,7 @@ def build_extended_server(name: str, spec: dict) -> ServerDefinition | None:
     * ``permissions.allow`` / ``permissions.ask`` replace the inherited lists
       when given, EXCEPT that the template's ``permissions_ask`` members can
       only be added to, never removed: the ask set doubles as the headless
-      side-effect classifier (agent_runner.write_tools), so an override that
+      side-effect classifier (server_side_effect_tools), so an override that
       promoted e.g. ``phoebus_drive`` into ``allow`` would silently ungate it
       under ``bypassPermissions``.
 
@@ -2319,6 +2431,9 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
         "hooks_post": hooks_post,
         "is_custom": sdef.is_external and sdef.name not in FRAMEWORK_SERVERS,
         "extends_of": sdef.extends_of,
+        # The tools plan mode refuses on this server; read by
+        # :func:`plan_mode_denied_tools`.
+        "plan_mode_denied": _server_plan_mode_denied(sdef),
         # A custom server's declared write tools (bare names); None when it has
         # no list. facility_write_tools reads the gated rules, this the intent.
         "writes": list(sdef.writes) if sdef.writes is not None else None,

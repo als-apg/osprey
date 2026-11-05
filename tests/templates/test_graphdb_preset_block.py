@@ -9,7 +9,7 @@ project that cannot come up — a failure every adopter hits on their first
 
 The preset's ``config:`` block is where both halves come from — the framework
 template renders no service at all — so the pairing is pinned on the presets'
-resolved config, for both presets that carry it. The ports and the corpus are
+resolved config, for every preset that carries it. The ports and the corpus are
 the things a preset does not spell: `layout_port_fill` writes the ports at build
 time from the deployment's port layout, and `graphdb_corpus_fill` writes the
 corpus, the graph view the build renders from the facility file. So the

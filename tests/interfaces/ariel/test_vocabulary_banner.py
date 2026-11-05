@@ -108,6 +108,9 @@ class _ServiceDouble:
         """Report the double as healthy (the lifespan logs this)."""
         return True, "Service healthy"
 
+    async def aclose(self) -> None:
+        """Close the service (the lifespan calls this on shutdown)."""
+
     async def verify_search_model_table(self) -> None:
         """Report the embedding table as present (the lifespan probes it)."""
         return None
@@ -118,10 +121,6 @@ class _ServiceDouble:
 
     async def __aexit__(self, *exc_info: object) -> None:
         """Exit the async context (the lifespan calls this on shutdown)."""
-        return None
-
-    async def aclose(self) -> None:
-        """Release nothing (the lifespan closes the service on shutdown)."""
         return None
 
 

@@ -29,6 +29,12 @@ stdin ──► Parse JSON
              YES
               │
               ▼
+         plan mode, and the plan-mode
+         rule denies it?  ──YES──► EXIT, no decision
+              │
+             NO
+              │
+              ▼
          Load config.yml
               │
               ▼
@@ -215,6 +221,13 @@ try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None  # type: ignore[assignment]  # the sibling is absent
+
+# The plan-mode rule, a sibling script like the reader above. Guarded the same
+# way: a render without it has no early exit below, so the hook asks as before.
+try:
+    import osprey_plan_mode as _plan_mode
+except Exception:  # pragma: no cover - render without the plan-mode rule
+    _plan_mode = None  # type: ignore[assignment]  # the sibling is absent
 
 # The shared, stdlib-only file helper the stamps are written through, a sibling
 # script like the reader above. Guarded the same way: without it no stamp is
@@ -1843,9 +1856,10 @@ def _budgeted_preview_lines(base_url: str, plan_name, plan_args, deadline: float
     What a slow bridge yields therefore depends on which budget binds. With
     more than the bridge's own budget left (~10 s of polling plus at most one
     in-flight RPC) the bridge answers first and the approver reads its
-    `preview_timed_out`; with less, this client gives up first and the
-    budget-spent line says so. A preview the deadline cut — skipped because
-    nothing was left, or cut off mid-fetch — renders that line either way. A
+    refusal, `function_timeout`, which is not retryable; with less, this
+    client gives up first and the budget-spent line says so. A preview the
+    deadline cut — skipped because nothing was left, or cut off mid-fetch —
+    renders that line either way. A
     preview that failed for any other reason (an unreachable bridge, a
     refusal) keeps its own reason word: those name something the approver can
     act on, where a spent budget names only this prompt's own impatience.
@@ -3952,6 +3966,11 @@ def main():
 
     tool_input = hook_input.get("tool_input", {})
     short_name = short_tool_name(tool_name, _prefixes)
+
+    # Plan mode: the plan-mode rule denies this call, and an ask here would win over its deny.
+    if _plan_mode is not None and _plan_mode.plan_mode_denies(hook_input):
+        log_hook("approval", hook_input, status="defer", detail=f"plan_mode tool={short_name}")
+        sys.exit(0)
 
     config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})

@@ -217,7 +217,6 @@ def _gchat_extra_installed() -> bool:
 
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(
         shutil.which(RUNTIME) is None,

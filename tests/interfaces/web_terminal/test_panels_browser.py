@@ -578,8 +578,20 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
 
         # Assert — the terminal is the sole remaining group and fills the dock.
+        # The wait reads the width the assert below reads: the dock's, less the
+        # gutter the sole group's view computes.
         page.wait_for_function(
-            "() => document.querySelectorAll('.dv-groupview').length === 1", timeout=5_000
+            """() => {
+              const groups = document.querySelectorAll('.dv-groupview');
+              const dock = document.getElementById('dock-root');
+              const view = document.querySelector('.dock-root .dv-view:has(> .dv-groupview)');
+              if (groups.length !== 1 || !dock || !view) return false;
+              const css = getComputedStyle(view);
+              const room = dock.getBoundingClientRect().width
+                - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+              return Math.abs(groups[0].getBoundingClientRect().width - room) <= 2;
+            }""",
+            timeout=5_000,
         )
         groups = _dock_groups(page)
         assert groups[0]["tabs"] == ["Agent"], groups

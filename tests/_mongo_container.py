@@ -3,7 +3,9 @@
 Four suites need one — the connector fixtures, the world-contract fixtures and the
 two seeder suites. They differ in the credentials they hand out, the server flags
 they ask for and what they put in the mapping they yield, not in how the store is
-brought up, so the bring-up lives here once.
+brought up, so the bring-up lives here once. Whether mongod's TTL sweeper runs is
+part of that recipe, not a flag each suite spells: it is off at start, and turned
+on at runtime by the test that wants a sweep.
 
 **Why the wait cannot be left to the container library.** ``mongo`` boots twice
 when it has a root user to create: a throwaway server for the init scripts, then
@@ -66,6 +68,13 @@ def started_mongo(
 ) -> Iterator[tuple[str, int]]:
     """A started MongoDB that has answered, stopped again when the caller is done.
 
+    A seeded store keeps the fixture's clock, not the wall clock: its expiry
+    stamps can lie in the past, so a sweep landing between two steps of a test
+    deletes documents the next step reads. mongod's TTL sweeper therefore
+    starts off, and the only way on is a test's runtime ``setParameter
+    ttlMonitorEnabled``; the one-second sleep the recipe always sets makes such a
+    pass quick.
+
     Args:
         label: Human-readable name for the store, used in skip and failure messages.
         username: Root user the container creates, and the user the probe
@@ -89,7 +98,7 @@ def started_mongo(
 
     def build():
         container = MongoDbContainer(MONGO_IMAGE, username=username, password=password)
-        return container.with_command(list(command)) if command else container
+        return container.with_command(_server_flags(command))
 
     exits: list[str] = []
     for attempt in range(1, CONTAINER_START_ATTEMPTS + 1):
@@ -121,6 +130,21 @@ def started_mongo(
         yield host, port
     finally:
         stop_quietly(container)
+
+
+def _server_flags(command: Sequence[str] | None) -> list[str]:
+    """The caller's server flags, then the recipe's sweeper settings.
+
+    The sweeper always starts off; the one-second interval makes a pass that a
+    test turns on quick.
+    """
+    return [
+        *(command or ()),
+        "--setParameter",
+        "ttlMonitorSleepSecs=1",
+        "--setParameter",
+        "ttlMonitorEnabled=false",
+    ]
 
 
 def _ping(host: str, port: int, username: str, password: str) -> None:

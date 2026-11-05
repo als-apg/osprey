@@ -12,7 +12,6 @@ import pytest
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.models import ARIELSearchResult
-from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS, run_search_call
 from osprey.services.ariel_search.search.keyword import (
     KeywordSearchInput,
     format_keyword_result,
@@ -195,69 +194,6 @@ class TestARIELSearchService:
         async with service:
             pass
         service.pool.close.assert_called_once()
-
-    def test_the_service_owns_a_bounded_search_call_pool(self):
-        """Search-time provider calls run on the service's own small pool."""
-        service = self._create_mock_service()
-        try:
-            assert service._search_calls._size == SEARCH_CALL_WORKERS
-            assert service._search_calls._thread_name_prefix == "ariel-search-call"
-        finally:
-            service._search_calls.close()
-
-    @pytest.mark.asyncio
-    async def test_aclose_releases_the_search_calls_then_both_pools_and_a_second_call_does_nothing(
-        self,
-    ):
-        """One close, in order: search-call pool, read-only pool, ingestion pool."""
-        service = self._create_mock_service()
-        order: list[str] = []
-        real_close = service._search_calls.close
-
-        def _close() -> None:
-            order.append("search_calls")
-            real_close()
-
-        service._search_calls.close = _close  # type: ignore[method-assign]
-        service.readonly_pool = MagicMock()
-        service.readonly_pool.close = AsyncMock(side_effect=lambda: order.append("readonly"))
-        service.pool.close = AsyncMock(side_effect=lambda: order.append("pool"))
-
-        await service.aclose()
-        await service.aclose()
-
-        assert order == ["search_calls", "readonly", "pool"]
-        service.pool.close.assert_awaited_once()
-        service.readonly_pool.close.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_a_failing_readonly_close_still_closes_the_ingestion_pool(self):
-        """A close that raises does not leave the next resource open; its error surfaces."""
-        service = self._create_mock_service()
-        service.readonly_pool = MagicMock()
-        service.readonly_pool.close = AsyncMock(side_effect=RuntimeError("readonly close failed"))
-
-        with pytest.raises(RuntimeError, match="readonly close failed"):
-            await service.aclose()
-
-        service.pool.close.assert_awaited_once()
-        assert service._search_calls._closed is True
-
-    @pytest.mark.asyncio
-    async def test_a_closed_service_leaves_no_search_call_thread(self):
-        """After ``aclose()`` the exit report names no search-call worker."""
-        import io
-
-        from osprey_connectors_tests._harness._live_threads import report_live_threads
-
-        service = self._create_mock_service()
-        assert await run_search_call(service._search_calls, lambda: 42) == 42
-
-        await service.aclose()
-
-        report = io.StringIO()
-        report_live_threads(report, grace=2.0)
-        assert "ariel-search-call" not in report.getvalue()
 
     @pytest.mark.asyncio
     async def test_health_check_healthy(self):
@@ -1140,6 +1076,34 @@ class TestAdvancedParamsWiring:
             "entry_filter",
             "offset",
         }
+
+    @pytest.mark.asyncio
+    async def test_search_calls_reach_exactly_the_modules_that_declare_them(self):
+        """A module declaring ``needs_search_calls`` gets the service's own pool;
+        a module that does not gets no such argument."""
+        from osprey.services.ariel_search.search import keyword, qmd
+
+        assert qmd.get_tool_descriptor().needs_search_calls
+        assert not keyword.get_tool_descriptor().needs_search_calls
+        service = self._create_mock_service(
+            search_modules={"keyword": {"enabled": True}, "hybrid": {"enabled": True}}
+        )
+
+        with (
+            patch(
+                "osprey.services.ariel_search.search.qmd.hybrid_search",
+                new=AsyncMock(return_value=[]),
+            ) as hybrid_search,
+            patch(
+                "osprey.services.ariel_search.search.keyword.keyword_search",
+                new=AsyncMock(return_value=[]),
+            ) as keyword_search,
+        ):
+            await service.search("test", mode="hybrid")
+            await service.search("test", mode="keyword")
+
+        assert hybrid_search.call_args.kwargs["search_calls"] is service.search_calls
+        assert "search_calls" not in keyword_search.call_args.kwargs
 
 
 class TestServiceState:

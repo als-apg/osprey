@@ -400,7 +400,7 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
 def _record_transcript(app, key: str, session: OperatorSession) -> None:
     """Point *key* at the transcript its live child is on, once a turn has run.
 
-    The expert view's child reports every turn through the agent-turn hook,
+    The terminal's child reports every turn through the agent-turn hook,
     which writes the same map; the chat child runs with no such hook, so the
     route is where its transcript follows the key. Written after every turn,
     unconditionally, for the same reason the hook route writes
