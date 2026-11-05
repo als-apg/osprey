@@ -543,6 +543,30 @@ describe('Activity mode', () => {
     expect(bands).not.toContain('Earlier');
   });
 
+  const bandsOf = (list) =>
+    rows
+      .activityRows(list, { shownId: null, openRuns: new Set() })
+      .filter((n) => n instanceof HTMLElement && n.classList.contains('osprey-tree-day'))
+      .map((n) => n.textContent);
+
+  test('a session whose rows all fall on one day shows no day heading', () => {
+    const today = [
+      entry('a', 'markdown', '2026-10-30T10:00:00Z', { form: 'documents' }),
+      entry('b', 'markdown', '2026-10-30T09:00:00Z', { form: 'documents' }),
+    ];
+    expect(bandsOf(today)).toEqual([]);
+    expect(
+      bandsOf([entry('o', 'markdown', '2026-10-01T10:00:00Z', { form: 'documents' })])
+    ).toEqual([]);
+  });
+
+  test('two days show headings for both, and a live row from a new day adds them', () => {
+    const one = [entry('a', 'markdown', '2026-10-30T10:00:00Z', { form: 'documents' })];
+    expect(bandsOf(one)).toEqual([]);
+    const two = [...one, entry('y', 'markdown', '2026-10-29T10:00:00Z', { form: 'documents' })];
+    expect(bandsOf(two)).toEqual(['Today', 'Yesterday']);
+  });
+
   test('a run is one row: its outputs and parts are not listed beside it', () => {
     const nodes = rows.activityRows(entries, { shownId: null, openRuns: new Set() });
     expect(treeRowIds(nodes)).toEqual(['h1', 'y', 'old']);
