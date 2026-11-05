@@ -20,6 +20,7 @@ from osprey.apps.errors import AppManifestError
 from osprey.apps.manifest import AppManifest, Container, Tools, launch_token_env
 from osprey.apps.rules import LoginSelection
 from osprey.port_layout import FACILITY_MAX, default_port, resolve_port_base
+from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
 
 #: The bundled template every ``runtime: osprey`` container renders through.
 APP_RUNTIME_TEMPLATE = "osprey.app_runtime"
@@ -305,7 +306,11 @@ def _project_server(manifest: AppManifest, tools: Tools) -> dict[str, Any]:
     server: dict[str, Any] = {
         "command": _AGENT_PYTHON,
         "args": ["-m", tools.module],
-        "env": {APP_NAME_ENV: manifest.name},
+        "env": {
+            APP_NAME_ENV: manifest.name,
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+        },
         "permissions": {"allow": list(tools.read)},
         "writes": [entry.tool for entry in tools.approval],
         "app": manifest.name,

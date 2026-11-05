@@ -172,7 +172,9 @@ claude_code:
       - knob_example.tools
       command: '{current_python_env}'
       env:
+        CONFIG_FILE: '{project_root}/build/config.yml'
         OSPREY_APP_NAME: knob-example
+        OSPREY_CONFIG: '{project_root}/build/config.yml'
       permissions:
         allow:
         - read_corrector

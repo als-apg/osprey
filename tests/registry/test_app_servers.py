@@ -29,6 +29,7 @@ from osprey.registry.mcp import (
     _APPROVAL,
     _APPROVAL_PREFLIGHT,
     _WRITES_CHECK,
+    RENDERED_CONFIG_ENV_VALUE,
     _custom_server_from_spec,
     facility_write_tools,
     resolve_servers,
@@ -120,7 +121,11 @@ def test_a_shown_application_is_projected_as_one_server_named_for_it() -> None:
     assert server == {
         "command": "{current_python_env}",
         "args": ["-m", "knob_app.tools"],
-        "env": {"OSPREY_APP_NAME": "knob"},
+        "env": {
+            "OSPREY_APP_NAME": "knob",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+        },
         "permissions": {"allow": ["knob_read"]},
         "writes": ["knob_set", "knob_zero"],
         "app": "knob",
@@ -242,7 +247,11 @@ def test_persistence_writes_condition_and_app_beside_writes(tmp_path) -> None:
     assert spec["condition"] == "panel:knob"
     assert spec["app"] == "knob"
     assert spec["writes"] == ["knob_set", "knob_zero"]
-    assert spec["env"] == {"OSPREY_APP_NAME": "knob"}
+    assert spec["env"] == {
+        "OSPREY_APP_NAME": "knob",
+        "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+        "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+    }
 
 
 # ---------------------------------------------------------------------------
