@@ -1,0 +1,46 @@
+{
+  "summary": "2/5 checks passed (1 warning, 1 error, 1 skipped)",
+  "ok": 2,
+  "warnings": 1,
+  "errors": 1,
+  "skips": 1,
+  "total": 5,
+  "elapsed_ms": 194.8,
+  "deadline_hit": false,
+  "results": [
+    {
+      "name": "disk_space",
+      "category": "file_system",
+      "status": "ok",
+      "message": "Disk 6% full (6986.2 GB free)"
+    },
+    {
+      "name": "beam_current",
+      "category": "beamline_services",
+      "status": "ok",
+      "message": "SR:CURRENT = 401.2 mA",
+      "value": "401.2 mA",
+      "latency_ms": 12.4
+    },
+    {
+      "name": "archive_last_pass",
+      "category": "archive",
+      "status": "warning",
+      "message": "Archive unreadable: [Errno 13] Permission denied",
+      "details": "Check the archive container with `osprey logs archive`."
+    },
+    {
+      "name": "config_file_exists",
+      "category": "configuration",
+      "status": "error",
+      "message": "config.yml not found at /srv/osprey/my-agent/config.yml",
+      "details": "Searched from: /srv/osprey/my-agent\nRun this from inside a deployment repository, or pass --project with the directory holding config.yml."
+    },
+    {
+      "name": "ollama",
+      "category": "providers",
+      "status": "skip",
+      "message": "embeddings only, no chat; reachability is reported by `osprey ariel status`"
+    }
+  ]
+}
