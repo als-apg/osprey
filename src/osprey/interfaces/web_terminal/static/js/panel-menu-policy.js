@@ -56,6 +56,7 @@ import { focusTerminal, restartTerminal, startTerminal } from './terminal.js';
 import { buildAgentRowMenuItems, initTreeMenus } from './sidebar-artifact-menus.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
 import { getEntry, entryIds } from './panel-rail.js';
+import { isListOpen, setListOpen } from './sidebar.js';
 import { showUndoNotice } from './undo-notice.js';
 import { bringBackPanel, canPopOut, focusPopout, isPoppedOut, popOutPanel } from './popout.js';
 import {
@@ -66,6 +67,9 @@ import {
   moveToGroup,
   startGroupRename,
 } from './sidebar-groups.js';
+
+/** The Agent row's list (sidebar.js's disclosure id for the session tree). */
+const AGENT_LIST = 'agent';
 
 /**
  * The panel-manager state and actions this module's closures act through. Every
@@ -116,14 +120,14 @@ function ctx() {
  * in the service tile used last, replacing the panel it showed, or focus it
  * where it is (the open rule, dock-open.js). The placement happens in the dock
  * adapter and is purely local — the replaced panel keeps its row. The Agent row
- * routes to the dock instead (its open/closed state is layout state, not
- * membership — see TERMINAL_RAIL_ID).
+ * routes to the dock and its session list instead (its open/closed state is
+ * layout state, not membership — see TERMINAL_RAIL_ID and activateAgentRow).
  */
 export function railOptions() {
   return {
     onActivate: (/** @type {string} */ id) => {
       if (id === TERMINAL_RAIL_ID) {
-        showAgentPane();
+        activateAgentRow();
         return;
       }
       // A failed sidecar's row has one verb: start it again.
@@ -140,11 +144,9 @@ export function railOptions() {
       // Clicking the row whose tile is ALREADY surfaced retires that tile — a
       // toggle shortcut equivalent to the tile header's own "×". It stays a
       // LOCAL layout change: membership survives, so a second click brings
-      // the tile back. A parent row (Artifacts) is the exception: the same
-      // click opens its list, which is what the operator reached for, so it
-      // only ever brings its tile forward.
+      // the tile back.
       if (ctx().isMember(id)) {
-        if (ctx().getActiveTabId() === id && !isParentRow(id)) {
+        if (ctx().getActiveTabId() === id) {
           ctx().retireTile(id);
           return;
         }
@@ -175,8 +177,23 @@ export function railOptions() {
 }
 
 /**
- * The Agent row's click: open the Agent pane when it is closed, or bring the
- * open one forward, then put the caret where the operator types — the chat
+ * The Agent row's click. With the Agent pane closed it opens the pane and
+ * unfolds the session list; with the pane open it folds or unfolds the list
+ * and leaves the pane as it is — the pane closes only from its own header.
+ * The one place that decides: sidebar.js handles only the collapsed
+ * sidebar's flyout, and stops the click before it reaches here.
+ */
+function activateAgentRow() {
+  if (isTerminalPanelOpen()) {
+    setListOpen(AGENT_LIST, !isListOpen(AGENT_LIST));
+    return;
+  }
+  setListOpen(AGENT_LIST, true);
+  showAgentPane();
+}
+
+/**
+ * Open the Agent pane, then put the caret where the operator types — the chat
  * composer, or the terminal when that is the surface showing.
  */
 function showAgentPane() {
@@ -188,15 +205,6 @@ function showAgentPane() {
       document.querySelector('#operator-container textarea')
     )?.focus();
   }
-}
-
-/**
- * Whether a panel's row discloses a list (`.parent`, the Artifacts row).
- * @param {string} id
- * @returns {boolean}
- */
-function isParentRow(id) {
-  return getEntry(ctx().getRailEl(), id)?.classList.contains('parent') ?? false;
 }
 
 /**

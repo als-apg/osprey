@@ -105,9 +105,18 @@ def client(hub):
         yield c
 
 
+#: These tests read the tree in Kind mode, which an operator chooses (Activity is
+#: the default); a mode already stored, e.g. by a test's own switch, is kept.
+_KIND_MODE_JS = """(() => {
+  const key = 'osprey-sidebar-artifacts-view';
+  if (localStorage.getItem(key) === null) localStorage.setItem(key, 'kind');
+})()"""
+
+
 @pytest.fixture
 def context(chromium_browser):
     ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+    ctx.add_init_script(_KIND_MODE_JS)
     yield ctx
     ctx.close()
 

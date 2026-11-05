@@ -352,16 +352,24 @@ describe('disclosure', () => {
     expect(tree().hidden).toBe(true);
   });
 
-  test('a click on the Agent row opens the tree and never closes it', async () => {
+  test("the expanded Agent row's click is left to its activation, which folds through setListOpen", async () => {
     await boot();
-    clickDisc(agentRow());
-    expect(tree().hidden).toBe(true);
+    const activate = vi.fn();
+    // panel-menu-policy.js's activation decides what the click does.
+    agentRow().addEventListener('click', activate);
 
     agentRow().click();
+    expect(activate).toHaveBeenCalledOnce();
     expect(tree().hidden).toBe(false);
-    expect(agentRow().getAttribute('aria-expanded')).toBe('true');
+    expect(sidebar.isListOpen('agent')).toBe(true);
 
-    agentRow().click();
+    sidebar.setListOpen('agent', false);
+    expect(tree().hidden).toBe(true);
+    expect(agentRow().getAttribute('aria-expanded')).toBe('false');
+    expect(sidebar.isListOpen('agent')).toBe(false);
+    expect(storedOpen('osprey-sidebar-open')).toEqual([]);
+
+    sidebar.setListOpen('agent', true);
     expect(tree().hidden).toBe(false);
     expect(storedOpen('osprey-sidebar-open')).toEqual(['agent']);
   });

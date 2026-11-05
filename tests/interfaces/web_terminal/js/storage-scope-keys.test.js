@@ -276,15 +276,24 @@ describe('sidebar-artifacts.js tree mode', () => {
     serveAs('bob');
     mod.initSidebarArtifacts();
 
-    mod.setTreeView('activity');
+    mod.setTreeView('kind');
 
-    expect(mod.treeView()).toBe('activity');
-    expect(localStorage.getItem(`${BASE}--bob`)).toBe('activity');
+    expect(mod.treeView()).toBe('kind');
+    expect(localStorage.getItem(`${BASE}--bob`)).toBe('kind');
     expect(localStorage.getItem(BASE)).toBe(null);
   });
 
   test("another user's mode is never read", () => {
-    localStorage.setItem(BASE, 'activity');
+    localStorage.setItem(BASE, 'kind');
+    serveAs('bob');
+
+    mod.initSidebarArtifacts();
+
+    expect(mod.treeView()).toBe('activity');
+  });
+
+  test("bob's own mode is", () => {
+    localStorage.setItem(`${BASE}--bob`, 'kind');
     serveAs('bob');
 
     mod.initSidebarArtifacts();
@@ -292,21 +301,12 @@ describe('sidebar-artifacts.js tree mode', () => {
     expect(mod.treeView()).toBe('kind');
   });
 
-  test("bob's own mode is", () => {
-    localStorage.setItem(`${BASE}--bob`, 'activity');
-    serveAs('bob');
-
-    mod.initSidebarArtifacts();
-
-    expect(mod.treeView()).toBe('activity');
-  });
-
   test('unscoped serving still writes the legacy key', () => {
     mod.initSidebarArtifacts();
 
-    mod.setTreeView('activity');
+    mod.setTreeView('kind');
 
-    expect(localStorage.getItem(BASE)).toBe('activity');
+    expect(localStorage.getItem(BASE)).toBe('kind');
   });
 });
 

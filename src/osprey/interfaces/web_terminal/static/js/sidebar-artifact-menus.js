@@ -184,7 +184,7 @@ export function sessionMenuItems(row) {
   const tid = treeId && !treeId.startsWith('key:') ? treeId : null;
   const view = readTreeView();
   return [
-    { label: 'Open in Agent', run: () => row.click() },
+    { label: 'Open in Agent', run: () => void openSession(treeId) },
     { label: 'Browse', run: () => (isOpen(row) ? undefined : clickDisc(row)) },
     { divider: true },
     { label: 'Group by Kind', checked: view === 'kind', run: () => void applyView('kind') },
@@ -199,6 +199,16 @@ export function sessionMenuItems(row) {
     { label: 'Export transcript', disabled: !tid, run: () => tid && exportTranscript(tid) },
     { label: 'Copy ID', disabled: !tid, run: () => tid && copyText(tid) },
   ];
+}
+
+/**
+ * Open a session in the Agent through the controller (a click on the current
+ * session's name only folds it). Imported lazily, as {@link applyView}.
+ * @param {string} treeId
+ */
+async function openSession(treeId) {
+  const { openInAgent } = await import('./sidebar-artifacts.js');
+  await openInAgent(treeId);
 }
 
 /**

@@ -24,7 +24,7 @@ const listing = vi.hoisted(() => ({
   readTreeView: vi.fn(() => 'kind'),
 }));
 const confirm = vi.hoisted(() => ({ showConfirm: vi.fn() }));
-const controller = vi.hoisted(() => ({ setTreeView: vi.fn() }));
+const controller = vi.hoisted(() => ({ setTreeView: vi.fn(), openInAgent: vi.fn(async () => {}) }));
 
 vi.mock(
   '../../../src/osprey/interfaces/web_terminal/static/js/session-model.js',
@@ -189,6 +189,12 @@ describe('a session row', () => {
     menuRow('Export transcript').click();
     expect(clicked).toEqual(['/api/sessions/t1/transcript.md']);
     spy.mockRestore();
+  });
+
+  test('Open in Agent opens the session through the controller, never as a click that folds', async () => {
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Open in Agent').click();
+    await vi.waitFor(() => expect(controller.openInAgent).toHaveBeenCalledWith('t1'));
   });
 
   test('Group by Activity applies the mode through the controller', async () => {
