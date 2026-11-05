@@ -26,13 +26,23 @@
  *
  * TWO SURFACES, ONE VERB SET
  * --------------------------
- * A service panel's sidebar row and its tile header offer identical rows,
- * built by the same {@link buildServiceMenuItems}, so the two can never drift
- * apart. They differ in exactly one place, deliberately: the sidebar applies
- * an enabled gate (see openRailContextMenu) and the tile header does not. The
- * Agent is the exception: its sidebar row heads the session tree and gets the
- * tree's menu, its tile header the pane verbs ({@link buildTerminalMenuItems}). A module that owns a panel's content can add rows to both
- * through {@link setServiceMenuExtras}.
+ * A panel's sidebar row and its tile bar (the ⋯ button and a right-click)
+ * build their rows from the same row helpers and bind the same closures, so
+ * a verb cannot drift between them. They differ deliberately: the sidebar
+ * applies an enabled gate (see openRailContextMenu) and the tile does not;
+ * the sidebar row leads with "Focus <label>", which a tile that is already
+ * showing the panel has no use for, and keeps the short verb list its
+ * redesign owns; the tile's ⋯ is the standard's full menu (tile-menu.js) —
+ * a "This panel" section (the panel's contributed menu entries, the rows a
+ * module owning the panel's content added through
+ * {@link setServiceMenuExtras}, and the controls a narrow bar folded) above
+ * the "Tile" verbs, which add Reload, Copy link, Open in browser tab, Help
+ * and Reset layout to the row's. On the sidebar row the extras follow the
+ * verbs under a divider.
+ * The Agent is the exception on the sidebar side: its row heads the session
+ * tree and gets the tree's menu (buildAgentRowMenuItems,
+ * sidebar-artifact-menus.js); its tile gets the pane verbs
+ * ({@link buildTerminalTileMenuItems}).
  *
  * DECLINE BY EMPTY LIST
  * ---------------------
@@ -42,6 +52,11 @@
  */
 
 import { openContextMenu } from './panel-context-menu.js';
+import { composeTileMenu } from './tile-menu.js';
+import { panelMenuRows } from './tile-header-contrib.js';
+import { foldedControlRows } from './tile-bar-controls.js';
+import { copyPanelLink, openPanelInTab, panelLink, reloadPanel } from './panel-links.js';
+import { helpUrl, openHelp } from './panel-help.js';
 import { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { setPanelVisibility, setRailOrder } from './panel-commands.js';
 import { openPanelBeside, hasDockedTile } from './panel-placement.js';
@@ -296,63 +311,81 @@ export function openRailContextMenu(id, x, y) {
   }
   // The row is the anchor: it scopes the menu's scroll dismissal, so the menu
   // survives a panel scrolling its own content underneath it.
-  return openSurfaceMenu(id, x, y, entry);
+  return openSurfaceMenu(id, 'rail', { x, y, anchorEl: entry });
 }
 
 /**
- * The tile-header counterpart of openRailContextMenu, registered into
- * dock-tab.js at init. Same verb sets, so a panel's two surfaces cannot offer
- * different actions, and the same decline-by-empty-list contract: a surface
+ * The tile-bar counterpart of openRailContextMenu, registered into
+ * dock-tab.js at init and reached from the bar's ⋯ button and from a
+ * right-click on the bar alike. The same tile verbs as the sidebar row, so a
+ * panel's two surfaces cannot offer different actions, plus the tile's own
+ * "This panel" section; the same decline-by-empty-list contract: a surface
  * with no rows to offer reports false and keeps the browser's native menu.
  *
  * The sidebar's enabled gate has no counterpart here on purpose. It exists so
  * a panel that has never answered cannot be acted on from an offline row; a
- * tile header only exists for a panel already occupying a tile, and its verbs
- * (focus it, pop it out, drop it from the rail) stay meaningful even if health
- * polling has since gone quiet.
+ * tile bar only exists for a panel already occupying a tile, and its verbs
+ * (pop it out, reload it, drop it from the rail) stay meaningful even if
+ * health polling has since gone quiet.
  *
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
- * @param {{x: number, y: number, anchorEl: HTMLElement}} opts
+ * @param {import('./dock-tab.js').TileMenuRequest} opts
  * @returns {boolean} true when a menu was opened
  */
 export function openTileContextMenu(id, opts) {
   // The header bar is the anchor — the menu rides out the panel's own scrolls,
   // including the terminal streaming output underneath it.
-  return openSurfaceMenu(id, opts.x, opts.y, opts.anchorEl);
+  return openSurfaceMenu(id, 'tile', opts);
 }
 
 /**
- * The shared tail of both surface openers: build the id's verb rows, decline
- * by empty list, and open the popover. Items, label and the decline signal
- * live in this one place, so the two-surfaces-one-verb-set contract is
- * mechanical rather than maintained in parallel.
+ * The shared tail of both surface openers: build the id's rows for the
+ * surface, decline by empty list, and open the popover. Items, label and the
+ * decline signal live in this one place, so the two-surfaces-one-verb-set
+ * contract is mechanical rather than maintained in parallel.
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
- * @param {number} x  @param {number} y
- * @param {HTMLElement} anchorEl  scopes the menu's scroll dismissal
+ * @param {'rail' | 'tile'} surface
+ * @param {import('./dock-tab.js').TileMenuRequest} opts  position, anchor and
+ *   (from the ⋯ button) the trigger the menu hangs under
  * @returns {boolean} true when a menu was opened
  */
-function openSurfaceMenu(id, x, y, anchorEl) {
-  const items = id === TERMINAL_RAIL_ID ? buildTerminalMenuItems() : buildServiceMenuItems(id);
+function openSurfaceMenu(id, surface, opts) {
+  const agent = id === TERMINAL_RAIL_ID;
+  const items =
+    surface === 'tile'
+      ? agent
+        ? buildTerminalTileMenuItems()
+        : buildTileMenuItems(id)
+      : agent
+        ? buildTerminalMenuItems()
+        : buildServiceMenuItems(id);
   // No rows is a decline, never an empty popover.
   if (!items.length) return false;
-  const label = id === TERMINAL_RAIL_ID ? TERMINAL_RAIL_LABEL : ctx().labelOf(id);
-  openContextMenu({ x, y, anchorEl, ariaLabel: `${label} actions`, items });
+  const label = agent ? TERMINAL_RAIL_LABEL : ctx().labelOf(id);
+  openContextMenu({ ...opts, ariaLabel: `${label} actions`, items });
   return true;
 }
 
 /**
  * Extra rows per panel, registered by the module that owns the panel's content.
- * @type {Map<string, () => import('./panel-context-menu.js').MenuItem[]>}
+ * @type {Map<string, () => import('./tile-menu.js').PanelRow[]>}
  */
 const serviceMenuExtras = new Map();
 
 /**
- * Add rows of a panel's own to its context menus (sidebar row and tile
- * header): `fn()` is asked at every open, so the rows can follow the panel's
- * state, and its rows are appended under a divider after the panel's verbs.
- * Registering again replaces the earlier rows; `null` removes them.
+ * Add rows of a panel's own to its menus: `fn()` is asked at every open, so
+ * the rows can follow the panel's state. In the tile ⋯ they are the "This
+ * panel" section, after the panel's contributed menu entries; on the sidebar
+ * row they follow the verbs under a divider. The Agent pane's rows are
+ * registered under TERMINAL_RAIL_ID. Registering again replaces the earlier
+ * rows; `null` removes them.
+ *
+ * Row shape: the design-system menu's `MenuItem` — `{label, run, checked?,
+ * disabled?, danger?, glyph?}`, or `{divider: true}` — plus `separator:
+ * true` on a row for a divider before it. Destructive rows (`danger`) are
+ * listed last in the tile's section whatever their order here.
  * @param {string} panelId
- * @param {(() => import('./panel-context-menu.js').MenuItem[]) | null} fn
+ * @param {(() => import('./tile-menu.js').PanelRow[]) | null} fn
  */
 export function setServiceMenuExtras(panelId, fn) {
   if (fn) serviceMenuExtras.set(panelId, fn);
@@ -360,25 +393,12 @@ export function setServiceMenuExtras(panelId, fn) {
 }
 
 /**
- * A service panel's menu rows, bound to the SAME closures the sidebar click,
- * the row drag and the agent MCP tools use — a menu pick is indistinguishable
- * downstream from any other path to the verb. Shared by the sidebar row and
- * the panel's tile header so the two surfaces cannot drift apart, and followed
- * by the rows registered through {@link setServiceMenuExtras}.
- *
- * "Pop out" stays inert until the panel can open in a window of its own: its
- * standalone URL has resolved, and it is not an opaque-origin panel. A
- * popped-out panel offers "Bring back" in its place and no "Open in a new
- * tile", because the panel has no tile while its window is open.
- *
- * A member's rows also move its sidebar row between the sidebar's groups:
- * "Move to <group>" for every other group, then "Move to new group…".
- *
- * Only a tile header can belong to a panel that is NOT a rail member — a tile
- * an agent's focus opened off the rail. Its rows keep it
- * there: Focus and the move to a new tile act on the tile alone, the
- * membership row is "Pin to rail", which adds it where any new member goes,
- * and there is no sidebar row to move.
+ * A service panel's SIDEBAR ROW menu, bound to the SAME closures the sidebar
+ * click, the row drag and the agent MCP tools use — a menu pick is
+ * indistinguishable downstream from any other path to the verb. Its rows
+ * are the tile verbs the tile ⋯ also shows ({@link buildTileMenuItems}), from
+ * the same row helpers, led by "Focus <label>" and followed by the rows
+ * registered through {@link setServiceMenuExtras}.
  * @param {string} id
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
@@ -387,7 +407,6 @@ export function buildServiceMenuItems(id) {
   const member = ctx().isMember(id);
   const popped = isPoppedOut(id);
   const extras = serviceMenuExtras.get(id)?.() ?? [];
-  const newTile = { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) };
   return [
     // Focus is the ACTIVATION half of the row click only. A click on the row
     // whose tile is already surfaced retires that tile; a row that says
@@ -395,42 +414,144 @@ export function buildServiceMenuItems(id) {
     // does, so on the already-active panel this row is deliberately a no-op.
     // Off the rail it is focused without the report a member's focus sends.
     { label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) },
-    ...(popped ? [] : [newTile]),
-    popped
-      ? { label: 'Bring back', glyph: '⊟', run: () => bringBackPanel(id) }
-      : {
-          label: 'Pop out',
-          glyph: '↗',
-          // False until the config resolves a URL, and for an opaque-origin panel.
-          disabled: !canPopOut(id),
-          run: () => popOutPanel(id),
-        },
-    ...(member ? groupMoveItems(id) : []),
+    ...(popped ? [] : [newTileRow(id)]),
+    popOutRow(id, popped),
+    ...(member ? [{ divider: true }, ...groupMoveItems(id)] : []),
     { divider: true },
-    // The one server-side membership change in the menu.
-    member
-      ? {
-          label: 'Remove from rail',
-          glyph: '×',
-          danger: true,
-          run: () => {
-            void removeFromRail(id);
-          },
-        }
-      : {
-          label: 'Pin to rail',
-          run: () => {
-            void setPanelVisibility(id, true);
-          },
-        },
+    membershipRow(id, member),
     ...(extras.length ? [{ divider: true }, ...extras] : []),
   ];
 }
 
 /**
- * The rows that move a member's sidebar row to another group, under a
- * divider: "Move to <group>" for every group but its own, in sidebar order,
- * then "Move to new group…".
+ * A service panel's TILE ⋯ menu (tile-menu.js): "This panel" — the panel's
+ * contributed menu entries, the rows registered through
+ * {@link setServiceMenuExtras}, and the controls the narrow bar folded —
+ * then "Tile", the verbs in the order the standard fixes them.
+ *
+ * "Reload" reloads the panel's iframe; "Copy link" and "Open in browser tab"
+ * act on the panel's deep link — its standalone URL carrying its current
+ * state (panel-links.js) — and are inert until the panel has a frame to read
+ * it from; "Help" opens the panel's documentation page and is absent when
+ * the deployment or the panel has none (panel-help.js).
+ *
+ * Only a tile can belong to a panel that is NOT a rail member — a tile an
+ * agent's focus opened off the rail. Its rows keep it there: the move to a
+ * new tile acts on the tile alone, the membership row is "Pin to rail",
+ * which adds it where any new member goes, and there is no sidebar row to
+ * move.
+ * @param {string} id
+ * @returns {import('./panel-context-menu.js').MenuItem[]}
+ */
+export function buildTileMenuItems(id) {
+  const member = ctx().isMember(id);
+  const popped = isPoppedOut(id);
+  const link = panelLink(id);
+  const thisPanel = [
+    ...panelMenuRows(id),
+    ...(serviceMenuExtras.get(id)?.() ?? []),
+    ...foldedControlRows(id),
+  ];
+  const tile = [
+    ...(popped ? [] : [newTileRow(id)]),
+    ...(member ? groupMoveItems(id) : []),
+    { divider: true },
+    popOutRow(id, popped),
+    {
+      label: 'Reload',
+      run: () => {
+        reloadPanel(id);
+      },
+    },
+    {
+      label: 'Copy link',
+      glyph: '⎘',
+      disabled: link === null,
+      run: () => {
+        void copyPanelLink(id);
+      },
+    },
+    {
+      label: 'Open in browser tab',
+      disabled: link === null,
+      run: () => {
+        openPanelInTab(id);
+      },
+    },
+    ...(helpUrl(id) === null
+      ? []
+      : [
+          {
+            label: 'Help',
+            run: () => {
+              openHelp(id);
+            },
+          },
+        ]),
+    { divider: true },
+    membershipRow(id, member),
+    { label: 'Reset layout', run: () => resetDockLayout() },
+  ];
+  return composeTileMenu({ thisPanel, tile });
+}
+
+/**
+ * @param {string} id
+ * @returns {import('./panel-context-menu.js').MenuItem} the row that opens the panel beside the current tile
+ */
+function newTileRow(id) {
+  return { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) };
+}
+
+/**
+ * "Pop out" stays inert until the panel can open in a window of its own: its
+ * standalone URL has resolved, and it is not an opaque-origin panel. A
+ * popped-out panel offers "Bring back" in its place (and no "Open in a new
+ * tile", because the panel has no tile while its window is open).
+ * @param {string} id
+ * @param {boolean} popped
+ * @returns {import('./panel-context-menu.js').MenuItem}
+ */
+function popOutRow(id, popped) {
+  return popped
+    ? { label: 'Bring back', glyph: '⊟', run: () => bringBackPanel(id) }
+    : {
+        label: 'Pop out',
+        glyph: '↗',
+        // False until the config resolves a URL, and for an opaque-origin panel.
+        disabled: !canPopOut(id),
+        run: () => popOutPanel(id),
+      };
+}
+
+/**
+ * The one server-side membership change in the menu.
+ * @param {string} id
+ * @param {boolean} member
+ * @returns {import('./panel-context-menu.js').MenuItem}
+ */
+function membershipRow(id, member) {
+  return member
+    ? {
+        label: 'Remove from rail',
+        glyph: '×',
+        danger: true,
+        run: () => {
+          void removeFromRail(id);
+        },
+      }
+    : {
+        label: 'Pin to rail',
+        run: () => {
+          void setPanelVisibility(id, true);
+        },
+      };
+}
+
+/**
+ * The rows that move a member's sidebar row to another group: "Move to
+ * <group>" for every group but its own, in sidebar order, then "Move to new
+ * group…".
  * @param {string} id
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
@@ -438,7 +559,6 @@ function groupMoveItems(id) {
   const here = groupOf(id);
   const others = loadGroups().groups.filter((group) => group.id !== here);
   return [
-    { divider: true },
     ...others.map((group) => ({
       label: `Move to ${group.label}`,
       run: () => moveToGroup(id, group.id),
@@ -460,9 +580,10 @@ function moveToNewGroup(id) {
 }
 
 /**
- * The Agent tile header's menu rows: Restart terminal, Reset layout, Close
- * Agent pane. The Agent row in the sidebar heads the session tree and has
- * its own menu (buildAgentRowMenuItems, sidebar-artifact-menus.js), which is
+ * The Agent tile's verbs with the rows the chat registered through
+ * {@link setServiceMenuExtras} under TERMINAL_RAIL_ID appended under a
+ * divider. The Agent row in the sidebar heads the session tree and has its
+ * own menu (buildAgentRowMenuItems, sidebar-artifact-menus.js), which is
  * where New session lives.
  *
  * In chat the tile hosts the operator console, so the PTY verb would act on a
@@ -471,6 +592,24 @@ function moveToNewGroup(id) {
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalMenuItems() {
+  const extras = serviceMenuExtras.get(TERMINAL_RAIL_ID)?.() ?? [];
+  return [...terminalTileRows(), ...(extras.length ? [{ divider: true }, ...extras] : [])];
+}
+
+/**
+ * The Agent pane's TILE ⋯ menu: "This panel" — the rows the chat registered
+ * under TERMINAL_RAIL_ID — then "Tile", the Agent pane's own verbs.
+ * @returns {import('./panel-context-menu.js').MenuItem[]}
+ */
+export function buildTerminalTileMenuItems() {
+  return composeTileMenu({
+    thisPanel: serviceMenuExtras.get(TERMINAL_RAIL_ID)?.() ?? [],
+    tile: terminalTileRows(),
+  });
+}
+
+/** @returns {import('./panel-context-menu.js').MenuItem[]} the Agent pane's tile verbs */
+function terminalTileRows() {
   const layout = [
     { label: 'Reset layout', run: () => resetDockLayout() },
     { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },

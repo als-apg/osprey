@@ -210,9 +210,10 @@
  * There is no drag badge: the whole bar is the drag handle (cursor: grab
  * below).
  *
- *   SERVICE tiles show the panel's name (.tile-tab-title) + its contributed
- *     controls + pop out + close.
- *   The AGENT tile shows its adopted bar + close: the chat console's
+ *   SERVICE tiles show the panel's name (.tile-tab-title) + its subtitle and
+ *     panel icons (.tile-tab-contrib) + a hairline + the deployment's shared
+ *     controls (.tile-tab-controls) + ⋯ + pop out + close.
+ *   The AGENT tile shows its adopted bar + ⋯ + close: the chat console's
  *     .op-session-bar in chat (operator.css), the .terminal-header on the
  *     terminal surface (terminal.css). It is always its own tile.
  *
@@ -305,20 +306,20 @@
   color: var(--text-primary);
 }
 
-/* ---- Contribution region: subtitle + the panel-controls slot ----
+/* ---- Contribution region: subtitle + the panel-icon slot ----
  * Rendered by tile-header-contrib.js from an embedded panel's
  * `canopy-host-header-contribution`. Fills the bar between the tile name and the
- * close button, with no divider fence: inert `text` items are the tile's
+ * shared controls, with no divider fence: inert `text` items are the tile's
  * SUBTITLE and read left, beside the name (they are identity, not a
  * control), while every interactive control right-anchors toward the
  * actions. The split is pure CSS `order` around a flexible ::before spacer,
  * so the reconcile in tile-header-contrib.js keeps one flat child list.
- * min-width:0 + a clipped overflow let text ellipsize before the overflow
+ * min-width:0 + a clipped overflow let text ellipsize before the fold
  * ladder folds whole controls (.contrib-hidden). The overflow is `clip`, not
  * `hidden`: a hidden overflow is still a scroll container, and focusing a
- * control at the clipped edge (the ladder's ⋯ button, pressed) scrolled the
- * region to reveal it — a scroll that moved the button and closed the menu
- * it had just opened. A clipped region cannot scroll, by focus or by code. */
+ * control at the clipped edge scrolled the region to reveal it — a scroll
+ * that moved the control and closed the menu it had just opened. A clipped
+ * region cannot scroll, by focus or by code. */
 .tile-tab .tile-tab-contrib {
   display: flex;
   align-items: center;
@@ -360,15 +361,14 @@
 
 /* ---- One control language ----
  * Every interactive element the bar renders is the design language's 28px
- * ghost control. The tile's own close (and the Agent bar's buttons) ARE
- * `.osprey-icon-btn` (primitives.css); the contributed buttons, nav
- * segments and the ⋯ menu take the same look here: transparent at rest,
- * the hover wash under the pointer, the press wash while held or open, one
- * radius, one type style. Icons are inline SVG on currentColor, so they take
- * each control's own state colour. */
+ * ghost control. The tile's own ⋯, pop out and close, the shared controls,
+ * a panel's icons and the Agent bar's buttons ARE `.osprey-icon-btn`
+ * (primitives.css); the legacy text buttons and nav segments take the same
+ * look here: transparent at rest, the hover wash under the pointer, the
+ * press wash while held, one radius, one type style. Icons are inline SVG
+ * on currentColor, so they take each control's own state colour. */
 .tile-tab .contrib-btn,
-.tile-tab .contrib-nav-link,
-.tile-tab .contrib-menu-btn {
+.tile-tab .contrib-nav-link {
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -391,23 +391,20 @@
 }
 
 .tile-tab .contrib-btn:hover:not(:disabled),
-.tile-tab .contrib-nav-link:hover,
-.tile-tab .contrib-menu-btn:hover {
+.tile-tab .contrib-nav-link:hover {
   color: var(--text-primary);
   background: var(--surface-hover);
 }
 
-.tile-tab .contrib-btn:active:not(:disabled),
-.tile-tab .contrib-menu-btn:active,
-.tile-tab .contrib-menu-btn[aria-expanded='true'] {
+.tile-tab .contrib-btn:active:not(:disabled) {
   color: var(--text-primary);
   background: var(--surface-press);
 }
 
-/* Icon-only controls square off. */
-.tile-tab .contrib-menu-btn {
-  width: 28px;
-  padding: 0;
+/* A panel icon in its pressed state (a toggle the panel reports as on). */
+.tile-tab .contrib-icon[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--surface-selected);
 }
 
 .tile-tab .bar-icon {
@@ -520,16 +517,11 @@
   display: none;
 }
 
-/* A control the overflow ladder folded into the bar's ⋯ menu. Folded, not
- * lost: the menu keeps it reachable (see applyOverflowLadder). */
+/* A control the fold ladder took out of a narrow bar — a panel icon, a
+ * shared control or a legacy control. Folded, not lost: the tile ⋯ lists it
+ * under "This panel" (see applyOverflowLadder in tile-header-contrib.js). */
 .tile-tab .contrib-hidden {
   display: none;
-}
-
-/* The bar-owned ⋯ fold target sits at the controls cluster's right edge,
- * inside the region (order 3 > the controls' order 2). */
-.tile-tab .tile-tab-contrib > .contrib-overflow-btn {
-  order: 3;
 }
 
 /* Ladder step 1: the search field down to its magnifier — a 28px ghost
@@ -558,74 +550,48 @@
   color: var(--text-secondary);
 }
 
-/* Menu popover. Body-level and fixed — the contribution region is
- * overflow:hidden and one bar tall, so an in-place popover would be clipped
- * away. Positioned from JS (tile-header-items.js place()); everything here is
- * appearance only, and matches `.osprey-popover` (primitives.css). Not
- * scoped under .dock-root: it is a child of <body>. */
-.contrib-menu-popover {
-  position: fixed;
-  z-index: var(--z-dropdown);
-  min-width: 168px;
-  padding: var(--space-1);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-dropdown);
-}
-
-.contrib-menu-item {
-  appearance: none;
+/* ---- Shared controls: the deployment's buttons behind a hairline ----
+ * Built by tile-bar-controls.js from `web.tile_bar.controls`, between the
+ * contribution region and the actions. The hairline separates the panel's
+ * icons from the hub's controls and shows only while both sides have a
+ * visible control (the ladder toggles `hidden`). */
+.tile-tab .tile-tab-controls {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: 100%;
-  height: 30px;
-  border: none;
-  background: transparent;
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  line-height: var(--leading-none);
-  color: var(--text-primary);
-  text-align: left;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.contrib-menu-item:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.contrib-menu-item:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.contrib-menu-item.checked {
-  font-weight: var(--weight-medium);
-}
-
-/* Fixed-width gutter so labels align whether or not an entry is checkable. */
-.contrib-menu-tick {
   flex: 0 0 auto;
-  width: 12px;
-  color: var(--color-accent);
 }
 
-/* Actions cluster: right-anchored; a service tile's pop out (`.tile-tab-popout`)
- * and every tile's close (`.tile-tab-close`) are `.osprey-icon-btn`s, so the
- * primitive gives them their size, washes and disabled look.
- * Tiles drag, close and resize, so their header bars are live chrome. */
+/* With nothing to show (no controls configured, or all of them folded) the
+ * element leaves the row, so it does not cost the bar a second gap. */
+.tile-tab .tile-tab-controls:not(:has(> button:not([hidden]):not(.contrib-hidden))) {
+  display: none;
+}
+
+.tile-tab .tile-tab-divider {
+  display: block;
+  width: 1px;
+  height: 16px;
+  flex: none;
+  background: var(--surface-hairline);
+}
+
+.tile-tab .tile-tab-divider[hidden] {
+  display: none;
+}
+
+/* Actions cluster: right-anchored and never folded; every tile's ⋯
+ * (`.tile-tab-more`) and close (`.tile-tab-close`) and a service tile's pop
+ * out (`.tile-tab-popout`) are `.osprey-icon-btn`s, so the primitive gives
+ * them their size, washes, the open state of the ⋯ (aria-expanded) and the
+ * disabled look. Tiles drag, close and resize, so their header bars are
+ * live chrome. */
 .tile-tab .tile-tab-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex: 0 0 auto;
 }
 
 /* ---- Drop preview ----

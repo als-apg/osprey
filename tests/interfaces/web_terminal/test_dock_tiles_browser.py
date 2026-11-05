@@ -37,7 +37,7 @@ row and its iframe), a docked panel is focused where it is, a reload brings
 the stored arrangement back whole, and a stored tile holding several panels
 comes back with the one it showed. Last, the two narrow-tile defects of the
 tab release: removing a panel from the rail leaves the other tiles alone, and
-a narrow artifacts tile keeps its bar and a working overflow menu.
+a narrow artifacts tile keeps its bar and a working tile ⋯ menu.
 
 Run:
 
@@ -1393,7 +1393,8 @@ _ARTIFACTS_HEADER_JS = """async (title) => {
     (id) => { window.__picked.push(id); });
 }"""
 
-#: The overflow menu's row for each control the artifacts header can fold.
+#: The tile ⋯ row for each control the artifacts header can fold (an icon button's
+#: row is named by its title).
 _ARTIFACT_FOLD_LABELS = {
     "button:open": "Open full size",
     "button:save": "Save",
@@ -1402,18 +1403,17 @@ _ARTIFACT_FOLD_LABELS = {
 }
 
 
-def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_overflow_menu(
-    tmp_path, chromium_browser
-):
-    """In a quarter-width tile the artifacts bar spans its tile and its ⋯ menu stays open.
+def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_tile_menu(tmp_path, chromium_browser):
+    """In a quarter-width tile the artifacts bar spans its tile and the tile ⋯ holds what folded.
 
     The tab release's defect: the artifacts header (its crumb, the pager, Open
     full size and Save) collapsed the header of a tile holding several panels
-    to nothing and folded every control into ⋯, whose menu then closed itself
-    as the clipped region scrolled to the focused button. With one panel per
-    tile the bar is the tile's whole header, the folded controls are named in
-    the menu, a real click keeps it open, and a row runs the control it
-    stands for.
+    to nothing and folded every control away, and the menu that held them
+    closed itself as the clipped region scrolled to the focused button. With
+    one panel per tile the bar is the tile's whole header. The folded controls
+    take class `contrib-hidden` and are rows under the tile menu's "This panel"
+    heading, a real click on ⋯ keeps the menu open, and a row runs the control
+    it stands for.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
@@ -1440,23 +1440,28 @@ def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_overflow_menu(
         tile = state["tiles"][_tile_of(state, "artifacts")]
         assert abs(tile["bar"]["width"] - tile["row"]["width"]) <= PX, tile
 
-        overflow = bar.locator(".contrib-overflow-btn")
-        expect(overflow).to_be_visible(timeout=5_000)
-        folded = (overflow.get_attribute("data-folded-keys") or "").split("\n")
-        assert folded and all(key in _ARTIFACT_FOLD_LABELS for key in folded), folded
+        folded = bar.locator("[data-contrib-key].contrib-hidden")
+        expect(folded.first).to_be_attached(timeout=5_000)
+        keys = folded.evaluate_all("els => els.map(e => e.dataset.contribKey)")
+        assert keys and all(key in _ARTIFACT_FOLD_LABELS for key in keys), keys
 
-        overflow.click()
+        bar.locator(".tile-tab-more").click()
         page.wait_for_timeout(300)
-        popover = page.locator(".contrib-menu-popover")
-        expect(popover).to_have_count(1)
-        rows = popover.locator(".contrib-menu-item")
-        labels = [text.strip() for text in rows.all_inner_texts()]
-        assert labels == [_ARTIFACT_FOLD_LABELS[key] for key in folded], (labels, folded)
+        menu = page.locator(".rail-context-menu")
+        expect(menu).to_have_count(1)
+        expect(menu.locator(".rail-context-heading", has_text="This panel")).to_have_count(1)
+        rows = menu.locator(".rail-context-item")
+        labels = [text.strip() for text in menu.locator(".rail-context-label").all_inner_texts()]
+        for key in keys:
+            assert _ARTIFACT_FOLD_LABELS[key] in labels, (labels, keys)
 
-        enabled = [n for n in range(rows.count()) if rows.nth(n).is_enabled()]
-        assert enabled, labels
-        rows.nth(enabled[0]).click()
-        expect(popover).to_have_count(0, timeout=5_000)
-        picked = folded[enabled[0]].split(":", 1)[1]
-        assert page.evaluate("() => window.__picked") == [picked]
+        key = keys[0]
+        row = rows.filter(
+            has=page.locator(".rail-context-label", has_text=_ARTIFACT_FOLD_LABELS[key])
+        )
+        expect(row).to_have_count(1)
+        expect(row).not_to_have_attribute("aria-disabled", "true")
+        row.click()
+        expect(menu).to_have_count(0, timeout=5_000)
+        assert page.evaluate("() => window.__picked") == [key.split(":", 1)[1]]
         assert hub.errors == []

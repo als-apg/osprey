@@ -2938,6 +2938,31 @@ keys:
       hello-world. A value that is not a
       boolean, or a file that cannot be read, keeps the default.
     default: true
+  web.tile_bar:
+    rendered: false
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"tile_bar"\s*\)'
+    note: >-
+      Read as a mapping by the web terminal's `tile_bar_controls()`, which then
+      reads its one leaf below. No preset states the leaf live, so nothing
+      renders the block. A value that is not a mapping is logged and the
+      leaf's default is kept.
+    default: {}
+  web.tile_bar.controls:
+    # Commented in control-assistant, never rendered as a live key: a tier or
+    # app merges a string list by union, so a live list in the deployment
+    # preset could never be narrowed to [] by a layer.
+    rendered: false
+    evidence: 'tile_bar\.get\(\s*"controls"\s*\)'
+    note: >-
+      The shared controls on every service tile's bar, left to right. Ids from
+      ask_agent, reload, help (TILE_BAR_CONTROLS in
+      interfaces/web_terminal/tile_bar.py); [] gives a bar without shared
+      controls. Display only: it grants and removes no access. `osprey build`
+      and `osprey validate` refuse a value that is not a list of those ids
+      (cli/build_profile_tile_bar.py). At run time the terminal logs a bad
+      value instead: it leaves out an unknown id, and keeps the default for a
+      value that is not a list or a file that cannot be read.
+    default: [ask_agent]
   web.file_watch_reconcile_interval_s:
     rendered: false
     evidence: 'get_config_value\(\s*"web\.file_watch_reconcile_interval_s"'

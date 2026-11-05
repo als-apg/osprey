@@ -3260,6 +3260,208 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
   });
 });
 
+describe('tile ⋯ menu — the tile’s sections and verbs (openTileContextMenu)', () => {
+  const POLICY_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js';
+  const CONTRIB_PATH =
+    '../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
+
+  /** The captions, in order, as the menu shows them. */
+  const headings = () =>
+    [...document.querySelectorAll('.rail-context-heading')].map((el) => el.textContent);
+
+  /**
+   * Open the tile menu as the bar does: from its ⋯ button (hung under it),
+   * or from a right-click at a point. The anchor stands in for the bar.
+   * @param {string} id
+   * @param {{ trigger?: boolean }} [opts]
+   */
+  async function openTileMenu(id, { trigger = false } = {}) {
+    const policy = await import(POLICY_PATH);
+    const anchorEl = document.createElement('div');
+    document.body.appendChild(anchorEl);
+    const triggerEl = document.createElement('button');
+    anchorEl.appendChild(triggerEl);
+    const opened = policy.openTileContextMenu(id, {
+      x: 40,
+      y: 60,
+      anchorEl,
+      ...(trigger ? { triggerEl } : {}),
+    });
+    return { opened, anchorEl, triggerEl, policy };
+  }
+
+  afterEach(() => {
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    document.documentElement.removeAttribute('data-agent-surface');
+  });
+
+  test('a service tile with nothing of its own: the tile verbs alone, in the standard’s order, no headings', async () => {
+    await bootWorkspace();
+
+    const { opened } = await openTileMenu('ariel');
+
+    expect(opened).toBe(true);
+    expect(headings()).toEqual([]);
+    expect(menuLabels()).toEqual([
+      'Open in a new tile',
+      'Move to Workspace',
+      'Move to new group…',
+      'Pop out',
+      'Reload',
+      'Copy link',
+      'Open in browser tab',
+      'Remove from rail',
+      'Reset layout',
+    ]);
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Ariel actions');
+    // No "Focus …" row: the tile is already showing the panel.
+    expect(menuLabels().some((l) => l?.startsWith('Focus '))).toBe(false);
+    expect(menuRow('Remove from rail')?.classList.contains('danger')).toBe(true);
+  });
+
+  test('"Help" appears only when the deployment has docs and the panel a page', async () => {
+    await bootWorkspace();
+    await openTileMenu('ariel');
+    expect(menuRow('Help')).toBeUndefined();
+
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    document.documentElement.setAttribute('data-docs-url', 'https://docs.example/');
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    await openTileMenu('ariel');
+    expect(menuLabels().indexOf('Help')).toBe(menuLabels().indexOf('Open in browser tab') + 1);
+    /** @type {HTMLElement} */ (menuRow('Help')).click();
+    expect(open).toHaveBeenCalledWith(
+      'https://docs.example/how-to/ariel/web-interface.html',
+      '_blank',
+      'noopener'
+    );
+    document.documentElement.removeAttribute('data-docs-url');
+  });
+
+  test('the panel’s own rows sit under "This panel", the verbs under "Tile"; danger rows last', async () => {
+    await bootWorkspace();
+    const { contributeLocal } = await import(CONTRIB_PATH);
+    const dispatch = vi.fn();
+    contributeLocal(
+      'ariel',
+      [
+        {
+          kind: 'menu',
+          id: 'more',
+          items: [
+            { id: 'clear', label: 'Clear filters', danger: true },
+            { id: 'density', label: 'Compact rows', checked: true },
+            { id: 'columns', label: 'Columns…', separator: true },
+          ],
+        },
+      ],
+      dispatch
+    );
+    const { policy } = await openTileMenu('ariel');
+    policy.setServiceMenuExtras('ariel', () => [{ label: 'Pin', run: () => {} }]);
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    await openTileMenu('ariel');
+
+    expect(headings()).toEqual(['This panel', 'Tile']);
+    expect(menuLabels().slice(0, 4)).toEqual(['Compact rows', 'Columns…', 'Pin', 'Clear filters']);
+    expect(menuLabels()[4]).toBe('Open in a new tile');
+    expect(menuRow('Compact rows')?.getAttribute('aria-checked')).toBe('true');
+    expect(menuRow('Clear filters')?.classList.contains('danger')).toBe(true);
+    // `separator` draws a divider before Columns…; the danger block gets its own.
+    const rows = [...(contextMenu()?.children ?? [])].map((el) => el.className);
+    expect(rows.slice(0, 7)).toEqual([
+      'rail-context-heading',
+      'rail-context-item checked',
+      'rail-context-divider',
+      'rail-context-item',
+      'rail-context-item',
+      'rail-context-divider',
+      'rail-context-item danger',
+    ]);
+
+    // An entry round-trips as the contributed menu's action.
+    /** @type {HTMLElement} */ (menuRow('Columns…')).click();
+    expect(dispatch).toHaveBeenCalledWith('more', 'columns');
+    policy.setServiceMenuExtras('ariel', null);
+  });
+
+  test('opened from the ⋯, the menu hangs under the button, which says so; a second press closes it', async () => {
+    await bootWorkspace();
+
+    const { triggerEl, policy, anchorEl } = await openTileMenu('ariel', { trigger: true });
+    expect(contextMenu()).not.toBeNull();
+    expect(triggerEl.getAttribute('aria-expanded')).toBe('true');
+
+    // The button's own press is not an outside press…
+    triggerEl.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(contextMenu()).not.toBeNull();
+    // …and the click that follows toggles the menu closed.
+    policy.openTileContextMenu('ariel', { x: 0, y: 0, anchorEl, triggerEl });
+    expect(contextMenu()).toBeNull();
+    expect(triggerEl.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('the Agent tile: the chat’s rows under "This panel", its own verbs under "Tile"', async () => {
+    await bootWorkspace();
+    const policy = await import(POLICY_PATH);
+    const exportConversation = vi.fn();
+    policy.setServiceMenuExtras('terminal', () => [
+      { label: 'Export conversation', run: exportConversation },
+      { label: 'Desktop notifications', checked: false, run: () => {} },
+    ]);
+
+    await openTileMenu('terminal');
+
+    expect(headings()).toEqual(['This panel', 'Tile']);
+    expect(menuLabels()).toEqual([
+      'Export conversation',
+      'Desktop notifications',
+      'Reset layout',
+      'Close Agent pane',
+    ]);
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Agent actions');
+    /** @type {HTMLElement} */ (menuRow('Export conversation')).click();
+    expect(exportConversation).toHaveBeenCalledTimes(1);
+
+    // Without registered rows the Agent tile offers its verbs alone.
+    policy.setServiceMenuExtras('terminal', null);
+    await openTileMenu('terminal');
+    expect(headings()).toEqual([]);
+    expect(menuLabels()).toEqual(['Reset layout', 'Close Agent pane']);
+  });
+
+  test('on the terminal surface the Agent tile keeps the session verbs first', async () => {
+    await bootWorkspace({ surface: 'terminal' });
+
+    await openTileMenu('terminal');
+
+    expect(menuLabels()).toEqual([
+      'Restart terminal',
+      'New session',
+      'Reset layout',
+      'Close Agent pane',
+    ]);
+  });
+
+  test('the Agent ROW keeps its verbs and adds the chat’s rows under a divider', async () => {
+    await bootWorkspace();
+    const policy = await import(POLICY_PATH);
+    policy.setServiceMenuExtras('terminal', () => [
+      { label: 'Export conversation', run: () => {} },
+    ]);
+
+    rightClick(
+      /** @type {HTMLElement} */ (
+        document.querySelector('.panel-rail-button[data-panel-id="terminal"]')
+      )
+    );
+
+    expect(headings()).toEqual([]);
+    expect(menuLabels()).toEqual(['Reset layout', 'Close Agent pane', 'Export conversation']);
+    policy.setServiceMenuExtras('terminal', null);
+  });
+});
+
 describe('Undo after a one-click removal — the rail entry comes back where it was', () => {
   const entry = (/** @type {string} */ id) =>
     /** @type {HTMLElement} */ (

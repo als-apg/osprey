@@ -76,8 +76,27 @@ undo this for a few seconds.
 
 A panel can be open without a sidebar row. In the ``control-assistant`` preset
 SYSTEM starts that way (``web.panels.system-health.hidden: true``): open it
-from **+ Add panel** or the command palette, and right-click its tile to pin it
-to the sidebar.
+from **+ Add panel** or the command palette. To pin it to the sidebar,
+right-click its tile bar and pick **Pin to rail**.
+
+The tile bar
+------------
+
+Each panel tile has one bar. The bar shows the name of the panel and a
+subtitle that the panel can set. Then it shows up to three icons of the panel,
+a thin line, and the shared controls of the deployment. At the right end are
+**⋯**, **Pop out** and **×**. A panel keeps its own toolbars inside the panel,
+below the bar.
+
+The other controls and menu items of a panel are in the **This panel** section
+of the **⋯** menu. A right-click on the bar opens the same menu. The **Tile**
+section of the menu has the items for the tile, such as **Pop out**, **Copy
+link** and **Pin to rail**. See :ref:`web-terminal-tile-bar`.
+
+``web.tile_bar.controls`` sets the shared controls: **Ask the agent about this
+panel** (``ask_agent``), **Reload panel** (``reload``) and **Help for this
+panel** (``help``). The default is ``[ask_agent]``. See
+:ref:`config-tile-bar-controls`.
 
 When a panel stops answering
 ----------------------------

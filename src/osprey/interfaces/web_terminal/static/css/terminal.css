@@ -1672,9 +1672,11 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 /* The hovered row's glyph joins its text colour — on the danger row that is
-   how the "×" turns red with "Remove from rail". */
+   how the "×" turns red with "Remove from rail". A checked row's ✓ reads as
+   on at rest. */
 .rail-context-item:hover .rail-context-glyph,
-.rail-context-item:focus .rail-context-glyph {
+.rail-context-item:focus .rail-context-glyph,
+.rail-context-item.checked .rail-context-glyph {
   color: inherit;
 }
 
@@ -1704,6 +1706,18 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   height: 1px;
   margin: var(--space-1) 0;
   background: var(--border-default);
+}
+
+/* Section caption in the tile ⋯ ("This panel", "Tile"), in the facet-head
+   idiom of the design system's own `.osprey-context-heading`. */
+.rail-context-heading {
+  padding: var(--space-1) var(--space-3) 2px;
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 /* ---- Main layout ---- */

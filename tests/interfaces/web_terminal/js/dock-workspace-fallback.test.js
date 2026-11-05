@@ -151,6 +151,35 @@ describe('hub with no dockview', () => {
     );
   });
 
+  test('the bar carries the tile ⋯ after the region — no Pop out, no ×, no shared controls', async () => {
+    document.documentElement.setAttribute('data-tile-bar-controls', 'ask_agent');
+    const { setTileContextMenuHandler } =
+      await import('../../../../src/osprey/interfaces/web_terminal/static/js/dock-tab.js');
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    initDockWorkspace();
+    const host = /** @type {HTMLElement} */ (document.getElementById('right-panel'));
+    host.dataset.activePanel = 'tuning';
+    await flush();
+
+    expect([...bar().children].map((el) => el.classList[0])).toEqual([
+      'tile-tab-title',
+      'tile-tab-contrib',
+      'tile-tab-actions',
+    ]);
+    expect([...bar().querySelectorAll('.tile-tab-actions > *')].map((el) => el.className)).toEqual([
+      'tile-tab-more osprey-icon-btn',
+    ]);
+
+    // The ⋯ asks the policy for the ACTIVE panel's menu.
+    /** @type {HTMLButtonElement} */ (bar().querySelector('.tile-tab-more')).click();
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][0]).toBe('tuning');
+    expect(/** @type {any} */ (handler.mock.calls[0][1]).anchorEl).toBe(bar());
+    setTileContextMenuHandler(null);
+    document.documentElement.removeAttribute('data-tile-bar-controls');
+  });
+
   test('a contribution that arrives before activation renders once the panel is active', async () => {
     const win = addIframe('tuning');
     initDockWorkspace();

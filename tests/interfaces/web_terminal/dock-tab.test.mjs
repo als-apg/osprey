@@ -45,6 +45,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () =>
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   closeTerminalPanel,
   closeDockPanel,
+  openTerminalPanel: () => true,
   getDockApi: () => null,
   setLayoutRestoredHook: () => {},
   setServiceRedock: () => {},
@@ -165,7 +166,7 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('a service tile has a Pop out button before its close, an icon button with the popout icon', async () => {
+  test('a service tile has ⋯, Pop out and × in that order, all icon buttons', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
@@ -173,6 +174,7 @@ describe('tile-tab renderer', () => {
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
     const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-popout'));
     expect([...actions.children].map((el) => el.className)).toEqual([
+      'tile-tab-more osprey-icon-btn',
       'tile-tab-popout osprey-icon-btn',
       'tile-tab-close osprey-icon-btn',
     ]);
@@ -180,6 +182,20 @@ describe('tile-tab renderer', () => {
     expect(popout.getAttribute('aria-label')).toBe('Pop out');
     expect(popout.disabled).toBe(false);
     expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
+  });
+
+  test('the ⋯ is the tile menu button: named, a menu popup, closed until opened', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+
+    const more = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-more'));
+    expect(more.type).toBe('button');
+    expect(more.title).toBe('Panel menu');
+    expect(more.getAttribute('aria-label')).toBe('Panel menu');
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(more.querySelector('svg.osprey-ic')).not.toBeNull();
   });
 
   test('Pop out pops the service panel out, inside the click', async () => {
@@ -196,13 +212,43 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has no Pop out button', async () => {
+  test('the Agent tile has ⋯ and × only: no Pop out yet, no shared controls', async () => {
+    document.documentElement.setAttribute('data-tile-bar-controls', 'ask_agent reload help');
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const tab = createTileTab('terminal');
     tab.init({ title: 'Agent', params: {}, api: fakeApi() });
 
     expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
+    expect(tab.element.querySelector('.tile-tab-controls')).toBeNull();
+    const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
+    expect([...actions.children].map((el) => el.className)).toEqual([
+      'tile-tab-more osprey-icon-btn',
+      'tile-tab-close osprey-icon-btn',
+    ]);
+    document.documentElement.removeAttribute('data-tile-bar-controls');
+  });
+
+  test('a service tile carries the shared controls between its region and its actions', async () => {
+    document.documentElement.setAttribute('data-tile-bar-controls', 'reload ask_agent');
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+
+    expect([...tab.element.children].map((el) => el.classList[0])).toEqual([
+      'tile-tab-title',
+      'tile-tab-contrib',
+      'tile-tab-controls',
+      'tile-tab-actions',
+    ]);
+    const controls = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-controls'));
+    expect(controls.firstElementChild?.className).toBe('tile-tab-divider');
+    expect(
+      [...controls.querySelectorAll('[data-control]')].map(
+        (el) => /** @type {HTMLElement} */ (el).dataset.control
+      )
+    ).toEqual(['reload', 'ask_agent']);
+    document.documentElement.removeAttribute('data-tile-bar-controls');
   });
 
   test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
@@ -351,7 +397,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: dot, session switcher, pen, bell, share, close', async () => {
+    test('the chat adopts the console bar: dot, Agent, pen, bell, share, more, then ⋯ and close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -375,6 +421,8 @@ describe('tile-tab renderer', () => {
         'New conversation',
         'Desktop notifications',
         'Export',
+        'Earlier conversations',
+        'Panel menu',
         'Close Agent pane',
       ]);
     });
@@ -552,6 +600,71 @@ describe('tile header context menu', () => {
     expect(opts.y).toBe(30);
     // The menu owns this press: no native menu on top of it.
     expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test('the ⋯ asks the same handler for the same menu, hung under the button', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+    const more = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-more'));
+    vi.spyOn(more, 'getBoundingClientRect').mockReturnValue(
+      /** @type {DOMRect} */ ({ left: 300, right: 328, top: 4, bottom: 32, width: 28, height: 28 })
+    );
+
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    more.dispatchEvent(ev);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const { id, opts } = firstCall(handler);
+    expect(id).toBe('ariel');
+    expect(opts.anchorEl).toBe(tab.element);
+    expect(/** @type {any} */ (opts).triggerEl).toBe(more);
+    expect(opts.x).toBe(300);
+    expect(opts.y).toBe(32);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test("the Agent tile's ⋯ asks for the Agent menu", async () => {
+    const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    setTerminalHeaderSource(detachedTerminalHeader());
+    const tab = createTileTab('terminal');
+    tab.init({ title: 'Agent', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-more')).click();
+
+    expect(firstCall(handler).id).toBe('terminal');
+    expect(/** @type {any} */ (firstCall(handler).opts).triggerEl.className).toBe(
+      'tile-tab-more osprey-icon-btn'
+    );
+  });
+
+  test('a press on the ⋯ or a shared control never starts a tile drag', async () => {
+    document.documentElement.setAttribute('data-tile-bar-controls', 'reload');
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+    const seen = vi.fn();
+    document.body.addEventListener('pointerdown', seen);
+
+    for (const sel of ['.tile-tab-more', '[data-control="reload"]']) {
+      /** @type {HTMLElement} */ (tab.element.querySelector(sel)).dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, cancelable: true })
+      );
+    }
+    // Plain controls-element surface (the hairline) still reaches the drag.
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-divider')).dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true })
+    );
+
+    expect(seen).toHaveBeenCalledTimes(1);
+    document.documentElement.removeAttribute('data-tile-bar-controls');
   });
 
   test('a declined press keeps the browser default (nothing is prevented)', async () => {
@@ -750,7 +863,7 @@ describe('the bars on a real dock', () => {
     return { mod, api, root, holder, barOf };
   }
 
-  test('a service bar: its title, contribution region, Pop out and Close tile — no strip', async () => {
+  test('a service bar: its title, contribution region, shared controls, ⋯, Pop out and Close tile — no strip', async () => {
     const { root, barOf } = await mountBars();
     expect(root.querySelectorAll('.tile-tab')).toHaveLength(2);
     const bar = barOf('t1');
@@ -759,17 +872,25 @@ describe('the bars on a real dock', () => {
     expect([...bar.children].map((el) => el.classList[0])).toEqual([
       'tile-tab-title',
       'tile-tab-contrib',
+      'tile-tab-controls',
       'tile-tab-actions',
     ]);
     expect(bar.querySelector('.tile-tab-title')?.textContent).toBe('Ariel');
     const actions = /** @type {HTMLElement} */ (bar.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Panel menu',
       'Pop out',
       'Close tile',
     ]);
     expect(bar.querySelector('.tile-tab-tabs, .tile-tab-item')).toBeNull();
-    // The Agent pane's bar carries its tile and key too.
-    expect(barOf('t2').getAttribute('data-panel-key')).toBe('terminal');
+    // The Agent pane's bar carries its tile and key too, and ⋯ + close only.
+    const agentBar = barOf('t2');
+    expect(agentBar.getAttribute('data-panel-key')).toBe('terminal');
+    expect(
+      [...agentBar.querySelectorAll('.tile-tab-actions > button')].map((el) =>
+        el.getAttribute('aria-label')
+      )
+    ).toEqual(['Panel menu', 'Close Agent pane']);
   });
 
   test('measureTabRects measures each tile’s header row, with no tab rects — the Agent tile’s too', async () => {

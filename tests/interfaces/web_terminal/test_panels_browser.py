@@ -34,7 +34,7 @@ What is proven here, grouped:
     hidden panel into the active service tile, register from URL, and
     inline register errors.
   * Tile header-bar contributions (the embed contract): a panel's own nav, search
-    and overflow items render in ITS bar only, actions round-trip into the iframe,
+    and menu items render in ITS bar and tile ⋯ only, actions round-trip into the iframe,
     and the bar's drag ghost keeps its icons bar-sized.
   * The right-click context menu (``panel-context-menu.js``), the only home left
     for the open-beside and pop-out verbs: the rows a rail entry and a tile header
@@ -456,6 +456,44 @@ def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> N
     expect(_service_tab(page, label)).to_have_count(1, timeout=5_000)
 
 
+def _expect_tile_actions(tab, expected: list[str]) -> None:
+    """The tile bar's action buttons are exactly ``expected`` (class names), in order."""
+    tab.locator(".tile-tab-actions").wait_for(timeout=5_000)
+    names = tab.locator(".tile-tab-actions > button").evaluate_all(
+        "els => els.map(e => ['tile-tab-more', 'tile-tab-popout', 'tile-tab-close']"
+        ".find(c => e.classList.contains(c)) || e.className)"
+    )
+    assert names == expected, names
+
+
+def _open_tile_menu(page: Page, tab):
+    """Click the tile bar's ⋯ and return the body-level menu it opens."""
+    tab.locator(".tile-tab-more").click()
+    menu = page.locator(_RAIL_MENU)
+    expect(menu).to_have_count(1, timeout=5_000)
+    return menu
+
+
+def _tile_menu_pick(page: Page, tab, label: str, *, panel_entry: bool = False) -> None:
+    """Open the tile ⋯ menu and click the row whose label is exactly ``label``.
+
+    ``panel_entry`` marks a row of the panel's own "This panel" section, which
+    comes first, so a panel entry named like a tile row ("Reset layout") is the
+    first match.
+    """
+    menu = _open_tile_menu(page, tab)
+    row = menu.locator(_RAIL_MENU_ITEM).filter(
+        has=menu.locator(".rail-context-label", has_text=re.compile(rf"^{re.escape(label)}$"))
+    )
+    if panel_entry:
+        expect(menu.locator(".rail-context-heading").first).to_have_text("This panel")
+        row = row.first
+    else:
+        expect(row).to_have_count(1)
+    row.click()
+    expect(page.locator(_RAIL_MENU)).to_have_count(0, timeout=5_000)
+
+
 def _drag_with_dock_shield(page: Page, source, target, **kwargs) -> None:
     """``source.drag_to(target)`` with the app's real-drag state pre-raised.
 
@@ -871,12 +909,11 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _focus_service_panel(page, "data-viz", "DATA VIZ")
-        # The unified bar: visible title + pop out + close, no grip badge.
+        # The unified bar: visible title + ⋯ + pop out + close, no grip badge.
         tab = _service_tab(page, "DATA VIZ")
         expect(tab.locator(".tile-tab-grip")).to_have_count(0)
         expect(tab.locator(".tile-tab-title")).to_have_text(_title_case("DATA VIZ"))
-        expect(tab.locator(".tile-tab-close")).to_have_count(1)
-        expect(tab.locator(".tile-tab-popout")).to_have_count(1)
+        _expect_tile_actions(tab, ["tile-tab-more", "tile-tab-popout", "tile-tab-close"])
         page.wait_for_timeout(600)
 
         posts = _track_panel_posts(page)
@@ -2162,7 +2199,7 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
             == content_top
         ), "tile content shifted on hover"
 
-        # A service tile carries the unified bar: visible title + pop out +
+        # A service tile carries the unified bar: visible title + ⋯ + pop out +
         # close, no grip badge. The artifacts tile's visible title is its
         # breadcrumb root while the crumb shows.
         ws = _service_tab(page, "Artifacts")
@@ -2170,8 +2207,7 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
         expect(
             ws.locator(".osprey-crumb-root:visible, .tile-tab-title:visible").first
         ).to_have_text("Artifacts")
-        expect(ws.locator(".tile-tab-close")).to_have_count(1)
-        expect(ws.locator(".tile-tab-popout")).to_have_count(1)
+        _expect_tile_actions(ws, ["tile-tab-more", "tile-tab-popout", "tile-tab-close"])
 
         # Same bar height as the terminal's — one header system, one size.
         svc_h = _strip_height(page, terminal=False)
@@ -2345,7 +2381,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
         ) as (base_url, _app):
             page = _open_page(chromium_browser, base_url)
             # Three tiles beside the sidebar: at the default width a tile folds
-            # its lowest-priority item into its overflow menu. Give them the
+            # its lowest-priority item into the tile's ⋯ menu. Give them the
             # room to show every item in the bar, and prove nothing folded.
             page.set_viewport_size({"width": 1600, "height": 800})
             _open_second_tile(page, base_url, "contrib-demo", "CONTRIB")
@@ -2354,7 +2390,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             tab = _service_tab(page, "CONTRIB")
             expect(tab.locator(".contrib-nav-link")).to_have_count(2, timeout=10_000)
             expect(tab.locator(".contrib-nav-link").first).to_be_visible()
-            expect(tab.locator(".contrib-overflow-btn")).to_have_count(0)
+            expect(tab.locator("[data-contrib-key].contrib-hidden")).to_have_count(0)
             expect(tab.locator(".contrib-nav-link.active")).to_have_text("Browse")
             expect(tab.locator(".contrib-btn")).to_have_text("Refresh")
             expect(tab.locator(".tile-tab-contrib.has-items")).to_have_count(1)
@@ -2460,7 +2496,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
       version: 1,
       items: [
         // Higher priority survives a narrow tile longer: the filter outranks
-        // the overflow menu, whose entries are all reachable another way.
+        // the tile menu entries, which are all reachable another way.
         { kind: 'search', id: 'filter', placeholder: 'Filter things\\u2026', priority: 3 },
         { kind: 'menu', id: 'more', priority: 1, items: [
           { id: 'all', label: 'All sessions', checked: false },
@@ -2482,7 +2518,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
 
 @contextmanager
 def _search_menu_panel_backend():
-    """Serve a page contributing a search box and an overflow menu."""
+    """Serve a page contributing a search box and a menu."""
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -2557,14 +2593,23 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
             focused = page.evaluate("() => document.activeElement?.className ?? ''")
             assert "contrib-search-input" in focused, focused
 
-            # Overflow menu: opens body-level, and an entry click round-trips.
-            tab.locator(".contrib-menu-btn").click()
-            popover = page.locator(".contrib-menu-popover")
-            expect(popover).to_be_visible(timeout=5_000)
-            expect(popover.locator(".contrib-menu-item")).to_have_count(2)
+            # Contributed menu: it renders no bar button, only an empty hidden
+            # holder; its entries are rows under "This panel" in the tile ⋯.
+            expect(tab.locator('[data-contrib-key="menu:more"]')).to_be_hidden()
+            expect(tab.locator('[data-contrib-key="menu:more"] *')).to_have_count(0)
+            menu = _open_tile_menu(page, tab)
+            headings = [t.strip() for t in menu.locator(".rail-context-heading").all_inner_texts()]
+            assert headings == ["This panel", "Tile"], headings
+            labels = _menu_labels(page)
+            assert (
+                labels.index("All sessions")
+                < labels.index("Refresh")
+                < labels.index("Open in a new tile")
+            ), labels
+            page.keyboard.press("Escape")
+            expect(page.locator(_RAIL_MENU)).to_have_count(0, timeout=5_000)
 
-            popover.locator(".contrib-menu-item", has_text="Refresh").click()
-            expect(page.locator(".contrib-menu-popover")).to_have_count(0)
+            _tile_menu_pick(page, tab, "Refresh")
 
             actions = _poll_actions(page, frame, 2)
             assert actions and actions[-1] == ["more", "refresh"], actions
@@ -2757,22 +2802,20 @@ def _canopy_hub(tmp_path, chromium_browser, page_name: str):
 _CANOPY_IFRAME = '.dock-iframe-overlay iframe[data-panel-id="canopy"]'
 
 
-def _canopy_activate(page: Page, tab, label: str) -> None:
-    """Click the control labelled ``label`` wherever the bar put it.
+def _canopy_activate(page: Page, tab, label: str, *, menu_entry: bool = False) -> None:
+    """Run the control labelled ``label`` wherever the bar put it.
 
-    On a wide tile it is a button in the bar or an entry of the contributed ⋯;
-    on a narrow one the ladder may have folded it into the bar's own ⋯. Either
-    way it dispatches the same action, so the round-trip is width-independent.
+    On a wide tile a button sits in the bar; on a narrow one the ladder folds it
+    to a row of the tile ⋯ menu. A contributed menu entry is always a row there.
+    Either way it dispatches the same action, so the round-trip is
+    width-independent.
     """
-    button = tab.locator(".contrib-btn:visible", has_text=label)
-    if button.count():
-        button.click()
-        return
-    tab.locator(".contrib-menu-btn:visible").click()
-    popover = page.locator(".contrib-menu-popover")
-    expect(popover).to_be_visible(timeout=5_000)
-    popover.locator(".contrib-menu-item", has_text=label).click()
-    expect(page.locator(".contrib-menu-popover")).to_have_count(0, timeout=5_000)
+    if not menu_entry:
+        button = tab.locator(".contrib-btn:visible", has_text=label)
+        if button.count():
+            button.click()
+            return
+    _tile_menu_pick(page, tab, label, panel_entry=True)
 
 
 @pytest.mark.parametrize("page_name", ["screen", "workspace"])
@@ -2805,9 +2848,13 @@ def test_canopy_header_contribution_renders_exactly_and_round_trips(
         expect(keyed).to_have_count(len(items))
         keys = keyed.evaluate_all("(els) => els.map((el) => el.dataset.contribKey)")
         assert sorted(keys) == expected_keys, keys
-        # One ⋯ only: either the contributed menu, or — when it has folded on a
-        # narrow tile — the bar's own overflow, never both.
-        expect(tab.locator(".contrib-menu-btn:visible")).to_have_count(1)
+        # One ⋯ only: the tile's. The contributed menu is an empty hidden holder.
+        expect(tab.locator(".tile-tab-more:visible")).to_have_count(1)
+        for item in items:
+            if item["kind"] == "menu":
+                holder = tab.locator(f'[data-contrib-key="menu:{item["id"]}"]')
+                expect(holder).to_be_hidden()
+                expect(holder.locator("*")).to_have_count(0)
 
         # The frame sits at this page's path under CANOPY's mount, same origin.
         frame_url = page.locator(_CANOPY_IFRAME).evaluate("(el) => el.contentWindow.location.href")
@@ -2827,7 +2874,7 @@ def test_canopy_header_contribution_renders_exactly_and_round_trips(
                 expected_actions.append([item["id"], None])
             elif item["kind"] == "menu":
                 for entry in item["items"]:
-                    _canopy_activate(page, tab, entry["label"])
+                    _canopy_activate(page, tab, entry["label"], menu_entry=True)
                     expected_actions.append([item["id"], entry["id"]])
 
         frame = page.frame_locator(_CANOPY_IFRAME)
@@ -2866,7 +2913,7 @@ _GHOST_ICON_PROBE = """
   const liveIcon = tab.querySelector('.contrib-search-icon .bar-icon');
   if (!liveIcon) return { error: 'no search icon in the live bar' };
   const liveRect = liveIcon.getBoundingClientRect();
-  const liveCloseRect = tab.querySelector('.tile-tab-actions button')
+  const liveCloseRect = tab.querySelector('.tile-tab-actions .tile-tab-close')
     ?.getBoundingClientRect();
   if (!liveCloseRect) return { error: 'no close control in the live bar' };
   // Drive dockview's REAL html5 drag source. addGhostImage removes the ghost in
@@ -2888,7 +2935,7 @@ _GHOST_ICON_PROBE = """
     parentBox: box(el.parentElement),
   }));
   const ghostBar = ghost.querySelector('.tile-tab');
-  const ghostClose = ghost.querySelector('.tile-tab-actions button');
+  const ghostClose = ghost.querySelector('.tile-tab-actions .tile-tab-close');
   return {
     icons,
     ghost: box(ghost),
@@ -3340,20 +3387,32 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             page.wait_for_timeout(500)
             expect(_context_menu(page)).to_have_count(0)
 
-            # The bar itself is a menu surface, with the same verbs the rail
-            # entry offers.
+            # The bar itself is a menu surface: the panel's own entries under
+            # "This panel", then the tile's verbs under "Tile". The tile menu
+            # has no "Focus …" row — that verb is the rail row's.
             tab.locator(".tile-tab-title").click(button="right")
             menu = _context_menu(page)
             expect(menu).to_have_count(1, timeout=5_000)
             expect(menu).to_have_attribute("aria-label", "Searchy actions")
-            assert _menu_labels(page) == [
-                "Focus Searchy",
+            headings = [t.strip() for t in menu.locator(".rail-context-heading").all_inner_texts()]
+            assert headings == ["This panel", "Tile"], headings
+            labels = _menu_labels(page)
+            assert not any(label.startswith("Focus ") for label in labels), labels
+            assert labels[:2] == ["All sessions", "Refresh"], labels
+            tile_rows = [
+                label for label in labels[labels.index("Open in a new tile") :] if label != "Help"
+            ]
+            assert tile_rows == [
                 "Open in a new tile",
-                "Pop out",
                 "Move to Workspace",
                 "Move to new group…",
+                "Pop out",
+                "Reload",
+                "Copy link",
+                "Open in browser tab",
                 "Remove from rail",
-            ], _menu_labels(page)
+                "Reset layout",
+            ], labels
 
             page.close()
 

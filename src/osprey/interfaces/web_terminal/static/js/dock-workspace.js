@@ -4,6 +4,7 @@ import { fitTerminal } from './terminal.js';
 import { fetchJSON } from './api.js';
 import { reconcile } from './dock-reconcile.js';
 import {
+  buildTileMenuButton,
   createTileTab,
   OSPREY_TAB_COMPONENT,
   setTerminalConsoleBarSource,
@@ -788,9 +789,11 @@ export function resetDockLayout() {
  * panels on it hide their in-body copies of whatever they contribute, so a
  * host without a bar would leave those controls nowhere. The fallback shows
  * one panel at a time (#right-panel's `data-active-panel`), so it carries one
- * bar: the active panel's name and its contribution region, registered with
- * tile-header-contrib.js exactly as a docked TileTab registers its own. The
- * bar follows the active panel and hides only when none is active.
+ * bar: the active panel's name, its contribution region (subtitle and panel
+ * icons), registered with tile-header-contrib.js exactly as a docked TileTab
+ * registers its own, and the tile ⋯. No Pop out, × or shared controls: there
+ * is no tile to close or pop out of. The bar follows the active panel and
+ * hides only when none is active.
  *
  * The Agent card needs nothing here: without a dock it is never adopted, so
  * its bar stays at the top of the card — the console bar in chat (the card's
@@ -816,7 +819,10 @@ export function initFallbackTileBar(host) {
   bar.style.cursor = 'default';
   const title = document.createElement('span');
   title.className = 'tile-tab-title';
-  bar.appendChild(title);
+  const actions = document.createElement('div');
+  actions.className = 'tile-tab-actions';
+  actions.appendChild(buildTileMenuButton(() => host.dataset.activePanel || null, bar));
+  bar.append(title, actions);
   host.insertBefore(bar, content);
 
   /** @type {{ panelId: string, el: HTMLElement } | null} */
@@ -834,7 +840,7 @@ export function initFallbackTileBar(host) {
       // the element, so reusing one across panels would stack them.
       const el = document.createElement('div');
       el.className = 'tile-tab-contrib';
-      bar.appendChild(el);
+      bar.insertBefore(el, actions);
       registerContribHost(panelId, el);
       registered = { panelId, el };
     }

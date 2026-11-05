@@ -89,8 +89,9 @@ back to an older browser mechanism that Safari may refuse.
 Tiles
 -----
 
-The work pane is tiles, and a tile shows one panel. Its header shows the
-panel's name, the panel's controls, **Pop out** and **×**.
+The work pane is tiles, and a tile shows one panel. The bar at the top of a
+tile shows the panel's name, its controls, **⋯**, **Pop out** and **×** (see
+`The tile bar`_).
 
 A panel you open — from its sidebar row, from a link, from the **+** menu,
 from a pop-out window coming back, or one the agent opens for you — takes the
@@ -117,6 +118,43 @@ stays in the sidebar, and its row opens it again. The arrangement — tiles, the
 panel each shows, sizes — is remembered by the browser you set it in. A layout
 saved by an earlier release with several panels in one tile comes back
 showing the panel that was in front; the others are in the sidebar.
+
+.. _web-terminal-tile-bar:
+
+The tile bar
+~~~~~~~~~~~~
+
+Each service tile has one bar. From left to right, the bar shows:
+
+- The name of the panel, and a subtitle when the panel sets one.
+- Up to three icons of the panel.
+- A thin line, then the shared controls: **Ask the agent about this panel**,
+  **Reload panel** and **Help for this panel**. The deployment selects them
+  with ``web.tile_bar.controls`` (see :ref:`config-tile-bar-controls`). The
+  default bar has only **Ask the agent about this panel**.
+- **⋯**, the tile menu.
+- **Pop out**, which moves the panel into its own window (see
+  :ref:`web-terminal-pop-out`).
+- **×**, which closes the tile.
+
+The panel keeps its own toolbars inside the panel, below the bar.
+
+Click **⋯**, or right-click the bar, to open the tile menu. A right-click in a
+search field on the bar opens the menu of the browser instead. The tile menu
+has two sections:
+
+- **This panel** shows the menu items of the panel, then the icons and the
+  shared controls that do not fit on the bar. An item that removes or deletes
+  something is last, below a line. When the panel has no items, the menu shows
+  no section headings.
+- **Tile** shows these items: **Open in a new tile**, **Move to** a group,
+  **Move to new group…**, **Pop out** or **Bring back**, **Reload**, **Copy
+  link**, **Open in browser tab**, **Help**, **Remove from rail** or **Pin to
+  rail**, and **Reset layout**. **Help** shows only when the panel has a page
+  in the documentation.
+
+The Agent tile has its own bar, then **⋯** and **×**. It has no **Pop out**
+and no shared controls.
 
 .. _web-terminal-one-session:
 
@@ -631,8 +669,8 @@ stays in the workspace.
 
 To pop a panel out, do one of these:
 
-- Click the **Pop out** button in the header of its tile, left of the close
-  button.
+- Click the **Pop out** button on its tile bar, left of the close button.
+- Click **⋯** on its tile bar, or right-click the bar, and pick **Pop out**.
 - Right-click its row in the sidebar and pick **Pop out**.
 - Open the command palette and run **Pop out <panel>**.
 
