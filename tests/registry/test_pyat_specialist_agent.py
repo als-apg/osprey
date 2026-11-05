@@ -346,7 +346,7 @@ class TestPyatSpecialistAgentTemplate:
         assert "Report that environment limitation plainly and stop" in normalized
 
     def test_body_hands_in_its_answer_as_prose(self, template_manager):
-        """One submit_response call carrying the answer, filed under its category.
+        """One submit_response call carrying the answer; no category (retired).
 
         The agent is told to report every quantity it was asked for in that
         prose (a table once there are several), and that a large array goes
@@ -358,11 +358,12 @@ class TestPyatSpecialistAgentTemplate:
         normalized = " ".join(rendered.split())
 
         assert '`source_agent`: "pyat-specialist"' in rendered
-        assert '`data_type`: "lattice_analysis"' in rendered
+        assert "data_type" not in rendered
         assert "Report every quantity you were asked for" in normalized
         assert "markdown table" in normalized
-        # The large-array escape hatch names the injected helper and the category.
-        assert 'category="lattice_analysis"' in rendered
+        # The large-array escape hatch names the injected helper, without a category.
+        assert 'artifact_type="json"' in rendered
+        assert "category=" not in rendered
         assert "np.asarray(x).tolist()" in rendered
         # No self-verification step: the agent does not re-read its own filing.
         assert "artifact_list" not in rendered

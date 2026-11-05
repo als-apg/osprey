@@ -154,10 +154,10 @@ tools into several functional areas.
 
 - ``artifact_register`` -- Register a file on disk, or literal text, as a gallery artifact.
 - ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
-- ``artifact_list`` -- List stored artifacts, optionally narrowed by category, tool or agent.
+- ``artifact_list`` -- List stored artifacts, optionally narrowed by form, tool or agent.
 - ``artifact_read`` -- Read a stored artifact's full content (small artifacts only).
 - ``artifact_delete`` -- Delete an artifact from the gallery.
-- ``artifact_delete_all`` -- Delete a whole scope of artifacts (one category, or everything)
+- ``artifact_delete_all`` -- Delete a whole scope of artifacts (one form, or everything)
   in a single call. The ``scope`` argument is required.
 - ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
@@ -173,8 +173,8 @@ tools into several functional areas.
 **Stored data:**
 
 Datasets are not a separate namespace -- an archiver read or a run result is an
-artifact with a ``category``, so the artifact tools above list, read and delete
-them (``artifact_list(category="archiver_data")``).
+artifact with a form, so the artifact tools above list, read and delete them
+(``artifact_list(tool="archiver_read")``).
 
 - ``archiver_downsample`` -- Downsample an archiver artifact to a target point count.
 

@@ -1,7 +1,7 @@
 """Tests for the artifact_list MCP tool.
 
 Covers:
-  - Listing artifacts with and without filters, echoing the filters applied
+  - Listing artifacts with and without filters (form, format), echoing the filters applied
   - ToolError passthrough vs internal_error wrapping on store failures
 """
 
@@ -14,8 +14,8 @@ from osprey.stores.artifact_store import initialize_artifact_store
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 
-def _save_entry(store, tool="channel_read", category="channel_values"):
-    """Helper to save a data-category artifact with minimal boilerplate."""
+def _save_entry(store, tool="channel_read"):
+    """Helper to save a data artifact with minimal boilerplate."""
     return store.save_data(
         tool=tool,
         data={"value": 42, "units": "mA"},
@@ -23,7 +23,6 @@ def _save_entry(store, tool="channel_read", category="channel_values"):
         description="test entry",
         summary={"count": 1},
         access_details={"format": "json"},
-        category=category,
     )
 
 
@@ -45,14 +44,14 @@ def list_tool():
 async def test_list_returns_entries_and_echoes_filters(store, list_tool):
     """No filters: every artifact, null filters echoed. Filtered: only the match."""
     e1 = _save_entry(store)
-    e2 = _save_entry(store, tool="archiver_read", category="archiver_data")
+    e2 = _save_entry(store, tool="archiver_read")
 
     unfiltered = json.loads(await list_tool())
     assert unfiltered["total_entries"] == 2
     assert {e["id"] for e in unfiltered["entries"]} == {e1.id, e2.id}
     assert unfiltered["filters_applied"] == {
         "tool": None,
-        "category": None,
+        "form": None,
         "last_n": None,
         "source_agent": None,
         "artifact_type": None,
@@ -65,44 +64,47 @@ async def test_list_returns_entries_and_echoes_filters(store, list_tool):
     assert filtered["filters_applied"]["last_n"] == 5
 
 
-@pytest.mark.asyncio
-async def test_list_narrows_to_a_data_category(store, list_tool):
-    """``category`` is how a caller reaches a data namespace — not a second tool."""
-    _save_entry(store)
-    dataset = _save_entry(store, tool="archiver_read", category="archiver_data")
-
-    result = json.loads(await list_tool(category="archiver_data"))
-
-    assert result["total_entries"] == 1
-    assert result["entries"][0]["id"] == dataset.id
-    assert result["filters_applied"]["category"] == "archiver_data"
-
-
-@pytest.mark.asyncio
-async def test_list_narrows_to_one_form_within_a_category(store, list_tool):
-    """``artifact_type`` separates the forms a category holds.
-
-    A category is a subject, not a format: an agent's prose answer and the
-    dataset it discusses can share one. A caller that intends to *load* the
-    data asks for the form it can load.
-    """
-    dataset = _save_entry(store, tool="pyat-specialist", category="lattice_analysis")
-    prose = store.save_file(
+def _save_doc(store, agent="pyat-specialist"):
+    return store.save_file(
         file_content=b"# AR optics\n\nTunes computed from the design lattice.",
-        filename="pyat-specialist.md",
+        filename=f"{agent}.md",
         artifact_type="markdown",
         title="AR optics",
-        description="Lattice Analysis — pyat-specialist",
+        description=agent,
         mime_type="text/markdown",
         tool_source="submit_response",
     )
-    # save_file takes no category; submit_response sets it the same way.
-    store.update_entry_metadata(prose.id, category="lattice_analysis")
 
-    both = json.loads(await list_tool(category="lattice_analysis"))
+
+@pytest.mark.asyncio
+async def test_list_narrows_to_a_form(store, list_tool):
+    """``form`` is how a caller reaches one kind of artifact — not a category."""
+    _save_entry(store)
+    doc = _save_doc(store)
+
+    result = json.loads(await list_tool(form="documents"))
+
+    assert result["total_entries"] == 1
+    assert result["entries"][0]["id"] == doc.id
+    assert result["filters_applied"]["form"] == "documents"
+
+
+@pytest.mark.asyncio
+async def test_list_narrows_to_one_storage_format(store, list_tool):
+    """``artifact_type`` separates the storage formats one agent produced.
+
+    An agent's prose answer and the dataset it discusses share a source; a
+    caller that intends to *load* the data asks for the format it can load.
+    """
+    dataset = _save_entry(store, tool="pyat-specialist")
+    store.update_entry_metadata(dataset.id, source_agent="pyat-specialist")
+    prose = _save_doc(store)
+    store.update_entry_metadata(prose.id, source_agent="pyat-specialist")
+
+    both = json.loads(await list_tool(source_agent="pyat-specialist"))
     assert both["total_entries"] == 2
 
-    just_data = json.loads(await list_tool(category="lattice_analysis", artifact_type="json"))
+    just_data = json.loads(await list_tool(source_agent="pyat-specialist", artifact_type="json"))
     assert just_data["total_entries"] == 1
     assert just_data["entries"][0]["id"] == dataset.id
     assert just_data["filters_applied"]["artifact_type"] == "json"

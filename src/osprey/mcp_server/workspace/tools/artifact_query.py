@@ -1,18 +1,21 @@
 """MCP tools: artifact_list, artifact_read.
 
 The read side of the artifact store: listing artifacts (optionally scoped to
-one category, tool or agent) and reading a stored artifact's full content.
+one form, tool or agent) and reading a stored artifact's full content.
 
 Everything the workspace server stores — plots, documents, screenshots,
 archiver datasets, run results — is one record type in one store, the
-``ArtifactStore``. Datasets are not a separate namespace; they are artifacts
-with a ``category``, so ``category=`` is how a caller narrows to them.
-Mutations live in ``artifact_register`` (``artifact_register`` / ``artifact_delete`` /
+``ArtifactStore``. Each artifact sits in exactly one group: a base form (Runs,
+Plots, Trends, Tables, Documents, Dashboards, Images, Data) or a registered
+extension type's key. The store computes it from what the writer recorded;
+``form=`` is how a caller narrows to one. Mutations live in ``artifact_register`` (``artifact_register`` / ``artifact_delete`` /
 ``artifact_delete_all``).
 """
 
 import json
 import logging
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from fastmcp.exceptions import ToolError
 
@@ -22,10 +25,49 @@ from osprey.mcp_server.workspace.server import mcp
 logger = logging.getLogger("osprey.mcp_server.tools.artifact_query")
 
 
+def known_forms(registry: Mapping[str, Any]) -> list[str]:
+    """Every form a caller may name: the base forms, then extension type keys."""
+    from osprey.stores.artifact_forms import BASE_FORMS
+
+    return [*BASE_FORMS, *(k for k in registry if k not in BASE_FORMS)]
+
+
+def require_form(form: str, registry: Mapping[str, Any], extra: Iterable[str] = ()) -> None:
+    """Refuse a form that is neither a base form, an extension key nor in *extra*."""
+    valid = [*extra, *known_forms(registry)]
+    if form not in valid:
+        make_error(
+            "validation_error",
+            f"Unknown form '{form}'.",
+            [f"Use one of: {', '.join(valid)}."],
+        )
+
+
+def group_of(entry: Any, groups: Mapping[str, Any], registry: Mapping[str, Any]) -> str | None:
+    """The one group *entry* is listed under, or ``None`` for a run's part.
+
+    A registered extension ``kind`` is its own group; everything else is the
+    store's listed form (a run head ``runs``, an output its intrinsic form).
+    """
+    from osprey.stores.artifact_store import listed_form
+
+    listed = listed_form(entry, groups.get(entry.exec_id), registry)
+    if listed is not None and listed != "runs" and entry.kind and entry.kind in registry:
+        return entry.kind
+    return listed
+
+
+def extension_registry() -> dict[str, Any]:
+    """The process's extension type registry (empty when it cannot load)."""
+    from osprey.stores.type_registry import get_extension_types
+
+    return get_extension_types()
+
+
 @mcp.tool()
 async def artifact_list(
     tool: str | None = None,
-    category: str | None = None,
+    form: str | None = None,
     last_n: int | None = None,
     source_agent: str | None = None,
     artifact_type: str | None = None,
@@ -34,18 +76,18 @@ async def artifact_list(
 
     This is the primary way to see what OSPREY tools have produced — plots,
     documents and screenshots alongside archiver datasets and run results.
-    Each entry includes a compact summary, its ``category`` and its
+    Each entry includes a compact summary, its ``form`` and its
     ``artifact_id``.
 
-    Narrow to a data namespace with ``category`` (e.g. "archiver_data")
-    rather than reaching for a different tool. A category holds whatever form
-    its subject took — prose, a table, a dataset — so add ``artifact_type``
-    when only one form is useful (e.g. ``artifact_type="json"`` for data you
-    intend to load, ``"markdown"`` for an answer to read).
+    Narrow with ``form``: "runs" (one per script run; its code and outputs
+    are parts of it), "plots", "trends" (archiver and channel readings),
+    "tables", "documents", "dashboards", "images", "data", or a registered
+    extension type's key. Add ``artifact_type`` when only one storage format
+    is useful (e.g. ``"json"`` for data you intend to load).
 
     Args:
         tool: Only show artifacts from this tool (e.g. "archiver_read").
-        category: Only show artifacts of this category (e.g. "archiver_data").
+        form: Only show artifacts in this form (e.g. "trends") or extension type.
         last_n: Show only the most recent N artifacts.
         source_agent: Only show artifacts from this agent
             (e.g. "logbook-search").
@@ -58,28 +100,37 @@ async def artifact_list(
     try:
         from osprey.stores.artifact_store import get_artifact_store
 
+        registry = extension_registry()
+        if form:
+            require_form(form, registry)
+
         store = get_artifact_store()
+        groups = store.run_groups()
         entries = store.list_entries(
             tool_filter=tool,
-            category_filter=category,
-            last_n=last_n,
+            last_n=None if form else last_n,
             source_agent_filter=source_agent,
             type_filter=artifact_type,
             # The shipped example is the person's, never the agent's to list.
             exclude_examples=True,
         )
+        listed = [(e, group_of(e, groups, registry)) for e in entries]
+        if form:
+            listed = [(e, g) for e, g in listed if g == form]
+            if last_n is not None:
+                listed = listed[-last_n:]
 
         return json.dumps(
             {
-                "total_entries": len(entries),
+                "total_entries": len(listed),
                 "filters_applied": {
                     "tool": tool,
-                    "category": category,
+                    "form": form,
                     "last_n": last_n,
                     "source_agent": source_agent,
                     "artifact_type": artifact_type,
                 },
-                "entries": [e.to_dict() for e in entries],
+                "entries": [{**e.to_dict(), "artifact_id": e.id, "form": g} for e, g in listed],
             },
             default=str,
         )

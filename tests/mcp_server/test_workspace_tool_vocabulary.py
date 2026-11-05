@@ -68,11 +68,12 @@ def test_no_tool_spells_the_record_id_entry_id(workspace_tools):
     assert offenders == [], f"{offenders} spell the artifact id 'entry_id'; use 'artifact_id'"
 
 
-def test_artifact_list_filters_by_category_not_a_separate_tool_family(workspace_tools):
-    """The data views are a ``category`` argument on the one list tool."""
+def test_artifact_list_filters_by_form_not_a_separate_tool_family(workspace_tools):
+    """The data views are a ``form`` argument on the one list tool."""
     props = workspace_tools["artifact_list"].parameters["properties"]
     # The filtering data_list had must survive the rename.
-    assert {"category", "tool", "last_n", "source_agent"} <= set(props), props
+    assert {"form", "tool", "last_n", "source_agent"} <= set(props), props
+    assert "category" not in props
 
 
 #: The panel verbs, by the axis each one moves. Rail membership is "can the

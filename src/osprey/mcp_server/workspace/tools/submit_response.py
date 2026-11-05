@@ -4,8 +4,8 @@ Sub-agents call this as their last action to save their synthesis to
 the artifact gallery so the parent session, other tools, and the gallery
 UI can all reference it.
 
-One agent, one call, one artifact: the answer as prose, filed under the
-category the agent's own definition names in ``data_type``. An agent that
+One agent, one call, one artifact: the answer as prose. The gallery groups it
+by what it is (a document), never by a tag the agent picks. An agent that
 computes an array too large to write out saves it from inside the computing
 call (``save_artifact``) and cites the id in its answer.
 """
@@ -22,25 +22,19 @@ from osprey.mcp_server.workspace.server import mcp
 logger = logging.getLogger("osprey.mcp_server.tools.submit_response")
 
 
-def _describe(category: str, agent: str) -> str:
-    """The artifact's human-facing description line.
+#: Description of an answer whose agent did not name itself.
+_UNNAMED_AGENT = "Agent response"
 
-    Uses the category's display label, not its key: the description is shown to
-    the operator, and a raw key ("agent_response from facility-knowledge-graph")
-    reads as leaked plumbing.
-    """
-    from osprey.stores.type_registry import get_categories
 
-    typedef = get_categories().get(category)
-    label = typedef.label if typedef else category
-    return f"{label} — {agent}" if agent else label
+def _describe(agent: str) -> str:
+    """The artifact's human-facing description line: the answering agent."""
+    return agent or _UNNAMED_AGENT
 
 
 @mcp.tool()
 async def submit_response(
     title: str,
     content: str,
-    data_type: str = "agent_response",
     entry_ids: list[str] | None = None,
     source_agent: str | None = None,
     skip_artifact: bool = False,
@@ -60,11 +54,6 @@ async def submit_response(
     Args:
         title: Short title for the response (e.g. "Vacuum Event Analysis").
         content: The full synthesized response text (markdown).
-        data_type: Category tag for the answer. Must be a registered type:
-            "channel_addresses", "logbook_research", "facility_knowledge",
-            "lattice_analysis", or any other key from the type registry.
-            Name the one your agent definition tells you to; the default
-            ("agent_response") files under "Uncategorized".
         entry_ids: List of ARIEL entry IDs or channel addresses cited,
             stored as structured metadata for cross-referencing.
         source_agent: Name of the agent submitting the response
@@ -91,16 +80,6 @@ async def submit_response(
             ["Provide the full synthesized response text."],
         )
 
-    from osprey.stores.type_registry import valid_category_keys
-
-    valid = valid_category_keys()
-    if data_type not in valid:
-        return make_error(
-            "validation_error",
-            f"Unknown data_type '{data_type}'. Valid: {sorted(valid)}",
-            ["Use one of the registered data_type or category values."],
-        )
-
     agent = source_agent or ""
 
     try:
@@ -120,11 +99,6 @@ async def submit_response(
                 default=str,
             )
 
-        # The category is the declared data_type, never the agent's name: it
-        # says what the answer is about, so two agents answering the same kind
-        # of question land together. Grouping by agent is source_agent's job.
-        category = data_type
-
         store = get_artifact_store()
         tool_name = agent or "submit_response"
         artifact = store.save_file(
@@ -132,11 +106,10 @@ async def submit_response(
             filename=f"{tool_name}.md",
             artifact_type="markdown",
             title=title,
-            description=_describe(category, agent),
+            description=_describe(agent),
             mime_type="text/markdown",
             tool_source="submit_response",
             metadata={
-                "data_type": data_type,
                 "source_agent": agent,
                 "entry_ids": cited,
             },
@@ -144,7 +117,6 @@ async def submit_response(
         # Set unified fields on the entry
         updated = store.update_entry_metadata(
             artifact.id,
-            category=category,
             source_agent=agent,
             summary={
                 "title": title,

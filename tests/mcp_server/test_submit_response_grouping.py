@@ -93,19 +93,16 @@ class TestSubmitResponseGrouping:
             title="Logbook Result",
             content="Logbook findings.",
             source_agent="logbook-search",
-            data_type="logbook_research",
         )
         await _fn(
             title="Deep Research Result",
             content="Deep research findings.",
             source_agent="logbook-deep-research",
-            data_type="search_results",
         )
         await _fn(
             title="Channel Result",
             content="Channel addresses.",
             source_agent="channel-finder",
-            data_type="channel_addresses",
         )
 
         store = get_artifact_store()
