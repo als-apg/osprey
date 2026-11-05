@@ -89,9 +89,11 @@ ERROR_CLASS_MAP = {
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
     # The panel tools' workspace is not there to answer: no Web Terminal is
-    # running, or no browser showing the dock answered the op in time.
+    # running, or no browser shows the dock. A browser that did not answer an
+    # op in time may still apply it: the agent reads the panels again.
     "no_web_terminal": "Connection",
     "no_dock_client": "Connection",
+    "no_dock_answer": "Connection",
     # The agent record did not answer, or could not yet serve the read in
     # full; the read comes back once it does.
     "record_unavailable": "Connection",
@@ -157,11 +159,13 @@ ERROR_CLASS_MAP = {
     # A lattice figure the selected model cannot draw: pick another figure.
     "figure_unavailable": "Validation",
     # Panel-tool refusals the agent fixes by changing the request: re-read the
-    # layout and retry with its rev, leave the terminal out of a layout, open
-    # as tabs or give an exact layout, or leave a panel in its own window alone.
+    # layout and retry with its rev, leave the terminal out of a layout, give
+    # an exact layout or open fewer panels, put one panel in each tile, or
+    # leave a panel in its own window alone.
     "stale_base": "Validation",
     "terminal_in_layout": "Validation",
     "too_many_for_side": "Validation",
+    "one_panel_per_tile": "Validation",
     "popped_out": "Validation",
     # The reviewer refused this code: revise it and resubmit.
     "review_blocked": "Validation",

@@ -35,7 +35,8 @@ async def archiver_downsample(
     ``max_points`` and is evenly subsampled (keeping the first and last
     points) otherwise.
 
-    Only works on category="archiver_data" artifacts.
+    Only works on artifacts ``archiver_read`` saved (an array channel read
+    is also a timeseries, but not an archiver series).
 
     Args:
         artifact_id: ID of the artifact to downsample.
@@ -63,11 +64,12 @@ async def archiver_downsample(
             suggestions=["Use artifact_list to see available artifacts."],
         )
 
-    if entry.category != "archiver_data":
+    if entry.tool_source != "archiver_read":
         return make_error(
             "validation_error",
-            f"Artifact '{artifact_id}' has category={entry.category!r}, not 'archiver_data'.",
-            suggestions=["Only archiver_data artifacts can be downsampled."],
+            f"Artifact '{artifact_id}' was saved by {entry.tool_source or 'an unknown tool'!r}, "
+            "not archiver_read.",
+            suggestions=["Only archiver_read artifacts can be downsampled."],
         )
 
     filepath = store.get_file_path(artifact_id)

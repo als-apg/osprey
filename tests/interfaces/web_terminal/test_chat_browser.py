@@ -1027,8 +1027,11 @@ def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromi
         src = urlsplit(tile.get_attribute("src") or "")
         assert (src.path, src.fragment) == ("/panel/okf", "devices/bpm"), src
         reader = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="okf"]')
+        expect(reader.locator('#reader-content[data-concept-id="devices/bpm"]')).to_have_count(
+            1, timeout=10_000
+        )
         expect(reader.locator("#reader-content h1.concept-title")).to_have_text(
-            "Beam Position Monitor", timeout=10_000
+            "Beam Position Monitor"
         )
         # The hub itself never navigated away.
         assert page.url.startswith(base_url), page.url

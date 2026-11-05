@@ -12,6 +12,7 @@ the live panel inventory instead of guessing IDs, and restoring the starting
 layout -- must survive future edits.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -82,8 +83,16 @@ class TestDemoUiSkillStructure:
     def test_choreographs_the_panel_tools(self, skill_text):
         """These are the workspace MCP tools the demo drives -- a rename in
         ``workspace/tools/panel_tools.py`` must fail here, not on stage."""
-        for tool in ("list_panels", "open_panel", "add_panel_to_rail", "remove_panel_from_rail"):
+        for tool in (
+            "list_panels",
+            "open_panel",
+            "close_panel",
+            "add_panel_to_rail",
+            "remove_panel_from_rail",
+        ):
             assert tool in skill_text, f"Missing panel tool: {tool}"
+        # One close verb: a tile shows one panel, so it closes with it.
+        assert set(re.findall(r"close_panel\w*", skill_text)) == {"close_panel"}
 
     def test_choreographs_the_artifact_tools(self, skill_text):
         for tool in (

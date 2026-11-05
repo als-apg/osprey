@@ -15,9 +15,6 @@ from typing import Any
 from osprey.mcp_server.http import gallery_url
 from osprey.services.ariel_search.attachments.compose import FILENAME_MAX_CHARS, _inert
 
-#: The gallery category used for pictures retained from ARIEL.
-PICTURE_ARTIFACT_CATEGORY = "visualization"
-
 # Keep the gallery source stable without making this service-layer helper
 # depend on the ARIEL MCP server's registration module.
 ATTACHMENT_TO_ARTIFACT_TOOL = "attachment_to_artifact"
@@ -97,7 +94,6 @@ def save_viewable_picture_as_artifact(
             "mime_type": rendition_mime,
             "tool_source": ATTACHMENT_TO_ARTIFACT_TOOL,
             "metadata": {"sha256": sha256, "logbook_picture": provenance},
-            "category": PICTURE_ARTIFACT_CATEGORY,
         },
     )
     response = artifact.to_tool_response(gallery_url=gallery_url())

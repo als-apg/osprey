@@ -141,7 +141,6 @@ from tests.e2e._dispatch_harness import (
 from tests.e2e._worker_record import WorkerRecord, worker_record
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.dockerbuild,
     pytest.mark.skipif(

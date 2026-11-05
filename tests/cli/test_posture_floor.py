@@ -620,11 +620,12 @@ def test_removing_a_required_key_is_refused_naming_it(
 ) -> None:
     """A built repo, one line deleted from its profile, refuses to rebuild.
 
-    hello-world is the base because it is the one preset whose surfaces read
+    hello-world is the base because it is the only preset whose surfaces read
     all six: it runs the controls server and selects the approval hook. The
     edit is the deletion of exactly one dotted ``config:`` line, which is what
     an operator trimming a profile does, and the rebuild has to name that key
-    and the file it belongs in.
+    and the file it belongs in. The refusal comes before any install, so the
+    rebuild installs nothing.
     """
     source = built_preset("hello-world")
     repo = tmp_path / PROJECT_NAME

@@ -32,13 +32,15 @@
  * from the home-group row to its Recent twin; recording always stores the
  * plain underlying key, from whichever copy was executed.
  *
- * The CANOPY group is the one group the registry does not build: its rows come
- * from `deps.searchCanopy(q)` (canopy-provider.js), already ranked and capped,
- * so the palette renders them in the returned order and applies neither
- * fuzzyMatch nor its highlight to them. The group is absent on an empty query,
- * shows a "Loading…" row while the provider's read is in flight (`null`), and
- * its rows stay out of Recent — they are re-read from CANOPY on every open, so
- * a stored key could not be resolved against the registry anyway.
+ * After the registry's groups come the async providers, CANOPY first
+ * (`deps.searchCanopy`/`startCanopy`, canopy-provider.js), then
+ * `deps.asyncProviders` in their order (Sessions, Artifacts). Each answers
+ * `search(q)` already ranked and capped, so the palette renders the rows in the
+ * returned order and applies neither fuzzyMatch nor its highlight to them. A
+ * provider's group is absent on an empty query, shows a "Loading…" row while
+ * its read is in flight (`null`), and its rows stay out of Recent — they are
+ * re-read on every open, so a stored key could not be resolved against the
+ * registry anyway.
  */
 
 import { buildRegistry } from './palette-registry.js';
@@ -53,10 +55,11 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  * A navigable registry item (the non-status variant), duplicated locally so the
  * render path can be strongly typed after the status rows are filtered out.
  * @typedef {{
- *   group: 'Settings files' | 'Settings' | 'Panels' | 'Layouts' | 'Actions' | 'CANOPY',
+ *   group: string,
  *   label: string,
  *   detail?: string,
  *   searchText: string,
+ *   names?: string[],
  *   run: () => void,
  * }} NavItem
  */
@@ -81,25 +84,65 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
  *   searchCanopy?: (q: string) => Array<{ label: string, detail?: string, run: () => void }> | null,
  *   startCanopy?: (onChange: () => void) => void,
+ *   asyncProviders?: Array<import('./palette-registry.js').AsyncProvider>,
  * }} OpenDeps
  */
 
 /** @typedef {{ state: 'loading' } | { state: 'ok', sections: Record<string, unknown> } | { state: 'error' }} ConfigState */
 /** @typedef {{ state: 'loading' } | { state: 'ok', entries: Array<import('./palette-registry.js').SettingsFile> } | { state: 'error' }} ArtifactsState */
 
-/** Fixed outer group order — the registry's groups, then CANOPY (rows from
- *  `deps.searchCanopy`, not the registry). */
+/** Fixed outer order of the registry's groups; the async providers' groups
+ *  follow them in {@link asyncProviders} order. */
 const GROUP_ORDER = /** @type {const} */ ([
   'Settings files',
   'Settings',
   'Panels',
   'Layouts',
   'Actions',
-  'CANOPY',
 ]);
+
+/**
+ * The group order for `q`: the fixed order, except that a query naming a
+ * panel outright (a whole label, id or domain synonym of a Panels row, e.g.
+ * "ariel" or "logbook") lists Panels first, so the panel is not buried under
+ * every setting whose key merely contains the word.
+ * @param {string} q
+ * @returns {ReadonlyArray<string>}
+ */
+function groupOrder(q) {
+  const word = q.toLowerCase();
+  const named =
+    word !== '' &&
+    registryItems.some(
+      (item) => item.group === 'Panels' && 'names' in item && item.names?.includes(word)
+    );
+  return named ? ['Panels', ...GROUP_ORDER.filter((g) => g !== 'Panels')] : GROUP_ORDER;
+}
 
 /** The group whose rows come from `deps.searchCanopy`. */
 const CANOPY_GROUP = 'CANOPY';
+
+/**
+ * This open's async providers: CANOPY first (from `searchCanopy`/`startCanopy`),
+ * then `deps.asyncProviders` in their order.
+ * @returns {Array<import('./palette-registry.js').AsyncProvider>}
+ */
+function asyncProviders() {
+  /** @type {Array<import('./palette-registry.js').AsyncProvider>} */
+  const list = [];
+  const { searchCanopy, startCanopy } = currentDeps;
+  if (typeof searchCanopy === 'function') {
+    list.push({
+      group: CANOPY_GROUP,
+      search: searchCanopy,
+      start: typeof startCanopy === 'function' ? startCanopy : () => {},
+    });
+  }
+  for (const provider of currentDeps.asyncProviders ?? []) {
+    if (provider && typeof provider.search === 'function' && provider.group) list.push(provider);
+  }
+  return list;
+}
 
 /** localStorage key base + cap for the most-recently-executed item keys. The
  *  list is per render: localStorage is origin-scoped, so on a multi-user mount
@@ -384,9 +427,14 @@ function render() {
 
   if (!q) renderRecentSection(nextId);
 
-  for (const group of GROUP_ORDER) {
+  /** @type {Array<{ group: string, provider?: import('./palette-registry.js').AsyncProvider }>} */
+  const groups = [
+    ...groupOrder(q).map((group) => ({ group })),
+    ...asyncProviders().map((provider) => ({ group: provider.group, provider })),
+  ];
+  for (const { group, provider } of groups) {
     /** @type {Array<{ node: HTMLElement, nav?: { key: string, run: () => void } }>} */
-    const rows = group === CANOPY_GROUP ? canopyRows(q, nextId) : [];
+    const rows = provider ? providerRows(provider, q, nextId) : [];
     if (rows.some((r) => !r.nav)) renderedStatus = true;
     /** @type {Array<{ item: NavItem, score: number }>} */
     const matches = [];
@@ -432,19 +480,20 @@ function render() {
 }
 
 /**
- * The CANOPY group's rows for `q`: none on an empty query or without a
- * provider; one "Loading…" status row while the provider answers null; else
- * the provider's rows in its order, capped, with no matcher and no highlight
- * applied here.
+ * An async provider's rows for `q`: none on an empty query; one "Loading…"
+ * status row while the provider answers null; else the provider's rows in its
+ * order, capped, with no matcher and no highlight applied here. Each row
+ * carries `command-palette-item--<group>` (CANOPY: `--canopy`).
+ * @param {import('./palette-registry.js').AsyncProvider} provider
  * @param {string} q
  * @param {() => string} nextId
  * @returns {Array<{ node: HTMLElement, nav?: { key: string, run: () => void } }>}
  */
-function canopyRows(q, nextId) {
-  if (!q || typeof currentDeps.searchCanopy !== 'function') return [];
+function providerRows(provider, q, nextId) {
+  if (!q) return [];
   let found;
   try {
-    found = currentDeps.searchCanopy(q);
+    found = provider.search(q);
   } catch {
     return [];
   }
@@ -457,7 +506,7 @@ function canopyRows(q, nextId) {
   return found.map((hit) => {
     /** @type {NavItem} */
     const item = {
-      group: CANOPY_GROUP,
+      group: provider.group,
       label: hit.label,
       searchText: '',
       run: hit.run,
@@ -465,7 +514,7 @@ function canopyRows(q, nextId) {
     if (hit.detail) item.detail = hit.detail;
     const run = () => hit.run();
     const node = buildItemRow(item, nextId(), '', run);
-    node.classList.add('command-palette-item--canopy');
+    node.classList.add(`command-palette-item--${provider.group.toLowerCase()}`);
     return { node, nav: { key: `${itemKey(item)}\x1f${hit.detail ?? ''}`, run } };
   });
 }
@@ -664,24 +713,26 @@ export function openPalette(deps) {
   render();
   startConfigFetch();
   startArtifactsFetch();
-  startCanopyFetch();
+  startProviders();
 }
 
 /**
- * Start the CANOPY provider's read for this open. Its settle repaints against
- * the CURRENT query, but only while this same open is still showing — a read
- * from an earlier open that settles late is dropped.
+ * Start every async provider for this open. A settle repaints against the
+ * CURRENT query, but only while this same open is still showing — a read from
+ * an earlier open that settles late is dropped.
  */
-function startCanopyFetch() {
-  if (typeof currentDeps.startCanopy !== 'function') return;
+function startProviders() {
   const token = ++openSeq;
-  try {
-    currentDeps.startCanopy(() => {
-      if (token !== openSeq || !opened) return;
-      render();
-    });
-  } catch {
-    /* a provider that cannot start contributes no rows */
+  const onChange = () => {
+    if (token !== openSeq || !opened) return;
+    render();
+  };
+  for (const provider of asyncProviders()) {
+    try {
+      provider.start(onChange);
+    } catch {
+      /* a provider that cannot start contributes no rows */
+    }
   }
 }
 

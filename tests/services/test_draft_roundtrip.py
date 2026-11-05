@@ -59,11 +59,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.bluesky_web.app import app as sidecar_app
-from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import draft as bridge_draft
-from osprey.services.bluesky_bridge import plan_loader
-from osprey.services.bluesky_bridge import queue as bridge_queue
 from osprey.services.bluesky_bridge.app import app as bridge_app
+from tests.services.bluesky_bridge._bridge_state import reset_bridge_state
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -87,25 +85,18 @@ _PLAN_ARGS: dict[str, Any] = {
 def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Isolate every process-wide singleton this roundtrip touches.
 
-    Mirrors `test_plan_source_endpoint.py`'s plan-loader isolation plus
-    `test_draft.py`'s draft-singleton reset.
+    The bridge state is reset by the shared bridge reset, `reset_bridge_state`.
     """
     monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
     monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
     monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
     monkeypatch.setenv(_LAUNCH_TOKEN_ENV, _TOKEN)
-    plan_loader.reset_facility_plans()
-    bridge_draft._clear()
-    bridge_queue._clear()
-    bridge_app_module.set_queue_backend(None)
+    reset_bridge_state()
 
     yield
 
-    plan_loader.reset_facility_plans()
-    bridge_draft._clear()
-    bridge_queue._clear()
-    bridge_app_module.set_queue_backend(None)
+    reset_bridge_state()
 
 
 @pytest.fixture

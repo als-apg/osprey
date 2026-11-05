@@ -558,10 +558,11 @@ def _escaping_symlinks(source: Path) -> list[str]:
     """Symlinks in ``source`` that a move into the profile would break.
 
     A profile must be self-contained to be reproducible, so
-    :func:`~osprey.cli.profile_conventions.validate_convention_sources` refuses
-    a convention directory that symlinks outside the profile. A claim that
-    moved such a link would report success and then fail *every* later build of
-    that profile — with the project copy already gone.
+    :func:`~osprey.cli.build_profile_merge.refuse_inputs_outside_repository`
+    refuses a convention directory holding a link that resolves outside the
+    repository. A claim that moved such a link would report success and then
+    fail *every* later build of that profile — with the project copy already
+    gone.
 
     The artifact itself being a link is always fatal: it cannot resolve inside
     itself. Inside a directory artifact, a relative link pointing at a sibling

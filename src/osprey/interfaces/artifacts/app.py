@@ -11,16 +11,18 @@ import json
 import logging
 import re
 import threading
-from collections.abc import AsyncIterator, Collection
+from collections.abc import AsyncIterator, Collection, Iterable
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
@@ -546,6 +548,250 @@ DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 200
 
 
+#: How many transcripts one batched ``session-list`` may page at once.
+MAX_BATCHED_SESSIONS = 5
+
+
+class SessionListRequest(BaseModel):
+    """``POST /api/artifacts/session-list``: exactly one of the four targets.
+
+    ``session`` names a transcript; ``key`` a session key, listed through the
+    ledger's current transcript for it; ``sessions`` up to
+    :data:`MAX_BATCHED_SESSIONS` transcripts paged together; ``earlier`` the
+    visible artifacts no transcript owns.
+    """
+
+    session: str | None = None
+    key: str | None = None
+    sessions: list[str] | None = Field(None, min_length=1, max_length=MAX_BATCHED_SESSIONS)
+    earlier: bool | None = None
+    form: str | None = None
+    runs: Literal["grouped"] | None = None
+    cursor: str | None = None
+    limit: int | None = Field(None, ge=1, le=MAX_PAGE_SIZE)
+
+    @model_validator(mode="after")
+    def _one_target(self) -> SessionListRequest:
+        if self.earlier is False:
+            raise ValueError("earlier, when given, must be true")
+        given = [
+            name
+            for name in ("session", "key", "sessions", "earlier")
+            if getattr(self, name) is not None
+        ]
+        if len(given) != 1:
+            raise ValueError("give exactly one of session, key, sessions or earlier")
+        return self
+
+
+class SessionSummaryRequest(BaseModel):
+    """``POST /api/artifacts/session-summary``: the transcripts one sidebar page shows.
+
+    No cap: the client sends one page of its session rows. Every id must be a
+    canonical session UUID (a transcript id has a key's form); anything else
+    is a 422.
+    """
+
+    sessions: list[str]
+
+    @field_validator("sessions")
+    @classmethod
+    def _uuid_form(cls, sessions: list[str]) -> list[str]:
+        from osprey.interfaces.web_terminal.session_key import is_posture_key
+
+        for transcript_id in sessions:
+            if not is_posture_key(transcript_id):
+                raise ValueError(f"{transcript_id!r} is not a session UUID")
+        return sessions
+
+
+class _LedgerCache:
+    """The hub's session ledger as this process last read it.
+
+    The hub writes ``session-ledger.json`` in this identity's state directory
+    (:func:`osprey_connectors.posture_store.state_dir`, the rule the hub's
+    ``session_meta.ledger_state_dir`` follows); this app only reads it, again
+    whenever the file's mtime or size moves. :func:`session_ledger.load` hides
+    an unreadable file as an empty ledger, which here would silently re-own
+    every artifact, so the document is checked first and a failure is
+    reported as unavailable: every answer then says ``ledger: unavailable``
+    and tagged artifacts list under Earlier. A missing file is an empty,
+    available ledger (no session has been recorded yet).
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._key: tuple[str, int, int] | None = None
+        self._value: tuple[Any, bool] = (None, False)
+
+    def read(self) -> tuple[Any, bool]:
+        """``(ledger, available)``; the ledger is empty when it is unavailable."""
+        from osprey.stores import session_ledger
+        from osprey_connectors import posture_store
+
+        try:
+            state_dir = posture_store.state_dir()
+        except Exception:  # an unresolvable root is "no ledger", not a crash
+            logger.warning("The session ledger's location does not resolve", exc_info=True)
+            state_dir = None
+        path = session_ledger.ledger_path(state_dir)
+        if path is None:
+            return session_ledger.Ledger(), False
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return session_ledger.Ledger(), True
+        except OSError:
+            logger.warning("The session ledger at %s cannot be read", path, exc_info=True)
+            return session_ledger.Ledger(), False
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+        with self._lock:
+            if key == self._key:
+                return self._value
+        try:
+            document = json.loads(path.read_text())
+            readable = isinstance(document, dict) and isinstance(document.get("rows"), list)
+        except (OSError, ValueError):
+            readable = False
+        if readable:
+            value = (session_ledger.load(state_dir), True)
+        else:
+            logger.warning("The session ledger at %s is unreadable; owners are unknown", path)
+            value = (session_ledger.Ledger(), False)
+        with self._lock:
+            self._key, self._value = key, value
+        return value
+
+
+@dataclass(frozen=True)
+class _ListingView:
+    """What one answer reads besides the entries: run groups, the ledger, the registry."""
+
+    groups: dict[str, Any]
+    members: dict[str, list[Any]]
+    ledger: Any
+    ledger_ok: bool
+    registry: Any
+
+    @property
+    def owner_ledger(self) -> Any:
+        """The ledger :func:`owner_of` reads; none while it is unavailable."""
+        return self.ledger if self.ledger_ok else None
+
+
+def _listing_view(entries: Iterable[Any], ledger: Any, ledger_ok: bool) -> _ListingView:
+    """Classify every ``exec_id`` group among *entries* once, for one answer."""
+    from osprey.stores.artifact_store import classify, registry_or_default
+
+    members: dict[str, list[Any]] = {}
+    for entry in entries:
+        if entry.exec_id:
+            members.setdefault(entry.exec_id, []).append(entry)
+    groups = {exec_id: classify(group) for exec_id, group in members.items()}
+    return _ListingView(groups, members, ledger, ledger_ok, registry_or_default())
+
+
+def _group_of(entry: Any, view: _ListingView) -> Any:
+    group = view.groups.get(entry.exec_id) if entry.exec_id else None
+    return group if group is not None and entry.id in group.roles else None
+
+
+def _listed_form(entry: Any, view: _ListingView) -> str | None:
+    from osprey.stores.artifact_store import listed_form
+
+    return listed_form(entry, _group_of(entry, view), view.registry)
+
+
+def _payload(entry: Any, view: _ListingView) -> dict[str, Any]:
+    """The entry as every browser-bound frame and response carries it.
+
+    ``entry.to_dict()`` is the index format and stays as it is. Beside it ride
+    the server's verdicts, so no client re-derives a rule: ``form`` (the listed
+    form, ``None`` for a run's preview or notebook) and its ``form_label``;
+    ``run_part`` and the group's ``run_status``; ``owner`` (the transcript that
+    owns it, ``None`` for Earlier); ``operator_visible``; ``interactive``; and
+    the legacy ``run_record`` verdict. A run's head also
+    lists its ``run_parts``.
+    """
+    from osprey.stores.artifact_forms import form_label, is_interactive
+    from osprey.stores.artifact_store import (
+        classify,
+        is_run_record,
+        operator_visible,
+        owner_of,
+        run_parts,
+        run_role,
+    )
+
+    group = _group_of(entry, view)
+    form = _listed_form(entry, view)
+    if group is not None:
+        run_part: str | None = group.roles[entry.id]
+        run_status = group.run_status
+    else:
+        role = run_role(entry)
+        run_part = None if role == "output" else role
+        run_status = classify([entry]).run_status if role == "result" else None
+    payload = {
+        **entry.to_dict(),
+        "run_record": is_run_record(entry),
+        "form": form,
+        "form_label": form_label(form) if form else None,
+        "kind": entry.kind,
+        "exec_id": entry.exec_id,
+        "run_part": run_part,
+        "run_status": run_status,
+        "interactive": is_interactive(entry),
+        "session_id": entry.session_id,
+        "owner": owner_of(entry, view.owner_ledger),
+        "operator_visible": operator_visible(entry),
+    }
+    if group is not None and group.head_id == entry.id:
+        payload["run_parts"] = run_parts(group, view.members[entry.exec_id], view.registry)
+    return payload
+
+
+def _refine(
+    entries: list[Any],
+    view: _ListingView,
+    *,
+    form: str | None = None,
+    runs: str | None = None,
+    search: str | None = None,
+) -> list[Any]:
+    """Keep the entries the ``form``, ``runs`` and ``search`` params admit.
+
+    ``form`` keeps the entries listed under it; ``runs="grouped"`` drops a run's
+    preview and notebook (they list under their head; outputs stay);
+    ``search`` is a case-insensitive substring of the title, file name,
+    description, artifact type or listed form's label.
+    """
+    from osprey.stores.artifact_forms import form_label
+
+    if not (form or runs or search):
+        return entries
+    needle = (search or "").lower()
+    kept = []
+    for entry in entries:
+        listed = _listed_form(entry, view)
+        if form and listed != form:
+            continue
+        if runs == "grouped" and listed is None:
+            continue
+        if needle:
+            fields = (
+                entry.title,
+                entry.filename,
+                entry.description,
+                entry.artifact_type,
+                form_label(listed) if listed else "",
+            )
+            if not any(needle in (value or "").lower() for value in fields):
+                continue
+        kept.append(entry)
+    return kept
+
+
 def _max_timeseries_file_bytes() -> int:
     """Largest timeseries file the chart/table views will render, in bytes.
 
@@ -749,7 +995,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         ArtifactEntry,
         ArtifactStore,
         artifact_mutation_actor,
-        is_run_record,
+        operator_visible,
+        owner_of,
+        page_of,
         register_artifact_delete_listener,
         register_artifact_listener,
         unregister_artifact_delete_listener,
@@ -760,12 +1008,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     data_root: Path = workspace_root if workspace_root is not None else resolve_shared_data_root()
     store = ArtifactStore(workspace_root=data_root)
 
-    # Prime config and load custom artifact categories (if available).
+    # Prime config and load the declared extension types (if available).
     #
     # Resolved through the ordinary config rule, not by looking for a
     # `config.yml` INSIDE the agent-data root — no layout has ever written one
     # there, so the `exists()` gate below was always false and the gallery
-    # silently never loaded a custom category. `OSPREY_CONFIG` is set on every
+    # silently never loaded a custom declaration. `OSPREY_CONFIG` is set on every
     # launch path that starts this app, and resolve_config_path falls back to
     # the render zone beneath the cwd otherwise.
     try:
@@ -776,11 +1024,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             from osprey_connectors.config import get_config_builder
 
             get_config_builder(config_path=str(config_path), set_as_default=True)
-            from osprey.stores.type_registry import load_categories_from_config
+            from osprey.stores.type_registry import load_extension_types
 
-            load_categories_from_config()
-    except Exception:
-        pass  # Config may not be available in all contexts
+            load_extension_types()
+    except Exception as exc:  # config may not be available in all contexts
+        logger.warning("Config priming / extension type loading failed (non-fatal): %s", exc)
 
     # Resolved once, after config priming, and stamped onto every served HTML
     # page (see _stamp_data_theme) so a pinned ``web.theme`` reaches a page
@@ -818,15 +1066,24 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     broadcaster = _SSEBroadcaster()
 
-    def _entry_payload(entry: ArtifactEntry) -> dict[str, Any]:
-        """The entry as every browser-bound frame and response carries it.
+    ledger_cache = _LedgerCache()
 
-        ``entry.to_dict()`` is the index format and stays as it is; the server's
-        :func:`~osprey.stores.artifact_store.is_run_record` verdict rides along
-        as ``run_record`` so the web terminal's sidebar sorts Script runs from
-        Artifacts without re-deriving the rule in JavaScript.
-        """
-        return {**entry.to_dict(), "run_record": is_run_record(entry)}
+    def _view() -> _ListingView:
+        """The whole index's run groups and the ledger, read once for one answer."""
+        return _listing_view(store.list_entries(), *ledger_cache.read())
+
+    def _entry_payload(entry: ArtifactEntry) -> dict[str, Any]:
+        """One entry's payload (see :func:`_payload`), reading only its own run group."""
+        members = store.run_members(entry.exec_id) if entry.exec_id else []
+        return _payload(entry, _listing_view(members, *ledger_cache.read()))
+
+    def _page_body(page: Any, view: _ListingView) -> dict[str, Any]:
+        return {
+            "count": len(page.entries),
+            "total": page.total,
+            "next_cursor": page.next_cursor,
+            "artifacts": [_payload(e, view) for e in page.entries],
+        }
 
     index_watcher = StoreIndexWatcher(
         workspace_root=data_root,
@@ -915,9 +1172,39 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.get("/api/type-registry")
     async def get_type_registry():
-        from osprey.stores.type_registry import registry_to_api_dict
+        from osprey.stores.type_registry import registry_to_api_dict, viewer_path
 
-        return JSONResponse(registry_to_api_dict())
+        registry = registry_to_api_dict()
+        # ``viewer_url`` only flags "has a viewer": the gallery builds the
+        # import URL itself, as a literal the hub's proxy can rebase (a JSON
+        # body is never rewritten).
+        for ext in registry["extension_types"]:
+            if viewer_path(ext["key"]) is not None:
+                ext["viewer_url"] = f"/viewers/{quote(ext['key'], safe='')}.js"
+        return JSONResponse(registry)
+
+    @app.get("/viewers/{key}.js")
+    @not_content
+    async def get_viewer(key: str):
+        """Extension type ``key``'s viewer module: the one file resolved for it at load.
+
+        Installed facility code, not agent content, hence ``not_content``. The
+        key is only a registry lookup and never reaches the filesystem; an
+        unknown key or a type without a viewer is a 404.
+        """
+        from osprey.stores.type_registry import viewer_path
+
+        path = viewer_path(key)
+        if path is None or not path.is_file():
+            return Response(content="Not found", status_code=404)
+        return Response(
+            content=path.read_bytes(),
+            media_type="text/javascript",
+            headers={
+                "cache-control": "no-cache, no-store, must-revalidate",
+                "x-content-type-options": "nosniff",
+            },
+        )
 
     @app.get("/api/events")
     async def sse_events():
@@ -942,40 +1229,131 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         type: str | None = None,
         search: str | None = None,
         pinned: bool | None = Query(None),
-        category: str | None = None,
         session_id: str | None = None,
         limit: int = Query(page_size, ge=1, le=MAX_PAGE_SIZE),
         cursor: str | None = Query(None),
-        run: bool | None = Query(None),
+        form: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
+        runs: Literal["grouped"] | None = Query(None),
     ):
         """List one newest-first page of artifacts.
 
-        ``run`` splits the store by the server's run-record verdict
-        (:func:`~osprey.stores.artifact_store.is_run_record`): ``true`` returns
-        only run records, ``false`` everything else, absent both. ``total`` and
-        ``next_cursor`` count and walk the filtered set. Every entry carries
-        its verdict as ``run_record``.
+        ``form`` keeps the entries listed under that form (a run's head under
+        ``runs``); ``after``/``before`` keep the half-open window ``[after,
+        before)`` of aware ISO-8601 times; ``runs=grouped`` drops a run's
+        preview and notebook, which list under their head, and keeps its
+        outputs; ``search`` matches the title, file name, description, type
+        and form label. ``total`` and ``next_cursor`` count and walk the
+        filtered set. This is the palette's listing: it does not hide dispatch
+        or watchdog artifacts.
         """
         try:
-            page = store.page_entries(
-                limit=limit,
-                cursor=cursor,
+            entries = store.list_entries(
                 type_filter=type,
-                search=search,
                 pinned=pinned,
-                category_filter=category,
                 session_filter=session_id,
-                run_record=run,
+                after=after,
+                before=before,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        view = _view()
+        entries = _refine(entries, view, form=form, runs=runs, search=search)
+        try:
+            page = page_of(entries, limit, cursor)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400, detail="cursor is not one this listing issued"
             ) from exc
+        return _page_body(page, view)
+
+    @app.post("/api/artifacts/session-list")
+    async def session_list(body: SessionListRequest):
+        """One session's visible artifacts, paged like ``GET /api/artifacts``.
+
+        Ownership is :func:`~osprey.stores.artifact_store.owner_of` over the
+        hub's ledger and visibility
+        :func:`~osprey.stores.artifact_store.operator_visible`. ``{key}`` lists
+        the key's current transcript; ``{sessions}`` answers ``{pages: {id:
+        page}}``; ``{earlier: true}`` lists the visible artifacts no
+        transcript owns (untagged, or tagged with a key the ledger never saw).
+        Every answer says whether the ledger could be read.
+        """
+        view = _view()
+        ledger = view.owner_ledger
+        limit = body.limit or page_size
+        visible = [e for e in store.list_entries() if operator_visible(e)]
+        owners = {e.id: owner_of(e, ledger) for e in visible}
+
+        def transcript_page(transcript_id: str | None) -> dict[str, Any]:
+            owned = [e for e in visible if owners[e.id] == transcript_id]
+            owned = _refine(owned, view, form=body.form, runs=body.runs)
+            return _page_body(page_of(owned, limit, body.cursor), view)
+
+        def nothing() -> dict[str, Any]:
+            return _page_body(page_of([], limit, body.cursor), view)
+
+        status = "ok" if view.ledger_ok else "unavailable"
+        try:
+            if body.sessions is not None:
+                pages = {tid: transcript_page(tid) for tid in dict.fromkeys(body.sessions)}
+                return {"pages": pages, "ledger": status}
+            if body.earlier:
+                answer = transcript_page(None)
+            elif body.key is not None:
+                current = ledger.current(body.key) if ledger is not None else None
+                answer = transcript_page(current) if current else nothing()
+            else:
+                answer = transcript_page(body.session) if body.session else nothing()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="cursor is not one this listing issued"
+            ) from exc
+        return {**answer, "ledger": status}
+
+    @app.post("/api/artifacts/session-summary")
+    async def session_summary(body: SessionSummaryRequest):
+        """Counts for one page of sessions, Earlier and every transcript together.
+
+        One pass over the index, under the same rules as ``session-list``:
+        visibility is :func:`~osprey.stores.artifact_store.operator_visible`,
+        ownership :func:`~osprey.stores.artifact_store.owner_of`, and an entry
+        counts under its listed form, so ``by_form[f]`` equals the rows
+        ``session-list`` returns with ``runs=grouped`` and ``form=f`` and a run
+        counts once (its head) whatever its status. ``by_form`` names only the
+        forms that occur. ``owned_total`` counts every owned entry, requested or
+        not: the client's "More sessions" is ``owned_total`` minus its loaded
+        totals, and loaded + More + Earlier is the visible total.
+        """
+        view = _view()
+        ledger = view.owner_ledger
+        requested = dict.fromkeys(body.sessions)
+        counts: dict[str, dict[str, Any]] = {tid: {"total": 0, "by_form": {}} for tid in requested}
+        earlier: dict[str, Any] = {"total": 0, "by_form": {}}
+        owned_total = 0
+        for entry in store.list_entries():
+            if not operator_visible(entry):
+                continue
+            form = _listed_form(entry, view)
+            if form is None:  # a run's preview or notebook lists under its head
+                continue
+            owner = owner_of(entry, ledger)
+            if owner is None:
+                bucket = earlier
+            else:
+                owned_total += 1
+                owned = counts.get(owner)
+                if owned is None:
+                    continue
+                bucket = owned
+            bucket["total"] += 1
+            bucket["by_form"][form] = bucket["by_form"].get(form, 0) + 1
         return {
-            "count": len(page.entries),
-            "total": page.total,
-            "next_cursor": page.next_cursor,
-            "artifacts": [_entry_payload(e) for e in page.entries],
+            "counts": counts,
+            "earlier": earlier,
+            "owned_total": owned_total,
+            "ledger": "ok" if view.ledger_ok else "unavailable",
         }
 
     @app.get("/api/artifacts/{artifact_id}")
@@ -1199,9 +1577,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def delete_artifact(artifact_id: str):
         # This delete is a person clicking in the gallery, not the agent —
         # tag it so store listeners don't report it as agent activity.
+        # Deleting a run's head deletes its whole run; anything else goes alone.
         with artifact_mutation_actor("human"):
-            deleted = store.delete_entry(artifact_id)
-        if not deleted:
+            removed = store.delete_with_group(artifact_id)
+        if not removed:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         return {"status": "ok", "artifact_id": artifact_id}
 

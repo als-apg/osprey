@@ -35,18 +35,18 @@ KNOWN_MATRIX = np.array(
 
 
 def _rows_for_matrix(matrix: np.ndarray, correctors: list[str], readbacks: list[str]) -> list:
-    """Synthetic ORM rows: one dict per (corrector, current) point, each
+    """Synthetic ORM rows: one dict per (corrector, setpoint) point, each
     carrying only the swept corrector's key (others are a different
     corrector's sweep and never appear in this row) plus every BPM reading --
     mirroring the real `orm` plan's per-point event data.
     """
-    currents = np.linspace(-1.0, 1.0, 5)
+    setpoints = np.linspace(-1.0, 1.0, 5)
     rows = []
     for j, corrector in enumerate(correctors):
-        for current in currents:
-            row = {corrector: float(current)}
+        for setpoint in setpoints:
+            row = {corrector: float(setpoint)}
             for i, bpm in enumerate(readbacks):
-                row[bpm] = float(matrix[i, j] * current)
+                row[bpm] = float(matrix[i, j] * setpoint)
             rows.append(row)
     return rows
 

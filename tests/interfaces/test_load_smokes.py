@@ -10,7 +10,7 @@ app object, never a live page): here the browser is the oracle.
 
 Two targets additionally assert their DOM actually rendered, since a page can
 load "clean" by the above signals while its JS silently no-ops before building
-any UI: Web Terminal checks the hub shell's artifacts tab button, and the
+any UI: Web Terminal checks the hub shell's sidebar Agent row, and the
 graph-mode Channel Finder checks that the explore view's class tree drew nodes.
 
 Run:
@@ -102,11 +102,10 @@ def test_interface_loads_clean(
         if name == "web_terminal":
             if not _PLAYWRIGHT_AVAILABLE:  # pragma: no cover - guarded above too
                 pytest.skip("playwright package not installed")
-            # Hub shell DOM check: the artifacts tab button is always present
-            # (artifacts is always-enabled, see _open_page in
-            # test_panels_browser.py) once panel-manager.js finishes its
-            # async init (fetch /api/panels, then per-panel config).
-            expect(page.locator('button[data-panel-id="artifacts"]')).to_be_visible(timeout=10_000)
+            # Hub shell DOM check: the sidebar's Agent row (the terminal panel's
+            # rail entry, always served) renders once panel-manager.js finishes
+            # its async init (fetch /api/panels, then per-panel config).
+            expect(page.locator("#sidebar-agent-row")).to_be_visible(timeout=10_000)
 
         if name == "channel_finder_graph":
             # Explore is the default route (no hash), and its finder renders

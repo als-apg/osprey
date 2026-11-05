@@ -97,6 +97,22 @@ panel's connector for a click (:ref:`architecture-safety-chain-panel-write`). Th
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 :ref:`Safety watchdogs <architecture-safety-watchdogs>`.
 
+Plan mode
+=========
+
+While the session is in plan mode, every OSPREY tool that acts is refused: the tools that ask
+for approval, the write-gated ones, and the ones that delete. The agent is told
+``Plan mode: <tool> is off while planning. Leave plan mode to run it.`` Stopping a queue or a
+run, removing a queued item, validating a plan and the full health check stay available. So
+do the tools the registry names as audited reads, such as reading a channel or the archiver:
+they ask for approval because what they read is sensitive, and they change nothing. A
+custom server follows its ``config.yml``: its ``permissions.ask`` tools are refused, and so is
+every tool of a server that declares ``writes_check``; a tool it lists in neither ``allow`` nor
+``ask`` is not.
+Plan mode and a watchdog's hold are independent refusals with different escapes: plan mode
+refuses ``control_target_set`` and ends when the agent leaves plan mode; a hold never holds the
+control target and ends only when an operator answers the flag.
+
 .. _architecture-safety-watchdogs:
 
 Safety watchdogs

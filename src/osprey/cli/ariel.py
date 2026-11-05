@@ -228,6 +228,11 @@ def _report_embedding_builds(result: dict, schema_note_printed: bool) -> None:
         schema_note_printed: Whether an earlier section already printed the
             ``schema behind code`` note, which this one then leaves out.
     """
+    # Aliased: ``reembed_command`` is this module's click command.
+    from osprey.services.ariel_search.enhancement.status import (
+        reembed_command as reembed_command_line,
+    )
+
     for table in result.get("embedding_tables") or []:
         reason = table.get("verdict_unavailable")
         model = table.get("model") or {}
@@ -243,9 +248,7 @@ def _report_embedding_builds(result: dict, schema_note_printed: bool) -> None:
                 "the vocabulary does not load. Run: osprey ariel vocab-check"
             )
         elif reason is None:
-            command = (
-                f"osprey ariel reembed --model {name} --dimension {model.get('dimension')} --force"
-            )
+            command = reembed_command_line(name, model.get("dimension"))
             _report_stale_causes(name, table.get("stale") or {}, command)
         elif reason == "vocabulary_disabled":
             _report_stale_causes(name, table.get("stale") or {}, None)
@@ -353,6 +356,24 @@ def _report_module_health(modules: dict | None, config_dict: dict) -> None:
             reason = "unreachable"
         if reason is not None:
             output.report(module_skip_line(name, reason, config_dict))
+
+
+def _report_coverage(coverage: dict | None) -> None:
+    """Print one line per enabled module: its entries in each badge-strip state.
+
+    Args:
+        coverage: The ``coverage`` block of the status result.
+    """
+    if not coverage:
+        return
+    output.report("Enhancement coverage:")
+    for name, counts in coverage.items():
+        output.note(
+            f"- {counts.get('label') or name}: {counts['complete']} complete, "
+            f"{counts.get('not_run', 0)} not run, "
+            f"{counts['pending']} pending, {counts['stale']} stale, "
+            f"{counts['failed']} failed, {counts['n/a']} n/a"
+        )
 
 
 def _handle_db_error(e: Exception) -> None:
@@ -625,6 +646,7 @@ def status_command(output_json: bool) -> None:
                 )
                 output.report(f"Rows from unregistered enhancement modules: {leftovers}")
 
+            _report_coverage(result.get("coverage"))
             _report_module_health(result.get("enhancement_modules"), config_dict)
 
             schema_note_printed = _report_attachments(result.get("attachments"))
@@ -1028,8 +1050,21 @@ def watch_command(
     is_flag=True,
     help="With --module image_caption, caption again the pictures captioned with an older prompt",
 )
+@click.option(
+    "--entry",
+    "entry_id",
+    default=None,
+    help="With --module, re-run that module for this one entry when it is failed or stale",
+)
+@click.pass_context
 def enhance_command(
-    module: str | None, force: bool, limit: int, retry_failed: bool, refresh_stale: bool
+    ctx: click.Context,
+    module: str | None,
+    force: bool,
+    limit: int,
+    retry_failed: bool,
+    refresh_stale: bool,
+    entry_id: str | None,
 ) -> None:
     """Run enhancement modules on entries.
 
@@ -1038,14 +1073,39 @@ def enhance_command(
     modules keep their results per picture and model, so --force never
     re-runs them; --retry-failed gives a module's failures a new try, and
     --refresh-stale captions again what an older caption prompt produced.
+    --entry re-runs one module for one failed or stale entry, the command an
+    entry's enhancement card shows.
     """
     from osprey.services.ariel_search.cli_operations import (
+        ENTRY_NEEDS_MODULE,
         FORCE_REFUSAL,
+        EntryRerunRefused,
         _runs_in_catchup,
         run_enhance,
     )
     from osprey.services.ariel_search.exceptions import ModuleConfigError
 
+    if entry_id is not None:
+        if not module:
+            output.fail(ENTRY_NEEDS_MODULE)
+            raise SystemExit(1)
+        explicit_limit = ctx.get_parameter_source("limit") not in (
+            None,
+            click.core.ParameterSource.DEFAULT,
+        )
+        clashing = [
+            flag
+            for flag, given in (
+                ("--force", force),
+                ("--limit", explicit_limit),
+                ("--retry-failed", retry_failed),
+                ("--refresh-stale", refresh_stale),
+            )
+            if given
+        ]
+        if clashing:
+            output.fail(f"--entry runs one entry and cannot be combined with {', '.join(clashing)}")
+            raise SystemExit(1)
     if force and module and _runs_in_catchup(module):
         output.fail(FORCE_REFUSAL)
         raise SystemExit(1)
@@ -1067,10 +1127,14 @@ def enhance_command(
                 progress=output.report,
                 retry_failed=retry_failed,
                 refresh_stale=refresh_stale,
+                entry_id=entry_id,
             )
         )
     except ModuleConfigError as e:
         _fail_module_config(e)
+    except EntryRerunRefused as e:
+        output.fail(str(e))
+        raise SystemExit(1) from None
 
 
 @ariel_group.command("models")
@@ -1208,13 +1272,18 @@ def reembed_command(
 def quickstart_command(source: str | None) -> None:
     """Quick setup for ARIEL logbook search.
 
+    \b
     Runs the complete setup sequence:
     1. Checks database connection (prompts to run 'osprey up' if down)
     2. Runs database migrations
-    3. Ingests demo logbook data (or custom source)
+    3. Ingests the configured logbook source (or the --source file)
+    4. Enhances: the enabled inline modules on each entry as it is
+       ingested; with no ingestion source, every enabled module over
+       the entries the logbook already holds
 
+    \b
     Example:
-        osprey ariel quickstart                    # Use bundled demo data
+        osprey ariel quickstart                    # Use the configured source
         osprey ariel quickstart -s my_logbook.json # Use custom data
     """
     from osprey.services.ariel_search.cli_operations import run_quickstart

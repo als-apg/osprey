@@ -310,11 +310,10 @@ def _save_run_record(store, title="Run"):
 
 
 class TestRunRecordVerdict:
-    """The server's run-record verdict: ``?run=`` on the listing, ``run_record`` everywhere.
+    """The server's legacy run-record verdict: ``run_record`` on every payload.
 
-    The web terminal's sidebar sorts Script runs from Artifacts by what the
-    server says, never by re-deriving the rule, so every entry the gallery
-    sends to a browser has to carry the verdict.
+    The listing no longer filters by it (the sidebar groups runs by form), but
+    every entry the gallery sends to a browser still carries the verdict.
     """
 
     @staticmethod
@@ -347,31 +346,13 @@ class TestRunRecordVerdict:
             if cursor is None:
                 return entries, totals
 
-    def test_run_true_lists_only_run_records(self, app_client):
-        runs, _ = self._seed(app_client.app.state.artifact_store)
-        entries, totals = self._walk(app_client, run="true")
-        assert {e["id"] for e in entries} == runs
-        assert len(entries) == 5
-        assert totals == {5}
-
-    def test_run_false_lists_everything_else(self, app_client):
-        _, others = self._seed(app_client.app.state.artifact_store)
-        entries, totals = self._walk(app_client, run="false")
-        assert {e["id"] for e in entries} == others
-        assert len(entries) == 7
-        assert totals == {7}
-
-    def test_no_run_param_lists_all_of_them(self, app_client):
+    def test_the_listing_has_no_run_filter_any_more(self, app_client):
+        """The sidebar groups runs by form; ``?run=`` is no listing parameter."""
         runs, others = self._seed(app_client.app.state.artifact_store)
-        entries, totals = self._walk(app_client)
-        assert {e["id"] for e in entries} == runs | others
-        assert totals == {12}
-
-    def test_the_filtered_first_page_names_its_cursor_and_count(self, app_client):
-        self._seed(app_client.app.state.artifact_store)
-        body = app_client.get("/api/artifacts", params={"run": "true", "limit": 3}).json()
-        assert (body["count"], body["total"]) == (3, 5)
-        assert body["next_cursor"] is not None
+        for params in ({}, {"run": "true"}, {"run": "false"}):
+            entries, totals = self._walk(app_client, **params)
+            assert {e["id"] for e in entries} == runs | others
+            assert totals == {12}
 
     def test_every_listed_entry_carries_the_boolean_verdict(self, app_client):
         runs, others = self._seed(app_client.app.state.artifact_store)
@@ -381,7 +362,12 @@ class TestRunRecordVerdict:
             assert entry["run_record"] is (entry["id"] in runs)
 
     def test_a_legacy_run_record_is_known_by_what_its_writer_gave_it(self, app_client):
-        """Saved before the metadata key existed: the category alone marks it."""
+        """Saved before the metadata key existed: the stored category alone marks it.
+
+        The save APIs no longer write a category, so the legacy entry is the
+        one an older writer left on disk, reached here the way the stores
+        tests reach it.
+        """
         store = app_client.app.state.artifact_store
         legacy = store.save_file(
             file_content=b"out",
@@ -390,10 +376,9 @@ class TestRunRecordVerdict:
             title="Output",
             mime_type="text/plain",
             tool_source="execute",
-            category="code_output",
         )
-        body = app_client.get("/api/artifacts", params={"run": "true"}).json()
-        assert [e["id"] for e in body["artifacts"]] == [legacy.id]
+        store.update_entry_metadata(legacy.id, category="code_output")
+        assert app_client.get(f"/api/artifacts/{legacy.id}").json()["run_record"] is True
 
     def test_get_artifact_carries_the_verdict(self, app_client):
         store = app_client.app.state.artifact_store

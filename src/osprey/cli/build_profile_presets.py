@@ -10,12 +10,17 @@ without importing the profile parser in :mod:`osprey.cli.build_profile_load`.
 from __future__ import annotations
 
 import importlib.resources
+import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
+from osprey.deployment.compose_generator import TEMPLATE_FILENAME
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 from .build_profile_document import _read_profile_document
 from .profile_root import ProfileKind
@@ -125,6 +130,119 @@ def resolve_triggers_path(profile_dir: Path, triggers: str) -> TriggersSource | 
     if packaged.is_file():
         return TriggersSource(path=packaged, bundled=True)
     return None
+
+
+def bundled_services_dir() -> Path:
+    """Locate the OSPREY package's bundled ``templates/services`` directory.
+
+    Prefers the installed ``osprey.templates`` package's location; falls back to
+    a path relative to this module for source/editable checkouts where the
+    package metadata is unavailable. Callers check ``.is_dir()`` on the result,
+    since the directory may be absent in a stripped-down install.
+    """
+    try:
+        import osprey.templates
+
+        return Path(osprey.templates.__file__).parent / "services"
+    except (ImportError, AttributeError):
+        return Path(__file__).parent.parent / "templates" / "services"
+
+
+#: The second instance of the virtual accelerator: an instance, rendered off
+#: another service's shipped template under a service key of its own. Its
+#: block keeps its own manifest rows (``services.live_standin.*``).
+LIVE_STANDIN_SERVICE = LIVE_STANDIN_PORT_KEY.split(".")[1]
+
+#: Every service key that is an instance, rendered off another service's
+#: shipped template: the plan lanes beyond lane one and the live stand-in.
+SERVICE_INSTANCE_KEYS: frozenset[str] = frozenset(SECOND_LANE_KEYS.values()) | {
+    LIVE_STANDIN_SERVICE
+}
+
+
+def bundled_service_template(template: str) -> str | None:
+    """The framework template a service ``template:`` selects, or ``None``.
+
+    ``osprey.<name>`` names the template the framework ships as ``<name>``,
+    which holds only letters, digits, underscores and hyphens; every other
+    spelling is a directory relative to the profile root.
+    """
+    match = re.fullmatch(r"osprey\.([A-Za-z0-9_-]+)", template)
+    return match.group(1) if match else None
+
+
+@dataclass(frozen=True)
+class ServiceTemplateSource:
+    """The directory a service ``template:`` value resolves to.
+
+    Attributes:
+        template: The ``template:`` value this source was resolved from.
+        path: The template directory on disk.
+        bundled: True when the value names a template the framework ships
+            rather than a directory beside the profile.
+    """
+
+    template: str
+    path: Path
+    bundled: bool
+
+    @property
+    def exists(self) -> bool:
+        """Whether ``path`` is a service template: a directory holding its compose template."""
+        return self.path.is_dir() and (self.path / TEMPLATE_FILENAME).is_file()
+
+    def refusal(self, service: str) -> str | None:
+        """The sentence refusing *service* for this source, or ``None`` when it exists."""
+        if self.exists:
+            return None
+        if self.bundled:
+            return f"Service '{service}' template '{self.template}' names no template OSPREY ships"
+        if not self.path.is_dir():
+            return f"Service '{service}' template dir not found: {self.path}"
+        return f"Service '{service}' template dir missing {TEMPLATE_FILENAME}"
+
+
+@lru_cache(maxsize=1)
+def bundled_service_names() -> frozenset[str]:
+    """Every service key whose block OSPREY's own template reads.
+
+    The template directories shipped under ``osprey/templates/services``, plus
+    the instances rendered off one of them (:data:`SERVICE_INSTANCE_KEYS`): the
+    second plan lanes and the live stand-in. A custom service is not here — its
+    template is the facility's own, so its block stays open.
+    """
+    root = bundled_services_dir()
+    if not root.is_dir():
+        return frozenset()
+    templates = {
+        entry.name
+        for entry in root.iterdir()
+        if ServiceTemplateSource(template=f"osprey.{entry.name}", path=entry, bundled=True).exists
+    }
+    return frozenset(templates) | SERVICE_INSTANCE_KEYS
+
+
+def resolve_service_template(profile_dir: Path, template: str) -> ServiceTemplateSource:
+    """Resolve a service ``template:`` value to its source directory.
+
+    ``osprey.<name>`` resolves into :func:`bundled_services_dir`; every other
+    value is a directory relative to ``profile_dir``. The result says where the
+    source is, not whether it is there: :attr:`ServiceTemplateSource.exists`
+    answers that, by one rule for both kinds.
+
+    Args:
+        profile_dir: Directory holding the profile.
+        template: The service's ``template:`` value.
+
+    Returns:
+        The resolved source.
+    """
+    bundled = bundled_service_template(template)
+    if bundled is not None:
+        return ServiceTemplateSource(
+            template=template, path=bundled_services_dir() / bundled, bundled=True
+        )
+    return ServiceTemplateSource(template=template, path=profile_dir / template, bundled=False)
 
 
 def _preset_exists(name: str) -> Path | None:

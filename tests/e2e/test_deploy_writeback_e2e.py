@@ -104,7 +104,7 @@ from tests.e2e._deploy_support import (
 from tests.e2e._orm_stack import seed_repo_env
 from tests.e2e.profile_edits import set_pairs
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 # ---------------------------------------------------------------------------
 # Identity. One deployment name per case — the repo DIRECTORY name, which the

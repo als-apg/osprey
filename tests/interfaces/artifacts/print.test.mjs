@@ -530,7 +530,7 @@ describe('printArtifact: guards and dispatch', () => {
         'metadata.data_type === "timeseries"',
         { metadata: { data_type: 'timeseries' }, artifact_type: 'json' },
       ],
-      ['category === "archiver_data"', { category: 'archiver_data', artifact_type: 'json' }],
+      ['tool_source === "archiver_read"', { tool_source: 'archiver_read', artifact_type: 'json' }],
     ])(
       'routes to the timeseries capture path when %s, overriding artifact_type',
       (_label, overrides) => {
@@ -564,7 +564,7 @@ describe('printArtifact: guards and dispatch', () => {
         vi.fn(() => win)
       );
 
-      printArtifact(makeArtifact({ category: 'archiver_data', title: 'CH1' }));
+      printArtifact(makeArtifact({ tool_source: 'archiver_read', title: 'CH1' }));
 
       await vi.waitFor(() => {
         expect(win.print).toHaveBeenCalledTimes(1);
@@ -582,7 +582,7 @@ describe('printArtifact: guards and dispatch', () => {
       vi.stubGlobal('open', openSpy);
       // No mountChart(): the preview pane's [data-ts-chart] .js-plotly-plot is absent.
 
-      printArtifact(makeArtifact({ category: 'archiver_data' }));
+      printArtifact(makeArtifact({ tool_source: 'archiver_read' }));
 
       expect(alertSpy).toHaveBeenCalledWith(MSG_CHART_NOT_READY);
       expect(openSpy).not.toHaveBeenCalled();
@@ -596,7 +596,7 @@ describe('printArtifact: guards and dispatch', () => {
       vi.stubGlobal('open', openSpy);
       // No Plotly stub: `typeof Plotly === "undefined"` is true.
 
-      printArtifact(makeArtifact({ category: 'archiver_data' }));
+      printArtifact(makeArtifact({ tool_source: 'archiver_read' }));
 
       expect(alertSpy).toHaveBeenCalledWith(MSG_CHART_NOT_READY);
       expect(openSpy).not.toHaveBeenCalled();
@@ -615,7 +615,7 @@ describe('printArtifact: guards and dispatch', () => {
         vi.fn(() => win)
       );
 
-      printArtifact(makeArtifact({ category: 'archiver_data' }));
+      printArtifact(makeArtifact({ tool_source: 'archiver_read' }));
 
       await vi.waitFor(() => {
         expect(alertSpy).toHaveBeenCalledWith(MSG_CAPTURE_FAILED);
@@ -635,7 +635,7 @@ describe('printArtifact: guards and dispatch', () => {
         vi.fn(() => null)
       );
 
-      printArtifact(makeArtifact({ category: 'archiver_data' }));
+      printArtifact(makeArtifact({ tool_source: 'archiver_read' }));
 
       expect(alertSpy).toHaveBeenCalledWith(MSG_POPUP_BLOCKED);
       expect(toImage).not.toHaveBeenCalled();

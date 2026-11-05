@@ -8,9 +8,10 @@ HTTP service on loopback. A service serves one page: a full-size SVG plot of
 four curves that polls the service's ``data`` endpoint every 100 ms and
 redraws, while the service random-walks the curves on every request. So all
 four plots repaint, over the network, while the drag runs. The panels are
-opened from the sidebar as a person would, then arranged into a fixed 2x2 grid
-(a row of two columns, two tiles each) beside the agent pane's tile through
-the layout holder — the same entry a saved dock takes on reload.
+opened from the sidebar as a person would (each row click replaces the panel
+of the service tile used last, so each gets its iframe), then arranged into a
+fixed 2x2 grid (a row of two columns, two tiles each) beside the agent pane's
+tile through the layout holder — the same entry a saved dock takes on reload.
 
 The measurement. A ``longtask`` PerformanceObserver is installed before the hub
 loads. Two 5 s windows are compared, timed inside the page so no Playwright
@@ -19,9 +20,10 @@ is a real HTML5 drag of the first tile's header (Playwright's mouse never
 raises HTML5 drag-and-drop, so the gesture is dispatched in the page with a
 real DataTransfer): ``dragstart`` on the header, then, once the drag shield is
 up, a ``dragover`` every frame at the next point of a fixed tour of every zone
-of every plot tile (centre, the four edge bands, the header and its title),
-the borders between tiles and the dock's outer band, with a ``dragenter``
-whenever the hit element changes; it ends with ``dragleave``, Escape and
+of every plot tile (centre, the four edge bands, and the header bar, which is
+no drop target but is still hit-tested), the borders between tiles and the
+dock's outer band, with a ``dragenter`` whenever the hit element changes; it
+ends with ``dragleave``, Escape and
 ``dragend``, so no drop lands and the layout stays as arranged. A long task
 counts for a window when it starts inside it.
 
@@ -224,7 +226,7 @@ _LONG_TASK_OBSERVER = """
 })();
 """
 
-#: Put the grid in the holder and show every plot, as a saved dock would on reload.
+#: Put the grid in the holder and show every tile's plot, as a saved dock would on reload.
 _ARRANGE_JS = """
 async (layout) => {
   const { getLayoutHolder } = await import('/static/js/dock-apply.js');
@@ -233,7 +235,7 @@ async (layout) => {
   if (!holder) return 'no layout holder';
   if (!holder.restore(layout)) return 'refused';
   const walk = (n) => {
-    if ('tile' in n) { for (const key of n.tabs) if (key !== 'terminal') focusPanel(key); }
+    if ('tile' in n) { if (n.showing !== 'terminal') focusPanel(n.showing); }
     else n.items.forEach(walk);
   };
   walk(layout);
@@ -295,8 +297,7 @@ async ({ ms, ids }) => {
   const root = document.querySelector('#dock-root');
   if (!root) throw new Error('sweep: no dock root');
   const dock = root.getBoundingClientRect();
-  const barOf = (key) => [...root.querySelectorAll(`.tile-tab[data-tile][data-panel-key="${CSS.escape(key)}"]`)]
-    .find((b) => !b.parentElement?.classList.contains('dv-inactive-tab')) ?? null;
+  const barOf = (key) => root.querySelector(`.tile-tab[data-tile][data-panel-key="${CSS.escape(key)}"]`);
   const groupOf = (key) => barOf(key)?.closest('.dv-groupview') ?? null;
 
   // The tour: every zone of every plot tile, the borders between tiles, the outer band.
@@ -309,13 +310,8 @@ async ({ ms, ids }) => {
     rects[key] = group.getBoundingClientRect();
     const tile = bar.dataset.tile;
     const b = bar.getBoundingClientRect();
+    tour.push({ x: b.x + 24, y: b.y + b.height / 2, zone: `${key}:bar` });
     tour.push({ x: b.x + b.width - 6, y: b.y + b.height / 2, zone: `${key}:bar` });
-    for (const tab of bar.querySelectorAll('.tile-tab-item, .tile-tab-title')) {
-      if (tab.hidden) continue;
-      const r = tab.getBoundingClientRect();
-      tour.push({ x: r.x + r.width / 4, y: r.y + r.height / 2, zone: `${key}:tab` });
-      tour.push({ x: r.x + (3 * r.width) / 4, y: r.y + r.height / 2, zone: `${key}:tab` });
-    }
     const content = group.querySelector('.dv-content-container');
     if (!content) throw new Error(`sweep: no content for tile ${tile}`);
     const c = content.getBoundingClientRect();
@@ -425,7 +421,7 @@ async ({ ms, ids }) => {
 }
 """
 
-_TILE_ZONES = ("bar", "tab", "center", "left", "right", "top", "bottom")
+_TILE_ZONES = ("bar", "center", "left", "right", "top", "bottom")
 _BORDER_ZONES = (
     "border:vertical",
     "border:left",
