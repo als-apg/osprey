@@ -22,15 +22,17 @@
   overflow-x: hidden;
 }
 
-/* The resize handle (sidebar-resize.js): a 6 px hit area on the sidebar's
-   right edge, outside the flex flow, that shows a 2 px line on hover and an
-   accent line while focused or dragged. */
+/* The resize handle (sidebar-resize.js): a 12 px hit area along the sidebar's
+   right edge, outside the flex flow (the sidebar clips overflow, so the zone
+   sits inside the edge). The edge shows a 2 px accent line on hover and a 3 px
+   one while focused or dragged; the zone takes the col-resize cursor, and the
+   whole page does for the length of a drag. */
 .sidebar > .sidebar-resize {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 6px;
+  width: 12px;
   cursor: col-resize;
   touch-action: none;
   outline: none;
@@ -48,12 +50,21 @@
 }
 
 .sidebar-resize:hover::after {
-  background: var(--border-default);
+  background: var(--color-accent);
+  opacity: 0.55;
 }
 
 .sidebar-resize:focus-visible::after,
 .sidebar-resize.dragging::after {
+  width: 3px;
   background: var(--color-accent);
+  opacity: 1;
+}
+
+html[data-sidebar-resizing],
+html[data-sidebar-resizing] * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 
 /* Height budget: the head, the control-system block, search, the groups and
