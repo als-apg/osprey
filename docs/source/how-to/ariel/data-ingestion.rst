@@ -206,11 +206,14 @@ ARIEL refuses a declaration or a value in these cases:
      - The adapter declares ``tags``, ``sync_status``, ``created_via``, ``session_metadata`` or ``title``. These belong to ARIEL and cannot be declared.
      - The declaration error above.
    * - Value shape
-     - A string longer than 200 characters, a number outside ``min_value``/``max_value``, a ``select`` value that is not one of its options, or a date-time for a ``date`` field.
+     - A value of the wrong type (not a whole number, a number, true or false, or a ``YYYY-MM-DD`` date), a string longer than 200 characters, a number outside ``min_value``/``max_value``, a ``select`` value that is not one of its options, or a date-time for a ``date`` field.
      - Refused, naming the field.
    * - ``dynamic_select`` choices
      - The web form and ``entry_publish`` ask the adapter for the current choices and refuse a value it does not list. ``entry_create`` checks such a value's type only.
      - Refused, naming the field.
+   * - Undeclared fields
+     - ``entry_create`` or ``entry_publish`` is given a field name the adapter does not declare. The web form leaves such a key out instead.
+     - Refused, naming the key.
    * - Required fields
      - A ``required`` field is missing on a direct write. A draft may leave it out.
      - Refused, naming the field.
@@ -219,7 +222,7 @@ ARIEL refuses a declaration or a value in these cases:
      - Refused, naming the field.
    * - Options lookup
      - The adapter's lookup fails or takes longer than 10 seconds.
-     - Reported as "options unavailable" without passing on the adapter's error text.
+     - Reported as ``The options for entry field '<field>' are unavailable right now.``, without passing on the adapter's error text.
 
 The checks are about shape: type, options, required, range, and the choices the adapter lists. Whether a value makes sense for the facility is the adapter's and the logbook's business. The HTTP endpoints, error codes and tool arguments are in :doc:`/reference/contracts/ariel`.
 
@@ -612,13 +615,13 @@ ships a service that runs it in a container. To deploy it:
    ``osprey ariel sync --watch``.
 #. Run ``osprey health`` and read the ``ariel_last_ingestion`` row. It warns
    when the newest ingestion is older than the expected cadence; the threshold
-   is under `How the service behaves`_.
+   is under `How the Service Behaves`_.
 
 The profile key is ``ariel_sync``; the compose service it renders is
 ``ariel-sync`` (container ``<project>-ariel-sync``). Both names refer to this
 one service.
 
-How the service behaves
+How the Service Behaves
 ^^^^^^^^^^^^^^^^^^^^^^^
 
 ``osprey ariel sync --watch`` syncs once on startup: schema migration, an
