@@ -36,7 +36,13 @@ from osprey_optimizer.services.write_authorization import retire_self_issued
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["LEASE_S", "SET_ALLOWED", "authorize_manual_write", "setpoint_channels"]
+__all__ = [
+    "LEASE_S",
+    "SET_ALLOWED",
+    "SWITCH_NOT_ALLOWED",
+    "authorize_manual_write",
+    "setpoint_channels",
+]
 
 _T = TypeVar("_T")
 
@@ -44,8 +50,15 @@ _T = TypeVar("_T")
 #: connector child up and write once.
 LEASE_S = 120.0
 
+#: The reason a manual write is refused with while the switch is on but not at
+#: ``allowed`` (at ``asked``). The connectors' self-issue answers ``auth_revoked``
+#: there, which reads as "an authorization this program held has ended"; a
+#: manual write held none, so its caller is told what stands in its way. Local
+#: to the optimizer: :mod:`osprey_connectors.refusals` names no such reason.
+SWITCH_NOT_ALLOWED = "switch_not_allowed"
+
 #: The refusals of a self-issue that mean the switch stands below ``allowed``.
-_BELOW_ALLOWED = frozenset({"auth_revoked", "switch_off", "stopped_since"})
+_BELOW_ALLOWED = frozenset({"auth_revoked", "switch_off", "stopped_since", SWITCH_NOT_ALLOWED})
 
 #: What a refusal below ``allowed`` asks of the operator.
 SET_ALLOWED = (
@@ -160,7 +173,10 @@ def authorize_manual_write(
             owner=owner,
         )
     except wa.AuthorizationRefused as refused:
-        raise _refused(refused.reason, refused.detail) from refused
+        # A self-issue's auth_revoked means the switch was not at allowed (or
+        # left it during the issue): no authorization of this call has ended.
+        reason = SWITCH_NOT_ALLOWED if refused.reason == "auth_revoked" else refused.reason
+        raise _refused(reason, refused.detail) from refused
     try:
         wa.start_lease(grant.id, owner=owner)
     except wa.AuthorizationRefused as refused:

@@ -2222,8 +2222,10 @@ ENV_EXAMPLE = """\
 # Anything else starting with `.env` is written by OSPREY itself (`osprey up`
 # keeps `.env.auth` there, for one) — kept out of git, and not edited by hand.
 
-# API key for the provider this assistant uses. Fill this in.
-ANTHROPIC_API_KEY=your-anthropic-api-key-here
+# API key for the provider this assistant uses.
+# Needed when the web terminals run in containers or call the Anthropic API
+# directly; a host `osprey web` signed in to Claude needs none.
+# ANTHROPIC_API_KEY=your-anthropic-api-key-here
 
 # Other providers OSPREY supports. Uncomment one if you switch to it with
 # `osprey set provider=...`.

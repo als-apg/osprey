@@ -32,6 +32,7 @@ import {
   machineKind,
   resolvePendingSwitch,
   PROGRAM_HOLD_SENTENCE,
+  PROGRAMS_SELF_ISSUE_SENTENCE,
   programHolders,
   programQualifier,
   statePhrase,
@@ -192,6 +193,7 @@ describe('turnOnConfirm', () => {
       expect(spec.title).toBe(`Set writes to asked on ${name}?`);
       expect(textOf(spec.body)).toContain(`Writes to ${name} will still prompt before each one`);
       expect(textOf(spec.body)).not.toContain('no prompt');
+      expect(textOf(spec.body)).not.toContain(PROGRAMS_SELF_ISSUE_SENTENCE);
       expect(spec.confirmLabel).toBe('Set writes to asked');
       expect(spec.to).toBe('asked');
       expect(spec.live).toBe(CONFIRM_BANNERS[kind]);
@@ -203,6 +205,8 @@ describe('turnOnConfirm', () => {
       expect(spec.title).toBe(`Set writes to allowed on ${name}?`);
       expect(textOf(spec.body)).toContain(`Writes to ${name} will run with no prompt.`);
       expect(textOf(spec.body)).not.toContain('still prompt');
+      // At allowed a program issues its own authorization: the dialog says so.
+      expect(textOf(spec.body)).toContain(PROGRAMS_SELF_ISSUE_SENTENCE);
       expect(spec.confirmLabel).toBe('Set writes to allowed');
       expect(spec.to).toBe('allowed');
       expect(spec.live).toBe(CONFIRM_BANNERS[kind]);

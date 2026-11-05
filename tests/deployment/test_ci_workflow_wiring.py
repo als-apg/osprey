@@ -2768,6 +2768,55 @@ def test_orm_roundtrip_job_runs_the_grid_scan_module__mutation_drops_the_step() 
         test_orm_roundtrip_job_runs_the_grid_scan_module(mutated)
 
 
+ORM_OVERLAY2_STEP = "Use the overlay2 image store"
+
+
+def _orm_overlay2_violations(wf: dict[str, Any]) -> list[str]:
+    """Why the ORM job's images would not all land in the overlay2 store, if they would not."""
+    steps = _jobs(wf)[ORM_JOB]["steps"]
+    names = [step.get("name", "") for step in steps]
+    if ORM_OVERLAY2_STEP not in names:
+        return [f"no {ORM_OVERLAY2_STEP!r} step"]
+    at = names.index(ORM_OVERLAY2_STEP)
+    run = steps[at].get("run", "")
+    problems = [
+        f"{needle!r} missing from the step"
+        for needle in ('"containerd-snapshotter"] = false', "systemctl restart docker", "overlay2")
+        if needle not in run
+    ]
+    first_pytest = next(i for i, step in enumerate(steps) if "pytest" in step.get("run", ""))
+    if at > first_pytest:
+        problems.append("the switch runs after a stack has already built into the containerd store")
+    return problems
+
+
+def test_orm_roundtrip_job_builds_into_the_overlay2_store(workflow: dict[str, Any]) -> None:
+    """Four stacks in a row fit an AWS 72 GB runner only under overlay2: the
+    containerd image store keeps every layer compressed and unpacked and, while
+    a cached stack builds in parallel, unpacks a shared layer once per image
+    (measured on amd64 at a 37 GB cap: ENOSPC at the fourth stack, against a
+    16.7 GiB peak under overlay2). Dropping the switch, or moving it after the
+    first build, reds the lane only on the runners that happen to be small."""
+    assert _orm_overlay2_violations(workflow) == []
+
+
+def test_orm_roundtrip_job_builds_into_the_overlay2_store__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[ORM_JOB]["steps"]
+    _jobs(mutated)[ORM_JOB]["steps"] = [s for s in steps if s.get("name") != ORM_OVERLAY2_STEP]
+    assert _orm_overlay2_violations(mutated) == [f"no {ORM_OVERLAY2_STEP!r} step"]
+
+
+def test_orm_roundtrip_job_builds_into_the_overlay2_store__mutation_moves_it_last() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[ORM_JOB]["steps"]
+    switch = next(s for s in steps if s.get("name") == ORM_OVERLAY2_STEP)
+    _jobs(mutated)[ORM_JOB]["steps"] = [s for s in steps if s is not switch] + [switch]
+    assert _orm_overlay2_violations(mutated) == [
+        "the switch runs after a stack has already built into the containerd store"
+    ]
+
+
 def test_dispatch_overlay_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
     """Inverse of the secret-free checks: the overlay test runs a REAL agent
     turn, and its fixture skips outright without ALS_APG_API_KEY — a job
@@ -14098,29 +14147,19 @@ QMD_WARM_INPUT = "warm"
 #: Every step that starts the qmd sidecar, by job and step name. Each deploys
 #: the control-assistant preset with qmd left in, or (qmd-sidecar-e2e) starts
 #: the sidecar directly. Kept by hand: which module's ``osprey up`` renders a
-#: qmd service is a fact about its fixture, not about the workflow.
+#: qmd service is a fact about its fixture, not about the workflow. A lane whose
+#: fixture merges ``tests/e2e/_orm_stack.knowledge_services_off`` deploys no qmd
+#: and is not listed.
 QMD_DEPLOYING_STEPS: dict[str, tuple[str, ...]] = {
     "qmd-sidecar-e2e": (
         "Run qmd sidecar E2E",
         "Run the wall-clock budgets serially",
         "Run the multi-user shared-bundle sidecar E2E",
     ),
-    "jupyter-panel-e2e": ("Run notebook panel E2E",),
     "scan-agentic-e2e": ("Run scan stack agentic E2E",),
-    "va-substrate-equivalence-e2e": ("Run VA substrate equivalence E2E",),
-    "bluesky-web-deploy-e2e": ("Run bluesky web deploy E2E",),
-    "bluesky-queue-e2e": ("Run Bluesky queue E2E",),
-    "bluesky-sandbox-escape-e2e": ("Run bluesky sandbox escape E2E",),
-    "tiled-roundtrip-e2e": ("Run Tiled roundtrip E2E",),
     "single-user-narrowing-e2e": ("Run single-user narrowing E2E",),
     "dispatch-overlay-e2e": ("Run dispatch overlay visibility E2E",),
     "dispatch-deploy-e2e": ("Run dispatch deploy E2E",),
-    "orm-roundtrip-e2e": (
-        "Run ORM roundtrip E2E",
-        "Run grid scan roundtrip E2E",
-        "Run orbit bump sweep roundtrip E2E",
-        "Run preflight probe E2E",
-    ),
 }
 
 
@@ -14171,7 +14210,7 @@ def test_only_the_warmup_saves_the_qmd_cache(workflow: dict[str, Any]) -> None:
 
 def test_only_the_warmup_saves_the_qmd_cache__mutation_a_pr_lane_warms() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, "jupyter-panel-e2e", "Build the qmd sidecar image")
+    step = _find_named_step(mutated, "scan-agentic-e2e", "Build the qmd sidecar image")
     step["with"] = {QMD_WARM_INPUT: "true"}
     assert len(_saving_steps_outside_the_warmup(mutated)) == 1
 
@@ -14328,33 +14367,37 @@ def test_every_qmd_deploying_step_starts_the_shared_image(workflow: dict[str, An
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_variable() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    del _find_named_step(mutated, "jupyter-panel-e2e", "Run notebook panel E2E")["env"][
+    del _find_named_step(mutated, "scan-agentic-e2e", "Run scan stack agentic E2E")["env"][
         QMD_IMAGE_ENV
     ]
     assert _qmd_deploy_problems(mutated) == [
-        f"jupyter-panel-e2e: 'Run notebook panel E2E' sets {QMD_IMAGE_ENV}=None"
+        f"scan-agentic-e2e: 'Run scan stack agentic E2E' sets {QMD_IMAGE_ENV}=None"
     ]
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_build() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)["tiled-roundtrip-e2e"]["steps"]
-    steps.remove(_find_named_step(mutated, "tiled-roundtrip-e2e", "Build the qmd sidecar image"))
+    steps = _jobs(mutated)["dispatch-deploy-e2e"]["steps"]
+    steps.remove(_find_named_step(mutated, "dispatch-deploy-e2e", "Build the qmd sidecar image"))
     assert _qmd_deploy_problems(mutated) == [
-        f"tiled-roundtrip-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
+        f"dispatch-deploy-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
     ]
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_builds_too_late() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)["orm-roundtrip-e2e"]["steps"]
-    build = _find_named_step(mutated, "orm-roundtrip-e2e", "Build the qmd sidecar image")
+    steps = _jobs(mutated)["qmd-sidecar-e2e"]["steps"]
+    build = next(s for s in steps if s.get("uses") == QMD_IMAGE_ACTION)
     steps.remove(build)
     steps.insert(
-        steps.index(_find_named_step(mutated, "orm-roundtrip-e2e", "Run preflight probe E2E")),
+        steps.index(
+            _find_named_step(
+                mutated, "qmd-sidecar-e2e", "Run the multi-user shared-bundle sidecar E2E"
+            )
+        ),
         build,
     )
-    assert len(_qmd_deploy_problems(mutated)) == 3
+    assert len(_qmd_deploy_problems(mutated)) == 2
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_unlisted_caller() -> None:
