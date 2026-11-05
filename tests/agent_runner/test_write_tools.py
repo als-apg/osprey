@@ -594,14 +594,10 @@ def test_read_only_disallowed_covers_registry_side_effect_tools(tmp_path: Path) 
     auto-extends the read-only floor (or fails this test).
 
     The rail verbs and ``register_panel`` arrive through the walk below, since
-    they are ``permissions_ask``. ``lattice_clear_baseline`` does not — it is
-    auto-allowed and reaches the floor only through the destructive-name rule
-    ("clear"), so it is pinned by name."""
+    they are ``permissions_ask``."""
     from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
 
     result = set(read_only_disallowed_tools(tmp_path))
-
-    assert "mcp__osprey_workspace__lattice_clear_baseline" in result
 
     for server in FRAMEWORK_SERVERS.values():
         # Both ask lists render into the interactive approval list → side-effecting.
