@@ -35,6 +35,7 @@ from osprey_connectors_tests._epics_fakes import (
     ca_reading,
     install_fake_aioca,
 )
+from tests._facility_file import demo_facility_document
 from tests._simulator_view import write_scenarios_view
 from tests.services.test_archiver_recorder import _FakeWriter, _settings, _write_config
 
@@ -69,7 +70,6 @@ MODE_CHANGE = {
 @pytest.fixture(scope="module")
 def view_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The example facility's simulator view, as a build writes it, plus one mode scenario."""
-    from osprey.facility.build import build_facility
     from osprey.facility.records import FacilityRecords
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
@@ -77,7 +77,7 @@ def view_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     root = tmp_path_factory.mktemp("project")
     view = root / "data" / "simulator"
-    records = FacilityRecords(build_facility(TEMPLATE_FACILITY, project_name="example"))
+    records = FacilityRecords(demo_facility_document())
     write_simulator_view(
         view,
         ViewInputs(

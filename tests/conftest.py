@@ -52,6 +52,7 @@ from tests import _canopy_contract, _scoped_temp
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant,
+    built_control_assistant_watchdog_on,
     offline_build_env,
 )
 

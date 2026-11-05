@@ -33,6 +33,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 import yaml
 
+from tests._facility_file import demo_facility_document
+
 pytest.importorskip("aioca", reason="the EPICS connector's Channel Access client")
 pytest.importorskip("epicscorelibs.ioc", reason="serves the soft IOC")
 
@@ -314,7 +316,6 @@ def test_scripts_leave_nothing_behind(quickstart_ioc, tmp_path):
 @pytest.fixture(scope="module")
 def simulator_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A project holding the example facility's built simulator view and its config."""
-    from osprey.facility.build import build_facility
     from osprey.facility.records import FacilityRecords
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
@@ -323,7 +324,7 @@ def simulator_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     config = {"control_system": {"type": "virtual_accelerator"}}
     root = tmp_path_factory.mktemp("project")
-    records = FacilityRecords(build_facility(TEMPLATE_FACILITY, project_name="example"))
+    records = FacilityRecords(demo_facility_document())
     write_simulator_view(
         root / "data" / "simulator",
         ViewInputs(
