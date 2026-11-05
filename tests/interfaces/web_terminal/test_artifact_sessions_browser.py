@@ -648,6 +648,34 @@ def _re(pattern: str):
     return re.compile(pattern)
 
 
+# --- each session keeps its own layout ----------------------------------------------
+
+
+def test_a_panel_closed_in_one_session_is_back_on_returning_to_another(hub, page):
+    a, b = _PROFILE.transcript_id, _RF_AFTER_CLEAR.transcript_id
+    tile = page.locator(_ARTIFACTS_TILE_CLOSE)
+    _boot(page, hub)
+    _session(page, a).locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute("data-session-id", a, timeout=_TIMEOUT_MS)
+    expect(tile).to_have_count(1, timeout=_TIMEOUT_MS)
+    page.wait_for_timeout(1000)  # the session's layout is written debounced
+
+    # B starts from the layout on screen; closing the panel there is B's alone.
+    _session(page, b).locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute("data-session-id", b, timeout=_TIMEOUT_MS)
+    tile.click()
+    expect(tile).to_have_count(0, timeout=_TIMEOUT_MS)
+    page.wait_for_timeout(1000)
+
+    _session(page, a).locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute("data-session-id", a, timeout=_TIMEOUT_MS)
+    expect(tile).to_have_count(1, timeout=_TIMEOUT_MS)
+
+    _session(page, b).locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute("data-session-id", b, timeout=_TIMEOUT_MS)
+    expect(tile).to_have_count(0, timeout=_TIMEOUT_MS)
+
+
 # --- names, the switcher and More sessions ------------------------------------------
 
 

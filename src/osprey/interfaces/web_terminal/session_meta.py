@@ -9,14 +9,15 @@ sidebar is a transcript, not a key::
     {
       "sessions": {transcript_id: {"title", "title_source": "user"|"auto",
                                    "auto_title", "naming": "done"|"failed",
-                                   "last_artifact_id", "deleted"}},
+                                   "last_artifact_id", "layout", "deleted"}},
       "last_active": {"session_key", "at"},
       "naming_since": ISO time of the document's first creation
     }
 
 ``title`` is what the sidebar shows: the operator's own title when they set one,
 else the auto title. Clearing a user title (``set_title(tid, "")``) reverts to the
-auto title rather than to nothing. ``naming_since`` bounds auto-naming to sessions
+auto title rather than to nothing. ``layout`` is the web layout the session was
+last left in (see :func:`clean_layout`). ``naming_since`` bounds auto-naming to sessions
 that began after the feature existed, so turning it on does not spend a model call
 per historical conversation. ``deleted`` (an ISO time) is a deleted session's
 tombstone: the agent record keeps its rows, so the listing, the namer, ``enter``,
@@ -57,12 +58,15 @@ from osprey_connectors.identity import acting_identity
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "LAYOUT_MAX_BYTES",
+    "LayoutTooLarge",
     "SESSION_DELETED_FRAME",
     "SESSION_TRANSCRIPT_FRAME",
     "STORE_FILENAME",
     "backfill_ledger",
     "backfill_rows",
     "check_identity",
+    "clean_layout",
     "deleted_ids",
     "get",
     "get_last_active",
@@ -74,6 +78,7 @@ __all__ = [
     "set_auto_title",
     "set_last_active",
     "set_last_artifact",
+    "set_layout",
     "set_title",
     "store_path",
 ]
@@ -89,6 +94,16 @@ SESSION_DELETED_FRAME = "session_deleted"
 
 _TITLE_SOURCES = ("user", "auto")
 _NAMING_STATES = ("done", "failed")
+
+#: The largest session layout kept, in bytes of its compact JSON.
+LAYOUT_MAX_BYTES = 64 * 1024
+
+#: The stored-dock version a session layout carries (dock-workspace.js's STORE_VERSION).
+_LAYOUT_VERSION = 2
+
+
+class LayoutTooLarge(ValueError):
+    """A session layout over :data:`LAYOUT_MAX_BYTES`."""
 
 
 def _now() -> str:
@@ -147,6 +162,55 @@ def _str_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _root_relative(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and value.startswith("/")
+        and not value.startswith("//")
+        and "\\" not in value
+    )
+
+
+def clean_layout(raw: Any) -> dict[str, Any]:
+    """A session layout as stored: the page's stored dock plus each panel's page.
+
+    The shape is dock-workspace.js's stored dock, ``{version: 2, layout, panels}``,
+    with ``pages`` beside it: panel id to the root-relative address the panel was
+    on. The dock tree is the page's to repair, so only its container is checked
+    here. Unknown top-level fields are dropped.
+
+    Raises:
+        LayoutTooLarge: the cleaned layout is over :data:`LAYOUT_MAX_BYTES`.
+        ValueError: anything else that is not a session layout.
+    """
+    if not isinstance(raw, dict) or raw.get("version") != _LAYOUT_VERSION:
+        raise ValueError(f"a session layout is an object with version {_LAYOUT_VERSION}")
+    dock = raw.get("layout")
+    if dock is not None and not isinstance(dock, dict):
+        raise ValueError("layout must be an object or null")
+    panels = raw.get("panels", {})
+    if not isinstance(panels, dict) or not all(
+        isinstance(k, str) and k and isinstance(v, dict) for k, v in panels.items()
+    ):
+        raise ValueError("panels must map panel ids to records")
+    pages = raw.get("pages", {})
+    if not isinstance(pages, dict) or not all(
+        isinstance(k, str) and k and _root_relative(v) for k, v in pages.items()
+    ):
+        raise ValueError("pages must map panel ids to root-relative addresses")
+    cleaned = {"version": _LAYOUT_VERSION, "layout": dock, "panels": panels, "pages": pages}
+    if len(json.dumps(cleaned, separators=(",", ":"))) > LAYOUT_MAX_BYTES:
+        raise LayoutTooLarge(f"a session layout is at most {LAYOUT_MAX_BYTES} bytes")
+    return cleaned
+
+
+def _layout_or_none(raw: Any) -> dict[str, Any] | None:
+    try:
+        return None if raw is None else clean_layout(raw)
+    except ValueError:
+        return None
+
+
 def _clean_session(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -158,6 +222,7 @@ def _clean_session(raw: Any) -> dict[str, Any] | None:
         "auto_title": _str_or_none(raw.get("auto_title")),
         "naming": naming if naming in _NAMING_STATES else None,
         "last_artifact_id": _str_or_none(raw.get("last_artifact_id")),
+        "layout": _layout_or_none(raw.get("layout")),
         "deleted": _str_or_none(raw.get("deleted")),
     }
 
@@ -169,6 +234,7 @@ def _blank() -> dict[str, Any]:
         "auto_title": None,
         "naming": None,
         "last_artifact_id": None,
+        "layout": None,
         "deleted": None,
     }
 
@@ -262,7 +328,7 @@ def deleted_ids(app) -> set[str]:
 
 
 def mark_deleted(app, tid: str) -> dict[str, Any]:
-    """Replace *tid*'s record with a tombstone: no title, no last artifact, ``deleted`` now."""
+    """Replace *tid*'s record with a tombstone: no title, artifact or layout, ``deleted`` now."""
     document = _document(app)
     document["sessions"][tid] = {**_blank(), "deleted": _now()}
     _persist(app, document)
@@ -310,6 +376,21 @@ def set_last_artifact(app, tid: str, aid: str) -> dict[str, Any]:
     entry = _entry(document, tid)
     if entry["last_artifact_id"] != aid:
         entry["last_artifact_id"] = _str_or_none(aid)
+        _persist(app, document)
+    return dict(entry)
+
+
+def set_layout(app, tid: str, layout: Any) -> dict[str, Any]:
+    """Record the web layout *tid* was last left in; ``None`` forgets it.
+
+    Raises:
+        ValueError: *layout* is not a session layout (see :func:`clean_layout`).
+    """
+    cleaned = None if layout is None else clean_layout(layout)
+    document = _document(app)
+    entry = _entry(document, tid)
+    if entry["layout"] != cleaned:
+        entry["layout"] = cleaned
         _persist(app, document)
     return dict(entry)
 

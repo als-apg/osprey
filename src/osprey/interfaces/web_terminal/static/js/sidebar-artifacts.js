@@ -20,7 +20,8 @@
  * CLICKS. A click on another session's name switches to it (`switchTo`,
  * reopening the Agent pane first), collapses the other sessions, and reveals
  * the session's pick: fetched by id, inserted into its group (its run opened),
- * scrolled to and shown through the open rule. A click on the name of the
+ * scrolled to and shown, the panels left to the session's own layout
+ * (session-layout.js). A click on the name of the
  * session in use folds or unfolds it. A disclosure (▸) browses additively. An
  * artifact click shows it without changing the session, focusing an already
  * docked Artifacts panel in place, and records it as its owner's last-open
@@ -572,12 +573,14 @@ export function revealOnLoad() {
  * Reveal an artifact of a session: fetch it, put it into its group (its run
  * opened), scroll to it and show it. On page load (`onLoad`) the open rule is
  * not called, and without a docked Artifacts panel the artifact is only
- * highlighted, the layout left as it is.
+ * highlighted, the layout left as it is. `keepLayout` skips the open rule
+ * too: after a switch the panels are the session's layout's to decide.
  * @param {string} treeId
  * @param {string | null} id  the pick, or null for the session's newest
  * @param {boolean} [onLoad]
+ * @param {boolean} [keepLayout]
  */
-async function reveal(treeId, id, onLoad = false) {
+async function reveal(treeId, id, onLoad = false, keepLayout = false) {
   if (!served) return;
   state.openSessions.add(treeId);
   let entry = id ? (held(id) ?? (await store.fetchArtifact(id))) : null;
@@ -597,7 +600,7 @@ async function reveal(treeId, id, onLoad = false) {
   else if (!model.pick()) model.setPick(entry.id);
   render();
   scrollToShown(state.highlightId ?? state.shownId);
-  if (!onLoad) showArtifactsPanel();
+  if (!onLoad && !keepLayout) showArtifactsPanel();
 }
 
 // ---- Input ----
@@ -658,7 +661,9 @@ function flip(set, key) {
 /**
  * Open a session in the Agent (another session's name, the session menu's
  * "Open in Agent"): switch to it (the Agent pane reopened first), keep only it
- * open, and reveal its pick.
+ * open, and reveal its pick. After a switch the session's own layout says
+ * whether the Artifacts panel is open (session-layout.js); on the session in
+ * use the panel is brought up.
  * @param {string} treeId
  */
 export async function openInAgent(treeId) {
@@ -671,7 +676,7 @@ export async function openInAgent(treeId) {
   const now = activeTreeId() ?? treeId;
   state.openSessions = new Set([now]);
   render();
-  await reveal(now, model.pick() ?? row.last_artifact_id ?? null);
+  await reveal(now, model.pick() ?? row.last_artifact_id ?? null, false, !wasActive);
 }
 
 /**

@@ -441,6 +441,75 @@ class TestEndpoints:
         assert len(session_ledger.load(session_meta.ledger_state_dir())) == rows_before
 
 
+# --- a session's layout ----------------------------------------------------------------
+
+LAYOUT = {
+    "version": 2,
+    "layout": {"root": {"kind": "tile", "id": "t1", "keys": ["terminal"]}},
+    "panels": {"knowledge": {"title": "Knowledge"}},
+    "pages": {"knowledge": "/panel/knowledge/page/beam"},
+}
+
+
+class TestLayout:
+    def test_put_then_get_round_trips_and_the_listing_stays_lean(self, client, record):
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        assert client.get(f"/api/sessions/{T1}/layout").json() == {
+            "transcript_id": T1,
+            "layout": None,
+        }
+        resp = client.put(f"/api/sessions/{T1}/layout", json={"layout": LAYOUT})
+        assert resp.status_code == 200 and resp.json() == {"transcript_id": T1, "saved": True}
+        assert client.get(f"/api/sessions/{T1}/layout").json()["layout"] == LAYOUT
+        record.answers["list_sessions"] = _answer([_row(T1, 10)])
+        assert "layout" not in client.get("/api/sessions").json()["sessions"][0]
+
+    def test_unknown_fields_are_dropped(self, client):
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        body = {"layout": {**LAYOUT, "sidebar_width": 320}}
+        assert client.put(f"/api/sessions/{T1}/layout", json=body).status_code == 200
+        assert "sidebar_width" not in client.get(f"/api/sessions/{T1}/layout").json()["layout"]
+
+    def test_null_forgets_it(self, client):
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        client.put(f"/api/sessions/{T1}/layout", json={"layout": LAYOUT})
+        resp = client.put(f"/api/sessions/{T1}/layout", json={"layout": None})
+        assert resp.json()["saved"] is False
+        assert client.get(f"/api/sessions/{T1}/layout").json()["layout"] is None
+
+    def test_a_malformed_layout_is_422(self, client):
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        for bad in [{"version": 1}, {**LAYOUT, "pages": {"knowledge": "//evil.example/"}}]:
+            resp = client.put(f"/api/sessions/{T1}/layout", json={"layout": bad})
+            assert resp.status_code == 422, resp.text
+
+    def test_a_layout_over_the_cap_is_413(self, client):
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        big = {**LAYOUT, "panels": {"x": {"params": "a" * session_meta.LAYOUT_MAX_BYTES}}}
+        assert client.put(f"/api/sessions/{T1}/layout", json={"layout": big}).status_code == 413
+        assert client.get(f"/api/sessions/{T1}/layout").json()["layout"] is None
+
+    def test_a_session_that_is_not_mine_is_404(self, client):
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        assert client.get(f"/api/sessions/{OTHER}/layout").status_code == 404
+        resp = client.put(f"/api/sessions/{OTHER}/layout", json={"layout": LAYOUT})
+        assert resp.status_code == 404
+        assert session_meta.get(client.app, OTHER)["layout"] is None
+
+    def test_a_deleted_session_is_404_and_its_layout_is_gone(self, client):
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        client.put(f"/api/sessions/{T1}/layout", json={"layout": LAYOUT})
+        session_meta.mark_deleted(client.app, T1)
+        assert client.get(f"/api/sessions/{T1}/layout").status_code == 404
+        assert client.put(f"/api/sessions/{T1}/layout", json={"layout": LAYOUT}).status_code == 404
+        assert session_meta.get(client.app, T1)["layout"] is None
+
+    def test_a_non_uuid_id_is_422(self, client):
+        assert client.get("/api/sessions/not-a-uuid/layout").status_code == 422
+        resp = client.put("/api/sessions/not-a-uuid/layout", json={"layout": LAYOUT})
+        assert resp.status_code == 422
+
+
 # --- deleting a session ----------------------------------------------------------------
 
 

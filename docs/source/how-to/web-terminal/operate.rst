@@ -555,9 +555,11 @@ parts. A run that was never run
 opens on its proposed code. **Earlier** holds your artifacts that have no
 session; **More sessions** loads older ones.
 
-- Click a session name to switch to it: the Agent pane opens on it and shows
-  the artifact last open there (its newest if none). Click the current
-  session's name to fold or unfold it. ▸ only browses.
+- Click a session name to switch to it: its layout comes back as you left it
+  (panels, tiles, sizes, the Agent pane, and each panel's page where the hub
+  can read it), with the artifact last open there (its newest if none). A new
+  or older session keeps the layout on screen. The sidebar stays as it is.
+  Click the current session's name to fold or unfold it. ▸ only browses.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
@@ -569,9 +571,9 @@ artifacts by day or by kind, or delete a past session with its artifacts;
 a run to open its result, approval preview or code; an artifact to pin it.
 Runs and artifacts also have **Delete…**.
 
-A reload, a new tab or another device resumes your last session. Its
-last-open artifact is shown in the Artifacts panel if that panel is docked,
-otherwise highlighted in the tree; the layout does not change. The command
+A reload, a new tab or another device resumes your last session and its
+layout. Its last-open artifact is shown in the Artifacts panel if that panel
+is docked, otherwise highlighted in the tree. The command
 palette finds your sessions and artifacts (by name, kind, or session name);
 opening a result enters its session. The Artifacts panel has no sidebar row;
 open it from the palette.

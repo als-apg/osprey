@@ -68,6 +68,8 @@ const {
     // so a test that does not model a restore lands at the first health settle.
     bootSettled: true,
     restored: /** @type {(() => void) | null} */ (null),
+    // Whether the apply being replayed is a session's own layout (applyDock).
+    sessionApply: false,
   },
   getDockApi: vi.fn(() => /** @type {any} */ (null)),
   openTerminalPanel: vi.fn(),
@@ -91,6 +93,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
     dockState.redock = fn;
   },
   bootLayoutSettled: () => dockState.bootSettled,
+  applyingSessionLayout: () => dockState.sessionApply,
   setLayoutRestoredHook: (/** @type {() => void} */ fn) => {
     dockState.restored = fn;
     if (dockState.bootSettled) fn();
@@ -288,6 +291,7 @@ beforeEach(() => {
   dockState.api = null;
   dockState.bootSettled = true;
   dockState.restored = null;
+  dockState.sessionApply = false;
   // The pop-out seam (popout.js) rolls call on a BroadcastChannel at boot,
   // which the test environment does not provide. Unstubbed with the rest.
   vi.stubGlobal(
@@ -1793,6 +1797,19 @@ describe('a whole-layout apply (a reset) keeps the panel the operator was on', (
 
     expect(tileTabs(holder)).toEqual([['okf'], ['terminal']]);
     expect(activeStamp()).toBe('okf');
+  });
+
+  test("a session's own layout with no service tile is left empty", async () => {
+    const { api, holder } = await bootWorkspace();
+    expect(activeStamp()).toBe('okf');
+
+    dockState.sessionApply = true;
+    await reset();
+    dockState.sessionApply = false;
+
+    expect(tileTabs(holder)).toEqual([['terminal']]);
+    expect(dockedTiles(api)).toEqual([]);
+    expect(activeStamp()).toBeNull();
   });
 });
 
@@ -4025,6 +4042,49 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     await settled(() => expect(new URL(el.src).pathname).toBe('/panel/artifacts/item/7'));
     expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
     expect(capCalls).toEqual([]);
+  });
+
+  test("a session's panel page: read from the frame inside its mount, and brought back", async () => {
+    await bootOne({ enabled: ['artifacts'], visible: ['artifacts'] });
+    await settled(() => expect(frame('artifacts')).not.toBeNull());
+    const life =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js');
+    const el = /** @type {HTMLIFrameElement} */ (frame('artifacts'));
+    /** @param {() => string} href */
+    const showing = (href) =>
+      Object.defineProperty(el, 'contentWindow', {
+        configurable: true,
+        get: () => ({
+          location: {
+            get href() {
+              return href();
+            },
+          },
+          postMessage() {},
+        }),
+      });
+    const origin = window.location.origin;
+
+    showing(() => `${origin}/panel/artifacts/item/7?q=1&embedded=true&theme=dark#top`);
+    expect(life.getPanelPage('artifacts')).toBe('/panel/artifacts/item/7?q=1#top');
+    showing(() => `${origin}/panel/ariel/`);
+    expect(life.getPanelPage('artifacts')).toBeNull();
+    showing(() => 'http://elsewhere.example/panel/artifacts/');
+    expect(life.getPanelPage('artifacts')).toBeNull();
+    showing(() => {
+      throw new DOMException('Blocked a frame', 'SecurityError');
+    });
+    expect(life.getPanelPage('artifacts')).toBeNull();
+
+    // Already there: nothing moves. Another page in the mount: the frame goes there.
+    showing(() => `${origin}/panel/artifacts/item/7?embedded=true`);
+    const before = el.src;
+    life.restorePanelPage('artifacts', '/panel/artifacts/item/7');
+    expect(el.src).toBe(before);
+    life.restorePanelPage('artifacts', '/panel/ariel/');
+    expect(el.src).toBe(before);
+    life.restorePanelPage('artifacts', '/panel/artifacts/item/9');
+    await settled(() => expect(new URL(el.src).pathname).toBe('/panel/artifacts/item/9'));
   });
 
   test('a recovered opaque panel loads its held address through a fresh cap', async () => {

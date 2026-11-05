@@ -396,6 +396,48 @@ async def put_last_artifact(request: Request, transcript_id: str, body: _LastArt
     return {"transcript_id": tid, **entry}
 
 
+def _is_mine(app, tid: str) -> bool:
+    """Whether *tid* is one of this operator's sessions and not deleted."""
+    if tid in session_meta.deleted_ids(app):
+        return False
+    ledger = session_ledger.load(session_meta.ledger_state_dir())
+    return _owned(app, tid, ledger, _sessions_dir(app))
+
+
+@router.get("/api/sessions/{transcript_id}/layout")
+async def get_layout(request: Request, transcript_id: str):
+    """The web layout the session was last left in, or ``null``; 404 for a session not mine."""
+    tid = _uuid_id(transcript_id, "transcript_id")
+    if not await asyncio.to_thread(_is_mine, request.app, tid):
+        raise HTTPException(status_code=404, detail="No such session.")
+    meta = await asyncio.to_thread(session_meta.get, request.app, tid)
+    return {"transcript_id": tid, "layout": meta["layout"]}
+
+
+class _LayoutBody(BaseModel):
+    layout: dict[str, Any] | None = None
+
+
+@router.put("/api/sessions/{transcript_id}/layout")
+async def put_layout(request: Request, transcript_id: str, body: _LayoutBody):
+    """Keep the web layout the session is in; ``null`` forgets it.
+
+    404 for a session not mine (or deleted), 413 over the size cap, 422 for
+    anything that is not a session layout.
+    """
+    tid = _uuid_id(transcript_id, "transcript_id")
+    app = request.app
+    if not await asyncio.to_thread(_is_mine, app, tid):
+        raise HTTPException(status_code=404, detail="No such session.")
+    try:
+        await asyncio.to_thread(session_meta.set_layout, app, tid, body.layout)
+    except session_meta.LayoutTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"transcript_id": tid, "saved": body.layout is not None}
+
+
 def _enter(app, transcript_id: str) -> str:
     key = str(uuid.uuid4())
     transcript_map.set(app, key, transcript_id)
