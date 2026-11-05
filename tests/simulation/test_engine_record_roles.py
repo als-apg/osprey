@@ -11,6 +11,7 @@ import pytest
 import osprey
 from osprey.facility import wiring
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey_connectors.simulation import view as view_module
 from osprey_connectors.simulation.view import COMMAND_MARK, REFRESH, ROLES, Binding
@@ -75,7 +76,7 @@ def test_the_view_copies_the_marks_from_the_built_record() -> None:
         "channels": [{"id": "M:CMD"}],
         "models": [{**MODEL, "wiring": [{**record, "marks": ["command"]}]}],
     }
-    (entry,) = simulator_wiring(facility, "M")
+    (entry,) = simulator_wiring(FacilityRecords(facility), "M")
     assert entry["marks"] == ["command"]
 
 
