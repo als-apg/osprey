@@ -4,10 +4,11 @@
 How to Use the Channel Finder
 ==============================
 
-The Channel Finder translates natural language queries (e.g., "beam current,"
-"terminal voltage") into control system addresses (e.g., ``SR:DCCT:Current``,
-``TMVST``). It uses LLM-based pipelines, so a query can use everyday terms
-rather than exact channel names.
+The Channel Finder translates natural language queries, such as "beam current"
+or "RF cavity voltage", into control system addresses, such as
+``SR:DIAG:DCCT:01:CURRENT:RB`` or ``SR:RF:CAVITY:01:VOLTAGE:RB`` in the
+control-assistant preset. It uses LLM-based pipelines, so a query can use
+everyday terms rather than exact channel names.
 
 .. seealso::
 
@@ -62,7 +63,7 @@ explicitly.
 | **Graph**                 | Machines described in a knowledge graph      |
 +---------------------------+----------------------------------------------+
 
-The three are not size tiers of one design. Each takes a differently shaped
+The four are not size tiers of one design. Each takes a differently shaped
 database and resolves a query by a different mechanism:
 
 .. raw:: html
@@ -118,7 +119,7 @@ Validate and preview:
 Middle Layer Pipeline
 =====================
 
-A React agent explores the database using query tools
+A ReAct (reason and act) agent explores the database using query tools
 (``list_systems``, ``list_families``, ``inspect_fields``,
 ``list_channels``, ``get_common_names``, ``statistics``, ``validate``, and —
 when DuckDB is installed — ``run_sql``). What ``run_sql`` hands back is bounded
