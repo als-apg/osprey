@@ -37,6 +37,8 @@ The tree
      fixes.yaml                corrections to records another source states
      imported/<layer>/         records an importer wrote
      knowledge/                the facility knowledge pages
+     ariel/vocabulary.yml      the logbook shorthand ARIEL expands
+     benchmarks/               the channel-finder benchmark queries
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
