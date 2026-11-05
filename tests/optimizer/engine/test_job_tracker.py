@@ -671,7 +671,10 @@ class TestJobLifecycle:
     def test_job_type_creates_matching_writer(self, job_type: JobType, expected_cls: type):
         lc = JobLifecycle("job-w", job_type=job_type)
         lc.__enter__()
-        assert isinstance(lc.writer, expected_cls)
+        try:
+            assert isinstance(lc.writer, expected_cls)
+        finally:
+            lc._heartbeat.stop(timeout=1)
 
 
 def _launched(job_id: str) -> str:

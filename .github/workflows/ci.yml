@@ -1545,15 +1545,12 @@ jobs:
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
-          tests/interfaces/lattice_dashboard/test_retheme_browser.py \
-          tests/interfaces/lattice_dashboard/test_settings_form.py \
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
           tests/interfaces/ariel/test_shell.py \
           tests/interfaces/history/test_history_page_browser.py \
           tests/interfaces/test_browser_helper.py \
-          tests/interfaces/test_lattice_dashboard_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
     - name: Install the pinned Claude Code CLI

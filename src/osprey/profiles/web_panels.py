@@ -57,7 +57,6 @@ BUILTIN_PANEL_LABELS: dict[str, str] = {
     "artifacts": "Artifacts",
     "ariel": "LOGBOOK",
     "channel-finder": "CHANNELS",
-    "lattice": "LATTICE",
     "okf": "KNOWLEDGE",
     "system-health": "SYSTEM",
 } | {panel_id: panel.label or panel_id.upper() for panel_id, panel in SIDECAR_PANELS.items()}

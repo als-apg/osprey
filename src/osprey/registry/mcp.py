@@ -456,26 +456,6 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             "session_summary",
             "archiver_downsample",
             "setup_inspect",
-            "lattice_state",
-            "lattice_set_param",
-            "lattice_refresh",
-            "lattice_get_data",
-            "lattice_get_figure",
-            "lattice_get_settings",
-            "lattice_update_settings",
-            # Baseline and settings are the simulation's own scratch state:
-            # nothing here reaches hardware. lattice_set_baseline sets a fresh
-            # baseline, so lattice_clear_baseline is undone by it; the
-            # dashboard's model switch also re-initialises the state;
-            # settings are carried across a re-init instead, so a settings
-            # change stands until it is set back. Neither is worth a prompt.
-            # lattice_clear_baseline is nonetheless auto-classified
-            # side-effecting by the registry classifier (it matches the
-            # "clear" destructive marker) and blocked under the headless
-            # read-only floor regardless of this allow-listing — expected
-            # posture; do not rename the tool to dodge it.
-            "lattice_set_baseline",
-            "lattice_clear_baseline",
             "list_panels",
             # The on-screen axis: the dock ops. Each is reversible by the
             # operator in a click or a drag (a closed panel is one rail click

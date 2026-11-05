@@ -154,14 +154,6 @@ async def channel_finder_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
-@router.get("/api/lattice-server")
-async def lattice_server_config(request: Request):
-    """Return the lattice dashboard server URL for iframe embedding."""
-    url = getattr(request.app.state, "lattice_dashboard_server_url", None)
-    proxy_url = f"{compute_url_prefix()}/panel/lattice" if url else None
-    return {"url": proxy_url, "available": proxy_url is not None}
-
-
 def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
     """The config body of a sidecar panel: its proxy URL and its start outcome.
 

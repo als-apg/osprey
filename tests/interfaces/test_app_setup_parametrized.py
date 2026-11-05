@@ -2,8 +2,8 @@
 
 Every OSPREY app that delegates its middleware + static-mount wiring to
 :func:`osprey.interfaces._app_setup.configure_interface_app` is built here —
-all ten: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
-``lattice_dashboard``, ``health``, ``okf_panel``, ``bluesky_web`` (which
+all nine: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
+``health``, ``okf_panel``, ``bluesky_web`` (which
 assembles its app at module scope rather than via a ``create_app()`` factory),
 ``theme_lab`` (whose factory lives in ``osprey.cli.theme_lab_cmd``, not
 under ``osprey/interfaces/``) and ``history`` (``osprey.history.app``). This module builds each real app and asserts the
@@ -18,7 +18,7 @@ shared invariants hold uniformly:
    two ends of the shared block:
    :class:`WebAuthMiddleware` outermost of everything,
    :class:`HttpAuditMiddleware` inside every other layer
-   ``configure_interface_app`` installs. Pinned here, on the ten real apps,
+   ``configure_interface_app`` installs. Pinned here, on the nine real apps,
    and not only on a synthetic one — "this lands in every interface app" is
    the audit layer's own spec, and an interface that grew its own middleware
    around the shared block would break it silently.
@@ -91,14 +91,6 @@ def _build_channel_finder(tmp_path: Path) -> FastAPI:
     return create_app(project_cwd=str(tmp_path))
 
 
-def _build_lattice_dashboard(tmp_path: Path) -> FastAPI:
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    # workspace_root is optional; supply tmp_path so the lattice state dir is
-    # created under an isolated, writable location.
-    return create_app(workspace_root=tmp_path)
-
-
 def _build_health(_tmp_path: Path) -> FastAPI:
     from osprey.interfaces.health.app import create_app
 
@@ -147,7 +139,6 @@ INTERFACE_BUILDERS = [
     ("artifacts", _build_artifacts),
     ("ariel", _build_ariel),
     ("channel_finder", _build_channel_finder),
-    ("lattice_dashboard", _build_lattice_dashboard),
     ("health", _build_health),
     ("okf_panel", _build_okf_panel),
     ("bluesky_web", _build_bluesky_web),

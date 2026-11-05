@@ -87,7 +87,7 @@ async def list_panels() -> str:
     ``layout_age_s`` counts seconds since the arrangement last *changed*.
 
     Covers the enabled built-in panels (e.g. artifacts, ariel, channel-finder,
-    lattice, okf, events) and any custom panels defined in config.yml.  Panel
+    okf, events) and any custom panels defined in config.yml.  Panel
     IDs vary between deployments — do not guess them.
 
     To honor a request like "set up for machine setup", look up the named
@@ -209,7 +209,7 @@ async def add_panel_to_rail(panel_id: str) -> str:
     panel IDs — they vary between deployments.
 
     Args:
-        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'lattice').
+        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'okf').
 
     Returns:
         JSON with status confirmation and the panel's new ``on_rail`` state.
@@ -232,7 +232,7 @@ async def remove_panel_from_rail(panel_id: str) -> str:
     panel IDs — they vary between deployments.
 
     Args:
-        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'lattice').
+        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'okf').
 
     Returns:
         JSON with status confirmation and the panel's new ``on_rail`` state.
@@ -525,7 +525,7 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
 
     The "look at this" verb: use it when the user asks to open or go to a panel,
     and after producing something they should see (a new artifact, a drafted
-    plan, a lattice view).
+    plan, a channel search).
 
     A tile shows one panel, so an open replaces what a tile shows:
 
@@ -551,7 +551,7 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
 
     Args:
         panel_id: Panel identifier returned by list_panels (e.g.
-            'artifacts', 'events', 'ariel', 'lattice', etc.).
+            'artifacts', 'events', 'ariel', 'okf', etc.).
         url: Optional URL to navigate the panel iframe to as it opens: a
             path under the panel's own mount (``/panel/ariel/#/draft/7``) or
             an ``http(s)://`` URL on the panel's own server, which opens
@@ -664,7 +664,7 @@ async def close_panel(panel_id: str) -> str:
     pop-out window is refused ``popped_out``: the operator closes that window.
 
     Args:
-        panel_id: The panel's id (e.g. 'artifacts', 'ariel', 'lattice').
+        panel_id: The panel's id (e.g. 'artifacts', 'ariel', 'okf').
 
     Returns:
         JSON with ``status``, ``panel``, the resulting ``layout`` and its
@@ -706,7 +706,7 @@ async def arrange_workspace(
     """Lay out the service panels: a configured preset, or an exact layout.
 
     Use this when the user describes an arrangement rather than a single panel
-    — "put lattice next to artifacts", "ariel above the logbook", "set up for
+    — "put okf next to artifacts", "ariel above the logbook", "set up for
     injection".  For one panel use ``open_panel``; for a small move (one panel
     beside a tile) use ``drop_panel``.
 
@@ -718,7 +718,7 @@ async def arrange_workspace(
       the rail then holds exactly the preset's panels.
     - ``layout`` — an exact arrangement: a tree whose tiles each list one
       panel id, e.g. ``{"split": "row", "items": [{"tabs": ["ariel"]},
-      {"tabs": ["lattice"]}, {"tabs": ["artifacts"], "size": 2}]}`` (no tile
+      {"tabs": ["okf"]}, {"tabs": ["artifacts"], "size": 2}]}`` (no tile
       ids; ``size`` is a relative weight).  A tile listing several panels is
       refused ``one_panel_per_tile``.  Listed panels that are not on the rail
       join it.

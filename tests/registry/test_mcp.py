@@ -340,35 +340,20 @@ class TestResolveServers:
         assert {f"mcp__osprey_workspace__{tool}" for tool in gated} <= matchers
 
     def test_workspace_read_back_tools_are_auto_approved(self):
-        """The artifact and lattice read-backs resolve to silent-allow.
+        """The artifact read-backs resolve to silent-allow.
 
-        ``artifact_pin`` and the five lattice verbs below were unclassified —
-        in neither list — so nothing pinned which side of the split they land
-        on, and the disjointness assertion above stays green either way. They
-        are named here because each is either a read of state the agent just
-        produced or a write to the simulation's own scratch state:
-        ``lattice_set_baseline`` sets a fresh baseline, so
-        ``lattice_clear_baseline`` is undone by it; the dashboard's model switch
-        also re-initialises the state. None of it reaches hardware, so a prompt
-        per call would buy nothing.
-
-        ``lattice_clear_baseline`` is allow-listed here and still blocked under
-        the headless read-only floor, which classifies it side-effecting from
-        its name — that is the intended posture, not a contradiction.
+        ``artifact_pin`` was unclassified — in neither list — so nothing pinned
+        which side of the split it lands on, and the disjointness assertion
+        above stays green either way. It reads back state the agent just
+        produced and reaches no hardware, so a prompt per call would buy
+        nothing.
         """
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
         allow = set(workspace["permissions_allow"])
         ask = set(workspace["permissions_ask"])
-        read_back = {
-            "artifact_pin",
-            "lattice_get_data",
-            "lattice_get_figure",
-            "lattice_get_settings",
-            "lattice_update_settings",
-            "lattice_clear_baseline",
-        }
+        read_back = {"artifact_pin"}
         assert read_back <= allow
         assert ask.isdisjoint(read_back)
 

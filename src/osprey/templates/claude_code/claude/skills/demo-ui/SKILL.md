@@ -97,7 +97,7 @@ before. Demos get run twice in a row, and often on someone's real working
 session — a demo that rearranges an operator's layout and walks away is a demo
 they won't let you run again.
 
-**Adapt to the deployment.** Panel IDs vary — `lattice` or `okf` may not exist here.
+**Adapt to the deployment.** Panel IDs vary — `okf` or `bluesky` may not exist here.
 Always read the live inventory first and demo the panels this deployment actually
 has. Never guess an ID; a failed call mid-demo is the one error the audience *will*
 notice.
