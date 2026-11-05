@@ -79,8 +79,30 @@ export function initSidebarDivider(railOrNull) {
       rail.querySelector(':scope > .sidebar-group:has(#sidebar-agent-row)')
     );
 
+  /**
+   * The height the rail can have: the sidebar's content box minus its in-flow
+   * siblings. The rail itself is content-sized, so its own clientHeight moves
+   * when a group folds, and a cap taken from it would re-clamp (and shift) the
+   * Workspace group on every fold. Without a laid-out sidebar, the rail's own.
+   * @returns {number}
+   */
+  const railRoom = () => {
+    const side = rail.parentElement;
+    if (!side || side.clientHeight <= 0) return rail.clientHeight;
+    const cs = window.getComputedStyle(side);
+    let room =
+      side.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    for (const el of Array.from(side.children)) {
+      if (el === rail || !(el instanceof HTMLElement)) continue;
+      const pos = window.getComputedStyle(el).position;
+      if (pos === 'absolute' || pos === 'fixed') continue;
+      room -= el.offsetHeight;
+    }
+    return room;
+  };
+
   /** @returns {number} the tallest the group may be, px */
-  const maxHeight = () => Math.max(MIN_HEIGHT, rail.clientHeight - NEXT_GROUP_ROOM);
+  const maxHeight = () => Math.max(MIN_HEIGHT, railRoom() - NEXT_GROUP_ROOM);
   /** @param {number} px */
   const clamp = (px) => Math.min(maxHeight(), Math.max(MIN_HEIGHT, Math.round(px)));
 
