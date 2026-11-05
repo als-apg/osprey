@@ -18,13 +18,14 @@ child. Contract:
 * A command still running after ``SECONDS`` is stopped as a group by
   ``stop_child``: SIGABRT first, so each Python process prints its stacks and
   the stop names what was holding the run; then, if any process of the group
-  is still running after ``--dump`` seconds (default 5), SIGTERM; then
-  SIGKILL to whatever is left after ``--grace`` seconds (default 15), and a
-  last wait for the group to be gone. Every wait is on the whole group, not
-  only the command's own process, the stop reaps the command, and the
-  wrapper prints the stop's own account on stderr when the group was not
-  proven gone. The wrapper exits 124, the coreutils ``timeout``
-  convention, so a caller can tell a bound from a failure.
+  is still running after ``--dump`` seconds (default :data:`DEFAULT_DUMP_S`),
+  SIGTERM; then SIGKILL to whatever is left after ``--grace`` seconds
+  (default :data:`DEFAULT_GRACE_S`), and a last wait for the group to be
+  gone. Every wait is on the whole group, not only the command's own process,
+  the stop reaps the command, and the wrapper prints the stop's own account on
+  stderr when the group was not proven gone. The wrapper exits 124, the
+  coreutils ``timeout`` convention, so a caller can tell a bound from a
+  failure.
 * SIGINT, SIGTERM and SIGHUP delivered to the wrapper are forwarded to the
   group. After a forwarded SIGINT the wrapper dies of SIGINT itself once the
   command has exited, so a calling shell stops on Ctrl-C as it would without
@@ -54,6 +55,12 @@ from osprey.deployment.subprocess_capture import stop_child
 #: The exit status of a command stopped by its bound.
 TIMEOUT_EXIT = 124
 
+#: Seconds the group gets to write its stacks after SIGABRT before SIGTERM.
+DEFAULT_DUMP_S = 5.0
+
+#: Seconds the group gets to end after SIGTERM before SIGKILL.
+DEFAULT_GRACE_S = 15.0
+
 _FORWARDED = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
@@ -69,8 +76,18 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         prog="run_bounded.py",
         description="Run COMMAND; stop its process group after SECONDS and exit 124.",
     )
-    parser.add_argument("--dump", type=float, default=5.0, help="SIGABRT-to-SIGTERM wait")
-    parser.add_argument("--grace", type=float, default=15.0, help="SIGTERM-to-SIGKILL wait")
+    parser.add_argument(
+        "--dump",
+        type=float,
+        default=DEFAULT_DUMP_S,
+        help=f"SIGABRT-to-SIGTERM wait (default {DEFAULT_DUMP_S:g})",
+    )
+    parser.add_argument(
+        "--grace",
+        type=float,
+        default=DEFAULT_GRACE_S,
+        help=f"SIGTERM-to-SIGKILL wait (default {DEFAULT_GRACE_S:g})",
+    )
     parser.add_argument("seconds", type=_positive_seconds, help="wall-clock bound")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="-- COMMAND [ARG ...]")
     args = parser.parse_args(argv)

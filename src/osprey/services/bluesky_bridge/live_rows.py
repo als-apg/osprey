@@ -18,6 +18,9 @@ Document handling (bluesky's plain-dict document protocol):
   explicit ``key``, when the caller keys buffers by something other than the
   RunEngine's own uid (see :class:`LiveRowRecorder`) — marked partial, and
   stamped with the recorder's opaque ``plan`` value if it was given one.
+- ``descriptor``: each ``data_keys`` entry that declares a non-empty string
+  ``units`` records that unit under its column name. A later descriptor adds
+  units, never clears them; a column whose data key declares none has none.
 - ``event``: each event's ``doc["data"]`` becomes one row; columns are
   discovered incrementally in first-seen order across events. A key seen for
   the first time extends the column list and backfills every already-stored
@@ -115,15 +118,15 @@ def max_rows_per_run() -> int:
 
 _lock = Lock()
 # run_uid -> {"columns": [...], "rows": [[...], ...], "partial": bool,
-#             "total_seen": int, "plan": Any | None}
+#             "total_seen": int, "plan": Any | None, "units": {column: unit}}
 _buffers: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
 
 def get(run_uid: str) -> dict[str, Any] | None:
     """A snapshot of the live buffer for *run_uid* (or None if unknown).
 
-    ``columns`` and ``rows`` are copies, so a caller cannot reach back into the
-    buffer through them. ``plan`` is whatever the recorder was handed and is
+    ``columns``, ``rows`` and ``units`` are copies, so a caller cannot reach
+    back into the buffer through them. ``plan`` is whatever the recorder was handed and is
     returned by reference — this module never inspects or mutates it, and
     neither may a caller.
     """
@@ -137,7 +140,24 @@ def get(run_uid: str) -> dict[str, Any] | None:
             "partial": buf["partial"],
             "total_seen": buf["total_seen"],
             "plan": buf["plan"],
+            "units": dict(buf["units"]),
         }
+
+
+def declared_units(descriptor: Any) -> dict[str, str]:
+    """The units one descriptor document declares, by data key.
+
+    A data key declares a unit when its ``units`` is a non-empty string; any
+    other entry, and any malformed descriptor, declares none.
+    """
+    data_keys = descriptor.get("data_keys") if isinstance(descriptor, dict) else None
+    if not isinstance(data_keys, dict):
+        return {}
+    return {
+        column: key["units"]
+        for column, key in data_keys.items()
+        if isinstance(key, dict) and isinstance(key.get("units"), str) and key["units"]
+    }
 
 
 def _clear() -> None:
@@ -181,6 +201,8 @@ class LiveRowRecorder:
         try:
             if name == "start":
                 self._on_start(doc)
+            elif name == "descriptor":
+                self._on_descriptor(doc)
             elif name == "event":
                 self._on_event(doc)
             elif name == "stop":
@@ -207,10 +229,22 @@ class LiveRowRecorder:
                 "partial": True,
                 "total_seen": 0,
                 "plan": self._plan,
+                "units": {},
             }
             _buffers.move_to_end(uid)
             while len(_buffers) > retained_runs:
                 _buffers.popitem(last=False)
+
+    def _on_descriptor(self, doc: dict[str, Any]) -> None:
+        if not self._uid:
+            return
+        declared = declared_units(doc)
+        if not declared:
+            return
+        with _lock:
+            buf = _buffers.get(self._uid)
+            if buf is not None:
+                buf["units"].update(declared)
 
     def _on_event(self, doc: dict[str, Any]) -> None:
         if not self._uid:

@@ -397,7 +397,9 @@ class TestTheVenvRidesTheSwap:
             (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
             (Path(project_path) / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
 
-        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
+        monkeypatch.setattr(
+            build_cmd, "_plan_project_venv", lambda _profile, *, install: _EMPTY_PLAN
+        )
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         result = _build(runner, lifecycle_repo, flags=["--skip-lifecycle"])
 
@@ -416,7 +418,9 @@ class TestTheVenvRidesTheSwap:
                 "#!/bin/sh\n", encoding="utf-8"
             )
 
-        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
+        monkeypatch.setattr(
+            build_cmd, "_plan_project_venv", lambda _profile, *, install: _EMPTY_PLAN
+        )
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
 
@@ -440,13 +444,15 @@ class TestTheVenvRidesTheSwap:
                 "#!/bin/sh\n", encoding="utf-8"
             )
 
-        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
+        monkeypatch.setattr(
+            build_cmd, "_plan_project_venv", lambda _profile, *, install: _EMPTY_PLAN
+        )
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
         python = lifecycle_repo / "build" / ".venv" / "bin" / "python"
         before = (python.read_bytes(), python.stat().st_mtime_ns)
 
-        def refuse(_profile):
+        def refuse(_profile, *, install):  # noqa: ARG001
             raise BuildProfileError("probe")
 
         created: list[Path] = []

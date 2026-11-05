@@ -283,69 +283,6 @@ def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
     assert "synthesizes" in details(guard)
 
 
-def test_an_exempt_commented_example_does_not_go_red():
-    """Deleted keys documented commented on purpose; see the manifest.
-
-    Each left what OSPREY SHIPS while staying live in its reader, so the
-    commented line beside that prose documents an override that works. The
-    exemption is narrow, which the second half asserts: the same key spelled
-    LIVE in a preset is still a resurrection.
-    """
-    guard = make_guard()
-    exempt = MANIFEST["deleted_commented_examples"]
-    assert exempt, "the manifest is supposed to record the deliberate exemptions"
-
-    for key in exempt:
-        assert key in MANIFEST["deleted"]
-        assert guard.commented_preset_overrides(key) == []
-
-    guard.check_deleted()
-    guard.check_deleted_commented_examples()
-    assert guard.result.ok, details(guard)
-
-
-def test_an_exemption_for_a_key_that_was_never_deleted_goes_red():
-    def exempt_a_live_key(manifest):
-        manifest["deleted_commented_examples"]["cli.theme"] = "not deleted at all"
-
-    guard = make_guard(exempt_a_live_key)
-    guard.check_deleted_commented_examples()
-    assert "resurrection" in modes(guard)
-    assert "not on the deleted list" in details(guard)
-
-
-def test_an_exemption_with_no_reason_goes_red():
-    """An exemption is only as good as the reason recorded beside it.
-
-    A blank one reads as "someone waved this through" and is the shape the next
-    retired key gets added under, so the empty arm has its own control. Both
-    spellings of blank are exercised, because the check strips before testing
-    and a whitespace-only reason is the one that would otherwise pass.
-    """
-
-    for blank in ("", "   "):
-
-        def blank_the_reason(manifest, blank=blank):
-            manifest["deleted_commented_examples"]["ariel.database.uri"] = blank
-
-        guard = make_guard(blank_the_reason)
-        guard.check_deleted_commented_examples()
-        assert "resurrection" in modes(guard), f"a reason of {blank!r} must not pass"
-        assert "gives no reason" in details(guard)
-
-
-def test_an_exemption_no_preset_uses_any_more_goes_red():
-    """An unused exemption is a hole waiting for the next retired key."""
-
-    def exempt_a_key_no_preset_documents(manifest):
-        manifest["deleted_commented_examples"]["facility_name"] = "nothing documents this"
-
-    guard = make_guard(exempt_a_key_no_preset_documents)
-    guard.check_deleted_commented_examples()
-    assert "resurrection" in modes(guard)
-    assert "is unused" in details(guard)
-
-
 def test_commented_preset_override_of_a_deleted_key_is_detected(tmp_path):
     """A retired key put back as a commented example is still put back.
 
@@ -751,7 +688,7 @@ def test_manifest_defaults_column_is_complete():
 def test_manifest_self_consistency_holds_without_rendering():
     """Every manifest-only check, run together against the live manifest.
 
-    These four ask nothing of the render: they read the manifest and the
+    These ask nothing of the render: they read the manifest and the
     source tree. Running them as one test says plainly which properties survive
     independently of the render matrix.
     """
@@ -760,6 +697,7 @@ def test_manifest_self_consistency_holds_without_rendering():
     guard.check_covered_by_chains()
     guard.check_evidence()
     guard.check_evidence_vacuity()
+    guard.check_preset_counts()
     assert guard.result.ok, details(guard)
 
 
@@ -884,6 +822,152 @@ def test_note_on_a_literal_default_goes_red():
     assert "cli.theme" in details(guard)
 
 
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Commented in the two presets that ship an `ariel:` block.",
+        "Unset in all four presets.",
+        "Present in both root presets.",
+        "Present in both the presets.",
+        "Set in both of the presets.",
+        "Unset in two of the presets.",
+        "Stated in both the shipped presets.",
+        "Two presets per deployment state it.",
+    ],
+)
+def test_a_note_counting_presets_goes_red(note):
+    """A count of presets restates `render_contexts.presets` and goes stale."""
+
+    def count_the_presets(manifest):
+        manifest["keys"]["cli.theme"]["note"] = note
+
+    guard = make_guard(count_the_presets)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert "cli.theme" in details(guard)
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Commented in the presets.",
+        "Present in every root preset.",
+        "no two presets state it",
+        "at least two presets stating",
+        "fewer than two presets",
+        "the one preset whose tree ships it",
+        "the same one the presets ship",
+        "One preset's config as its deploying build writes it.",
+        "One preset is narrower than attaching it to a whole server suggests",
+        "one job per preset",
+    ],
+)
+def test_a_note_naming_the_presets_without_a_count_stays_green(note):
+    def name_the_presets(manifest):
+        manifest["keys"]["cli.theme"]["note"] = note
+
+    guard = make_guard(name_the_presets)
+    guard.check_preset_counts()
+    assert guard.result.ok, details(guard)
+
+
+def _copy_preset_pages(root: Path, pages: tuple[str, ...]) -> None:
+    for rel in pages:
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / rel, target)
+
+
+@pytest.mark.parametrize("rel", guard_module.PRESET_PROSE_FILES)
+def test_a_page_counting_presets_goes_red(tmp_path, rel):
+    """A page that describes presets is read by the same check as the manifest."""
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    page.write_text(
+        page.read_text(encoding="utf-8") + "\nPresent in the two presets.\n", encoding="utf-8"
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert f"{rel}:" in details(guard)
+
+
+def test_a_count_wrapped_across_lines_goes_red(tmp_path):
+    """Markdown wraps; a count split by a line break is still a count."""
+    rel = "scripts/config_key_parity.md"
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    text = page.read_text(encoding="utf-8") + "\nMust appear in both shipped\nroot presets.\n"
+    page.write_text(text, encoding="utf-8")
+    line = text.splitlines().index("Must appear in both shipped") + 1
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert f"{rel}:{line} " in details(guard)
+
+
+@pytest.mark.parametrize("missing", guard_module.PRESET_PROSE_FILES)
+def test_a_missing_preset_page_goes_red(tmp_path, missing):
+    """The guard names the pages it reads; a moved page must move the guard too."""
+    present = tuple(rel for rel in guard_module.PRESET_PROSE_FILES if rel != missing)
+    _copy_preset_pages(tmp_path, present)
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert missing in details(guard)
+
+
+def test_a_count_inside_a_declared_exception_stays_green(tmp_path, monkeypatch):
+    """A declared phrase excuses the count inside it and nothing beside it."""
+    rel = "scripts/config_key_parity.md"
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    page.write_text(
+        page.read_text(encoding="utf-8") + "\nThe lane (two presets) runs nightly.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        guard_module.PRESET_COUNT_EXCEPTIONS, rel, {"The lane (two presets)": "a planted name"}
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert guard.result.ok, details(guard)
+
+
+def test_an_exception_excuses_nothing_outside_its_own_file(tmp_path, monkeypatch):
+    """A declared phrase copied into another listed page is a count there."""
+    declared = ".github/workflows/ci.yml"
+    phrase = "The lane (two presets)"
+    rel = "scripts/config_key_parity.md"
+    monkeypatch.setitem(guard_module.PRESET_COUNT_EXCEPTIONS, declared, {phrase: "a planted name"})
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    for holder in (declared, rel):
+        page = tmp_path / holder
+        page.write_text(page.read_text(encoding="utf-8") + f"\n{phrase}\n", encoding="utf-8")
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert f"{rel}:" in details(guard)
+
+
+def test_an_exception_its_file_does_not_hold_goes_red(monkeypatch):
+    """An exception leaves with the text it excused."""
+    rel = "scripts/config_key_parity.md"
+    phrase = "A lane no file names (two presets)"
+    monkeypatch.setitem(guard_module.PRESET_COUNT_EXCEPTIONS, rel, {phrase: "a planted name"})
+
+    guard = make_guard()
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert phrase in details(guard)
+    assert rel in details(guard)
+
+
 def test_dangling_covered_by_chain_goes_red():
     def point_at_a_missing_parent(manifest):
         manifest["keys"]["approval.tools.execute"] = {"covered-by": "not.a.manifest.key"}
@@ -1005,7 +1089,7 @@ def test_a_self_test_key_a_preset_also_spells_goes_red():
     rendering its branch, and the self-test would go on passing — silence in the
     one place the manifest built a tripwire. The mutation walks one path up from
     the real ``ariel_server_on`` key to its parent block, which the framework
-    template and two presets all render, so it is the realistic way this rots:
+    template and every preset render, so it is the realistic way this rots:
     an edit that keeps the key plausible while dropping what made it decisive.
     """
 

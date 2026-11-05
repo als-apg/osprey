@@ -226,7 +226,7 @@ from tests.e2e.profile_edits import set_pairs
 #: never happens here, not the port it serves on.
 _WEB_SLOT = default_port("web")
 
-pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.dockerbuild]
 
 # The repo DIRECTORY name, which is the deployment name: the compose project and
 # the com.osprey.project label on every image this deploy builds.

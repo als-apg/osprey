@@ -15,6 +15,7 @@ loudly.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,15 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
-from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig, resolve_ariel_dsn
+from osprey.services.ariel_search.config import (
+    READONLY_URI_KEY,
+    ARIELConfig,
+    DatabaseConfig,
+    resolve_ariel_dsn,
+    resolve_ariel_readonly_dsn,
+    sql_tool_offered,
+)
+from osprey.services.ariel_search.exceptions import ConfigurationError
 
 DSN_LOGGER = "osprey.services.ariel_search.config"
 
@@ -473,12 +482,13 @@ def test_deriving_the_dsn_stays_silent(caplog) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The readonly rung
+# The read-only login
 #
 # The agent's raw-SQL path connects as a SELECT-only role rather than as the
-# owner ingestion writes with. Both DSNs come out of the same resolver and the
-# same declared facts, so the read-only identity cannot drift from the store it
-# is supposed to reach.
+# owner ingestion writes with. On a derived store both DSNs come out of one
+# derivation over the same declared facts, so the read-only identity cannot
+# drift from the store it is supposed to reach. On a store the deployment
+# authored, the read-only login is authored too, or there is none.
 # ---------------------------------------------------------------------------
 
 
@@ -486,8 +496,8 @@ def test_readonly_role_is_the_username_with_the_ro_suffix(monkeypatch) -> None:
     """The role name is derived from the one place the owner is declared."""
     monkeypatch.setenv("ARIEL_DB_READONLY_PASSWORD", "ro-from-dotenv")
 
-    uri = resolve_ariel_dsn(
-        {}, {"username": "logbook", "database_name": "olog", "port_host": 6543}, role="readonly"
+    uri = resolve_ariel_readonly_dsn(
+        {}, {"username": "logbook", "database_name": "olog", "port_host": 6543}
     )
 
     assert uri == "postgresql://logbook_ro:ro-from-dotenv@localhost:6543/olog"
@@ -499,7 +509,7 @@ def test_readonly_password_falls_back_to_the_shipped_default(monkeypatch) -> Non
     mints a real secret."""
     monkeypatch.delenv("ARIEL_DB_READONLY_PASSWORD", raising=False)
 
-    assert resolve_ariel_dsn({}, None, role="readonly") == (
+    assert resolve_ariel_readonly_dsn({}, None) == (
         f"postgresql://ariel_ro:ariel_ro@localhost:{default_port('postgres')}/ariel"
     )
 
@@ -513,7 +523,7 @@ def test_the_two_roles_differ_only_in_identity(monkeypatch) -> None:
 
     assert resolve_ariel_dsn({}, services) == "postgresql://ariel:owner-secret@localhost:5432/ariel"
     assert (
-        resolve_ariel_dsn({}, services, role="readonly")
+        resolve_ariel_readonly_dsn({}, services)
         == "postgresql://ariel_ro:ro-secret@localhost:5432/ariel"
     )
 
@@ -525,23 +535,89 @@ def test_store_address_overrides_apply_to_the_readonly_rung_too(monkeypatch) -> 
     monkeypatch.setenv("ARIEL_DATABASE_PORT", "5432")
     monkeypatch.setenv("ARIEL_DB_READONLY_PASSWORD", "ro-secret")
 
-    assert resolve_ariel_dsn({}, None, role="readonly") == (
+    assert resolve_ariel_readonly_dsn({}, None) == (
         "postgresql://ariel_ro:ro-secret@ariel-postgres:5432/ariel"
     )
 
 
-def test_an_explicit_uri_is_returned_verbatim_for_either_role() -> None:
+def test_the_derived_readonly_port_follows_the_base_the_caller_resolved(monkeypatch) -> None:
+    """Both logins dial the same deployment's ``postgres`` slot."""
+    monkeypatch.delenv("ARIEL_DB_READONLY_PASSWORD", raising=False)
+    base = DEFAULT_PORT_BASE + 1000
+
+    assert resolve_ariel_readonly_dsn({}, None, base=base) == (
+        f"postgresql://ariel_ro:ariel_ro@localhost:{default_port('postgres', base=base)}/ariel"
+    )
+
+
+def test_an_authored_readonly_uri_wins_verbatim(monkeypatch) -> None:
+    """Like ``uri``, an authored read-only login names a store this deployment
+    may not run, so neither store-address override touches it."""
+    monkeypatch.setenv("ARIEL_DATABASE_HOST", "ariel-postgres")
+    monkeypatch.setenv("ARIEL_DATABASE_PORT", "5432")
+    readonly = "postgresql://ariel_ro:ro@logbook-db.example.org:5432/ariel"
+
+    assert (
+        resolve_ariel_readonly_dsn(
+            {
+                "database": {
+                    "uri": "postgresql://ariel:owner@logbook-db.example.org:5432/ariel",
+                    "readonly_uri": readonly,
+                }
+            },
+            {"username": "ariel", "port_host": 6543},
+        )
+        == readonly
+    )
+    assert resolve_ariel_readonly_dsn({"database": {"readonly_uri": readonly}}, None) == readonly
+
+
+def test_an_authored_uri_gives_no_readonly_login() -> None:
     """A DSN the project wrote down names one identity on a database osprey did
     not provision — there is no ``_ro`` role there to invent."""
     explicit = "postgresql://someone:else@logbook-db.example.org:5432/ariel"
 
     assert resolve_ariel_dsn({"database": {"uri": explicit}}, None) == explicit
-    assert resolve_ariel_dsn({"database": {"uri": explicit}}, None, role="readonly") == explicit
+    assert resolve_ariel_readonly_dsn({"database": {"uri": explicit}}, None) is None
+
+
+def test_the_legacy_alias_gives_no_readonly_login() -> None:
+    """The retired alias authors a store exactly as ``uri`` does."""
+    legacy = "postgresql://someone:else@logbook-db.example.org:5432/ariel"
+
+    assert resolve_ariel_readonly_dsn({"database": {"connection_string": legacy}}, None) is None
+
+
+@pytest.mark.parametrize(
+    ("ariel_section", "offered"),
+    [
+        ({}, True),
+        ({"database": {}}, True),
+        ({"database": {"uri": "postgresql://a:b@db.example.org/ariel"}}, False),
+        ({"database": {"connection_string": "postgresql://a:b@db.example.org/ariel"}}, False),
+        (
+            {
+                "database": {
+                    "uri": "postgresql://a:b@db.example.org/ariel",
+                    "readonly_uri": "postgresql://a_ro:c@db.example.org/ariel",
+                }
+            },
+            True,
+        ),
+    ],
+    ids=["no-database", "derived", "authored-uri", "legacy-alias", "authored-readonly"],
+)
+def test_the_sql_tool_is_offered_exactly_when_a_readonly_login_resolves(
+    ariel_section: dict[str, Any], offered: bool
+) -> None:
+    """The build's predicate agrees with the resolver, without opening anything."""
+    assert sql_tool_offered(ariel_section) is offered
+    assert (resolve_ariel_readonly_dsn(ariel_section, None) is not None) is offered
 
 
 def test_database_config_carries_both_identities(monkeypatch) -> None:
-    """``from_dict`` fills the read-only DSN on the same path that fills the
-    ingestion one, so a project cannot end up with one and not the other."""
+    """``from_dict`` fills the read-only DSN beside the ingestion one, so a
+    derived store cannot end up with one and not the other."""
     monkeypatch.setenv("ARIEL_DB_PASSWORD", "owner-secret")
     monkeypatch.setenv("ARIEL_DB_READONLY_PASSWORD", "ro-secret")
 
@@ -553,11 +629,41 @@ def test_database_config_carries_both_identities(monkeypatch) -> None:
 
 def test_an_explicit_uri_leaves_no_readonly_identity() -> None:
     """Recorded as absent rather than as a duplicate of the ingestion DSN: a
-    copy would silently connect the SQL tool as whatever the explicit URI names.
-    """
+    copy would connect the SQL tool as whatever the explicit URI names."""
     explicit = "postgresql://someone:else@logbook-db.example.org:5432/ariel"
 
     config = DatabaseConfig.from_dict({"uri": explicit}, None)
 
     assert config.uri == explicit
     assert config.readonly_uri is None
+
+
+def test_database_config_keeps_an_authored_readonly_uri() -> None:
+    explicit = "postgresql://someone:else@logbook-db.example.org:5432/ariel"
+    readonly = "postgresql://someone_ro:other@logbook-db.example.org:5432/ariel"
+
+    config = DatabaseConfig.from_dict({"uri": explicit, "readonly_uri": readonly}, None)
+
+    assert config.uri == explicit
+    assert config.readonly_uri == readonly
+
+
+@pytest.mark.parametrize("authored_uri", [True, False], ids=["authored-uri", "derived-uri"])
+def test_a_readonly_uri_that_is_the_owner_login_is_refused(monkeypatch, authored_uri) -> None:
+    """That string names the owner's login, so accepting it would satisfy the
+    key while connecting the SQL tool as the owner."""
+    monkeypatch.setenv("ARIEL_DB_PASSWORD", "owner-secret")
+    for name in ("ARIEL_DATABASE_HOST", "ARIEL_DATABASE_PORT"):
+        monkeypatch.delenv(name, raising=False)
+    services = {"username": "ariel", "port_host": 5432}
+    owner = (
+        "postgresql://someone:else@logbook-db.example.org:5432/ariel"
+        if authored_uri
+        else resolve_ariel_dsn({}, services)
+    )
+    data = {"readonly_uri": owner, **({"uri": owner} if authored_uri else {})}
+
+    with pytest.raises(ConfigurationError, match=re.escape(READONLY_URI_KEY)) as excinfo:
+        DatabaseConfig.from_dict(data, services)
+
+    assert excinfo.value.config_key == "database.readonly_uri"

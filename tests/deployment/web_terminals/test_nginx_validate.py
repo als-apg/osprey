@@ -32,7 +32,8 @@ template that stopped emitting the auth surface would otherwise still "pass"
 `nginx -t` and report a vacuous green.
 
 Skipped entirely when docker (or openssl) is unavailable, with the docker half
-probed through the shared ``docker_cli_unavailable_reason_once`` helper.
+probed through the shared ``docker_cli_unavailable_reason_once`` helper; the
+image is pulled once per session before any run.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ from osprey.deployment.web_terminals.render import (
     terminal_secret_env_var,
 )
 from osprey.port_layout import default_port
-from tests._container_support import docker_cli_unavailable_reason_once
+from tests._container_support import docker_cli_unavailable_reason_once, ensure_image
 from tests._renders import tier_render
 from tests.deployment.web_terminals._nginx import (
     nginx_directives,
@@ -67,6 +68,10 @@ from tests.deployment.web_terminals._nginx import (
 #: proxy_pass target asserted further down follows a slot that moves.
 _BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel")}
 _NGINX_IMAGE = "nginx:1.31-alpine"
+#: How long one ``docker run --rm`` of that image may take once it is present:
+#: create, start, ``nginx -t``/``-T``, exit and remove. The pull is not in it —
+#: the session fixture below pulls the image before any run starts.
+_NGINX_RUN_BUDGET = 60.0
 
 #: The `tls.port` a rootless deployment names: above 1024, so an unprivileged
 #: nginx can bind it, and pointedly not `TLS_LISTEN_PORT` — the whole point of
@@ -107,6 +112,16 @@ pytestmark = [
         reason=_DOCKER_UNAVAILABLE or "openssl (for the self-signed cert fixture) not on PATH",
     ),
 ]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _nginx_image_present() -> None:
+    """Pull the nginx image once, outside every run's budget.
+
+    The module's ``skipif`` applies before fixture setup, so a host without an
+    engine never pulls.
+    """
+    ensure_image(_NGINX_IMAGE)
 
 
 def _config(tls: dict | None = None, auth: dict | None = None, users: list | None = None) -> dict:
@@ -272,7 +287,7 @@ def _run_nginx_t(
         ["docker", "run", "--rm", *mounts, *extra, _NGINX_IMAGE, *command],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=_NGINX_RUN_BUDGET,
     )
 
 

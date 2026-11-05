@@ -17,12 +17,13 @@ import glob
 import importlib.util
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
@@ -35,6 +36,7 @@ from check_kit import (
     FULL,
     NOT_TOUCHED,
     PATHS,
+    SPENDS,
     UV_RUN,
     WHOLE,
     Check,
@@ -83,6 +85,7 @@ INVARIANT_TESTS = (
     "tests/test_graphdb_container.py",
     "tests/test_mongo_container.py",
     "tests/test_no_legacy_symbols.py",
+    "tests/test_wait_ceilings.py",
 )
 
 LIVE_CA_VENUE = "linux-x86_64"
@@ -584,7 +587,6 @@ UNIT_SELECTION = UnitSelection(
         ("tests/e2e", "e2e-tests"),
         ("tests/va/test_apply_fault.py", "live-ca"),
         ("tests/va/test_lume_pva_seam.py", "live-ca"),
-        ("tests/services/channel_finder/graph_index/test_scale.py", "channel-finder-benchmarks"),
         ("tests/integration/test_build_boot.py", "build-boot-smoke"),
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
@@ -599,7 +601,8 @@ UNIT_SELECTION = UnitSelection(
         "rest-b": (("tests/", "packages/osprey-connectors/tests"), ("tests/cli", *_REST_A)),
     },
     subsets={"macos": _MACOS_RUNS},
-    dist=("--dist", "loadgroup"),
+    # A dead worker ends the sweep with its report instead of being replaced.
+    dist=("--dist", "loadgroup", "--max-worker-restart=0"),
 )
 
 #: The module that owns the JavaScript module-to-test mapping.
@@ -970,6 +973,115 @@ def _check_tracked_ignored(_context: Context) -> int:
     return CLEAN
 
 
+#: Lists every tracked prose file, NUL-separated.
+TRACKED_DOCS = ("git", "ls-files", "-z", "--", "*.md", "*.rst")
+
+#: Hand-typed parallel sweeps a document may keep, keyed by (path, command
+#: text) and valued with the reason; a key whose document holds no such line is
+#: reported.
+SWEEP_LINE_EXCEPTIONS: dict[tuple[str, str], str] = {
+    (
+        "plugins/osprey/skills/release/SKILL.md",
+        "pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile",
+    ): (
+        "the e2e lane's invocation is declared only in ci.yml's e2e-tests job"
+        " until that lane is a check"
+    ),
+}
+
+#: A ``pytest`` command word: bare, ``uv run pytest`` or ``python -m pytest``.
+_PYTEST_WORD = re.compile(r"(?<![\w./-])pytest(?=[\s`'\"]|$)")
+
+#: An xdist flag: ``-n <count>``, ``-n<count>``, ``--numprocesses`` or ``--dist``.
+_XDIST_FLAG = re.compile(
+    r"(?<![\w-])(?:-n\s*(?:\d+|auto|logical)(?![\w-])|--numprocesses\b|--dist\b)"
+)
+
+
+def _logical_lines(text: str) -> Iterable[tuple[int, str]]:
+    """Yield each line with its 1-based number, a ``\\``-continued run joined into one."""
+    start, held = 0, list[str]()
+    for number, line in enumerate(text.splitlines(), 1):
+        if not held:
+            start = number
+        if line.rstrip().endswith("\\"):
+            held.append(line.rstrip()[:-1])
+            continue
+        held.append(line)
+        yield start, " ".join(held)
+        held = []
+    if held:
+        yield start, " ".join(held)
+
+
+def hand_typed_sweeps(
+    texts: Mapping[str, str],
+    exceptions: Mapping[tuple[str, str], str] = SWEEP_LINE_EXCEPTIONS,
+) -> list[str]:
+    """Name every line that types a ``pytest`` command with an xdist flag.
+
+    A line naming ``scripts/check.py`` runs a declared check and passes; a line
+    holding an exception's command text passes, and an exception that matches
+    no line, its document gone or unread included, is reported as stale.
+    """
+    found: list[str] = []
+    used: set[tuple[str, str]] = set()
+    for path in sorted(texts):
+        held = [key for key in exceptions if key[0] == path]
+        for number, line in _logical_lines(texts[path]):
+            if "scripts/check.py" in line:
+                continue
+            if not (_PYTEST_WORD.search(line) and _XDIST_FLAG.search(line)):
+                continue
+            excepted = [key for key in held if key[1] in line]
+            if excepted:
+                used.update(excepted)
+                continue
+            found.append(
+                f"{path}:{number}: a hand-typed parallel sweep; "
+                "name scripts/check.py (quick, full, run pytest)"
+            )
+    stale = sorted(key for key in exceptions if key not in used)
+    found += [f"stale exception: {path}: {text}" for path, text in stale]
+    return found
+
+
+def read_doc_texts(paths: Iterable[str], root: Path) -> tuple[dict[str, str], list[str]]:
+    """Return each existing file's UTF-8 text, and the sorted paths that are not UTF-8."""
+    texts: dict[str, str] = {}
+    unreadable: list[str] = []
+    for path in paths:
+        file = root / path
+        if not file.is_file():
+            continue
+        try:
+            texts[path] = file.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            unreadable.append(path)
+    return texts, sorted(unreadable)
+
+
+def tracked_doc_texts() -> tuple[dict[str, str], list[str]] | None:
+    """Read every tracked ``*.md`` and ``*.rst`` file; None when git fails."""
+    status, out = kit.capture(TRACKED_DOCS)
+    if status != 0:
+        return None
+    return read_doc_texts((path for path in out.split("\0") if path), kit.ROOT)
+
+
+def _check_hand_typed_sweeps(_context: Context) -> int:
+    read = tracked_doc_texts()
+    if read is None:
+        kit.say(f"hand-typed-sweeps: {shlex.join(TRACKED_DOCS)} failed")
+        return FAILED_EXIT
+    texts, unreadable = read
+    findings = [f"{path}: not UTF-8 text" for path in unreadable]
+    findings += hand_typed_sweeps(texts, SWEEP_LINE_EXCEPTIONS)
+    for finding in findings:
+        kit.say(f"hand-typed-sweeps: {finding}")
+    return FAILED_EXIT if findings else CLEAN
+
+
 #: Run in the documentation directory; needs the docs extra, as the build does.
 DOCS_CLEAN = (*UV_RUN, "make", "clean")
 
@@ -1280,6 +1392,16 @@ CHECKS: tuple[Check, ...] = (
         scope=(".github/workflows/**",),
         needs=("uv", "workflow-linters"),
     ),
+    # Implemented in Python: a contributor instruction that runs the parallel
+    # sweep names a declared check, so its flags have one home.
+    Check(
+        "hand-typed-sweeps",
+        "static",
+        BOTH,
+        (),
+        scope=("*.md", "*.rst"),
+        builtin=_check_hand_typed_sweeps,
+    ),
     # The parallel sweep: its selection is UNIT_SELECTION, a range picks its
     # tests through TEST_MIRRORS, and a run whose paths the marker expression
     # empties is named, not failed.
@@ -1326,6 +1448,30 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock"),
         scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
+        needs=("uv",),
+        bound_s=900,
+        report="junit-pytest",
+        tier_flags={"full": ("--tb=short",)},
+        exec_flags=True,
+    ),
+    # The image-free budgets: every wallclock test outside tests/integration,
+    # whose budgets need the sidecar image and are timed by pytest-wallclock.
+    # Selected by marker over the tree, so a budget added anywhere is timed
+    # alone with no new wiring.
+    Check(
+        "pytest-wallclock-unit",
+        "tests",
+        FULL,
+        (
+            *UV_RUN,
+            "pytest",
+            "tests/",
+            "--ignore=tests/e2e",
+            "--ignore=tests/integration",
+            "-m",
+            "wallclock",
+        ),
+        scope=("tests/**", "*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
         bound_s=900,
         report="junit-pytest",
@@ -1438,12 +1584,12 @@ SCAN_STACK = (
 _PLUGIN_TREES = ("plugins/**", ".claude-plugin/**", ".agents/plugins/**")
 
 
-def _e2e(job: str, *tests: str, why: str = "containers") -> Lane:
-    return Lane(job, why, tuple(f"tests/e2e/{name}" for name in tests))
+def _e2e(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
+    return Lane(job, why, tuple(f"tests/e2e/{name}" for name in tests), prefix)
 
 
-def _scan(job: str, *tests: str, why: str = "containers") -> Lane:
-    return Lane(job, why, (*SCAN_STACK, *(f"tests/e2e/{name}" for name in tests)))
+def _scan(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
+    return Lane(job, why, (*SCAN_STACK, *(f"tests/e2e/{name}" for name in tests)), prefix)
 
 
 def _va(job: str, *tests: str) -> Lane:
@@ -1504,12 +1650,24 @@ LANES: tuple[Lane, ...] = (
         ),
     ),
     Lane("build-boot-smoke", "matrix", ("tests/integration/test_build_boot.py",)),
-    Lane("e2e-tests", "models", ("tests/e2e/**",)),
+    Lane("e2e-tests", SPENDS, ("tests/e2e/**",), "E2E Tests"),
     Lane("e2e-no-model", "containers", ("tests/e2e/**",)),
     Lane("deploy-e2e", "containers", ("src/osprey/**",)),
-    _e2e("dispatch-deploy-e2e", "test_dispatch_deploy.py"),
-    _e2e("single-user-narrowing-e2e", "test_single_user_narrowing_e2e.py"),
-    _e2e("dispatch-overlay-e2e", "test_dispatch_overlay_visibility.py"),
+    _e2e(
+        "dispatch-deploy-e2e", "test_dispatch_deploy.py", why=SPENDS, prefix="Dispatch Deploy E2E"
+    ),
+    _e2e(
+        "single-user-narrowing-e2e",
+        "test_single_user_narrowing_e2e.py",
+        why=SPENDS,
+        prefix="Single-User Narrowing E2E",
+    ),
+    _e2e(
+        "dispatch-overlay-e2e",
+        "test_dispatch_overlay_visibility.py",
+        why=SPENDS,
+        prefix="Dispatch Overlay E2E",
+    ),
     _scan("bluesky-deploy-e2e", "test_bluesky_deploy.py"),
     Lane(
         "optimizer-deploy-e2e",
@@ -1530,16 +1688,32 @@ LANES: tuple[Lane, ...] = (
         "test_preflight_probe.py",
     ),
     _scan("bluesky-queue-e2e", "test_bluesky_queue_e2e.py"),
-    _e2e("scan-agentic-e2e", "test_plan_stack_agentic.py", why="models"),
+    _e2e(
+        "scan-agentic-e2e",
+        "test_plan_stack_agentic.py",
+        why=SPENDS,
+        prefix="Scan Stack Agentic E2E",
+    ),
     _e2e("archiver-world-e2e", "test_archiver_world_e2e.py"),
     _e2e("agent-record-e2e", "test_agent_record_e2e.py"),
-    _e2e("host-record-e2e", "test_host_record_e2e.py", why="models"),
+    _e2e("host-record-e2e", "test_host_record_e2e.py", why=SPENDS, prefix="Host Record E2E"),
     _e2e("graph-reseed-e2e", "test_graph_reseed_stamp.py"),
     _scan("tiled-roundtrip-e2e", "test_tiled_roundtrip.py"),
     _scan("bluesky-catalog-e2e", "test_bluesky_catalog_e2e.py"),
     _scan("bluesky-sandbox-escape-e2e", "test_bluesky_sandbox_escape_e2e.py"),
-    _e2e("nextcloud-talk-bridge-e2e", "test_nextcloud_talk_bridge_e2e.py"),
-    _e2e("gchat-bridge-e2e", "test_gchat_bridge_e2e.py", "fixtures/test_gchat_fixture_smoke.py"),
+    _e2e(
+        "nextcloud-talk-bridge-e2e",
+        "test_nextcloud_talk_bridge_e2e.py",
+        why=SPENDS,
+        prefix="Nextcloud Talk Bridge E2E",
+    ),
+    _e2e(
+        "gchat-bridge-e2e",
+        "test_gchat_bridge_e2e.py",
+        "fixtures/test_gchat_fixture_smoke.py",
+        why=SPENDS,
+        prefix="Google Chat Bridge E2E",
+    ),
     _e2e(
         "teams-bridge-e2e",
         "test_teams_bridge_e2e.py",
@@ -1549,7 +1723,12 @@ LANES: tuple[Lane, ...] = (
     _e2e("dockerfile-e2e", "test_dockerfile_e2e.py"),
     _e2e("privilege-split-e2e", "test_privilege_split.py", "test_audit_two_container.py"),
     _e2e("execution-environment-parity-e2e", "test_execution_environment_parity.py"),
-    _e2e("agentic-per-preset", "test_preset_agentic.py", why="models"),
+    _e2e(
+        "agentic-per-preset",
+        "test_preset_agentic.py",
+        why=SPENDS,
+        prefix="Tier 3 — Agentic flow",
+    ),
     _e2e("deploy-writeback-e2e", "test_deploy_writeback_e2e.py"),
     _e2e("multi-user-deploy-lifecycle-e2e", "test_deploy_lifecycle.py"),
     _e2e("multi-user-deploy-lifecycle-e2e-podman", "test_deploy_lifecycle.py"),
@@ -1560,7 +1739,17 @@ LANES: tuple[Lane, ...] = (
     Lane(
         "qmd-sidecar-e2e",
         "containers",
-        ("tests/integration/test_qmd_models_mount.py", "tests/e2e/test_deploy_lifecycle.py"),
+        (
+            "src/osprey/templates/services/qmd/**",
+            "tests/_container_support.py",
+            "tests/e2e/test_deploy_lifecycle.py",
+            "tests/integration/_qmd_ariel_support.py",
+            "tests/integration/_qmd_okf_support.py",
+            "tests/integration/test_qmd_ariel_resync_paths.py",
+            "tests/integration/test_qmd_ariel_search_sidecar.py",
+            "tests/integration/test_qmd_models_mount.py",
+            "tests/integration/test_qmd_okf_search_sidecar.py",
+        ),
     ),
     Lane(
         "qmd-cache-warmup",
@@ -1576,7 +1765,12 @@ LANES: tuple[Lane, ...] = (
         "test_per_target_posture.py",
         "test_model_status_va.py",
     ),
-    _e2e("target-switch-agentic-e2e", "test_target_switch_agentic.py", why="models"),
+    _e2e(
+        "target-switch-agentic-e2e",
+        "test_target_switch_agentic.py",
+        why=SPENDS,
+        prefix="Control-Target Switch Agentic E2E",
+    ),
     _va(
         "va-live-e2e",
         "test_approval_smoke.py",
@@ -1599,10 +1793,7 @@ LANES: tuple[Lane, ...] = (
     Lane(
         "channel-finder-benchmarks",
         "on-demand benchmark",
-        (
-            "tests/services/channel_finder/graph_index/test_scale.py",
-            "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
-        ),
+        ("tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",),
     ),
 )
 

@@ -33,9 +33,8 @@ Preset → Profile → Build
    :file: ../_diagrams/build-profiles.html
 
 - **Preset** — a bundled starting point, shipped inside OSPREY
-  (``src/osprey/profiles/presets/``). The two presets are ``hello-world`` and
-  ``control-assistant``.
-  Run ``osprey profile presets`` to list them.
+  (``src/osprey/profiles/presets/``). Run ``osprey profile presets`` to list
+  the presets that ship.
 - **Profile** — the ``profile.yml`` at the root of your deployment repository,
   with the material it names beside it. Created once from a preset, then edited
   and kept in version control. Everything the preset configured is written out
@@ -379,23 +378,17 @@ report success and then break every later build.
 .. note::
 
    The check catches the mistake, not an adversary: copies dereference
-   symlinks, and the scan does not descend into a symlinked directory. Read it
-   as the rule the build holds you to, not as a boundary it enforces.
-
-The ``data:`` tree is the exception
------------------------------------
+   symlinks, and the check follows directory links the way the copy does; a
+   target can still change between the check and the copy. Read it as the rule
+   the build holds you to, not as a boundary it enforces.
 
 ``data:`` is a path the profile *names*, not material the build finds by
-convention, and it is checked differently. The path resolves against the
-profile directory, and only its existence and shape are checked — that it is
-there, and that it is a directory. Containment is never checked, so a tree may
-sit above the profile directory (``data: ../shared-data``): a tree more than
-one profile builds from can live beside them rather than inside either.
-
-Staleness is unaffected. The resolved tree is folded into the profile hash
-wherever it sits, so editing it still reports the built project as out of date.
-The exception is about where the tree may live, not about the build losing
-sight of it.
+convention. It resolves against the profile directory and must resolve inside
+the repository, as must every file the profile ``extends``. ``osprey validate``
+and ``osprey build`` refuse a profile that reads anything outside the
+repository, before anything is installed, naming the path. The resolved tree is
+folded into the profile hash, so editing it reports the built project as out of
+date.
 
 
 .. _profile-claim:
@@ -1075,7 +1068,7 @@ What the build does
     ``osprey up`` compares the profile against before it starts anything.
 13. Re-render the agent artifacts against the complete config, and validate that
     every tool an agent declares is backed by a permission.
-14. Initialize git, then run ``post_build`` and ``validate`` commands.
+14. Run ``post_build`` and ``validate`` commands on the project venv.
 
 The venv is created before rendering so templates can reference the resolved
 Python path. The generated project runs standalone — nothing reaches back to the
@@ -1118,10 +1111,12 @@ directory beside this project came from a different preset. Build ``Y`` under a
 different project name so it gets a profile of its own.
 
 **"Profile convention directories are invalid"** — a convention directory has
-the wrong shape: a ``.md`` directory holding something else, a skill that is a
-file rather than a directory, or a symlink pointing outside the profile. Every
-problem is listed at once. The symlink case is the self-containment rule; copy
-the target in (see :ref:`profile-self-contained`).
+the wrong shape: a ``.md`` directory holding something else, or a skill that is
+a file rather than a directory. Every problem is listed at once.
+
+**"… outside the repository. Move it into the repository."** — an input, or a
+link inside one through any number of hops, resolves outside the repository;
+copy the target in (see :ref:`profile-self-contained`).
 
 **"web-terminal-context/<name> is a file"** — that directory holds one
 directory per operator, plus the shared ``base.md``. Move the file into the

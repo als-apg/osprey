@@ -243,7 +243,6 @@ CONNECTOR_CONFIG: dict[str, Any] = {
 }
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
@@ -983,7 +982,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], rb)
+    col = _find_column([column["name"] for column in data["columns"]], rb)
     bridge_value = data["rows"][0][col]
     assert bridge_value is not None, f"no value recorded for {rb}: {data}"
 
@@ -1085,7 +1084,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == num, f"expected {num} rows: {data}"
-    col = _find_column(data["columns"], rb)
+    col = _find_column([column["name"] for column in data["columns"]], rb)
     row_values = [row[col] for row in data["rows"]]
     assert len(row_values) == num and all(v is not None for v in row_values), (
         f"incomplete {rb} column: {row_values}"
@@ -1230,7 +1229,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         status, data = _get(f"/runs/{run_id}/data")
         assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
         assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-        col = _find_column(data["columns"], rb)
+        col = _find_column([column["name"] for column in data["columns"]], rb)
         bridge_rb = data["rows"][0][col]
         assert bridge_rb is not None, f"no value recorded for {rb}: {data}"
 
