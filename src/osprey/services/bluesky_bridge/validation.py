@@ -33,8 +33,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import HTTPException
-
 from .plan_validation import hash_plan_body
 from .session_dir import resolve_session_plan_dir
 from .validation_record import validation_records
@@ -245,17 +243,13 @@ def _validate_launchable_request(request: Any) -> None:
         # `SessionPlanError.to_dict()` plus the `code` key `queue.py`'s
         # `_session_refusal` adds — this refusal and that one are the same
         # answer to the same question, so they must look identical on the wire.
-        from .session_upload import REASON_UNVALIDATED
+        from .queue_backend import REASON_SESSION_PLAN_UNVALIDATED
+        from .refusals import refusal
 
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": REASON_UNVALIDATED,
-                "reason": REASON_UNVALIDATED,
-                "detail": (
-                    f"session plan {plan_name!r} has no passing validation record; "
-                    "validate it before enqueuing"
-                ),
-                "plan": plan_name,
-            },
+        raise refusal(
+            REASON_SESSION_PLAN_UNVALIDATED,
+            f"session plan {plan_name!r} has no passing validation record; "
+            "validate it before enqueuing",
+            reason=REASON_SESSION_PLAN_UNVALIDATED,
+            plan=plan_name,
         )

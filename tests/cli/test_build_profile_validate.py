@@ -6,10 +6,9 @@ single :class:`~osprey_connectors.errors.BuildProfileError` is raised whose mess
 ``"Build profile validation failed:\\n  - "`` followed by every failure joined
 by ``"\\n  - "``. A profile with four unrelated faults therefore reports all
 four in one raise, so a build author fixes them in one pass instead of one
-rebuild per typo. The structural checks that ``continue`` (a service with a
-bundled ``osprey.``-prefixed template, a ``panel_presets`` entry that is not a
-list) skip only their own
-remaining sub-checks — they never short-circuit the rest of the validator.
+rebuild per typo. The structural check that uses ``continue`` (a
+``panel_presets`` entry that is not a list) skips only its own remaining
+sub-checks — it never short-circuits the rest of the validator.
 
 Complements the block-scoped suites (``test_profile_schema.py`` for
 ``dispatch:``, ``test_build_profile.py`` for ``bluesky_web:``) by covering
@@ -249,6 +248,19 @@ def test_service_template_dir_not_found_is_rejected(tmp_path: Path) -> None:
     assert error == f"Service 'svc' template dir not found: {tmp_path / 'services/svc'}"
 
 
+def test_unknown_bundled_template_is_refused(tmp_path: Path) -> None:
+    """A bundled name OSPREY does not ship fails, naming the service and the value."""
+    profile = _profile(name="x", services={"nope": ServiceDef(template="osprey.no_such_service")})
+    assert _errors(profile, tmp_path) == [
+        "Service 'nope' template 'osprey.no_such_service' names no template OSPREY ships"
+    ]
+
+
+def test_shipped_bundled_template_is_accepted(tmp_path: Path) -> None:
+    """A bundled name OSPREY ships produces no failure."""
+    _profile(name="x", services={"db": ServiceDef(template="osprey.mongodb")}).validate(tmp_path)
+
+
 def test_service_template_dir_without_compose_is_rejected(tmp_path: Path) -> None:
     """A template dir that exists must still carry docker-compose.yml.j2."""
     (tmp_path / "services" / "svc").mkdir(parents=True)
@@ -389,18 +401,10 @@ def test_a_profile_without_pinned_env_names_declares_none() -> None:
     assert _parse_profile({"name": "x", "env": {"required": ["OSPREY_TOKEN"]}}).env.pinned == []
 
 
-def test_missing_env_file_is_rejected(tmp_path: Path) -> None:
-    """env.file names a profile-relative file to copy; it must exist."""
-    profile = _profile(name="x", env=EnvConfig(file="env.template"))
-    (error,) = _errors(profile, tmp_path)
-    assert error.startswith("env.file not found: env.template")
-    assert str(tmp_path / "env.template") in error
-
-
-def test_present_env_file_validates(tmp_path: Path) -> None:
-    """An env.file that exists produces no failure."""
-    (tmp_path / "env.template").write_text("FOO=bar", encoding="utf-8")
-    _profile(name="x", env=EnvConfig(file="env.template")).validate(tmp_path)
+def test_env_file_is_refused_as_an_unknown_key() -> None:
+    """The ``env:`` block is closed: a key the schema does not declare is refused."""
+    with pytest.raises(BuildProfileError, match=r"Unknown env key\(s\): 'file'"):
+        _parse_profile({"name": "x", "env": {"file": "x"}})
 
 
 # --- dependencies ---------------------------------------------------------

@@ -49,7 +49,11 @@ from .build_profile_archiver import (
 )
 from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
-from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
+from .build_profile_presets import (
+    is_bundled_preset_dir,
+    resolve_service_template,
+    resolve_triggers_path,
+)
 from .build_profile_schema import (
     SECOND_LANE_PORT_STRIDE,
     BlueskyConfig,
@@ -394,9 +398,8 @@ class BuildProfile:
     """
     data: str | None = None
     """Facility data tree this profile carries, as a path relative to the
-    profile directory (``data`` for a materialized profile, ``../data`` for a
-    sibling render profile that shares its parent's tree; may therefore
-    resolve above the profile dir). The build copies this tree and no other:
+    profile directory that resolves inside the repository (``data`` for a
+    materialized profile). The build copies this tree and no other:
     it is the whole source of the project's ``data/``, with no packaged
     fallback behind it, so :meth:`validate` requires it of every profile file.
     ``None`` only for a bundled preset, which has no profile directory to
@@ -1696,9 +1699,9 @@ class BuildProfile:
                 f"module off with `config: {_HYBRID_SEARCH_ENABLED_KEY}: false`."
             )
 
-        # The data tree may legitimately sit above the profile dir (render
-        # profiles share their parent's tree via ``data: ../data``), so only
-        # existence and shape are checked, never containment.
+        # Containment is the loader's rule over every input
+        # (`refuse_inputs_outside_repository`); here only existence and shape
+        # are checked.
         #
         # It is also required. ``data:`` is the ONLY source of the project's
         # ``data/`` tree — the build copies it and nothing else — so a profile
@@ -1746,16 +1749,10 @@ class BuildProfile:
         for name, svc in self.services.items():
             if not svc.template:
                 errors.append(f"Service '{name}' missing 'template'")
-            elif svc.template.startswith("osprey."):
-                # Bundled template (e.g. "osprey.event_dispatcher") — resolved at copy
-                # time by _copy_service_templates; no profile-dir file to validate.
-                continue
             else:
-                tmpl_path = profile_dir / svc.template
-                if not tmpl_path.is_dir():
-                    errors.append(f"Service '{name}' template dir not found: {tmpl_path}")
-                elif not (tmpl_path / "docker-compose.yml.j2").exists():
-                    errors.append(f"Service '{name}' template dir missing docker-compose.yml.j2")
+                refusal = resolve_service_template(profile_dir, svc.template).refusal(name)
+                if refusal is not None:
+                    errors.append(refusal)
 
         # Validate the per-service axes across both authoring surfaces, after
         # reporting any key the YAML resolver handed back as a non-string.
@@ -1806,12 +1803,6 @@ class BuildProfile:
                 for var in self.env.pinned
                 if not isinstance(var, str) or not ENV_NAME_RE.match(var)
             )
-
-        # Validate env file path
-        if self.env.file:
-            env_file_path = profile_dir / self.env.file
-            if not env_file_path.is_file():
-                errors.append(f"env.file not found: {self.env.file} (resolved: {env_file_path})")
 
         # Validate the environment block (interpreter base + extra packages)
         errors.extend(self._validate_environment())

@@ -156,6 +156,12 @@ class TestOperatingBlueskyPlansSkillStructure:
             "with get_run_data" in prose
         )
 
+    def test_a_unit_is_the_one_the_run_declares(self, skill_text):
+        prose = _prose(skill_text)
+        assert "a value's unit is the one the run declares for its column" in prose
+        assert "say the unit is not stated, never assume one" in prose
+        assert "each entry of columns is {name, unit}, in the order a row's values follow" in prose
+
     # --- the choreography ---
 
     def test_stage_complete_config_in_one_call(self, skill_text):
@@ -231,6 +237,13 @@ class TestOperatingBlueskyPlansSkillStructure:
         deployments cannot run plans."""
         assert not re.search(r"(?i)\bpromot", skill_text), "purged tier word 'promote' leaked"
         assert not re.search(r"(?i)\bintent\b", skill_text), "purged run-state word 'intent' leaked"
+
+    def test_a_missing_limits_record_is_normal_and_the_agent_sizes_the_step(self, skill_text):
+        """A channel with no limits record is swept, not left out or asked about."""
+        prose = _prose(skill_text)
+        assert "a limits record is optional" in prose
+        assert "say in the report what you chose" in prose
+        assert "inside its allowed range" not in prose
 
 
 class TestOperatingBlueskyPlansStopHonesty:
@@ -358,11 +371,12 @@ class TestOperatingBlueskyPlansFigureNarration:
         assert "no_render" in prose
         assert "there is nothing wrong to report" in prose
 
-    def test_empty_panels_mean_unreadable_not_empty(self, skill_text):
-        """``source_unavailable`` is the only reason with no panels, and the
-        difference between "could not read" and "recorded nothing" is the
+    def test_unreadable_rows_are_an_error_not_an_empty_run(self, skill_text):
+        """Rows that could not be read come back as an error, not a figure, and
+        the difference between "could not read" and "recorded nothing" is the
         difference between a retry and a wrong conclusion about the run."""
         prose = _prose(skill_text)
+        assert "service_unavailable" in prose
         assert "source_unavailable" in prose
         assert 'never "the run recorded nothing"' in prose
 
@@ -413,3 +427,23 @@ class TestOperatingBlueskyPlansInstall:
         mf = {"artifacts": {"skills": ["operating-bluesky-plans"]}}
         outputs = manifest.resolve_manifest_outputs(mf)
         assert OUTPUT_REL in outputs
+
+
+class TestOperatingBlueskyPlansWatchToTheEnd:
+    """A launched run is watched to a final state, and a run that outlasts the
+    session is reported with how long it still needs, never as the measurement."""
+
+    @pytest.fixture()
+    def skill_text(self):
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
+        return path.read_text(encoding="utf-8")
+
+    def test_a_launched_run_is_watched_to_its_end(self, skill_text):
+        prose = _prose(skill_text)
+        assert "watched until it reaches a final state" in prose
+        assert "wait_s" in prose
+        assert "how long it still needs" in prose
+
+    def test_the_clearly_best_reading_is_taken_and_named(self, skill_text):
+        prose = _prose(skill_text)
+        assert "take it, say which you took and why" in prose

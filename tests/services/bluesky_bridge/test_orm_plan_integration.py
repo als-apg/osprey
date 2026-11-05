@@ -11,7 +11,7 @@ ophyd-async devices (`devices/mock.py`) — no EPICS, no container, and via
 `bluesky_plan_drive.run_plan`, which wraps the plan exactly as the queueserver
 worker's namespace does. Proves the
 generator built there actually runs to completion and the live-row buffer
-ends up with one row per (corrector, current) pair, every BPM column
+ends up with one row per (corrector, setpoint) pair, every BPM column
 present, and no hang.
 """
 
@@ -66,7 +66,7 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
         {
             "correctors": ["hcm1", "hcm2"],
             "readbacks": ["bpm1", "bpm2", "bpm3"],
-            "span_a": 2.0,
+            "span": 2.0,
             "num": 5,
         },
         devices=orm_devices,
@@ -77,7 +77,7 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
     assert buf is not None
     assert buf["partial"] is False
 
-    # 2 correctors x 5 points each = one event (one row) per (corrector, current).
+    # 2 correctors x 5 points each = one event (one row) per (corrector, setpoint).
     assert buf["total_seen"] == 10
     assert len(buf["rows"]) == 10
 
@@ -98,8 +98,8 @@ def test_orm_plan_restores_each_corrector_through_the_real_loader_path(
     """Restore survives the round trip through the real plan loader and
     `run_plan` wrapper, not just a directly-built generator.
 
-    These mock motors start at 0 A, so the working point each corrector is
-    put back to is 0 A here; `test_builtin_plans.py` covers the nonzero case
+    These mock motors start idle at zero, so the working point each corrector is
+    put back to is zero here; `test_builtin_plans.py` covers the nonzero case
     that distinguishes "put back where it was" from "driven to zero".
     """
     run_plan(
@@ -107,7 +107,7 @@ def test_orm_plan_restores_each_corrector_through_the_real_loader_path(
         {
             "correctors": ["hcm1", "hcm2"],
             "readbacks": ["bpm1"],
-            "span_a": 3.0,
+            "span": 3.0,
             "num": 3,
         },
         devices=orm_devices,
@@ -152,7 +152,7 @@ def test_orm_plan_output_is_fittable_by_the_analysis_it_feeds() -> None:
         {
             "correctors": list(correctors),
             "readbacks": readbacks,
-            "span_a": 2.0,
+            "span": 2.0,
             "num": 5,
         },
         devices=devices,
@@ -217,7 +217,7 @@ def test_orm_plan_rows_carry_the_demand_column_the_setpoint_fit_reads() -> None:
     devices = asyncio.run(connect_all({"hcm1": fake.device("hcm1"), "bpm1": MockReadable("bpm1")}))
     run_uid = run_plan(
         "orm",
-        {"correctors": ["hcm1"], "readbacks": ["bpm1"], "span_a": 2.0, "num": 3},
+        {"correctors": ["hcm1"], "readbacks": ["bpm1"], "span": 2.0, "num": 3},
         devices=devices,
         plans=plan_loader.get_facility_plans().plans,
     )
@@ -242,7 +242,7 @@ def test_orm_plan_single_corrector_produces_exactly_num_rows(orm_devices: dict) 
         {
             "correctors": ["hcm1"],
             "readbacks": ["bpm1", "bpm2"],
-            "span_a": 1.0,
+            "span": 1.0,
             "num": 4,
         },
         devices=orm_devices,

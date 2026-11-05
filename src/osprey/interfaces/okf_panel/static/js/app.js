@@ -369,13 +369,24 @@ function requireEl(id) {
   // -- reading pane ----------------------------------------------------------
 
   /**
+   * Replace the reading pane with a centred state (loading, not found, failed).
+   * None of them shows a concept, so the reader's concept mark goes with the
+   * previous content.
+   * @param {Parameters<typeof renderState>[1]} state
+   */
+  function renderReaderState(state) {
+    delete readerEl.dataset.conceptId;
+    renderState(readerEl, state);
+  }
+
+  /**
    * The reading pane could not get what it asked for: one centred state, with
    * the one next step.
    * @param {string} message
    * @param {() => void} retry
    */
   function renderLoadFailure(message, retry) {
-    renderState(readerEl, {
+    renderReaderState({
       icon: 'triangle-alert',
       message,
       action: { label: 'Retry', onClick: retry },
@@ -388,7 +399,7 @@ function requireEl(id) {
   async function loadConcept(id) {
     showContentsFor('page');
     showOpenPage({ id, title: conceptTitles.get(id) ?? id });
-    renderState(readerEl, { icon: 'refresh', message: 'Loading the page' });
+    renderReaderState({ icon: 'refresh', message: 'Loading the page' });
     const retry = () => loadConcept(id);
     let resp;
     try {
@@ -399,7 +410,7 @@ function requireEl(id) {
     }
 
     if (resp.status === 404) {
-      renderState(readerEl, {
+      renderReaderState({
         icon: 'search',
         message: 'No concept has this id',
         detail: id,
@@ -471,6 +482,8 @@ function requireEl(id) {
     readerEl.appendChild(bodyEl);
 
     currentFacilityReferences = doc.facility_references || null;
+    // The reader's statement of the concept it shows; present only while one is rendered.
+    readerEl.dataset.conceptId = id;
     afterRender(readerEl);
   }
 
@@ -488,7 +501,7 @@ function requireEl(id) {
     showContentsFor('browse');
     highlightStructure();
     showOpenPage(null);
-    renderState(readerEl, { icon: 'refresh', message: 'Loading the overview' });
+    renderReaderState({ icon: 'refresh', message: 'Loading the overview' });
 
     let data;
     try {

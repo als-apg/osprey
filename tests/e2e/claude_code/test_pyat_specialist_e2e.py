@@ -54,7 +54,6 @@ from tests.e2e.sdk_helpers import (
 # ---------------------------------------------------------------------------
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),

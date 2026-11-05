@@ -76,7 +76,6 @@ from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider, e2e_provider
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.harness_benchmark,
     pytest.mark.slow,
     pytest.mark.requires_e2e_provider,
