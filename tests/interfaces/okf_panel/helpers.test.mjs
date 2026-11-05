@@ -10,7 +10,6 @@ import { marked } from 'marked';
 
 import {
   STRUCTURE_MARKER,
-  bundleHealthText,
   el,
   facilityLinkView,
   hashChangeTarget,
@@ -94,21 +93,6 @@ describe('isFallback', () => {
     expect(isFallback(null, 'channel-finding')).toBe(false);
     expect(isFallback('control-system/channel-finding', null)).toBe(false);
     expect(isFallback(undefined, undefined)).toBe(false);
-  });
-});
-
-describe('bundleHealthText', () => {
-  test('a healthy bundle says so', () => {
-    expect(bundleHealthText({ ok: true, counts: {}, total: 0 })).toBe('Bundle healthy');
-  });
-
-  test('issues are counted, singular and plural, kinds sorted', () => {
-    expect(bundleHealthText({ ok: false, counts: { 'broken-link': 1 }, total: 1 })).toBe(
-      '1 issue: broken-link=1'
-    );
-    expect(
-      bundleHealthText({ ok: false, counts: { 'missing-title': 1, 'broken-link': 2 }, total: 3 })
-    ).toBe('3 issues: broken-link=2, missing-title=1');
   });
 });
 

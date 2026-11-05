@@ -15,6 +15,8 @@
 
 import { beforeAll, describe, expect, test, vi } from 'vitest';
 
+import { mountShell } from './page-shell.mjs';
+
 /** @type {string[]} */
 const fetched = [];
 
@@ -76,19 +78,7 @@ function conceptFetch(id) {
 }
 
 beforeAll(async () => {
-  document.body.innerHTML = `
-    <div id="app">
-      <aside id="sidebar">
-        <form id="search-form"><input id="search-input" type="search" /></form>
-        <a id="structure-link" href="#__structure">Knowledge Base</a>
-        <nav id="tree"></nav>
-        <div id="search-results" hidden></div>
-        <footer id="bundle-health" hidden></footer>
-      </aside>
-      <main id="reader">
-        <div id="reader-content"></div>
-      </main>
-    </div>`;
+  mountShell();
   vi.stubGlobal('marked', { parse: (/** @type {string} */ md) => md });
   vi.stubGlobal('fetch', vi.fn(fakeFetch));
   location.hash = '#devices/bpm';

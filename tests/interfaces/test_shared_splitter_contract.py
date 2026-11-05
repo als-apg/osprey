@@ -63,7 +63,7 @@ SPLITTER_HOSTS = [
     Host(
         label="okf",
         html=f"{_IFACE}/okf_panel/static/index.html",
-        js=f"{_IFACE}/okf_panel/static/js/resize.js",
+        js=f"{_IFACE}/okf_panel/static/js/contents.js",
         orientations=frozenset({"vertical"}),
         styles=(f"{_IFACE}/okf_panel/static/style.css",),
     ),

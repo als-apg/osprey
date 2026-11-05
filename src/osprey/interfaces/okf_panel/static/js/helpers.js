@@ -54,23 +54,6 @@ export function isFallback(id, title) {
   return title === last;
 }
 
-/**
- * The one-line bundle-health summary: the standalone sidebar's footer and,
- * embedded, the tile bar's subtitle.
- * @param {{ok?: boolean, counts?: Record<string, number>, total?: number}} data
- *   the `/api/bundle_health` body
- * @returns {string}
- */
-export function bundleHealthText(data) {
-  if (data.ok) return 'Bundle healthy';
-  const counts = data.counts || {};
-  const parts = Object.keys(counts)
-    .sort()
-    .map((k) => k + '=' + counts[k]);
-  const total = data.total || 0;
-  return total + ' issue' + (total === 1 ? '' : 's') + ': ' + parts.join(', ');
-}
-
 /** @typedef {{concept: string|null, structure: boolean, raw: string}} PanelParams */
 
 // -- panel parameters / deep-link (osprey addition) --------------------------

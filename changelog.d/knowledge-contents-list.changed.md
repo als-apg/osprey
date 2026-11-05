@@ -1,1 +1,6 @@
-The KNOWLEDGE panel's contents list (its left sidebar) is hidden on the overview, which lists every page itself, so the overview takes the panel's full width. Opening a page shows the list at its remembered width. A button at the reader's top-left hides or shows it; a hide on a page is remembered across pages and reloads, and a hide or show on the overview is not. A search shows the list, because its results are there. In a narrow tile the list starts hidden on every view. Embedded in the web terminal, the bundle-health line moves from the bottom of the list to the tile bar, beside the panel's name.
+The KNOWLEDGE panel has one toolbar, in the web terminal and on its own page:
+the contents-list button, a breadcrumb back to the overview, a bundle-health
+chip that lists the issues it found, and the concept search. The contents list
+is closed on the overview and open on a page, and in a narrow tile it opens
+over the page. The tile bar shows the open concept's id, and ⋯ › Reset
+contents width sets the list back to its default width.
