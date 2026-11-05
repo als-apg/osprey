@@ -45,11 +45,8 @@ _PAGE = "docs/source/reference/configuration/profile.rst"
 #: A ``list-table`` row's first cell: ``* - `` and the rest of the line.
 _ROW_PATTERN = re.compile(r"^\s*\* - (.*)$")
 
-#: One RST inline literal, which is how a table writes a key.
+#: One RST inline literal: how a table cell or a definition-list term writes a key.
 _LITERAL_PATTERN = re.compile(r"^``([^`\n]+)``$")
-
-#: A definition-list term that is one inline literal at the left margin.
-_TERM_PATTERN = re.compile(r"^``([^`\n]+)``$")
 
 #: Number words the prose uses to state a block's size.
 _NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
@@ -131,7 +128,7 @@ def _definition_keys(section: list[str]) -> set[str]:
     """Every definition-list term that is a literal followed by an indented line."""
     found: set[str] = set()
     for line, following in zip(section, section[1:], strict=False):
-        term = _TERM_PATTERN.match(line)
+        term = _LITERAL_PATTERN.match(line)
         if term is not None and following.startswith("   ") and following.strip():
             found.add(term.group(1))
     return found
@@ -170,7 +167,8 @@ def test_the_stated_key_count_is_the_accepted_one(block: str) -> None:
     text = " ".join(line.strip() for line in _section(table.anchor))
     match = re.search(table.count, text)
     assert match is not None, f"no {table.count!r} sentence in the {block} section of {_PAGE}"
-    assert match.group(1) == _NUMBER_WORDS[len(table.accepted)], (
+    expected = _NUMBER_WORDS.get(len(table.accepted), str(len(table.accepted)))
+    assert match.group(1) == expected, (
         f"{_PAGE} says the {block} block has {match.group(1)} keys; "
         f"the loader accepts {len(table.accepted)}"
     )

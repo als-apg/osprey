@@ -69,8 +69,10 @@ def _yaml_blocks() -> list[tuple[int, str]]:
 def _load_over_minimal(block: dict[str, Any], tmp_path: Path):
     """Write the block over a minimal profile into *tmp_path* and load it."""
     (tmp_path / "data").mkdir()
+    # The page names the reader's own trigger file, which the loader looks for
+    # beside the profile; supply it there.
     triggers = (block.get("dispatch") or {}).get("triggers")
-    if isinstance(triggers, str) and not (_BUNDLED_TRIGGERS.parent / triggers).exists():
+    if isinstance(triggers, str):
         shutil.copyfile(_BUNDLED_TRIGGERS, tmp_path / triggers)
     profile = tmp_path / "profile.yml"
     profile.write_text(yaml.safe_dump({**_MINIMAL_PROFILE, **block}), encoding="utf-8")
@@ -82,7 +84,10 @@ def test_the_page_has_yaml_examples() -> None:
     assert len(_yaml_blocks()) >= 2, f"expected the two profile.yml examples on {_PAGE}"
 
 
-@pytest.mark.parametrize(("line", "body"), _yaml_blocks(), ids=lambda v: str(v)[:12])
+_BLOCKS = _yaml_blocks()
+
+
+@pytest.mark.parametrize(("line", "body"), _BLOCKS, ids=[f"block{n}" for n in range(len(_BLOCKS))])
 def test_each_example_loads_and_resolves_the_stated_base(
     line: int, body: str, tmp_path: Path
 ) -> None:

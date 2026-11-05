@@ -90,7 +90,9 @@ Profile YAML reference
      - Shorthand for ``config: {deployment.port_base: ...}``, the first port of
        the deployment's thousand-port block (see :ref:`reference-ports`). It
        must be an integer the port layout accepts; the build refuses any other
-       value.
+       value. It replaces any ``deployment.port_base`` the ``config:`` block
+       sets, dotted or nested, including one a child profile sets over a
+       parent's ``port_base:``, and says nothing.
    * - ``web_panels``
      - list
      - ``[]``
@@ -158,9 +160,10 @@ Profile YAML reference
      - Where the project is built, pushed and run: ``ci``, ``host``,
        ``registry``, ``image_source``, ``ci_image_prefix`` and
        ``external_projects``. ``osprey scaffold ci`` renders the CI files from
-       it. The build also writes its image source, and its registry URL when
-       ``config:`` names none, into the rendered config the web-terminal stack
-       reads (see :doc:`/how-to/deploy-a-facility`).
+       it. When the profile configures web terminals, the build also writes
+       its image source, and its registry URL when ``config:`` names none, into
+       the rendered config the web-terminal stack reads (see
+       :doc:`/how-to/deploy-a-facility`).
    * - ``virtual_accelerator``
      - mapping
      - absent
@@ -670,8 +673,8 @@ Each entry under ``mcp_servers:`` takes these keys:
      - Arguments passed to ``command``.
    * - ``env``
      - ``{}``
-     - Variables set in the server's environment. The placeholders above
-       resolve in the values.
+     - For a ``command`` server, variables set in the server's environment.
+       The placeholders above resolve in the values.
    * - ``permissions``
      - ``{}``
      - ``allow`` and ``ask`` lists of the server's tool names. The build adds
@@ -700,9 +703,10 @@ Each entry under ``mcp_servers:`` takes these keys:
      - absent
      - The server's write tools, as bare names: no ``mcp__`` prefix, no
        wildcard or pattern, each listed once. The build gates each one with the
-       writes-check and approval hooks, and gates an unlisted tool the same way
-       when it is in ``permissions.ask`` or its name carries a destructive
-       marker. ``[]`` declares that no tool writes; absent declares no list.
+       writes-check and approval hooks. An unlisted tool is gated the same way
+       when it is in ``permissions.ask``, or in ``permissions.allow`` with a
+       destructive marker in its name. ``[]`` declares that no tool writes;
+       absent leaves gating to the server's ``hooks`` and ``permissions``.
        A list beside the ``writes_check`` preset is refused. The build never
        asks the server for its tool list, so a name it does not serve is not
        caught.

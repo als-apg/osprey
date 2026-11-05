@@ -143,8 +143,9 @@ band, and moves with the base like everything else.
 The keys
 ========
 
-Each is set in ``profile.yml``, but not at the same level of it, and a key
-written at the wrong level is not read. Write a ``config:`` key dotted, one per
+Each is set in ``profile.yml``, but not at the same level of it. A key
+misplaced at the top level is refused; one misplaced under ``config:`` is
+accepted and not read. Write a ``config:`` key dotted, one per
 line: a nested ``deployment:`` mapping replaces the whole ``deployment``
 subtree (see :ref:`reference-profile`).
 
@@ -166,7 +167,9 @@ subtree (see :ref:`reference-profile`).
      - Top level
      - Shorthand for ``deployment.port_base``: the build writes the value into
        ``config:`` under that key. It must be an integer the base rules below
-       accept.
+       accept. It replaces any ``deployment.port_base`` the ``config:`` block
+       sets, including one a child profile sets over a parent's
+       ``port_base:``, and says nothing.
    * - ``worker_port_stride``
      - ``1``
      - Top-level ``dispatch:``

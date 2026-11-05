@@ -95,12 +95,6 @@ deployment, which is why none of them is a config key.
        per-user container so the reverse proxy stays the only path in from off
        the host; a single-user ``osprey web`` sets nothing and ``--host`` is
        honoured as given.
-   * - ``OSPREY_PROFILE_VARIANT``
-     - The overlay profile a build of this checkout merges over
-       ``profile.yml``: ``profiles/<name>.yml``. Read only from the
-       gitignored ``.env.variant`` file at the repository root, never from the
-       shell environment or the ``.env`` chain. See
-       :ref:`profile-host-variants`.
 
 ``OSPREY_SITE_CA`` and the ``PIP_*`` names are host-level knobs and Docker
 **build arguments** at once: the Dockerfiles in
@@ -109,6 +103,19 @@ deployment, which is why none of them is a config key.
 ``images.*`` key behind it. One spelling for one setting, whether the build is
 managed or a hand-run ``docker build``. What they configure is the build — a
 container that is already running reads nothing from them.
+
+The host's profile variant
+==========================
+
+``OSPREY_PROFILE_VARIANT`` names the overlay profile, ``profiles/<name>.yml``,
+that a build of this checkout merges over ``profile.yml``. Unlike the knobs
+above, it is not read from the shell environment or the ``.env`` chain. The
+build reads it only from the gitignored ``.env.variant`` file at the repository
+root (see :ref:`profile-host-variants`).
+
+.. code-block:: text
+
+   .env.variant:   OSPREY_PROFILE_VARIANT=teststand
 
 The archive pass
 ================
