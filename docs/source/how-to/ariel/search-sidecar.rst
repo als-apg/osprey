@@ -4,7 +4,9 @@
 The Search Sidecar (``qmd``)
 ============================
 
-``qmd`` is a service that indexes a **markdown corpus** and answers hybrid
+``qmd`` is a search service that runs as a *sidecar*: its own container,
+deployed beside the services that query it. It indexes a **markdown corpus**
+(a directory tree of markdown documents) and answers hybrid
 keyword-plus-semantic queries over HTTP. A deployment runs one ``qmd`` sidecar
 per corpus. Two parts of OSPREY use them:
 
@@ -16,9 +18,11 @@ per corpus. Two parts of OSPREY use them:
 qmd can fan one query out into keyword and vector sub-queries, merge them into a
 bounded candidate pool, and optionally re-score that pool with a small language
 model before returning hits. That is ARIEL's default ``qmd`` hybrid strategy.
-The optional ``rrf`` strategy instead asks qmd only for lexical BM25, gets the
-dense ranking from ARIEL's configured PostgreSQL semantic search, and applies
-equal-weight RRF itself. This diagram shows qmd's combined-query path:
+The optional ``rrf`` strategy instead asks qmd only for lexical BM25 (the
+standard keyword-relevance ranking) results. It gets the dense ranking from
+ARIEL's configured PostgreSQL semantic search, and merges the two lists itself
+with equal-weight RRF (reciprocal-rank fusion, which scores a hit by its rank
+in each list). This diagram shows qmd's combined-query path:
 
 .. figure:: /_static/screenshots/qmd_query_pipeline_light.png
    :class: only-light
@@ -52,7 +56,7 @@ The image is built locally, never pulled. ``osprey build`` renders
 ``<project>-qmd:local``, project-prefixed so two OSPREY projects on one host
 cannot race for one tag. The baked-in models make that first build about
 2.1 GB of download; later runs reuse the local tag. A host with no route to
-the internet can supply the models itself --- see `Building without egress`_.
+the internet can supply the models itself --- see `Build the image without internet access`_.
 
 Configuration
 -------------
@@ -70,19 +74,11 @@ Configuration
      - qmd
 
 Those four keys are the whole schema for a host that can reach the internet;
-``models_dir`` covers one that cannot (see `Building without egress`_), and
-``corpora`` adds corpora of your own (see `Declaring more corpora`_). Notably
+``models_dir`` covers one that cannot (see `Build the image without internet
+access`_), and ``corpora`` adds corpora of your own (see `Add a corpus`_).
+Notably
 **there is no ``bind_address`` here** --- see `Where the sidecar listens`_
 below.
-
-Neither consumer strictly needs the sidecar --- OKF search falls back to
-substring matching and hybrid logbook search reports an outage --- so a
-deployment that does not want a second index can switch it off. That is three
-edits, not one, because any subset leaves either a container nobody queries or
-a search mode with nothing to search: comment out the ``qmd:`` entry under
-``services:`` and the ``- qmd`` line under ``deployed_services:``, and disable
-both ``ariel.search_modules.hybrid`` and
-``ariel.enhancement_modules.qmd_export``.
 
 ``interval`` is a ceiling on staleness, not the usual lag: a corpus writer
 touches a ``.qmd-touch`` marker file and the sidecar re-indexes within one poll.
@@ -91,8 +87,22 @@ corpus --- a sweep that finds nothing changed still costs about 12.5 seconds at
 135,000 documents, so the 30-second default leaves the loop busy roughly 42% of
 the time discovering nothing.
 
-Building without egress
------------------------
+Turn the sidecar off
+--------------------
+
+Neither consumer strictly needs the sidecar --- OKF search falls back to
+substring matching and hybrid logbook search reports an outage --- so a
+deployment that does not want a second index can switch it off. That takes
+three edits, not one, because any subset leaves either a container nobody
+queries or a search mode with nothing to search:
+
+#. Comment out the ``qmd:`` entry under ``services:``.
+#. Comment out the ``- qmd`` line under ``deployed_services:``.
+#. Disable both ``ariel.search_modules.hybrid`` and
+   ``ariel.enhancement_modules.qmd_export``.
+
+Build the image without internet access
+---------------------------------------
 
 Downloading the three model files is the one step of the image build that
 reaches the internet, so on a host without egress the build stalls there.
@@ -167,8 +177,8 @@ chunks fail on every retry. ``osprey health`` shows each sidecar as one row of
 the ``qmd`` category, with a warning when documents still have no vectors and
 are found by keyword search only.
 
-Declaring more corpora
-----------------------
+Add a corpus
+------------
 
 ``corpora`` adds corpora beyond those two, each served by its own sidecar at
 ``port`` + 2 onwards, in list order; the family has room for eight.
@@ -225,15 +235,19 @@ Sharing it works through a Unix group, and ``osprey up`` sets both halves up:
 * Each entitled ``web-<user>`` service is rendered with
   ``group_add: ["<gid>"]``.
 
-Both halves are needed, and this is the part that is easy to get wrong: setgid
-makes **new files inherit the directory's group**. It does *not* make any
-container process a member of that group. Without ``group_add`` the container
-is not in the group at all, and the group-write bit grants it nothing. The
-framework's own entrypoint adds a third half for the process that actually
-serves requests: it joins the ``osprey`` user to the mounted directory's group
-before dropping privileges, because ``group_add`` reaches only the container's
-initial process. The logbook mirror written by ``qmd_export`` is shared through
-exactly the same mechanism.
+All three pieces are needed, and this is the part that is easy to get wrong:
+
+* **The directory's setgid bit** makes new files inherit the directory's group.
+  It does *not* make any container process a member of that group.
+* ``group_add`` puts the container in the group. Without it the container is
+  not in the group at all, and the group-write bit grants it nothing. It
+  reaches only the container's initial process.
+* **The framework's entrypoint** joins the ``osprey`` user, the process that
+  actually serves requests, to the mounted directory's group before dropping
+  privileges.
+
+The logbook mirror written by ``qmd_export`` is shared through exactly the same
+mechanism.
 
 One limit follows from how Unix works rather than from OSPREY: setgid fixes who
 *owns* a new file, not its permission bits, which come from the writing
