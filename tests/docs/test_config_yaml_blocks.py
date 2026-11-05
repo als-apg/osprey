@@ -351,27 +351,35 @@ def _profile_problems(page: str, document: Mapping[str, Any]) -> list[str]:
 
 
 @lru_cache(maxsize=1)
-def _other_file_roots() -> tuple[tuple[str, frozenset[str]], ...]:
-    """``(file, root keys)`` for each non-config file the docs show, from its own schema."""
+def _other_file_roots() -> tuple[tuple[str, frozenset[str], frozenset[str]], ...]:
+    """``(file, root keys, required root keys)`` for each non-config file the docs show.
+
+    Read from each file's own schema or loader. The required keys are the facility
+    schema's ``required: true`` attributes; a file with no schema has none.
+    """
     schema = yaml.safe_load(_FACILITY_SCHEMA.read_text(encoding="utf-8"))["classes"]
 
-    def attributes(name: str) -> frozenset[str]:
-        return frozenset(schema[name]["attributes"])
+    def attributes(name: str) -> tuple[frozenset[str], frozenset[str]]:
+        found = schema[name]["attributes"]
+        required = {key for key, spec in found.items() if (spec or {}).get("required")}
+        return frozenset(found), frozenset(required)
+
+    none: frozenset[str] = frozenset()
 
     vocabulary = yaml.safe_load(_EXAMPLE_VOCABULARY.read_text(encoding="utf-8"))
     return (
-        ("data/facility/identity.yaml", attributes("Identity")),
-        ("data/facility/limits.yaml", attributes("Limits")),
-        ("data/facility/measurement/<model>.yaml", attributes("Measurement")),
-        ("a scenario under data/facility/scenarios/", attributes("Scenario")),
+        ("data/facility/identity.yaml", *attributes("Identity")),
+        ("data/facility/limits.yaml", *attributes("Limits")),
+        ("data/facility/measurement/<model>.yaml", *attributes("Measurement")),
+        ("a scenario under data/facility/scenarios/", *attributes("Scenario")),
         # Read by facility/combine.py: the header and the list of fixes.
-        ("data/facility/fixes.yaml", frozenset({"schema", "fixes"})),
-        ("the MML import mapping", _MML_TOP_REQUIRED | _MML_TOP_OPTIONAL),
-        ("build/data/bluesky_devices.yml", frozenset(_BLUESKY_DEVICE_KEYS)),
-        ("an ARIEL vocabulary file", frozenset(vocabulary)),
-        ("providers.yml", frozenset({_PROVIDERS_KEY})),
+        ("data/facility/fixes.yaml", frozenset({"schema", "fixes"}), none),
+        ("the MML import mapping", _MML_TOP_REQUIRED | _MML_TOP_OPTIONAL, none),
+        ("build/data/bluesky_devices.yml", frozenset(_BLUESKY_DEVICE_KEYS), none),
+        ("an ARIEL vocabulary file", frozenset(vocabulary), none),
+        ("providers.yml", frozenset({_PROVIDERS_KEY}), none),
         # load_triggers reads exactly these two keys.
-        ("triggers.yml", frozenset({"dispatcher", "triggers"})),
+        ("triggers.yml", frozenset({"dispatcher", "triggers"}), none),
     )
 
 
@@ -394,8 +402,13 @@ def _other_file(document: Any) -> str | None:
     known = _sections() | _KNOWN_PROFILE_KEYS
     if all(root.split(".")[0] in known for root in roots):
         return None
-    for name, file_roots in _other_file_roots():
-        if roots <= file_roots:
+    # A root that is also a config or profile key (``name``, ``archiver``) says
+    # nothing about which file a block is, so it is allowed only beside a key
+    # the other file's schema requires and config never spells (identity's
+    # ``code``). Otherwise a typo beside it (``archiver: {urll: x}``) would hide.
+    overlap = roots & known
+    for name, file_roots, required in _other_file_roots():
+        if roots <= file_roots and (not overlap or roots & (required - known)):
             return name
     return None
 
@@ -594,6 +607,8 @@ def test_a_jinja_template_is_not_checked() -> None:
         ("name: demo\nconfig:\n  web.theme: dark\n", None),
         ("contrl_system:\n  type: epics\n", None),
         ("name: Demo\n", None),
+        ("name: demo\ndescription: x\n", None),
+        ("archiver:\n  urll: x\nnoise: 1\n", None),
     ],
 )
 def test_another_files_block_is_told_by_its_content(text: str, expected: str | None) -> None:
