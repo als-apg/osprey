@@ -243,7 +243,7 @@ To add your own search module, create a Python module that exports ``get_tool_de
        ],
    )
 
-Once registered and enabled in ``config.yml`` (``search_modules.my_search.enabled: true``), the module is routable by name --- through ``osprey ariel search --mode my_search`` and through the web interface's capabilities API --- with no change to ``ARIELSearchService``. Making it callable by the OSPREY agent additionally requires a matching ARIEL MCP tool (contributions welcome). The ``get_tool_descriptor()`` function must return a ``SearchToolDescriptor``, whose ``search_mode`` field is simply the registered module name:
+Once registered and enabled under ``config:`` in ``profile.yml`` (``ariel.search_modules.my_search.enabled: true``), the module is routable by name --- through ``osprey ariel search --mode my_search`` and through the web interface's capabilities API --- with no change to ``ARIELSearchService``. Making it callable by the OSPREY agent additionally requires a matching ARIEL MCP tool (contributions welcome). The ``get_tool_descriptor()`` function must return a ``SearchToolDescriptor``, whose ``search_mode`` field is simply the registered module name:
 
 :class:`~osprey.services.ariel_search.search.base.SearchToolDescriptor` — a frozen dataclass whose key fields are ``execute`` (the async search function), ``format_result`` (formats results for agent consumption), and ``args_schema`` (a Pydantic model for input validation). See the class definition in the source for the full field list.
 
@@ -488,7 +488,7 @@ pairing the matched span, as normalized, with the terms that were added:
 
 .. code-block:: json
 
-   [{"original": "ts", "alternatives": ["troubleshoot", "timing system"]}]
+   [{"original": "ts", "alternatives": ["troubleshoot"]}]
 
 It reports only what the search actually used: a mode that skipped expansion, or
 a request that turned it off, reports an empty list. In the web interface the

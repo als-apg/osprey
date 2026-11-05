@@ -94,8 +94,8 @@ To turn a module off, set its ``enabled`` key to ``false`` in ``profile.yml``:
      ariel.enhancement_modules.image_embedding.enabled: false  # no picture search
      ariel.attachments.view.enabled: false                     # no picture tools
 
-``osprey ariel watch``, and the ``ariel-sync`` service that runs it, caption
-and embed pictures on every poll, so a deployment with the watcher needs no
+``osprey ariel watch``, and ``osprey ariel sync --watch`` that the
+``ariel-sync`` service runs, caption and embed pictures on every poll, so a deployment with the watcher needs no
 ``osprey ariel enhance`` for them. Run by hand while the watcher is working on
 a module, ``osprey ariel enhance --module image_caption`` prints
 ``image_caption: skipped, another pass is running it (osprey ariel watch runs the picture modules on every poll)``

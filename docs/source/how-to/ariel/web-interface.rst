@@ -17,7 +17,7 @@ The interface has four views, accessible via the navigation bar. All views are r
 
    .. tab-item:: Search
 
-      The primary view. A search bar with mode tabs (Keyword, Semantic --- only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press ``Enter`` to submit a query; searches always include the current advanced options and filters.
+      The primary view. A search bar with mode tabs (Keyword, Semantic, Hybrid --- only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press ``Enter`` to submit a query; searches always include the current advanced options and filters.
 
       .. figure:: /_static/screenshots/ariel_search.png
          :alt: ARIEL Search View
@@ -199,7 +199,7 @@ Running the Web Interface
 
    # Use with uvicorn
    import uvicorn
-   uvicorn.run(app, host="0.0.0.0", port=10300)
+   uvicorn.run(app, host="127.0.0.1", port=10300)
 
 .. admonition:: Collaboration Welcome
    :class: outreach
