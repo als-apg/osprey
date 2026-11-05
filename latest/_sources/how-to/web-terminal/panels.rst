@@ -2,7 +2,7 @@ Panels
 ======
 
 A **panel** is a self-contained, themed mini-app the Web Terminal shows as a tab
-beside the chat. OSPREY's own tools — Channel Finder, ARIEL, the lattice
+beside the chat. OSPREY's own tools — Channel Finder, the Logbook, the lattice
 dashboard, the artifact gallery — are all panels, and you can add your own.
 A panel that takes its colors from the shared design tokens (:doc:`theming`)
 matches your theme automatically, in light and dark, with no extra work. A

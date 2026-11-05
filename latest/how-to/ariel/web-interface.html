@@ -545,7 +545,7 @@
                   
   <section id="web-interface">
 <h1>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h1>
-<p>ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.</p>
+<p>ARIEL ships with a browser-based search interface, labelled <strong>Logbook</strong>, that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 304" role="img" aria-labelledby="ariel-web-interface-title ariel-web-interface-desc">
   <title id="ariel-web-interface-title">ARIEL web interface</title>
@@ -584,78 +584,104 @@
   <text class="ts t-acc" x="584" y="220" style="font-weight:500">ARIELSearchService</text>
 </svg>
 </div>
-<section id="views">
-<h2>Views<a class="headerlink" href="#views" title="Link to this heading">#</a></h2>
-<p>The interface has four views, accessible via the navigation bar. All views are rendered client-side using hash-based routing (<code class="docutils literal notranslate"><span class="pre">#search</span></code>, <code class="docutils literal notranslate"><span class="pre">#browse</span></code>, <code class="docutils literal notranslate"><span class="pre">#create</span></code>, <code class="docutils literal notranslate"><span class="pre">#status</span></code>).</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-0">
-Search</label><div class="sd-tab-content docutils">
-<p>The primary view. A search bar with mode tabs (Keyword, Semantic — only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press <code class="docutils literal notranslate"><span class="pre">Enter</span></code> to submit a query; searches always include the current advanced options and filters.</p>
+<section id="the-screen">
+<h2>The Screen<a class="headerlink" href="#the-screen" title="Link to this heading">#</a></h2>
+<p>The interface is one screen of three panes: a <strong>rail</strong> of mailboxes (All
+entries, Drafts, Mine, and your saved searches), the <strong>list</strong> of entries
+newest first with the search box and mode chip on top, and the <strong>reader</strong> showing the
+selected entry. Below the mailboxes the rail counts the list’s entries per
+author, source, tag, declared facet field and enhancement, with a day
+histogram; click a value or a day to filter by it. The search box also takes
+<code class="docutils literal notranslate"><span class="pre">author:bob</span></code>, <code class="docutils literal notranslate"><span class="pre">author:&quot;a</span> <span class="pre">b&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">date:2026-10</span></code> (or a full day), and
+<strong>Load more</strong> at the end of the list fetches the next page. Drag the rail’s edge to resize it; released narrow, it snaps
+to an icon strip. Below 640 px the list and reader stack and the reader gets a
+Back button. The <strong>Status and settings</strong> button in the header opens those
+drawers; Status counts each enabled enhancement module’s entries as Complete,
+Pending, Stale, Failed and N/A, as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> does.</p>
+<p>The reader’s <strong>Enhancements</strong> tab shows each enabled module’s state and output
+for the entry. A failed or stale card shows the command that re-runs it,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--module</span> <span class="pre">&lt;name&gt;</span> <span class="pre">--entry</span> <span class="pre">&lt;id&gt;</span></code>, with a <strong>Copy</strong> button;
+a stale text embedding shows <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span> <span class="pre">…</span></code> instead, which rebuilds
+the whole table. Below the thread, <strong>Related</strong> lists up to five entries nearest
+by embedding.</p>
+<p><strong>Compose</strong> opens a sheet over the list column; <strong>Expand</strong> (not shown when
+stacked) spans the panel. <strong>Follow up</strong> in the reader opens it
+prefilled from the entry and links the new entry to it; the reader lists an
+entry’s parent and follow-ups. <strong>Drafts</strong> holds the drafts agents stage, shared
+across the deployment and expiring after an hour; open one in the sheet,
+<strong>Discard</strong> deletes it, Submit uses it up. The sheet autosaves to this browser
+only, never credentials or attachments, and keeps it when closed until Submit
+or Discard. The footer line says where Submit goes: this Logbook only, or the
+facility logbook (and whether it needs credentials).</p>
 <figure class="align-center" id="id1">
-<a class="reference internal image-reference" href="../../_images/ariel_search.png"><img alt="ARIEL Search View" src="../../_images/ariel_search.png" style="width: 90%;" />
+<a class="reference internal image-reference" href="../../_images/ariel_screen.png"><img alt="Logbook rail, entry list and reader" src="../../_images/ariel_screen.png" style="width: 90%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">Search view with Hybrid mode selected.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+<p><span class="caption-text">Captured with OSPREY v2026.9.0b3.post4981+g08ccec1fa.d20261102 from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>
+tutorial’s seeded logbook.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
+<p>The address records the screen as <code class="docutils literal notranslate"><span class="pre">#q=&amp;mode=&amp;box=&amp;f=&amp;sel=&amp;att=&amp;compose=</span></code>, so a link
+reopens the same search, mailbox, filter, entry, attachment and open draft. Old links still work:
+<code class="docutils literal notranslate"><span class="pre">#entry?id=…&amp;attachment=…</span></code>, <code class="docutils literal notranslate"><span class="pre">#create</span></code>, <code class="docutils literal notranslate"><span class="pre">#status</span></code>, <code class="docutils literal notranslate"><span class="pre">#search</span></code> and
+<code class="docutils literal notranslate"><span class="pre">#browse</span></code> are rewritten to that form.</p>
+<p>When the logbook adapter is read-only (the common case for the standalone
+interface), new entries are saved locally with <code class="docutils literal notranslate"><span class="pre">source_system:</span> <span class="pre">&quot;OSPREY</span> <span class="pre">Logbook</span> <span class="pre">Web&quot;</span></code>
+and an <code class="docutils literal notranslate"><span class="pre">entry_id</span></code> of the form <code class="docutils literal notranslate"><span class="pre">ariel-&lt;12-hex&gt;</span></code>; a write-capable facility
+adapter publishes them to that logbook. Created entries are searchable
+immediately.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id2">
+<caption><span class="caption-text">Keyboard</span><a class="headerlink" href="#id2" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 85.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Action</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">j</span></code> / <code class="docutils literal notranslate"><span class="pre">k</span></code></p></td>
+<td><p>Select the next / previous entry</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Enter</span></code></p></td>
+<td><p>Open the selected entry in the reader</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/</span></code></p></td>
+<td><p>Focus the search box (standalone)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">[</span></code></p></td>
+<td><p>Collapse or expand the rail</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">c</span></code> / <code class="docutils literal notranslate"><span class="pre">r</span></code></p></td>
+<td><p>Compose a new entry / follow up the selected entry</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">e</span></code></p></td>
+<td><p>Open the <strong>Enhancements</strong> tab</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">a</span></code></p></td>
+<td><p>Ask agent (embedded)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Esc</span></code></p></td>
+<td><p>Close the picture, then the compose sheet (autosave kept), then go Back
+when stacked</p></td>
+</tr>
+</tbody>
+</table>
 </div>
-<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-1">
-Browse</label><div class="sd-tab-content docutils">
-<p>Chronological, paginated listing of logbook entries (newest first) – use Previous/Next to page back through older entries. Each entry shows its timestamp, author, and a text preview. Click an entry to view its full content.</p>
-<figure class="align-center" id="id2">
-<a class="reference internal image-reference" href="../../_images/ariel_browse.png"><img alt="ARIEL Browse View" src="../../_images/ariel_browse.png" style="width: 90%;" />
-</a>
-<figcaption>
-<p><span class="caption-text">Browse view showing paginated entries sorted newest-first.</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
-</figcaption>
-</figure>
-</div>
-<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-2">
-New Entry</label><div class="sd-tab-content docutils">
-<p>Form for creating new logbook entries directly from the interface. Fields include subject, details, author, logbook, shift, and tags. When the configured logbook adapter is read-only (the common case for the standalone interface), entries are saved locally with <code class="docutils literal notranslate"><span class="pre">source_system:</span> <span class="pre">&quot;ARIEL</span> <span class="pre">Web&quot;</span></code> and a generated <code class="docutils literal notranslate"><span class="pre">entry_id</span></code> of the form <code class="docutils literal notranslate"><span class="pre">ariel-&lt;12-hex&gt;</span></code>. When a write-capable facility adapter is configured, the entry is published to that logbook and takes the facility’s <code class="docutils literal notranslate"><span class="pre">source_system</span></code> and <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>. Created entries are searchable immediately.</p>
-<figure class="align-center" id="id3">
-<a class="reference internal image-reference" href="../../_images/ariel_create.png"><img alt="ARIEL New Entry View" src="../../_images/ariel_create.png" style="width: 90%;" />
-</a>
-<figcaption>
-<p><span class="caption-text">New entry form for creating logbook entries from the web interface.</span><a class="headerlink" href="#id3" title="Link to this image">#</a></p>
-</figcaption>
-</figure>
-</div>
-<input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-3">
-Status</label><div class="sd-tab-content docutils">
-<p>Dashboard showing service health, database connection, entry count, embedding tables, enabled modules, and last ingestion timestamp. The dashboard polls <code class="docutils literal notranslate"><span class="pre">/api/status</span></code> on load, making it useful for verifying that the service is configured correctly after deployment.</p>
-<figure class="align-center" id="id4">
-<a class="reference internal image-reference" href="../../_images/ariel_status.png"><img alt="ARIEL Status View" src="../../_images/ariel_status.png" style="width: 90%;" />
-</a>
-<figcaption>
-<p><span class="caption-text">Status dashboard showing service health and configuration.</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
-</figcaption>
-</figure>
-</div>
-</div>
-<p>The four ARIEL views above were captured with OSPREY v2026.9.0b3.post4857+gf69670843.d20261101 from the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> tutorial’s seeded logbook.</p>
 </section>
 <section id="advanced-options">
 <h2>Advanced Options<a class="headerlink" href="#advanced-options" title="Link to this heading">#</a></h2>
-<p>The <strong>Filters &amp; Options</strong> panel is built from whatever the enabled search
+<p>The Filters &amp; Options popover, opened from the mode chip, is built from whatever the enabled search
 modules declare, so the controls in it depend on the deployment. Two things
 about how it behaves are worth knowing before you tune anything.</p>
-<p><strong>Every knob shows its own explanation.</strong> The description a module writes for a
-parameter is rendered as a line of hint text under the control, rather than
-hidden behind a hover tooltip — readable on a touch screen, and readable
-without having to discover that there was something to hover over.</p>
+<p><strong>Every knob shows its own explanation.</strong> A module’s parameter description is
+hint text under the control, not a hover tooltip.</p>
 <p><strong>Knobs you have not touched follow the deployment’s configuration.</strong> The panel
-opens on the deployment’s configured value for every control that has one, and
-on the shipped default for the rest; a search sends only the controls you
-actually changed. Anything you left alone is not sent at all, so it resolves on
-the server to whatever the configuration says — which means a change to the
-deployment’s config reaches the panel without anyone re-picking anything, after
-the service restarts and the page is reloaded. <strong>Reset</strong> clears the whole set:
+opens on the configured value, or the shipped default, and a search sends only
+the controls you changed, so a config change reaches the panel after a restart
+and reload. <strong>Reset</strong> clears the whole set:
 values return to the configured defaults, and every knob counts as untouched
 again.</p>
 <p>That is also why the reranking control behaves the way it does. <strong>Rerank
@@ -682,15 +708,17 @@ reranked.</p>
 </section>
 <section id="display-preferences">
 <h2>Display Preferences<a class="headerlink" href="#display-preferences" title="Link to this heading">#</a></h2>
-<p>The button at the top right of the header — the one drawn as three sliders
-— opens a small card holding everything about how the interface looks, plus
-the way in to its settings:</p>
+<p>The rightmost button in the header opens a small card holding everything
+about how the interface looks, plus the way in to its settings:</p>
 <dl class="simple">
 <dt><strong>Appearance</strong></dt><dd><p>Light or Dark. It flips the shade without changing which theme you are in.</p>
 </dd>
 <dt><strong>Theme</strong></dt><dd><p>One button per theme family: Main, DESY, High Contrast, and Retro. Picking
 a family keeps whichever appearance you are already in, so a switch from
 Main to High Contrast in dark stays dark.</p>
+</dd>
+<dt><strong>Badges</strong></dt><dd><p>Shows or hides the enhancement badges on list rows. Embedded, the tile
+bar’s menu carries it, and it starts off when the panel is narrow.</p>
 </dd>
 <dt><strong>Settings</strong></dt><dd><p>Opens the settings drawer, where you can read and edit ARIEL’s
 configuration block.</p>
@@ -700,33 +728,28 @@ configuration block.</p>
 so you can compare two looks without re-opening the menu. Settings closes it,
 because it takes you to a different surface. Click anywhere outside the card,
 or press <code class="docutils literal notranslate"><span class="pre">Escape</span></code>, to dismiss it.</p>
-<p><strong>Your picks follow you.</strong> The theme you choose here is remembered by
-your browser and shared with every OSPREY interface served from the same
-address — pick a dark High Contrast look in ARIEL and the OSPREY web terminal
-comes up that way the next time you load it, and the other way round too. There
-is no separate preference to keep in step.</p>
-<p>ARIEL running <em>inside</em> the web terminal, as a panel, behaves differently on
+<p><strong>Your picks follow you.</strong> The theme is remembered by your browser and shared
+with every OSPREY interface served from the same address, the web terminal
+included, in both directions.</p>
+<p>The Logbook running <em>inside</em> the web terminal, as a panel, behaves differently on
 purpose. The terminal passes its own theme to the panel in the page
 address, and an address always outranks the remembered preference, so an
 embedded panel matches the terminal it sits in no matter what was set
 elsewhere. The embedded panel has no header of its own either — the
-terminal’s tile bar is the one header — so the sliders button does not
+terminal’s tile bar is the one header — so the display button does not
 appear there.</p>
-<p>The embedded panel’s tile bar offers Browse and New Entry, and opens on
-Browse: inside the terminal, the agent searches the logbook. A deployment that
-wants the Search view there too turns it on in its profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel.embedded_search</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</pre></div>
-</div>
-<p>The embedded panel then opens on Search, with Search ahead of Browse and New
-Entry. Keyword search works immediately against the ARIEL full-text index;
-semantic and hybrid choices are shown only when their configured services are
-available. The standalone interface always offers Search. Opening a stored,
-viewable picture from an entry also offers <strong>Use in Workspace</strong>. It copies the
-prepared rendition into the local Workspace gallery with its logbook
-provenance, then activates Workspace in the browser that clicked it. Ask the
-agent about that Workspace artifact; it resolves the provenance and reads the
-same stored attachment pixels rather than an external logbook URL.</p>
+<p>Embedded, the tile bar carries the search box, <strong>Compose</strong>, and a menu to
+hide the rail or save the search; the rail starts collapsed. Keyword search
+works immediately; semantic and hybrid choices appear only when their services
+are available. <strong>Ask agent</strong> (<code class="docutils literal notranslate"><span class="pre">a</span></code>) puts a citation of the entry and the
+selected text, or its subject, into the assistant prompt without sending it.
+When the agent creates an entry, the list refreshes and flashes the row if you
+are at the top; otherwise an <strong>n new</strong> pill counts it. An agent’s
+<code class="docutils literal notranslate"><span class="pre">entry_open</span></code> (<code class="docutils literal notranslate"><span class="pre">#sel=&lt;id&gt;</span></code>) selects the entry in place, keeping the search
+and scroll. Opening a stored, viewable picture from an entry also offers
+<strong>Use in Workspace</strong>, which copies the prepared rendition into the Workspace
+gallery with its logbook provenance; the agent then reads the same stored
+pixels, not an external logbook URL.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/capabilities</span></code> endpoint the interface calls at startup, and the
 parameter descriptors it returns, are documented in
 <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a>.</p>
@@ -759,7 +782,7 @@ such as PostgreSQL.</p>
 </div>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
-<p>The web interface is a great place to contribute — whether that is a new view, improved accessibility, mobile-responsive layouts, or better error handling. If you build something useful, we encourage you to open a pull request so it becomes part of Osprey.</p>
+<p>The web interface is a great place to contribute — whether that is improved accessibility, mobile-responsive layouts, or better error handling. If you build something useful, we encourage you to open a pull request so it becomes part of Osprey.</p>
 </div>
 </section>
 <section id="see-also">
@@ -822,7 +845,7 @@ such as PostgreSQL.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#views">Views</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-screen">The Screen</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-options">Advanced Options</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#watching-a-reranked-search-run">Watching a reranked search run</a></li>
 </ul>

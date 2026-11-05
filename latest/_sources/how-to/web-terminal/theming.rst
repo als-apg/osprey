@@ -34,13 +34,13 @@ Themes come in **families**. OSPREY ships four:
 
 In the terminal, click **☰ More** at the bottom of the sidebar. It holds the
 light/dark switch and the theme family picker, as pictured below. Every
-panel opened as its own page (ARIEL, the workspace, Channel Finder, the
+panel opened as its own page (the Logbook, the workspace, Channel Finder, the
 lattice dashboard, the knowledge panel) has a sliders button in its own
 header. It opens the display menu, which has the same display controls.
 
 A pick made on any of those pages is remembered by your browser and becomes
 your preference for every OSPREY page served from the same address — set a
-theme in ARIEL and the terminal comes up in it the next time you load it.
+theme in the Logbook and the terminal comes up in it the next time you load it.
 Until you pick Light or Dark, pages follow your operating system's light/dark
 preference.
 
