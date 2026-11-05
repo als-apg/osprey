@@ -21,11 +21,13 @@ Checked languages
 -----------------
 * ``bash`` -- a leading ``$ `` prompt is stripped from each line and every
   ``<placeholder>`` (an angle-bracketed phrase starting with a letter, such
-  as ``<package>`` or ``<the digest show printed>``) becomes one word, since
+  as ``<package>`` or ``<the digest show printed>``, holding no shell
+  metacharacter and not part of a ``<<`` heredoc) becomes one word, since
   the reader replaces it; then ``bash -n`` parses the block. Skipped, with the reason, where no ``bash`` is
   on ``PATH``.
 * ``console`` -- only lines starting with ``$ `` are commands (with the lines
-  a trailing ``\\`` continues); everything else is output. The commands go to
+  a trailing ``\\`` continues); everything else is output. A console block
+  with no ``$ `` line fails. The commands go to
   ``bash -n`` as a ``bash`` block's lines do.
 * ``json`` -- :func:`json.loads`.
 * ``toml`` -- :func:`tomllib.loads`.
@@ -69,14 +71,17 @@ _DOCS_SOURCE = _REPO_ROOT / "docs" / "source"
 
 #: A code directive, or a paragraph ending in ``::``, that opens a literal block.
 #: Other directives (``.. note::``) hold prose and open nothing.
-_BLOCK_OPENER = re.compile(r"^(\s*)(\.\. (code-block|code|sourcecode)::(.*)|(?!\.\. )\S.*::)\s*$")
+_BLOCK_OPENER = re.compile(
+    r"^(\s*)(\.\. (code-block|code|sourcecode)::(.*)|(?!\.\.\s)(?:\S.*)?::)\s*$"
+)
 
 #: A directive option line, ``:caption: foo`` or ``:linenos:``.
 _OPTION_LINE = re.compile(r"^:[\w-]+:")
 
 #: A ``<placeholder>`` the reader replaces; bash would read its ``<`` and ``>``
-#: as redirections.
-_PLACEHOLDER = re.compile(r"<[A-Za-z][^<>\n]*>")
+#: as redirections. It holds no shell metacharacter and is not the second
+#: ``<`` of a heredoc, so ``<in.txt | cmd >out`` and ``<<EOF >f`` stay shell.
+_PLACEHOLDER = re.compile(r"(?<!<)<[A-Za-z][^<>|;&()$`\n]*>")
 
 #: Languages this check does not parse; see the module docstring for why.
 _UNCHECKED = frozenset(
@@ -200,6 +205,8 @@ def check_console(text: str) -> str | None:
         else:
             continue
         continued = line.rstrip().endswith("\\")
+    if not commands:
+        return "a console block with no ``$ `` command line"
     return _bash_n("\n".join(commands))
 
 
@@ -371,6 +378,13 @@ def test_a_placeholder_is_a_word_not_a_redirection() -> None:
         pytest.skip("no bash on PATH")
     assert check_bash("uv add <package>\ngit revert <accept commit>") is None
     assert check_bash("uv add <package> |") is not None
+    assert check_bash("grep x <in.txt | ( done >out.txt") is not None
+    assert check_bash("cat <<EOF > f.txt\nbody\nEOF") is None
+
+
+def test_a_console_block_needs_a_command_line() -> None:
+    """A console block of output only is refused, not passed as empty."""
+    assert check_console("Usage: osprey [OPTIONS]") is not None
 
 
 def test_the_scanner_stops_at_a_nested_directive_and_skips_options() -> None:
@@ -384,10 +398,13 @@ def test_the_scanner_stops_at_a_nested_directive_and_skips_options() -> None:
         "   .. note::\n\n"
         "      prose, not a block\n\n"
         "A paragraph::\n\n"
-        "   literal text\n"
+        "   literal text\n\n"
+        "::\n\n"
+        "   bare opener text\n"
     )
     blocks = scan(text, "page.rst")
     assert [(b.language, b.line, b.text) for b in blocks] == [
         ("bash", 6, "echo one\n\necho two"),
         ("literal", 16, "literal text"),
+        ("literal", 20, "bare opener text"),
     ]
