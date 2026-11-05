@@ -11,10 +11,19 @@
 #               when there is none), `literal` for a paragraph ending in `::`,
 #               `literalinclude` for an included file
 #   kind:       runs   - executes the block, or loads it through the code that owns it
-#               checks - parses it, or resolves the names it spells
+#               checks - resolves the names it spells against what defines them
 #               pins   - compares its text or value with a value the code holds
+#               parses - only the language's own parser reads it (bash -n,
+#                        json.loads, ast.parse); nothing compares it with the
+#                        code. The weakest kind: a block only a `parses` claim
+#                        reads counts as tested, and the report also shows it
+#                        as "parse-only"
 #   contains:   optional; the claim covers only blocks whose text contains this
 #               (for a test that reads one block among several on a page)
+#   matches:    optional, instead of `contains`; a regular expression searched
+#               in the block, `^` and `$` at each line, for a test that reads
+#               lines of a shape (`^npm run`) rather than blocks holding a
+#               word. A claim with both is a ledger problem
 #   what:       one line: what the test does to the block
 #
 # A test belongs here only if it reads the content of a block. Tests that read
@@ -26,7 +35,34 @@
 # exists, names each claimed page (its stem, or `docs/source` for a `**` glob)
 # and the claim matches at least one block.
 #
-# `pending:` holds claims of tests on open pull requests, with the PR number.
+# `not_testable:` names blocks nothing in the repository can read. They are
+# not counted as untested: the report shows them in their own column and the
+# ratchet skips them. Each entry has `pages`, `languages`, exactly one of
+# `contains`/`matches` (as for a claim; usually the block's first line), a
+# `reason` and a `why`: one line a reviewer can check against the block, saying
+# what it needs that a test lacks. Reasons:
+#
+#   network          - it downloads or posts over the internet (an installer,
+#                      a package manager, a cloud API)
+#   host-service     - it drives the host's own services (systemd, logind,
+#                      journald, cron) or root-owned files
+#   third-party-tool - it runs a program OSPREY does not ship (node, claude,
+#                      docker, podman, a Canopy wheel) and carries no OSPREY
+#                      name a test could resolve
+#   llm              - it is what a person types to the agent, or the model's
+#                      side of the conversation
+#   illustration     - it shows the shape of something (an HTTP request, a
+#                      passwd excerpt, a hypothetical file tree) that nothing
+#                      in the repository holds
+#
+# A block a `runs`/`checks`/`pins` claim reads (live or pending, landed or
+# not) is tested, so an entry that names it is a ledger problem; so are an
+# entry that matches no block, an unknown reason and an empty `why`. A
+# `parses` claim may read a not-testable block: the entry wins, and the block
+# is not counted as parse-only.
+#
+# `pending:` holds claims of tests on open pull requests, with the PR number
+# (or the campaign unit id, such as `W6-3`, until the pull request opens).
 # Until the test is on disk the report shows what it would cover. Once it is (a
 # new file exists, or a widened file contains `marker:`) the claim counts as
 # tested, so the PRs can merge in any order; --check only notes it. A tidy-up
@@ -142,6 +178,192 @@ not_counted:
     why: bans run-metadata wire words in write-plans.rst code regions; says nothing else about the block
   - test: tests/docs/test_config_reference_keys.py
     why: reads inline literals on the configuration reference pages, not blocks
+
+not_testable:
+  # network
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "brew install node"
+    reason: network
+    why: installs Node.js from Homebrew's servers onto the reader's machine
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "Homebrew/install/HEAD/install.sh"
+    reason: network
+    why: downloads and runs Homebrew's installer script from GitHub
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "sudo apt-get install -y nodejs npm"
+    reason: network
+    why: installs Node.js and npm from the Debian/Ubuntu archive with sudo (two blocks, one per tab)
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "brew install uv"
+    reason: network
+    why: installs uv from Homebrew's servers onto the reader's machine
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "curl -LsSf https://astral.sh/uv/install.sh | sh"
+    reason: network
+    why: downloads and runs Astral's uv installer script
+  - pages: [how-to/ariel/index.rst]
+    languages: [bash]
+    contains: "brew install ollama"
+    reason: network
+    why: installs Ollama from Homebrew, starts its daemon and pulls nomic-embed-text from the Ollama registry
+  - pages: [how-to/ariel/index.rst]
+    languages: [bash]
+    contains: "curl -fsSL https://ollama.com/install.sh | sh"
+    reason: network
+    why: downloads and runs Ollama's installer script, starts its daemon and pulls nomic-embed-text from the Ollama registry
+  - pages: [how-to/ariel/picture-search.rst]
+    languages: [bash]
+    contains: "sha256sum Qwen.Qwen3-VL-Embedding-2B.Q4_K_M.gguf"
+    reason: network
+    why: checksums the two Hugging Face downloads (about 1.9 GB); the repository holds only their names and hashes (tests/fixtures/llama_server/README.md), not the files
+  - pages: [how-to/agent-interfaces/chat-bridges/microsoft-teams.rst]
+    languages: [text]
+    contains: "POST https://graph.microsoft.com/v1.0/sites/"
+    reason: network
+    why: a Microsoft Graph request the operator sends to their own tenant to grant the app a SharePoint list role; OSPREY never sends it
+  - pages: [how-to/deploy-project/index.rst]
+    languages: [bash]
+    contains: "uv pip install build"
+    reason: network
+    why: installs PyPA's `build` package from PyPI; it names no OSPREY distribution or extra
+
+  # host-service
+  - pages: [how-to/deploy-a-facility.rst]
+    languages: [bash]
+    contains: "systemctl --user daemon-reload"
+    reason: host-service
+    why: copies a unit into ~/.config/systemd/user and enables it with the host's systemd user manager
+  - pages: [how-to/deploy-a-facility.rst]
+    languages: [bash]
+    contains: "loginctl enable-linger"
+    reason: host-service
+    why: tells the host's systemd-logind to keep the account's user manager running after logout
+  - pages: [how-to/deploy-a-facility.rst]
+    languages: [bash]
+    contains: "journalctl --user -u osprey.service"
+    reason: host-service
+    why: reads the installed unit's state and journal from the host's systemd
+  - pages: [how-to/deploy-a-facility.rst]
+    languages: [ini]
+    contains: "network-home.conf"
+    reason: host-service
+    why: a root-owned systemd drop-in under /etc/systemd/system/user@<uid>.service.d that orders the user manager after remote mounts
+
+  # third-party-tool
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "node --version\n# You should see"
+    reason: third-party-tool
+    why: prints the reader's Node.js version; OSPREY ships no node
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    matches: '\Aclaude --version\Z'
+    reason: third-party-tool
+    why: prints the installed Claude Code CLI's version; the version OSPREY pins is checked on the npm install line, not here
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    matches: '\Auv --version\Z'
+    reason: third-party-tool
+    why: prints the reader's uv version; OSPREY sets no floor a test could compare with
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "docker compose version"
+    reason: third-party-tool
+    why: prints the Docker engine and compose plugin versions on the reader's machine
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "podman --version"
+    reason: third-party-tool
+    why: prints the reader's Podman version
+  - pages: [getting-started/installation.rst]
+    languages: [bash]
+    contains: "podman machine init"
+    reason: third-party-tool
+    why: creates and boots Podman's Linux VM on macOS or Windows
+  - pages: [how-to/web-terminal/canopy-library.rst]
+    languages: [bash]
+    contains: "python3 -m venv ~/canopy-dev/venv"
+    reason: third-party-tool
+    why: builds a venv from the Canopy and pydmconverter wheels (not in this repository) and installs Playwright's Chromium
+  - pages: [how-to/web-terminal/canopy-library.rst]
+    languages: [bash]
+    contains: "canopy_mcp.skill install"
+    reason: third-party-tool
+    why: runs the Canopy wheel's skill installer and writes an access key; the module comes from the Canopy wheel, not OSPREY
+  - pages: [how-to/web-terminal/canopy-library.rst]
+    languages: [bash]
+    contains: "canopy_mcp.report"
+    reason: third-party-tool
+    why: runs the Canopy wheel's library report over the project's screens; the module comes from the Canopy wheel, not OSPREY
+  - pages: [contributing/agent-skills.rst]
+    languages: [bash]
+    contains: "claude plugin marketplace update osprey"
+    reason: third-party-tool
+    why: updates the plugin through the Claude Code CLI's marketplace, which needs the claude binary and a signed-in account
+  - pages: [getting-started/osprey-install.rst]
+    languages: [bash]
+    contains: "cd ~/my-osprey-project\nclaude"
+    reason: third-party-tool
+    why: opens an interactive Claude Code session in a new empty directory
+  - pages: [how-to/ariel/search-modes.rst]
+    languages: [bash]
+    contains: "docker exec -e ARIEL_DB_READONLY_PASSWORD="
+    reason: third-party-tool
+    why: runs the role script inside a deployment's running Postgres container through docker exec
+  - pages: [how-to/agent-interfaces/chat-bridges/microsoft-teams.rst]
+    languages: [json]
+    contains: '"bots": ['
+    reason: third-party-tool
+    why: a Teams app manifest the operator uploads to Teams; nothing under src/osprey/templates/services/teams_bridge renders or reads one
+
+  # llm
+  - pages: [how-to/control-systems/switch-control-target.rst]
+    languages: [literal]
+    contains: "> what control target are we on"
+    reason: llm
+    why: what the operator types to the agent (three blocks); the agent's tool calls, not this text, are what the page's guards check
+  - pages: [how-to/control-systems/switch-control-target.rst]
+    languages: [literal]
+    contains: "> switch to the live machine"
+    reason: llm
+    why: what the operator types to the agent to ask for the live machine
+  - pages: [how-to/bluesky/write-plans.rst]
+    languages: [text]
+    contains: "Write me a plan that ramps one corrector"
+    reason: llm
+    why: a request the user types to the agent in plain English
+  - pages: [how-to/bluesky/run-first-plan.rst]
+    languages: [text]
+    contains: "Set up a 2-D grid scan"
+    reason: llm
+    why: a request the user types to the agent in plain English
+  - pages: [getting-started/osprey-install.rst]
+    languages: [text]
+    contains: "/osprey:setup"
+    reason: llm
+    why: a slash command typed into a Claude Code session; the plugin's skill, not a test, answers it
+
+  # illustration
+  - pages: [how-to/deploy-project/project-image.rst]
+    languages: [text]
+    contains: "alice:x:1000:1000::/home/osprey:/bin/bash"
+    reason: illustration
+    why: two passwd lines showing a host user and the image's user sharing uid 1000; no file in the repository holds them
+  - pages: [how-to/ariel/picture-search.rst]
+    languages: [text]
+    contains: "GET /orbit_kick.png HTTP/1.1"
+    reason: illustration
+    why: the request llama-server sends for an image URL, as a reader would see it in a server log
+  - pages: [how-to/safety-watchdogs.rst]
+    languages: [text]
+    contains: "why-asked-twice.jsonl    benign"
+    reason: illustration
+    why: a tree of four hypothetical fixture files and their prompts; the real fixture format is the JSONL block after it
 
 pending:
   # Claims of tests on open pull requests, read from each PR branch on 2026-11-05.
@@ -395,3 +617,199 @@ pending:
     kind: checks
     contains: "osprey "
     what: every `osprey` line in any block resolves in the click tree, options and choices included
+  - test: tests/docs/test_block_syntax.py
+    pr: 2430
+    pages: ["**/*.rst"]
+    languages: [bash, console, json, toml, ini, python, jinja, dockerfile]
+    kind: parses
+    what: bash -n / json.loads / tomllib / configparser / ast.parse / jinja2 / Dockerfile instruction words accept the block
+  # tests/docs/test_command_names_resolve.py reads lines (stripped, one `$ ` prompt
+  # dropped), so each claim is one line shape it resolves.
+  - test: tests/docs/test_command_names_resolve.py
+    pr: 2431
+    pages: ["**/*.rst"]
+    languages: [bash, console, text, literal]
+    kind: checks
+    matches: '^\s*(\$\s+)?(export\s+)?[A-Z][A-Z0-9_]*='
+    what: every NAME= at the start of a line occurs as a word under src/osprey or packages
+  - test: tests/docs/test_command_names_resolve.py
+    pr: 2431
+    pages: ["**/*.rst"]
+    languages: [bash, console, text, literal]
+    kind: checks
+    matches: '^\s*(\$\s+)?uv sync\b.*--extra'
+    what: every `uv sync --extra X` names an extra of pyproject.toml
+  - test: tests/docs/test_command_names_resolve.py
+    pr: 2431
+    pages: ["**/*.rst"]
+    languages: [bash, console, text, literal]
+    kind: checks
+    matches: '^\s*(\$\s+)?(uv pip install|uv tool (install|upgrade)|(\S*/)?pip install)\b.*?[\s"''](osprey|\.(?=[\s\["'']|$))'
+    what: an install of an osprey distribution (or `.`) names one of the repository's distributions and its extras
+  - test: tests/docs/test_command_names_resolve.py
+    pr: 2431
+    pages: ["**/*.rst"]
+    languages: [bash, console, text, literal]
+    kind: checks
+    matches: '^\s*(\$\s+)?(uv run\s+(-\S+\s+)*)?((pytest|ruff)\b.*\s[^\s-]\S*/|(\S*/)?python3?\s+[^\s-]|(\./)?scripts/)'
+    what: pytest and ruff path arguments, `python <script>` and `scripts/...` paths exist under the repository root
+  - test: tests/docs/test_command_names_resolve.py
+    pr: 2431
+    pages: ["**/*.rst"]
+    languages: [bash, console, text, literal]
+    kind: checks
+    matches: '^\s*(\$\s+)?npm (run\s+\S|install\b.*@anthropic-ai/claude-code@)'
+    what: npm run scripts are in package.json; the Claude Code version equals _DEFAULT_CLAUDE_CLI_VERSION
+  - test: tests/docs/test_command_names_resolve.py
+    pr: 2431
+    pages: ["**/*.rst"]
+    languages: [bash, console, text, literal]
+    kind: checks
+    matches: '^\s*(\$\s+)?(uv run\s+(-\S+\s+)*)?(\S*/)?python3? -m osprey\.'
+    what: each `python -m osprey.<module>` is importable and runnable
+  - test: tests/docs/test_command_names_resolve.py
+    pr: 2431
+    pages: ["**/*.rst"]
+    languages: [html]
+    kind: pins
+    contains: "/design-system/"
+    what: each /design-system/<file> is a file in the design system's static directory
+  - test: tests/docs/test_command_names_resolve.py
+    pr: 2431
+    pages: ["**/*.rst"]
+    languages: [literal]
+    kind: pins
+    contains: "jlab-archiver-client"
+    what: the jlab-archiver-client floor equals the connector's _REQUIRED_CLIENT
+
+  # Wave-6 units: `pr:` is the unit id until the pull request opens.
+  - test: tests/docs/test_contract_examples_ariel.py
+    pr: W6-2
+    pages: [reference/contracts/examples/ariel-*.json]
+    languages: [literalinclude]
+    kind: runs
+    what: each ARIEL JSON example validates against the service's pydantic model, or equals the code's error envelope
+  - test: tests/docs/test_contract_examples_ariel.py
+    pr: W6-2
+    pages: [reference/contracts/ariel.rst]
+    languages: [text]
+    kind: pins
+    contains: "attachment_id"
+    what: the attachment field list equals AttachmentResponse's fields, optional ones marked
+  - test: tests/docs/test_guard_page_examples.py
+    pr: W6-3
+    pages: [how-to/safety-watchdogs.rst]
+    languages: [text]
+    kind: runs
+    matches: '"label"|Hit rate|instructions\.md'
+    what: the fixture lines load through _read_fixtures; report rows and profile names equal the replay's and loader's
+  - test: tests/docs/test_guard_page_examples.py
+    pr: W6-3
+    pages: [how-to/safety-watchdogs.rst]
+    languages: [literalinclude]
+    kind: runs
+    what: the included instructions are what load_profile_watchdogs reads for guard-circumvention in an initialised project
+  - test: tests/docs/test_guard_page_examples.py
+    pr: W6-3
+    pages: [architecture/python-executor.rst]
+    languages: [python, text, literal]
+    kind: runs
+    what: the executor's static analysis refuses the epics lines and accepts osprey.runtime; refusal texts equal the writers'
+  - test: tests/docs/test_guard_page_examples.py
+    pr: W6-3
+    pages: [reference/contracts/connectors.rst]
+    languages: [literal]
+    kind: pins
+    what: the switch_off refusal text and its [osprey-refusal] trailer equal refusals.py and the hooks'
+  - test: tests/docs/test_ariel_howto_examples.py
+    pr: W6-4
+    pages: [how-to/ariel/data-ingestion.rst]
+    languages: [python, literal, sql]
+    kind: runs
+    what: the adapter snippets subclass FacilityAdapter and run; backoff, advisory and table name equal the service's
+  - test: tests/docs/test_ariel_howto_examples.py
+    pr: W6-4
+    pages: [how-to/ariel/search-modes.rst, how-to/ariel/web-interface.rst]
+    languages: [python]
+    kind: runs
+    what: the registry and create_app snippets run against the real helpers
+  - test: tests/docs/test_ariel_howto_examples.py
+    pr: W6-4
+    pages: [how-to/ariel/index.rst, how-to/ariel/picture-search.rst]
+    languages: [bash]
+    kind: pins
+    contains: "ollama pull qwen3-vl"
+    what: the pulled model tag equals the control-assistant preset's
+  - test: tests/docs/test_bundle_and_tree_examples.py
+    pr: W6-5
+    pages: [how-to/facility-knowledge/okf-bundle.rst]
+    languages: [markdown, python, text]
+    kind: runs
+    what: the markdown parses and validates as OKF, links resolve, regenerate_indexes runs; the tree names are the code's
+  - test: tests/docs/test_bundle_and_tree_examples.py
+    pr: W6-5
+    pages: [how-to/build-profiles.rst]
+    languages: [text]
+    kind: runs
+    matches: '\Abuild/'
+    what: the build/ tree's top level equals what osprey init plus osprey build write
+  - test: tests/docs/test_bundle_and_tree_examples.py
+    pr: W6-5
+    pages: [how-to/deploy-project/compose-templates.rst, how-to/describe-your-facility.rst, how-to/deploy-project/project-image.rst]
+    languages: [text]
+    kind: pins
+    matches: '^(services/|data/facility/|my-facility/)'
+    what: each file the tree names is one the templates ship or the build reads
+  - test: tests/docs/test_deploy_page_shapes.py
+    pr: W6-6
+    pages: [how-to/deploy-project/project-image.rst]
+    languages: [text, dockerfile]
+    kind: pins
+    matches: 'gguf|http_proxy'
+    what: the model file names equal qmd_service's; the proxy RUN lines are lines of the shipped recipe
+  - test: tests/docs/test_deploy_page_shapes.py
+    pr: W6-6
+    pages: [how-to/deploy-project/index.rst]
+    languages: [text]
+    kind: pins
+    what: the compose invocation's file names and flag order equal the ones container_lifecycle and compose_merge use
+  - test: tests/docs/test_deploy_page_shapes.py
+    pr: W6-6
+    pages: [how-to/deploy-project/index.rst]
+    languages: [ini]
+    kind: pins
+    contains: "netavark"
+    what: the network backend equals container_lifecycle's _REQUIRED_PODMAN_NETWORK_BACKEND
+  - test: tests/docs/test_deploy_page_shapes.py
+    pr: W6-6
+    pages: [how-to/deploy-project/env-chain.rst, how-to/deploy-a-facility.rst, how-to/build-profiles.rst]
+    languages: [bash]
+    kind: pins
+    matches: '^(cp|mv) \.env'
+    what: the .env file names are the ones the CLI and workspace code read; .env.production is the retired name
+  - test: tests/docs/test_deploy_page_shapes.py
+    pr: W6-6
+    pages: [how-to/llm-providers/configure-providers.rst]
+    languages: [json]
+    kind: pins
+    what: the settings shape and env key are what the agent launcher writes and the provider env reads
+  - test: tests/docs/test_deploy_page_shapes.py
+    pr: W6-6
+    pages: [reference/configuration/profile.rst]
+    languages: [text]
+    kind: pins
+    contains: "rendered by the build"
+    what: the message equals the derived-keys f-string, the key as the variable part
+  - test: tests/docs/test_deploy_page_shapes.py
+    pr: W6-6
+    pages: [how-to/agent-interfaces/cli-agent.rst]
+    languages: [text]
+    kind: pins
+    contains: "Companion servers"
+    what: the section title and row labels equal what osprey chat prints
+  - test: tests/docs/test_deploy_page_shapes.py
+    pr: W6-6
+    pages: [reference/configuration/config.rst]
+    languages: [literal]
+    kind: pins
+    what: the image name order equals what resolve_image_defaults composes
