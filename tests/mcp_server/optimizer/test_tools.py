@@ -104,7 +104,7 @@ def test_the_requests_table_covers_every_registered_tool():
 async def test_each_tool_sends_its_route_and_returns_the_answer_parsed(
     optimizer, module, name, kwargs, method, path, query
 ):
-    answer = [{"name": "lin", "display_name": "Linac", "valid": True}]
+    answer = {"name": "lin", "display_name": "Linac", "valid": True}
     optimizer.respond = lambda _r: httpx.Response(200, json=answer)
 
     out = json.loads(await _tool(module, name)(**kwargs))
@@ -114,7 +114,11 @@ async def test_each_tool_sends_its_route_and_returns_the_answer_parsed(
     assert str(sent.url).startswith(BASE_URL)
     assert sent.url.path == path
     assert {key: sent.url.params.get_list(key) for key in sent.url.params} == query
-    assert out == ({"config": answer, "revision": None} if name == "get_job_config" else answer)
+    expected = {
+        "get_job_config": {"config": answer, "revision": None},
+        "create_draft": {**answer, "control_target": SESSION_TARGET},
+    }
+    assert out == expected.get(name, answer)
 
 
 async def test_a_path_segment_is_escaped(optimizer):
@@ -127,34 +131,39 @@ async def test_a_run_id_segment_is_escaped(optimizer):
     assert optimizer.requests[0].url.raw_path == b"/results/lin/2026%2011%3Fx"
 
 
-@pytest.mark.parametrize("name", ["get_result", "preview_restore"])
 @pytest.mark.parametrize(
     "run_id", ["../jobs/j1", "lin/..", "./2026", "lin", "lin/", "/2026", "a/b/c", ""]
 )
-async def test_a_run_id_that_is_not_env_slash_timestamp_is_refused_unsent(optimizer, name, run_id):
+async def test_a_run_id_that_is_not_env_slash_timestamp_is_refused_unsent(optimizer, run_id):
     with assert_raises_error(error_type="validation_error"):
-        await _tool(results, name)(run_id=run_id)
+        await _tool(results, "get_result")(run_id=run_id)
     assert optimizer.requests == []
 
 
+_NO_TARGET = {"environment_name": "lin", "preset": "phase"}
+_OWN_TARGET = {"environment_name": "lin", "control_target": "va", "n_iterations": 5}
+
+
 @pytest.mark.parametrize(
-    ("name", "kwargs"), [("create_draft", {}), ("update_draft", {"job_id": "j1"})]
+    ("name", "kwargs", "config", "sent_body"),
+    [
+        ("create_draft", {}, _NO_TARGET, {**_NO_TARGET, "control_target": SESSION_TARGET}),
+        ("create_draft", {}, _OWN_TARGET, _OWN_TARGET),
+        # update_draft fills nothing: the service refuses a config with no target.
+        ("update_draft", {"job_id": "j1"}, _NO_TARGET, _NO_TARGET),
+        ("update_draft", {"job_id": "j1"}, _OWN_TARGET, _OWN_TARGET),
+    ],
 )
-async def test_a_draft_with_no_control_target_names_the_sessions(optimizer, name, kwargs):
-    config = {"environment_name": "lin", "preset": "phase"}
-    await _tool(jobs, name)(config=config, **kwargs)
+async def test_only_create_draft_names_the_sessions_control_target(
+    optimizer, name, kwargs, config, sent_body
+):
+    given = dict(config)
+    out = json.loads(await _tool(jobs, name)(config=config, **kwargs))
     (sent,) = optimizer.requests
-    assert json.loads(sent.content) == {**config, "control_target": SESSION_TARGET}
-    assert "control_target" not in config
-
-
-@pytest.mark.parametrize(
-    ("name", "kwargs"), [("create_draft", {}), ("update_draft", {"job_id": "j1"})]
-)
-async def test_a_drafts_own_control_target_is_sent_as_given(optimizer, name, kwargs):
-    config = {"environment_name": "lin", "control_target": "va", "n_iterations": 5}
-    await _tool(jobs, name)(config=config, **kwargs)
-    assert json.loads(optimizer.requests[0].content) == config
+    assert json.loads(sent.content) == sent_body
+    assert config == given
+    if name == "create_draft":
+        assert out["control_target"] == sent_body["control_target"]
 
 
 @pytest.mark.parametrize(("headers", "revision"), [({"X-Config-Revision": "7"}, "7"), ({}, None)])
@@ -194,12 +203,6 @@ _REFUSALS = [
         "expected status 'created', got 'running'",
     ),
     (
-        "pause_job",
-        httpx.Response(409, json={"detail": "must be running, but job is paused"}),
-        "optimizer_conflict",
-        "must be running, but job is paused",
-    ),
-    (
         "create_draft",
         httpx.Response(403, json={"detail": "does not drive 'live' (allowed: va)"}),
         "optimizer_target_refused",
@@ -215,7 +218,6 @@ _KWARGS = {
     "environment_status": (environments, {"name": "lin"}),
     "list_models": (results, {}),
     "update_draft": (jobs, {"job_id": "j1", "config": {"control_target": "va"}}),
-    "pause_job": (jobs, {"job_id": "j1"}),
     "create_draft": (jobs, {"config": {"environment_name": "lin"}}),
 }
 
@@ -288,13 +290,7 @@ def test_the_client_outwaits_the_services_own_read_backstop():
     assert TIMEOUT_S > OP_TIMEOUT
 
 
-# The only routes a tool may send anything but a GET to. None of them depends on
-# require_launch_token. Grepping the service's routers
-# (packages/osprey-optimizer/src/osprey_optimizer/api/routers/) finds that
-# dependency on six routes only: the model upload, the environment's variable
-# write and evaluate, a job's start and resume, and a run's restore. A tool
-# that reached one of those would need a token this server does not hold; this
-# pins that no tool tries.
+# Every route the tools may write to is ungated: none depends on require_launch_token.
 _UNGATED_WRITES = [
     ("POST", re.compile(r"/optimizations")),
     ("PUT", re.compile(r"/jobs/[^/]+/config")),

@@ -405,17 +405,14 @@ does not run one, or an attached render whose host publishes no
 ``services.optimizer.port``. The server dials ``services.optimizer.port`` on
 loopback, or ``OPTIMIZER_URL`` when that is set.
 
-The server holds no launch token and cannot start a run: a person starts
-every run. It can create and edit drafts, which read setpoints and write none,
-and pause or cancel a job, which no credential gates. It cannot resume a run
-or restore setpoints; ``preview_restore`` only shows what a restore would
-write. A tool that reads a machine (``environment_status``,
+The server holds no launch token, so it cannot start, resume or restore a run:
+a person does. Drafts need no approval; ``pause_job`` and ``cancel_job`` ask
+for the operator's. A tool that reads a machine (``environment_status``,
 ``read_observables``, ``initial_bounds``) asks about the session's current
-control target unless it is given a ``target``, and a draft without a
-``control_target`` names that target too; the optimizer serves only the
-targets its profile lists (``va`` and ``standin`` today), and refuses any other.
-The ``operating-optimizer`` skill walks the agent through drafting a run for the
-operator to start.
+control target unless it is given a ``target``, and ``create_draft`` names that
+target when the config names none; the optimizer serves only the targets its
+profile lists (``va`` and ``standin`` today), and refuses any other. The
+``operating-optimizer`` skill walks the agent through drafting a run.
 
 **Tools:**
 

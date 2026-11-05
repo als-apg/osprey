@@ -12,11 +12,6 @@ update_draft                PUT  /jobs/{job_id}/config
 pause_job                   POST /jobs/{job_id}/pause
 cancel_job                  POST /jobs/{job_id}/cancel
 ==========================  ===================================================
-
-A draft reads setpoints and writes none, and the service takes it without the
-launch token. Pause and cancel are ungated there too: stopping a run never
-waits on a credential. Starting, resuming and restoring need the token, which
-this server does not hold.
 """
 
 import json
@@ -73,38 +68,33 @@ async def get_job_config(job_id: str) -> str:
     return json.dumps({"config": config, "revision": revision})
 
 
-def _on_session_target(config: dict[str, Any]) -> dict[str, Any]:
-    """*config*, naming the session's control target when it names none."""
-    return {**config, "control_target": config.get("control_target") or default_target()}
-
-
 @mcp.tool()
 async def create_draft(config: dict[str, Any]) -> str:
     """Create a draft optimization job from a config. Nothing moves: a person starts it.
 
     Start from a preset where one fits (``list_presets``): name it in ``preset`` and set only what should differ. The fields that matter: ``environment_name``; ``control_target`` (default: the session's current control target); ``preset``; ``variables`` (names to tune); ``variable_overrides`` (per variable: ``min``/``max``, or ``window_abs``/``window_fraction`` centred on the current setpoint, and ``step_size``); ``objective_name`` and ``objective_direction``; ``algorithm``; ``n_iterations``; ``n_initial_samples``; ``constraints`` (observable -> ``{"type", "value"}``); ``on_complete`` (``apply_best``, ``restore`` or ``hold``). The service resolves the bounds against the target's current setpoints and points its current job at the new draft.
 
-    Returns the new job (its ``job_id``, status ``created``). Read the stored draft back with get_job_config before telling the operator what they would be starting.
+    Returns the new job (its ``job_id``, status ``created``) and the ``control_target`` the draft names. Read the stored draft back with get_job_config before telling the operator what they would be starting.
 
     Args:
         config: The optimization config, as a JSON object.
     """
-    return json.dumps(await request("POST", "/optimizations", json_body=_on_session_target(config)))
+    body = {**config, "control_target": config.get("control_target") or default_target()}
+    job = await request("POST", "/optimizations", json_body=body)
+    return json.dumps({**job, "control_target": body["control_target"]})
 
 
 @mcp.tool()
 async def update_draft(job_id: str, config: dict[str, Any]) -> str:
     """Replace a draft job's whole config. Refused once the job has started, and when the draft has expired.
 
-    Read the current config with get_job_config, edit it, and send the whole of it back: a field left out returns to its default. ``control_target`` left out names the session's current control target.
+    Read the current config with get_job_config, edit it, and send the whole of it back: a field left out returns to its default, and a config without ``control_target`` is refused.
 
     Args:
         job_id: Job id of a draft (status ``created``).
         config: The full optimization config, as a JSON object.
     """
-    return json.dumps(
-        await request("PUT", f"{_job(job_id)}/config", json_body=_on_session_target(config))
-    )
+    return json.dumps(await request("PUT", f"{_job(job_id)}/config", json_body=config))
 
 
 @mcp.tool()

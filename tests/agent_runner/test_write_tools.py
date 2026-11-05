@@ -239,7 +239,8 @@ def test_read_only_disallowed_tools_no_duplicates(tmp_path: Path) -> None:
 def test_read_only_disallowed_tools_blocks_approval_required_actions(tmp_path: Path) -> None:
     """Approval-required side-effect tools that are NOT in the hardware-write
     kill-switch list must still be blocked (the round-5 escape hatch):
-    execute_file, entry_create, entry_publish, draft_concept, setup_patch.
+    execute_file, entry_create, entry_publish, draft_concept, setup_patch, and
+    the optimizer's pause_job and cancel_job.
 
     entry_publish is the one that actually reaches the facility's logbook, so a
     headless read-only query that could call it would write to the logbook with
@@ -253,6 +254,8 @@ def test_read_only_disallowed_tools_blocks_approval_required_actions(tmp_path: P
         "mcp__ariel__entry_publish",
         "mcp__osprey_facility_knowledge__draft_concept",
         "mcp__osprey_workspace__setup_patch",
+        "mcp__optimizer__pause_job",
+        "mcp__optimizer__cancel_job",
     ):
         assert tool in result, f"{tool} (side-effecting) must be disallowed"
 

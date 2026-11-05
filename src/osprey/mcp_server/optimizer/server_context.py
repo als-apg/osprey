@@ -52,13 +52,7 @@ def _refuse(method: str, path: str, resp: httpx.Response, named_target: bool) ->
         make_error(
             "optimizer_conflict",
             message,
-            [
-                "The job or run is not in the state this needs (a draft edited after its "
-                "start, a pause of a job that is not running, a cancel of a finished job, a "
-                "restore preview of a run that recorded no starting values); the detail says "
-                "which.",
-                "Read the job again with get_job before deciding what to do next.",
-            ],
+            ["The job or run is not in the state this needs; the detail says which."],
             details=details,
         )
     if status == 403 and named_target:
@@ -126,9 +120,7 @@ async def request(
             _UNREACHABLE_HINTS,
         )
     if not resp.is_success:
-        named_target = bool(params and "target" in params) or bool(
-            json_body and json_body.get("control_target")
-        )
+        named_target = "target" in (params or {}) or "control_target" in (json_body or {})
         _refuse(method, path, resp, named_target=named_target)
     try:
         body = resp.json()

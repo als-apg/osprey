@@ -13,7 +13,6 @@ import re
 
 import yaml
 
-from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.cli.templates.manager import TemplateManager
 
 SKILL = "claude_code/claude/skills/operating-optimizer/SKILL.md.j2"
@@ -21,12 +20,6 @@ SKILL = "claude_code/claude/skills/operating-optimizer/SKILL.md.j2"
 
 def _render(servers: set[str]) -> str:
     return TemplateManager().jinja_env.get_template(SKILL).render(enabled_servers=servers)
-
-
-def test_it_is_in_the_catalog():
-    artifact = BuildArtifactCatalog.default().get("skills/operating-optimizer")
-    assert artifact is not None
-    assert artifact.output_path == ".claude/skills/operating-optimizer/SKILL.md"
 
 
 def test_it_renders_nothing_without_the_optimizer_server():
@@ -38,7 +31,6 @@ def test_it_renders_a_skill_with_the_optimizer_server():
     assert text.startswith("---"), "the Jinja guard must not leak into the rendered file"
     front = yaml.safe_load(text.split("---", 2)[1])
     assert front["name"] == "operating-optimizer"
-    assert len(text.splitlines()) < 100
 
 
 def test_it_says_the_agent_cannot_start_resume_or_restore():

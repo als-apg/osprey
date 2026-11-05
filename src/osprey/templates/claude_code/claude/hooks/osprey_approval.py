@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse, PostToolUse, PostToolUseFailure, Stop, StopFailure
-tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire, mcp__canopy__new_screen, mcp__canopy__patch_node, mcp__canopy__add_node, mcp__canopy__remove_node, mcp__canopy__convert_legacy, mcp__canopy__delete_draft, mcp__canopy__request_push
+tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire, pause_job, cancel_job, mcp__canopy__new_screen, mcp__canopy__patch_node, mcp__canopy__add_node, mcp__canopy__remove_node, mcp__canopy__convert_legacy, mcp__canopy__delete_draft, mcp__canopy__request_push
 safety_layer: 2
 ---
 
@@ -1407,6 +1407,24 @@ def _describe_manual_fire(tool_input, _config, _hook_input=None, _read_record=No
     return lines
 
 
+def _describe_pause_job(tool_input, _config, _hook_input=None, _read_record=None) -> list[str]:
+    """Name the optimizer job a pause would stop, from the call alone."""
+    job = _sanitize_label(str(tool_input.get("job_id")))
+    return [
+        f"Pause optimizer job {job}: the machine stays at the last point it evaluated, "
+        "and only a person can resume it."
+    ]
+
+
+def _describe_cancel_job(tool_input, _config, _hook_input=None, _read_record=None) -> list[str]:
+    """Name the optimizer job a cancel would end, and that it cannot be undone."""
+    job = _sanitize_label(str(tool_input.get("job_id")))
+    return [
+        f"Cancel optimizer job {job}: this cannot be undone, on_complete does not run, "
+        "and the machine stays at the last point it evaluated."
+    ]
+
+
 #: Tool short name -> describer, for tools described from the CALL rather than
 #: from anything this hook would have to reach for. A third table beside the two
 #: above because that is the distinction that decides what a describer may
@@ -1418,6 +1436,8 @@ def _describe_manual_fire(tool_input, _config, _hook_input=None, _read_record=No
 #: registers.
 _CALL_DESCRIBERS = {
     "manual_fire": _describe_manual_fire,
+    "pause_job": _describe_pause_job,
+    "cancel_job": _describe_cancel_job,
 }
 
 

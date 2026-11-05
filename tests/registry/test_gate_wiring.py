@@ -640,6 +640,8 @@ _APPROVAL_RULE_TABLE: frozenset[tuple[str, str, str, int]] = frozenset(
         ("bluesky", "pre", "mcp__bluesky__write_plan", 5),
         ("bluesky", "pre", "mcp__bluesky__validate_plan", 5),
         ("event_dispatcher", "pre", "mcp__event_dispatcher__manual_fire", 5),
+        ("optimizer", "pre", "mcp__optimizer__pause_job", 5),
+        ("optimizer", "pre", "mcp__optimizer__cancel_job", 5),
     }
 )
 

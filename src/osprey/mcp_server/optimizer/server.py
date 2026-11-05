@@ -11,8 +11,9 @@ mcp = FastMCP(
     instructions=(
         "Read the facility optimizer service: its environments (variables, "
         "observables, presets, bounds, live readbacks), its jobs and their "
-        "configs, stored results and saved models. This server holds no launch "
-        "token and cannot start a run: a person starts every run."
+        "configs, stored results and saved models. Write draft runs, and pause "
+        "or cancel a job with the operator's approval. This server holds no "
+        "launch token, so it cannot start, resume or restore a run: a person does."
     ),
 )
 
