@@ -486,6 +486,60 @@ def _launched_browser(engine: str) -> Iterator[Browser]:
         pw.stop()
 
 
+#: Per process, each engine's skip reason (``None`` when it launches), probed once.
+_ENGINE_SKIP_REASONS: dict[str, str | None] = {}
+
+
+def _engine_skip_reason(engine: str) -> str | None:
+    """Why :func:`_launched_browser` would skip for ``engine``, or ``None`` if it would not.
+
+    The probe is the fixture's own launch, so the reason text is the one its
+    skip would give. On a host without the binary the launch fails before any
+    browser starts; Playwright is stopped on every path, as in the fixture.
+    """
+    if engine not in _ENGINE_SKIP_REASONS:
+        reason = None
+        if not _PLAYWRIGHT_AVAILABLE:
+            reason = "playwright package not installed"
+        else:
+            pw = sync_playwright().start()
+            try:
+                getattr(pw, engine).launch(headless=True).close()
+            except Exception as exc:
+                reason = f"{engine} binary not available: {exc}"
+            finally:
+                pw.stop()
+        _ENGINE_SKIP_REASONS[engine] = reason
+    return _ENGINE_SKIP_REASONS[engine]
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Skip, before any setup, every test that needs a browser engine this host lacks.
+
+    Without this, a test whose ``<engine>_browser`` fixture is going to skip
+    first builds every fixture it requests ahead of it (a deployment, a served
+    hub) and starts a Playwright driver, only to throw both away. A test needs
+    an engine when its fixture closure holds that engine's fixture, or when a
+    parametrized fixture is handed the fixture's name to request it by. Runs
+    last, so tests deselected by ``-m``/``-k`` cost no probe. The fixture's own
+    skip stays as the fallback for a launch that fails only later.
+    """
+    here = Path(__file__).parent
+    for item in items:
+        if not item.path.is_relative_to(here):
+            continue  # the hook sees the whole session; the fixtures live only here
+        callspec = getattr(item, "callspec", None)
+        params = callspec.params.values() if callspec else ()
+        requested = set(getattr(item, "fixturenames", ())) | {
+            p for p in params if isinstance(p, str)
+        }
+        for engine in BROWSER_ENGINES:
+            if f"{engine}_browser" in requested and (reason := _engine_skip_reason(engine)):
+                item.add_marker(pytest.mark.skip(reason=reason))
+                break
+
+
 @pytest.fixture
 def chromium_browser() -> Iterator[Browser]:
     """Function-scoped Playwright browser, pre-authorized against the auth gate.
