@@ -35,6 +35,7 @@ const CONTRACT_NAMES = [
   'help',
   'message',
   'more',
+  'settings',
   'sliders',
   'file-text',
   'chart-line',

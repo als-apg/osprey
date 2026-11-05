@@ -1,0 +1,1 @@
+The example facility carries its benchmark queries and ARIEL vocabulary under `data/facility/`; `rules/facility.md` states no facility fact and points at `data/facility_facts.md`, the one identity, rebuilt every build. The derived archiver freshness check watches the first readback by address, the probe's channel.

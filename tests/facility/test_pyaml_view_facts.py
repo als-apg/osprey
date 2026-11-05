@@ -20,6 +20,7 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
 from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, measurement_groups
@@ -104,13 +105,13 @@ def test_the_rendered_hook_block_lists_kinds_groups_and_the_same_digest(tmp_path
     assert hook_config["measurement"] == {
         "LINE": {
             "kinds": {"orm": {"hcor": "LINE_HCM", "vcor": "LINE_VCM"}},
-            "groups": measurement_groups(document, "LINE"),
+            "groups": measurement_groups(FacilityRecords(document), "LINE"),
             "rf": [],
             "view_sha256": records["LINE"]["sha256"],
         },
         "SR": {
             "kinds": {"trm": {"quad": "SR_Q"}},
-            "groups": measurement_groups(document, "SR"),
+            "groups": measurement_groups(FacilityRecords(document), "SR"),
             "rf": [],
             "view_sha256": records["SR"]["sha256"],
         },

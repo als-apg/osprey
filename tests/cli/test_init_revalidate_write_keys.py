@@ -7,8 +7,9 @@ overlays and every tier or app file the rewrite keeps. The previous release's
 comment stanzas about them take the bundled preset's current words; anything
 else written about them is left for the operator and printed.
 
-The repo is ``tests/fixtures/previous_release_repo/`` laid over the exemplar,
-as in ``test_init_revalidate.py``.
+The repo is the previous release's, laid by ``test_init_revalidate.py``: the
+exemplar with the retired profile swaps put back, and the retired layer files
+and context slots from ``tests/fixtures/previous_release_repo/``.
 """
 
 from __future__ import annotations

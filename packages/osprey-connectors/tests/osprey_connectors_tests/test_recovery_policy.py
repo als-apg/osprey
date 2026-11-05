@@ -308,6 +308,7 @@ async def test_a_lazy_policy_never_calls_respawn():
     assert record.action is RecoveryAction.CHILD_REPLACED
 
 
+@pytest.mark.usefixtures("earlier_garbage_frozen")
 async def test_a_policy_holds_no_replaced_incarnation():
     policy = RecoveryPolicy(timing=Timing.LAZY)
     target = _Target()

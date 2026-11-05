@@ -19,6 +19,7 @@ import pytest
 
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
 from osprey.simulation.engines import pyat_faults
 from osprey.simulation.engines.pyat_faults import (
     ELEMENT_SCOPE,
@@ -193,7 +194,7 @@ CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
 def demo(built_control_assistant: Any) -> dict[str, Any]:
     facility = built_control_assistant.facility
     (model,) = [entry for entry in facility["models"] if entry["name"] == MODEL]
-    wiring = simulator_wiring(facility, MODEL)
+    wiring = simulator_wiring(FacilityRecords(facility), MODEL)
     roster = fault_variables(wiring)
     return {
         "wiring": wiring,

@@ -17,6 +17,7 @@ import pytest
 
 from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
+from osprey.facility.records import FacilityRecords
 from tests.cli._unrecorded import (
     a_host_local_record_is_up,
     act_as_a_recording_child,
@@ -37,7 +38,7 @@ def _hierarchical_index(tmp_path: Path) -> Path:
         ],
     }
     path = tmp_path / "hierarchical.json"
-    path.write_text(json.dumps(hierarchical_document(doc)), encoding="utf-8")
+    path.write_text(json.dumps(hierarchical_document(FacilityRecords(doc))), encoding="utf-8")
     return path
 
 
@@ -465,7 +466,7 @@ class TestInContextIndexRender:
         from osprey.facility.views.channel_finder import write_in_context
 
         inputs = ViewInputs(
-            doc=built.facility,
+            records=FacilityRecords(built.facility),
             rendered_config={"channel_finder": {"pipeline_mode": "in_context"}},
             facility_dir=built.facility_dir,
             served=[],

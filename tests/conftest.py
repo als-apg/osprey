@@ -31,6 +31,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     _no_host_timezone_leak,
     agent_data_never_the_checkout,
     control_context_root,
+    earlier_garbage_frozen,
     long_lived_session_mark_per_test,
     no_agent_data_in_the_repo,
     no_spool_in_the_repo,
@@ -130,6 +131,28 @@ def stub_agent_cli(request, monkeypatch):
         "project_thinking_display",
         lambda _project_dir: launcher.ThinkingDisplay("summarized", True),
     )
+
+
+@pytest.fixture
+def real_host_trust_seed():
+    """Opt a test out of :func:`no_host_trust_seed`: the web app seeds trust for real."""
+
+
+@pytest.fixture(autouse=True, scope="function")
+def no_host_trust_seed(request, monkeypatch):
+    """Keep the web app's startup off the developer's own ``~/.claude.json``.
+
+    On a host, web-terminal startup marks its render trusted in Claude Code's
+    state file under ``CLAUDE_CONFIG_DIR`` or ``HOME``. Every test that runs the
+    app's lifespan would otherwise add a ``tmp_path`` entry to the real file.
+    A test that points ``CLAUDE_CONFIG_DIR`` at its own directory and needs the
+    real seed requests ``real_host_trust_seed``.
+    """
+    if "real_host_trust_seed" in request.fixturenames:
+        return
+    from osprey.agent_runner import claude_state
+
+    monkeypatch.setattr(claude_state, "seed_workspace_trust", lambda *_a, **_kw: False)
 
 
 @pytest.fixture(autouse=True, scope="function")

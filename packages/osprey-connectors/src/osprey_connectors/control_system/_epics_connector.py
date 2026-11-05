@@ -1593,6 +1593,10 @@ class EPICSConnector(ControlSystemConnector):
         context = contextvars.copy_context()
         return await loop.run_in_executor(self._write_pool(), context.run, fn, *args)
 
+    def _write_route_open(self) -> bool:
+        """No write gateway is configured, or ``connect()`` selected it."""
+        return not self._write_gateway_configured or self._selected_role == "write_access"
+
     def _role_refusal(self, channel_address: str, value: Any) -> ChannelWriteResult | None:
         """The ``switching`` refusal for a write the selected gateway cannot carry, or ``None``.
 
@@ -1604,7 +1608,7 @@ class EPICSConnector(ControlSystemConnector):
         write is refused, worded as the ``switching`` reason. With no write
         gateway configured the connector writes through what it has.
         """
-        if not self._write_gateway_configured or self._selected_role == "write_access":
+        if self._write_route_open():
             return None
         # Imported here, as ``_base`` does: ``posture_store`` imports ``_base``.
         from osprey_connectors.posture_store import WriteVerdict

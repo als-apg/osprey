@@ -2,8 +2,9 @@
 
 The layer's records under ``imported/mml/`` are rewritten by every import. The
 files here are authored: a person owns them, and the import only writes one
-that does not exist yet, opening it with :data:`HEADER`. A file that exists is
-never rewritten, whoever wrote it.
+that does not exist yet, opening it with the facility import's header
+(:data:`osprey.facility.layers.HEADER`). A file that exists is never rewritten,
+whoever wrote it.
 
 What :func:`seed_once` writes, relative to ``data/facility/``:
 
@@ -51,6 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.facility.layers import HEADER
 from osprey.facility.layers.mml.decks import FREQUENCY, KICK
 from osprey.facility.layers.mml.mapping import (
     LAYER_DIR,
@@ -72,7 +74,6 @@ if TYPE_CHECKING:  # the export services stay out of the import graph
 
 __all__ = [
     "CLASSES_FILE",
-    "HEADER",
     "IDENTITY_FILE",
     "LIMITS_FILE",
     "MEASUREMENT_DIR",
@@ -83,9 +84,6 @@ __all__ = [
     "band",
     "seed_once",
 ]
-
-#: The first line of every file the layer seeds.
-HEADER = "# Seeded once by the mml import; edit this file by hand."
 
 LIMITS_FILE = "limits.yaml"
 READOUT_FILE = "scenarios/readout.yaml"

@@ -20,7 +20,9 @@
  * A navigable palette item, or a non-navigable Settings status decoration.
  *
  * Navigable items carry `run` (invoked on selection) and `searchText` (scored
- * by the fuzzy matcher). Settings status rows are static decorations with
+ * by the fuzzy matcher). Panel rows also carry `names`: the whole words that
+ * name their panel (label, id, domain synonyms), lower-cased, so a query that
+ * IS one of them can put the Panels group first (palette.js). Settings status rows are static decorations with
  * neither — the UI renders them and excludes them from keyboard navigation.
  *
  * @typedef {(
@@ -29,6 +31,7 @@
  *     label: string,
  *     detail?: string,
  *     searchText: string,
+ *     names?: string[],
  *     run: () => void,
  *   }
  *   |
@@ -87,7 +90,7 @@
 
 /**
  * Domain vocabulary for the built-in panels — the words an operator reaches
- * for when they do not have the catalog label in mind ("logbook" for ARIEL,
+ * for when they do not have the catalog label in mind ("elog" for the Logbook,
  * "pv" for Channel Finder). Folded into the searchText of EVERY row for that
  * panel, so any of its verbs is reachable by the domain word. Keyed by catalog
  * panel id; ids absent here (custom facility panels) contribute no aliases.
@@ -124,6 +127,18 @@ function panelSearchText(verb, panel, verbAliases) {
   return [verb, panel.label, panel.id, verbAliases, PANEL_SYNONYMS[panel.id]]
     .filter(Boolean)
     .join(' ');
+}
+
+/**
+ * The whole words that name a panel: its label, its id and its domain
+ * synonyms, lower-cased. A query equal to one of them names the panel.
+ *
+ * @param {{ id: string, label: string }} panel
+ * @returns {string[]}
+ */
+function panelNames(panel) {
+  const synonyms = (PANEL_SYNONYMS[panel.id] ?? '').split(' ');
+  return [panel.label, panel.id, ...synonyms].filter(Boolean).map((name) => name.toLowerCase());
 }
 
 /**
@@ -281,6 +296,7 @@ function buildPanels(deps) {
       group: 'Panels',
       label: `Show ${panel.label}`,
       searchText: panelSearchText('show', panel),
+      names: panelNames(panel),
       run: () => {
         if (typeof showPanel === 'function') {
           showPanel(id);
@@ -295,6 +311,7 @@ function buildPanels(deps) {
       group: 'Panels',
       label: `Focus ${panel.label}`,
       searchText: panelSearchText('focus', panel),
+      names: panelNames(panel),
       run: () => {
         if (typeof focusPanel === 'function') {
           focusPanel(id);
@@ -309,6 +326,7 @@ function buildPanels(deps) {
       group: 'Panels',
       label: `Pop out ${panel.label}`,
       searchText: panelSearchText('pop out', panel, POPOUT_ALIASES),
+      names: panelNames(panel),
       run: () => {
         if (typeof popoutPanel === 'function') {
           popoutPanel(id);
@@ -324,6 +342,7 @@ function buildPanels(deps) {
         group: 'Panels',
         label: `Open ${panel.label} in a new tile`,
         searchText: panelSearchText('open', panel, BESIDE_ALIASES),
+        names: panelNames(panel),
         run: () => {
           openPanelBeside(id);
         },

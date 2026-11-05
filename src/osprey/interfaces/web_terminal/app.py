@@ -1426,6 +1426,22 @@ def _create_lifespan(
             except Exception as exc:  # never block startup on this
                 logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
 
+            # Mark the render trusted for Claude Code, as the container entrypoint
+            # does before the server starts: an untrusted render has the CLI drop
+            # its permissions.allow list, sending every read-only tool to the
+            # approval card. Only this render's path, and no other first-run key.
+            from osprey.agent_runner.claude_state import seed_workspace_trust
+
+            try:
+                if seed_workspace_trust(Path(app.state.project_cwd)):
+                    logger.info("Marked %s trusted for Claude Code", app.state.project_cwd)
+            except Exception as exc:  # never block startup on this
+                logger.warning(
+                    "Could not mark %s trusted for Claude Code (%s); its allow list will not apply",
+                    app.state.project_cwd,
+                    exc,
+                )
+
         # Resolve and store config_path for the settings API
         resolved_config_path: Path | None = None
         for config_candidate in [

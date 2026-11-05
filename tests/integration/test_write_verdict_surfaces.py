@@ -44,7 +44,18 @@ from tests.integration._write_verdict_surfaces_registry import (
 
 REPO = Path(__file__).resolve().parents[2]
 SRC_ROOTS = (REPO / "src", REPO / "packages" / "osprey-connectors" / "src")
-VERDICT_NAMES = frozenset({"write_verdict", "execution_verdict", "backstop_verdict"})
+#: The verdict functions a src module may ask. The two authorized compositions
+#: of ``osprey_connectors.write_authorization`` are the switch verdict for a
+#: process naming no authorization, so a caller of either is a surface too.
+VERDICT_NAMES = frozenset(
+    {
+        "write_verdict",
+        "execution_verdict",
+        "backstop_verdict",
+        "authorized_write_verdict",
+        "authorized_execution_verdict",
+    }
+)
 
 #: The modules that define a verdict rather than ask one.
 DEFINING_MODULES = frozenset(

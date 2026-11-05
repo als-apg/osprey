@@ -36,7 +36,7 @@ def stale_context(tmp_path: Path) -> Path:
     return context
 
 
-def _stage_fresh(out_dir: str) -> bool:
+def _stage_fresh(out_dir: str, **_: object) -> bool:
     for name in _FRESH:
         (Path(out_dir) / name).write_bytes(b"fresh")
     (Path(out_dir) / LOCAL_REQUIREMENTS_FILENAME).write_text("fresh-requirement\n")

@@ -123,6 +123,8 @@ ROW_FIELDS = {
     "reason",
     "reason_detail",
     "switch",
+    "program_hold",
+    "programs",
     "prompt",
     "write_allowed",
     "write_reason",

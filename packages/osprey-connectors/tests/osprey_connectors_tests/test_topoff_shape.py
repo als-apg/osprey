@@ -140,9 +140,9 @@ def test_a_stilled_channel_serves_its_held_level():
     assert stilled[CURRENT] == 0.0
 
 
-def test_still_all_serves_the_held_level():
+def test_a_stilled_channel_has_no_motion():
     model = _model()
-    model.set_motion({}, {}, still_all=True)
+    model.set_motion({}, {}, still=frozenset({CURRENT}))
     assert _read(model, CURRENT, T0 + 11.0) == pytest.approx(LEVEL, rel=1e-12)
     assert not model.has_motion(CURRENT)
 

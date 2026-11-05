@@ -16,6 +16,9 @@
  *   - a `panel_visibility` hide closes the panel's tile and, when it held the
  *     view, hands the view to a panel still on screen without changing any
  *     other tile; only a dock left with no service tile opens the next member;
+ *   - an `agent_activity` frame targeting a panel still badges its rail entry,
+ *     and is relayed as `osprey-agent-activity` to that panel's mounted iframe
+ *     or pop-out window only; any other target posts nothing;
  *   - the retired `panel_focus`, `panel_close` and `panel_arrange` frames do
  *     nothing.
  *
@@ -51,6 +54,8 @@ const { stream, calls, spies, dock } = vi.hoisted(() => {
       reportLayoutNow: vi.fn(),
       noteReported: vi.fn(),
       focusPopout: vi.fn(),
+      popoutWindow: vi.fn(),
+      badgePanelActivity: vi.fn(),
       record,
     },
   };
@@ -82,7 +87,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', (
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-agent-attention.js', () => ({
   flashAgentGlow: vi.fn(),
   flashAgentTile: spies.flashAgentTile,
-  badgePanelActivity: vi.fn(() => true),
+  badgePanelActivity: spies.badgePanelActivity,
   restoreAgentBadges: vi.fn(),
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js', () => ({
@@ -101,6 +106,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
   focusPopout: spies.focusPopout,
+  popoutWindow: spies.popoutWindow,
 }));
 
 /** @param {string} id @param {string[]} tabs @param {string} [showing] */
@@ -178,9 +184,14 @@ beforeEach(async () => {
     spies.reportLayoutNow,
     spies.noteReported,
     spies.focusPopout,
+    spies.popoutWindow,
+    spies.badgePanelActivity,
   ]) {
     spy.mockReset();
   }
+  spies.popoutWindow.mockReturnValue(null);
+  spies.badgePanelActivity.mockReturnValue(true);
+  document.body.replaceChildren();
   spies.ensureRailMembership.mockImplementation(spies.record('member'));
   spies.flashAgentTile.mockImplementation(spies.record('glow'));
   spies.postPanelOpResult.mockImplementation(async (/** @type {any} */ body) => {
@@ -695,5 +706,110 @@ describe('the retired frames do nothing', () => {
     deliver({ type: 'panel_arrange', tiles: ['a'] });
     expect(spies.runPanelOp).not.toHaveBeenCalled();
     expect(deps.activate).not.toHaveBeenCalled();
+  });
+});
+
+describe('agent activity reaches the panel it names', () => {
+  /**
+   * The route's broadcast frame (routes/agent_activity.py record_activity):
+   * target is model_dump(exclude_none=True), ts is time.time() — float seconds.
+   * @param {Record<string, any>} target
+   */
+  function activityFrame(target) {
+    return { type: 'agent_activity', tool: 'entry_create', target, ts: 1730668800.25 };
+  }
+
+  const RELAYED = {
+    type: 'osprey-agent-activity',
+    tool: 'entry_create',
+    detail: 'e-42',
+    ts: 1730668800.25,
+  };
+
+  /** A mounted panel iframe, stamped as panel-iframe-factory.js stamps it. @param {string} id */
+  function mount(id) {
+    const iframe = document.createElement('iframe');
+    iframe.className = 'panel-iframe';
+    iframe.dataset.panelId = id;
+    document.body.appendChild(iframe);
+    const win = /** @type {Window} */ (iframe.contentWindow);
+    return vi.spyOn(win, 'postMessage').mockImplementation(() => {});
+  }
+
+  /** A stand-in pop-out window. */
+  function popout() {
+    const postMessage = vi.fn();
+    return { win: /** @type {Window} */ (/** @type {unknown} */ ({ postMessage })), postMessage };
+  }
+
+  test("a panel-targeted frame reaches that panel's iframe only, and the badge is still applied", () => {
+    const ariel = mount('ariel');
+    const other = mount('artifacts');
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
+    expect(spies.badgePanelActivity).toHaveBeenCalledExactlyOnceWith('ariel', 1730668800.25);
+    expect(ariel).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+    expect(other).not.toHaveBeenCalled();
+    expect(deps.reportActivity).not.toHaveBeenCalled();
+  });
+
+  test("a popped-out panel's frame reaches its window", () => {
+    const { win, postMessage } = popout();
+    spies.popoutWindow.mockImplementation((/** @type {string} */ id) =>
+      id === 'ariel' ? win : null
+    );
+    const other = mount('artifacts');
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
+    expect(spies.popoutWindow).toHaveBeenCalledWith('ariel');
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+    expect(other).not.toHaveBeenCalled();
+    expect(spies.badgePanelActivity).toHaveBeenCalledExactlyOnceWith('ariel', 1730668800.25);
+  });
+
+  test('a panel with both a tile iframe and a pop-out gets the notice in each', () => {
+    const tileFrame = mount('ariel');
+    const { win, postMessage } = popout();
+    spies.popoutWindow.mockReturnValue(win);
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
+    expect(tileFrame).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+  });
+
+  test('a frame without a detail relays none', () => {
+    const ariel = mount('ariel');
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel' }));
+    expect(ariel).toHaveBeenCalledOnce();
+    expect(ariel.mock.calls[0][0]).toMatchObject({
+      type: 'osprey-agent-activity',
+      tool: 'entry_create',
+    });
+    expect(ariel.mock.calls[0][0].detail).toBeUndefined();
+  });
+
+  test('a frame for an unmounted panel is dropped: nothing is posted, the badge still applies', () => {
+    const other = mount('artifacts');
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
+    expect(other).not.toHaveBeenCalled();
+    expect(spies.badgePanelActivity).toHaveBeenCalledExactlyOnceWith('ariel', 1730668800.25);
+  });
+
+  test('a panel with no rail entry falls through to the strip and is still relayed when mounted', () => {
+    spies.badgePanelActivity.mockReturnValue(false);
+    const ariel = mount('ariel');
+    const frame = activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' });
+    deliver(frame);
+    expect(deps.reportActivity).toHaveBeenCalledExactlyOnceWith(frame);
+    expect(ariel).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+  });
+
+  test('a non-panel target posts nothing', () => {
+    const ariel = mount('ariel');
+    const { win, postMessage } = popout();
+    spies.popoutWindow.mockReturnValue(win);
+    const frame = activityFrame({ kind: 'channel', detail: 'SR:BPM:1' });
+    deliver(frame);
+    expect(ariel).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(spies.badgePanelActivity).not.toHaveBeenCalled();
+    expect(deps.reportActivity).toHaveBeenCalledExactlyOnceWith(frame);
   });
 });

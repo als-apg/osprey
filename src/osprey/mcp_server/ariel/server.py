@@ -19,10 +19,17 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from osprey.ariel_attachment_view import DEFAULT_VIEW_ENABLED, VIEW_ENABLED_KEY
 from osprey.mcp_server.errors import make_error  # re-exported for ARIEL tools
+from osprey.services.ariel_search.entry_url import (  # re-exported for ARIEL tools
+    ARIEL_NATIVE_SOURCE_SYSTEM as ARIEL_NATIVE_SOURCE_SYSTEM,
+)
+from osprey.services.ariel_search.entry_url import build_entry_url as build_entry_url
+from osprey.services.ariel_search.entry_url import is_ariel_only as is_ariel_only
 
 if TYPE_CHECKING:
     import mcp.types as mt
     from fastmcp.tools import Tool
+
+    from osprey.facility.records import FacilityRecords
 
 logger = logging.getLogger("osprey.mcp_server.ariel")
 
@@ -100,18 +107,13 @@ mcp = FastMCP(
         "never construct, guess, or reuse another host to build a logbook "
         "entry URL yourself. "
         "An entry with `raw_text_truncated` shows only the start of its text; "
-        "`raw_text_length` is the full length, and `entry_get` returns the whole entry."
+        "`raw_text_length` is the full length, and `entry_get` returns the whole entry. "
+        "`facility_references` lists each channel address or device id the entry quotes, "
+        "with its position in `raw_text` and the facility records it names; an empty "
+        "`records` list means the current facility file no longer holds it."
     ),
 )
 mcp.add_middleware(AttachmentViewOfferMiddleware())
-
-# The source_system value ARIEL stamps on its own natively-created entries
-# (see tools/entry.py entry_create direct mode). Such entries are not (yet) in
-# the facility logbook, so no canonical entry_url exists for them.
-ARIEL_NATIVE_SOURCE_SYSTEM = "ARIEL MCP"
-
-# One-time guard so a malformed template does not spam the per-entry hot path.
-_entry_url_template_warned = False
 
 
 # ---------------------------------------------------------------------------
@@ -144,60 +146,6 @@ def parse_date_filters(
     )
 
 
-def build_entry_url(entry_id: str | None, source_system: str | None = None) -> str | None:
-    """Render the config-driven canonical logbook entry URL, or ``None``.
-
-    An egress transform mirroring ``to_facility_iso``: it reads the
-    facility-supplied ``ariel.entry_url_template`` from the merged config and
-    renders it with the URL-encoded ``entry_id`` so the agent links entries
-    verbatim instead of inventing a URL.
-
-    Returns ``None`` (emit no URL) when:
-
-    - ``source_system`` marks an ARIEL-native entry not yet in the facility
-      logbook (``ARIEL_NATIVE_SOURCE_SYSTEM``);
-    - ``entry_id`` is empty/blank;
-    - no ``ariel.entry_url_template`` is configured (a deployment that
-      configures no template emits no ``entry_url`` and the agent shows
-      plain IDs);
-    - the template is malformed (fail-safe — this runs per-entry on the search
-      hot path, so a one-character typo in the template must degrade to "no URL",
-      never crash a read).
-    """
-    from urllib.parse import quote
-
-    from osprey_connectors.config import get_config_value
-
-    if source_system == ARIEL_NATIVE_SOURCE_SYSTEM:
-        return None
-    if not entry_id or not str(entry_id).strip():
-        return None
-
-    try:
-        template = get_config_value("ariel.entry_url_template", None)
-    except Exception:
-        # Config not loaded/resolvable (e.g. no config.yml): treat as an
-        # unconfigured deployment — emit no URL rather than crash the read.
-        return None
-    if not template:
-        return None
-
-    try:
-        if not isinstance(template, str):
-            raise TypeError(f"expected a string, got {type(template).__name__}")
-        return template.format(entry_id=quote(str(entry_id), safe=""))
-    except Exception:
-        global _entry_url_template_warned
-        if not _entry_url_template_warned:
-            _entry_url_template_warned = True
-            logger.warning(
-                "Malformed ariel.entry_url_template %r (needs a single {entry_id} "
-                "placeholder); emitting no entry_url.",
-                template,
-            )
-        return None
-
-
 def serialize_entry(
     entry: Mapping[str, Any],
     *,
@@ -208,6 +156,7 @@ def serialize_entry(
     file_source: bool,
     full_captions: bool = False,
     view_enabled: bool = True,
+    facility_records: FacilityRecords | None = None,
 ) -> dict[str, Any]:
     """Serialize an EnhancedLogbookEntry dict into a compact response dict.
 
@@ -218,6 +167,9 @@ def serialize_entry(
     ``matched_terms``/``missing_terms``.
     With ``view_enabled`` false the entry carries no attachment keys at all
     (no ``attachments``, ``attachment_count`` or ``matched_attachment_ids``).
+    An entry checked against a facility file carries ``facility_references``,
+    limited to the references inside the text it shows; an unchecked entry
+    carries no such key.
 
     Args:
         entry: EnhancedLogbookEntry TypedDict (plain dict).
@@ -232,10 +184,13 @@ def serialize_entry(
         file_source: Whether the entry's source resolves relative attachment paths.
         full_captions: Emit captions and visible text uncut.
         view_enabled: ``ariel.attachments.view.enabled``.
+        facility_records: The records the references resolve in, or None when no
+            facility file was read.
 
     Returns:
         Serialized dict suitable for JSON response.
     """
+    from osprey.facility.references import FacilityReference, resolved_references
     from osprey.services.ariel_search.attachments.summaries import build_attachment_summaries
     from osprey.services.ariel_search.models import entry_text_fields
     from osprey.utils.facility import to_facility_iso
@@ -250,7 +205,9 @@ def serialize_entry(
         **entry_text_fields(entry["raw_text"], text_limit, field="raw_text"),
         "summary": entry.get("summary"),
     }
-    entry_url = build_entry_url(entry["entry_id"], entry["source_system"])
+    entry_url = build_entry_url(
+        entry["entry_id"], entry["source_system"], metadata=entry.get("metadata")
+    )
     if entry_url is not None:
         result["entry_url"] = entry_url
     if "_score" in entry:
@@ -260,6 +217,14 @@ def serialize_entry(
     for key in ("matched_terms", "missing_terms"):
         if f"_{key}" in entry:
             result[key] = list(entry[f"_{key}"])
+    spans = entry.get("facility_refs")
+    if isinstance(spans, list):
+        shown = len(result["raw_text"])
+        references = [FacilityReference.from_json(span) for span in spans]
+        result["facility_references"] = resolved_references(
+            [reference for reference in references if reference.end <= shown],
+            facility_records,
+        )
     if not view_enabled:
         return result
     if "_matched_attachment_ids" in entry:

@@ -111,7 +111,9 @@ __all__ = [
 MAGIC = b"OSPF"
 
 #: Bumped only for an incompatible envelope change; decode refuses anything else.
-PROTOCOL_VERSION = 1
+#: 2: a write result carries ``verdict_reason`` and a blocked write's error
+#: frame its typed reason, which a version-1 peer would drop.
+PROTOCOL_VERSION = 2
 
 #: Refuse absurd lengths rather than trying to allocate them. Generous enough
 #: for a detector image, small enough that a corrupt length cannot exhaust RAM.

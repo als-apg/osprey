@@ -29,6 +29,9 @@
  *                 `osprey-session-change`, exactly as the iframes get them,
  *                 on every hello and on every change (panel-manager wires the
  *                 change fan-outs through {@link broadcastToPopouts}).
+ *   hub → popup   `osprey-agent-activity {tool, detail, ts}`  when the agent
+ *                 touched this panel, exactly as its iframe would get it
+ *                 (panel-sse.js relays it through {@link popoutWindow}).
  *
  * The hub takes a message only from its own origin. A hello is taken from a
  * window this hub opened under the protocol's window name — read off the
@@ -147,6 +150,17 @@ export function initPopouts(popoutDeps) {
 /** @param {string} panelId @returns {boolean} */
 export function isPoppedOut(panelId) {
   return windows.has(panelId);
+}
+
+/**
+ * The panel's open pop-out window, or null when it has none or the window was
+ * closed (the `closed` poll releases it; this read does not wait for it).
+ * @param {string} panelId
+ * @returns {Window | null}
+ */
+export function popoutWindow(panelId) {
+  const win = windows.get(panelId);
+  return win && !win.closed ? win : null;
 }
 
 /**

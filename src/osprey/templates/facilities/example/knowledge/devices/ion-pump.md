@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Device
 title: Ion Pump
 description: Sputter-ion vacuum pump maintaining UHV in beamline sections; current readback indicates pressure indirectly.

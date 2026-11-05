@@ -28,7 +28,7 @@ Agent tools for pictures
 - ``attachment_view`` shows one stored picture to the agent, so it can answer
   what a plot shows. It is offered while ``ariel.attachments.view.enabled`` is
   on.
-- ``entry_open`` shows an entry to the operator: it brings the ARIEL panel
+- ``entry_open`` shows an entry to the operator: it brings the Logbook panel
   forward with the entry's detail card open, and with an ``attachment_id`` it
   also opens that picture enlarged. The main agent calls it itself, with the
   ids a logbook subagent reported: a subagent hands back the entry id and
@@ -37,7 +37,7 @@ Agent tools for pictures
   entry's pictures, the agent passes it, even when the operator asks only for
   "the entry". Opened without one, the result lists the entry's viewable pictures, so the
   agent can repeat the call with the picture under discussion. The same view
-  is a link, ``#entry?id=<entry_id>&attachment=<attachment_id>``, on the ARIEL
+  is a link, ``#entry?id=<entry_id>&attachment=<attachment_id>``, on the Logbook
   web page.
   Its lightbox also links the stored original at full resolution
   ("Open original").

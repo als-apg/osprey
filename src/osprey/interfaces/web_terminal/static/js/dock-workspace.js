@@ -744,6 +744,7 @@ async function initPersistence(api) {
   applyStoredLayout();
   announceLayoutRestored();
   api.onDidLayoutChange(schedulePersist);
+  api.onDidActivePanelChange(schedulePersist);
   window.addEventListener('pagehide', flushPersist);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushPersist();

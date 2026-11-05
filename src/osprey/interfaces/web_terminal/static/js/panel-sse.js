@@ -46,7 +46,8 @@ import {
 import { entryIds, placeEntry } from './panel-rail.js';
 import { runPanelOp } from './panel-placement.js';
 import { postPanelOpResult } from './panel-commands.js';
-import { focusPopout } from './popout.js';
+import { focusPopout, popoutWindow } from './popout.js';
+import { sendAgentActivityToIframe, sendAgentActivityToWindow } from './panel-iframe-sync.js';
 import {
   initWatchdogAlert,
   isWatchdogFrame,
@@ -95,6 +96,37 @@ function ctx() {
 }
 
 /**
+ * The panel's mounted iframe, found the way the tile bar finds it
+ * (tile-header-contrib.js): by its stamped class and panel id. Compared in
+ * script rather than in the selector, so no panel id needs CSS escaping.
+ * @param {string} panelId
+ * @returns {HTMLIFrameElement | null}
+ */
+function mountedIframe(panelId) {
+  for (const el of document.querySelectorAll('iframe.panel-iframe')) {
+    const frame = /** @type {HTMLIFrameElement} */ (el);
+    if (frame.dataset.panelId === panelId) return frame;
+  }
+  return null;
+}
+
+/**
+ * Relay a panel-targeted agent_activity frame to the panel itself: its
+ * mounted iframe and, when popped out, its window. Neither present — the
+ * panel is not mounted — and the frame is dropped; the rail badge (or the
+ * strip) is all the hub shows for it.
+ * @param {string} panelId
+ * @param {AgentActivityEvent} frame
+ */
+function relayAgentActivity(panelId, frame) {
+  const activity = { tool: frame.tool, detail: frame.target.detail, ts: frame.ts };
+  const iframe = mountedIframe(panelId);
+  if (iframe) sendAgentActivityToIframe(iframe, activity);
+  const win = popoutWindow(panelId);
+  if (win) sendAgentActivityToWindow(win, activity);
+}
+
+/**
  * Bind the panel-manager state this module works through and open the panel
  * event stream. Called once, as the last statement of initPanelManager — every
  * other init (placement, menu policy, lifecycle, the rail render) must already
@@ -140,7 +172,12 @@ export function subscribePanelEvents(sseDeps) {
   //   agent_activity   {type, tool, target, ts} — passive "the agent touched X"
   //                                               signal: badge+glow the rail entry
   //                                               for target.kind 'panel', otherwise
-  //                                               hand off to the strip seam.
+  //                                               hand off to the strip seam. A
+  //                                               'panel' target is also relayed to
+  //                                               that panel's mounted iframe and
+  //                                               pop-out as `osprey-agent-activity
+  //                                               {tool, detail, ts}`; an unmounted
+  //                                               panel's frame is dropped.
   //   watchdog_*       {type, session_key, ...} — a change notice: handed to
   //                                               watchdog-alert.js, which re-reads
   //                                               the flags from their route.
@@ -213,6 +250,7 @@ export function subscribePanelEvents(sseDeps) {
           if (!(t.kind === 'panel' && t.panel && badgePanelActivity(t.panel, data.ts))) {
             c.reportActivity(data);
           }
+          if (t.kind === 'panel' && t.panel) relayAgentActivity(t.panel, data);
         } else if (isWatchdogFrame(data)) {
           onWatchdogFrame(data);
         } else if (isSafetySwitchFrame(data)) {

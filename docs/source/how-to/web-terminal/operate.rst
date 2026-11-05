@@ -67,7 +67,7 @@ The window has a sidebar on the left and two panes:
   not the agent, which never lists or cites it. Delete it when you no longer
   want it; it does not come back. It is switched on by
   ``artifact_server.example_artifact`` in ``config.yml``. Your
-  control-system tools (Channel Finder, ARIEL, the lattice dashboard, and so
+  control-system tools (Channel Finder, the Logbook, the lattice dashboard, and so
   on) open here too. See :doc:`panels`.
 
 The settings drawer (**☰ More** › **Settings**) lets you read and edit the
@@ -239,6 +239,13 @@ the next write would get:
   analysis, plots and read-only Python.
 - **writes locked** --- your switch is armed, but something the chip cannot lift
   refuses the write. The popover shows the phrase for it and who lifts it.
+- **· program** after any of these --- for example **writes off · program**:
+  a program's write authorization you approved is in force on this machine
+  (see :ref:`web-terminal-approve-program`). The word before it is still your
+  own switch; the program may write the channels you approved, inside their
+  ranges, until it ends, whatever your switch says. Its dot is a ring around a
+  centre rather than a solid dot. The machine's *off* control revokes it, and
+  the program's next write is refused.
 
 A switch is one login's. Two logins on the same machine each have their own,
 and one login's position never changes the other's writes.
@@ -274,9 +281,56 @@ roles and the age of the last probe stay on the tooltips and in the
 confirmation dialogs, where the decision is actually made.
 
 The foot has **Turn all writes off**: every switch of your login goes off in
-one click, a machine no longer configured included. It stops your login's
-writes only; other logins keep theirs. It is enabled while any of your
-switches is armed.
+one click, a machine no longer configured included, and every program
+authorization you approved is revoked. It stops your login's writes only;
+other logins keep theirs. It is enabled while any of your switches is armed or
+a program authorization of yours is in force.
+
+.. _web-terminal-approve-program:
+
+Approve a program's writes
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A program that writes with nobody at a prompt, such as an optimizer run, asks
+for a **write authorization**: these channels, inside these ranges, this many
+writes, until this time. A request that names your login appears in the
+popover under **Programs**, with **Review**. The card shows:
+
+- every channel with the range asked for, the limits-database bound it sits
+  inside, and its current value;
+- the number of writes (steps), what the run does at the end (nothing, apply
+  the best point found, or restore the values it started from), the expiry, the
+  lease the program renews while it runs, the program (holder) and the run's
+  label;
+- that a write the limits refuse still costs its step.
+
+While the current values are read the request line says *reading values…*; a
+machine that does not answer within a few seconds leaves them *not read*.
+
+**Approve** issues it. It is refused, with the reason on the card, when your
+tier is ``never`` or cannot be read, this terminal runs read-only, a range
+is outside the limits database, a channel has no numeric range there or a
+current value that is not a number, or another program already holds one of
+the channels on this machine. Approving is the confirmation for every write
+the run makes inside it, even when your tier is *asked*: the program's writes
+are not prompted one by one. Once approved, the machine's word reads
+**· program** after it, and the authorization is listed under Programs with
+its steps used of its total, when it ends (the time left; hover for the exact
+time) and **Revoke**.
+
+A program that issued its own authorization while your switch stood at
+*allowed* is listed there too, marked self-issued, and an approval refuses to
+overlap it. It has no **Revoke**: moving the machine's switch off *allowed*
+ends it.
+
+An authorization ends when its steps are used, at its expiry, when the
+program stops renewing its lease, or at a stop. To stop it, use **Revoke**, the
+machine's *off* control, or **Turn all writes off**: the program's next write
+is refused. **Revoke** on one that had already ended says *Already stopped*.
+One whose steps are used or whose lease lapsed leaves the chip at once.
+Nothing renews an ended authorization; the program asks again. The same approval
+is available without a web terminal through
+:ref:`osprey write-authorization <cli-osprey-write-authorization>`.
 
 Turn writes off, or on
 ~~~~~~~~~~~~~~~~~~~~~~

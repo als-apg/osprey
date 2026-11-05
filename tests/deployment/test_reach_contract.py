@@ -884,6 +884,21 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
         assert f"`{service}`" in errors[0], (service, errors)
 
 
+def test_the_optimizer_server_needs_the_published_port_in_an_attached_render():
+    """The optimizer server resolves only from ``services.optimizer.port``, which
+    the build writes where it deploys the optimizer and projects into an attached
+    render. Switched on in an attached render with no port, it would dial the
+    layout slot on a guess, so the build refuses; with the port, it does not."""
+    switched_on = {"claude_code": {"servers": {"optimizer": {"enabled": True}}}}
+
+    (error,) = reach_errors({**switched_on, "deployed_services": []})
+    assert "optimizer MCP server" in error
+    assert "services.optimizer.port" in error
+
+    with_port = {**switched_on, "services": {"optimizer": {"port": 18182}}}
+    assert reach_errors({**with_port, "deployed_services": []}) == []
+
+
 def test_every_render_local_key_names_its_own_services_file_and_is_not_projected():
     """A render-local key belongs to its contract's service and is never also projected.
 

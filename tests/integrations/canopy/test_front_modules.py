@@ -54,7 +54,7 @@ TOOLS = frozenset(
     }
 )
 
-_UPSTREAM = re.compile(r"^/([a-z]+)/v1/")
+_UPSTREAM = re.compile(r"^/([a-z][a-z-]*)/v1/")
 
 
 def _upstream_modules(path: str) -> set[str]:
@@ -97,8 +97,8 @@ def test_the_restated_called_modules_are_the_ones_canopy_mcps_code_calls() -> No
     assert set(found) == set(sidecar_module.FRONT_CALLED_MODULES), found
 
 
-def test_the_forward_routes_relay_hare_fox_and_mole() -> None:
-    assert _forwarded_modules() == {"hare", "fox", "mole"}
+def test_the_forward_routes_relay_hare_formula_engine_and_mole() -> None:
+    assert _forwarded_modules() == {"hare", "formula-engine", "mole"}
     assert _forwarded_modules() <= set(sidecar_module.FRONT_CALLED_MODULES)
 
 

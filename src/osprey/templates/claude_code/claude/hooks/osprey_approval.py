@@ -214,7 +214,7 @@ from osprey_hook_log import (
 try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
-    _target_state = None
+    _target_state = None  # type: ignore[assignment]  # the sibling is absent
 
 # The shared, stdlib-only file helper the stamps are written through, a sibling
 # script like the reader above. Guarded the same way: without it no stamp is
@@ -222,7 +222,7 @@ except Exception:  # pragma: no cover - older render without the reader
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 #: When this hook process entered, as a `time.monotonic` instant.
 #:

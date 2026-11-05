@@ -943,7 +943,12 @@ class TestGetEnabledMigrations:
             "raw_text_fts_index_v2",
             "attachment_files_copy_state",
             "embedding_input_key",
+            "facility_refs_column",
             "als_logbook_plain_text",
+            "entry_subject_and_keyset",
+            "entry_subject_backfill",
+            "follows_up_index",
+            "logbook_web_source_system",
         ]
 
     def test_unimportable_migration_is_skipped_with_warning(self, monkeypatch, caplog) -> None:
@@ -1510,7 +1515,7 @@ class TestPlainTextMigration:
         migration = ALSPlainTextMigration()
 
         assert migration.name == "als_logbook_plain_text"
-        assert migration.depends_on == ["core_schema"]
+        assert migration.depends_on == ["core_schema", "facility_refs_column"]
 
     async def test_selects_only_rows_the_cleaner_can_change(self, ddl_conn) -> None:
         """One select, filtered by source system and by the cleaner's fast path."""

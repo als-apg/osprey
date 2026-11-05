@@ -759,6 +759,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     assert (REPO_ROOT / fw.DOCS_HTML).parent.parent == REPO_ROOT / BY_ID["docs"].workdir
 
     lean, pyaml = "{scratch}/lean/bin/python", "{scratch}/pyaml/bin/python"
+    optimizer = "{scratch}/optimizer/bin/python"
     assert run("package") == [
         ["uv", "build"],
         ["uvx", "twine", "check", "dist/*"],
@@ -766,6 +767,13 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ["uv", "venv", "{scratch}/lean", "--python", "3.11"],
         ["uv", "pip", "install", "--python", lean, "dist/osprey_connectors-*.whl"],
         [lean, "-I", fw.LEAN_IMPORT_WALK],
+        ["uv", "build", "--package", "osprey-optimizer"],
+        ["uv", "venv", "{scratch}/optimizer", "--python", "3.11"],
+        [
+            *("uv", "pip", "install", "--python", optimizer, "dist/osprey_connectors-*.whl"),
+            "dist/osprey_optimizer-*.whl",
+        ],
+        [optimizer, "-c", fw.OPTIMIZER_BASE_PROBE],
         ["uv", "build", "--package", "pyaml-cs-osprey"],
         ["uv", "venv", "{scratch}/pyaml", "--python", "3.11"],
         [
@@ -1102,6 +1110,42 @@ def test_a_changed_pytest_file_runs_itself() -> None:
 def test_a_source_file_selects_its_mirrored_tests() -> None:
     for path in ("src/osprey/cli/main.py", "src/osprey/cli/templates/help.txt"):
         assert selected("quick", path)["pytest"] == check.Selection(check.PATHS, ("tests/cli",))
+
+
+_PACKAGE = [
+    "src/osprey/pkg/__init__.py",
+    "src/osprey/pkg/sub/__init__.py",
+    "src/osprey/pkg/sub/mod.py",
+    "src/osprey/pkg/gap/inner/__init__.py",
+    "src/osprey/pkg/gap/inner/mod.py",
+    "src/osprey/top.py",
+    "tests/pkg/test_a.py",
+]
+
+
+@pytest.mark.parametrize(
+    ("path", "tests", "expected"),
+    [
+        ("src/osprey/pkg/sub/mod.py", [], ("tests/pkg",)),
+        ("src/osprey/top.py", [], None),
+        (
+            "src/osprey/pkg/sub/mod.py",
+            ["tests/pkg/sub/__init__.py", "tests/pkg/sub/data.json"],
+            ("tests/pkg",),
+        ),
+        ("src/osprey/pkg/sub/mod.py", ["tests/pkg/sub/test_b.py"], ("tests/pkg/sub",)),
+        ("src/osprey/pkg/gap/inner/mod.py", [], ("tests/pkg",)),
+    ],
+    ids=["climbs-to-ancestor", "top-level-widens", "skips-testless-mirror", "nearest-wins", "gap"],
+)
+def test_a_source_file_selects_its_nearest_ancestor_mirror(
+    path: str, tests: list[str], expected: tuple[str, ...] | None
+) -> None:
+    files = _PACKAGE + tests
+    want = (
+        check.Selection(check.WHOLE) if expected is None else check.Selection(check.PATHS, expected)
+    )
+    assert fw._select_pytest([path], files) == want
 
 
 def test_a_helper_script_selects_only_its_mirror() -> None:
@@ -2494,6 +2538,7 @@ def test_the_package_check_builds_into_an_empty_dist(
     assert check.main(["run", "package"]) == 0
     assert seen == [False]
     build, twine, connectors, venv, install, probe, *rest = recorder.calls
+    optimizer_build, optimizer_venv, optimizer_install, optimizer_probe, *rest = rest
     pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
     assert twine == [
         "uvx",
@@ -2521,6 +2566,13 @@ def test_the_package_check_builds_into_an_empty_dist(
     # A glob no built file matches is passed on as written, for the step to fail on.
     assert "dist/osprey_framework-*.whl" in pyaml_install
     assert pyaml_probe == [pyaml_python, "-c", fw.PYAML_WHEEL_PROBE]
+    assert optimizer_build == ["uv", "build", "--package", "osprey-optimizer"]
+    optimizer_python = f"{optimizer_venv[2]}/bin/python"
+    assert Path(optimizer_venv[2]).parent == Path(venv[2]).parent
+    # The base wheel is installed beside the connectors wheel alone, never the framework's.
+    assert "dist/osprey_connectors-1.0-py3-none-any.whl" in optimizer_install
+    assert not any("osprey_framework" in part for part in optimizer_install)
+    assert optimizer_probe == [optimizer_python, "-c", fw.OPTIMIZER_BASE_PROBE]
 
 
 def test_the_package_check_stops_at_the_first_failing_step(recorder: Recorder) -> None:

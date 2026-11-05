@@ -65,7 +65,8 @@ MENU_TRIGGER_SELECTOR = "osprey-display-menu .display-menu-trigger"
 TRIGGER_SELECTOR = '[data-drawer="settings-drawer"]'
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
-CLOSE_BTN_SELECTOR = ".drawer-close-btn"
+# Scoped to Settings: the Status drawer carries its own close button.
+CLOSE_BTN_SELECTOR = "#settings-drawer .drawer-close-btn"
 # Last focusable descendant in initial DOM order (see the drawer markup in
 # ariel/static/index.html): the raw-YAML mode button is the last enabled,
 # visible, focusable element — the Apply button starts `disabled`, and both
@@ -259,32 +260,80 @@ def test_dialog_aria_semantics(tmp_path, monkeypatch, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
+# A one-pixel PNG: the lightbox only needs an image response, not a picture.
+_PIXEL_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+    "1f15c4890000000d49444154789c63f8cfc0f01f0005000201e221bc33"
+    "0000000049454e44ae426082"
+)
+_ENTRY_ID = "E-LIGHTBOX"
+_ATTACHMENT_ID = "A-LIGHTBOX"
+
+
+def _route_entry_with_picture(page: Page) -> None:
+    """Serve one entry with one viewable picture, and the picture itself."""
+    entry = {
+        "entry_id": _ENTRY_ID,
+        "source_system": "test",
+        "timestamp": "2026-01-01T12:00:00Z",
+        "author": "tester",
+        "subject": "Entry with a picture",
+        "raw_text": "See the attached picture.",
+        "attachments": [
+            {
+                "attachment_id": _ATTACHMENT_ID,
+                "filename": "beam.png",
+                "type": "image/png",
+                "viewable": True,
+                "display_url": f"/attachments/{_ATTACHMENT_ID}",
+            }
+        ],
+        "keywords": [],
+        "metadata": {},
+    }
+    page.route(f"**/api/entries/{_ENTRY_ID}", lambda route: route.fulfill(json=entry))
+    page.route(
+        f"**/attachments/{_ATTACHMENT_ID}",
+        lambda route: route.fulfill(body=_PIXEL_PNG, content_type="image/png"),
+    )
+
+
 def test_background_inert_while_open_including_preexisting_modal(
     tmp_path, monkeypatch, chromium_browser
 ):
     """While the drawer is open, every other top-level body child is inert.
 
-    Includes ariel's pre-existing ``#entry-modal`` overlay — intended dialog
-    semantics (only one modal-like surface may be interactive at a time),
-    confirmed during the component's A.2 review. Nothing in ariel's flow
-    opens the drawer and the entry modal at the same time, so this pins the
-    decision rather than working around a real conflict.
+    Includes ariel's image lightbox, a pre-existing top-level overlay that is
+    not a drawer — intended dialog semantics (only one modal-like surface may
+    be interactive at a time), confirmed during the component's A.2 review.
+    ``osprey-drawer`` never inerts another drawer, so the overlay has to be a
+    plain body child. The lightbox (z-index 10000) covers the header, so the
+    drawer is opened through the store rather than a click that would land on
+    the scrim and dismiss the lightbox.
     """
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
-        page.goto(base_url, wait_until="domcontentloaded")
+        _route_entry_with_picture(page)
+        page.goto(
+            f"{base_url}/#entry?id={_ENTRY_ID}&attachment={_ATTACHMENT_ID}",
+            wait_until="domcontentloaded",
+        )
 
-        _open_settings_drawer(page)
+        lightbox = page.locator("#image-lightbox")
+        expect(lightbox).to_be_visible(timeout=10_000)
+
+        page.evaluate("import('/static/js/store.js').then(m => m.setState({ drawer: 'settings' }))")
+        expect(page.locator(DRAWER_SELECTOR)).to_have_attribute("open", "", timeout=5_000)
 
         app_container = page.locator(".app-container")
-        entry_modal = page.locator("#entry-modal")
         expect(app_container).to_have_attribute("inert", "", timeout=5_000)
         expect(app_container).to_have_attribute("aria-hidden", "true")
-        expect(entry_modal).to_have_attribute("inert", "", timeout=5_000)
-        expect(entry_modal).to_have_attribute("aria-hidden", "true")
+        expect(lightbox).to_have_attribute("inert", "", timeout=5_000)
+        expect(lightbox).to_have_attribute("aria-hidden", "true")
 
         page.click(CLOSE_BTN_SELECTOR)
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=5_000)
         expect(app_container).not_to_have_attribute("inert", "", timeout=5_000)
-        expect(entry_modal).not_to_have_attribute("inert", "", timeout=5_000)
+        expect(lightbox).not_to_have_attribute("inert", "", timeout=5_000)
+        expect(lightbox).not_to_have_attribute("aria-hidden", "true")
         page.close()

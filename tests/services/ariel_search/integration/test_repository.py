@@ -609,6 +609,7 @@ class TestRepositoryUpsertReturning:
             "attachments": [self.UPSTREAM],
             "attachment_text": None,
             "attachment_captions": None,
+            "facility_refs": None,
         }
 
     async def test_upsert_returning_reingest_keeps_web_uploaded_native_item(
@@ -1250,3 +1251,270 @@ class TestImageEmbeddingTables:
         assert image["health"]["reachable"] is False
         assert image["health"]["reason"] == "config"
         assert status["attachments"]["picture_search_unavailable"] == "config"
+
+
+#: The two upsert paths, which must agree on how a stored ``follows_up`` survives.
+FOLLOWS_UP_UPSERTS = ["upsert_entry", "upsert_entry_returning"]
+
+
+@pytest.mark.usefixtures("_seed_integ_prefix")
+@pytest.mark.parametrize("method", FOLLOWS_UP_UPSERTS)
+class TestFollowsUpSurvivesUpsert:
+    """A re-upsert keeps a stored ``metadata.follows_up`` only when it carries none."""
+
+    async def _write(self, repository, seed_entry_factory, method, entry_id, metadata):
+        entry = seed_entry_factory(entry_id=entry_id, metadata=metadata)
+        await getattr(repository, method)(entry)
+        return (await repository.get_entry(entry_id))["metadata"]
+
+    async def test_follows_up_kept_when_incoming_lacks_it(
+        self, repository, seed_entry_factory, method
+    ):
+        entry_id = f"{INTEG_PREFIX}fu-kept-{method}"
+        await self._write(
+            repository,
+            seed_entry_factory,
+            method,
+            entry_id,
+            {"follows_up": "parent-1", "logbook": "Ops"},
+        )
+        stored = await self._write(
+            repository, seed_entry_factory, method, entry_id, {"logbook": "Physics"}
+        )
+        assert stored == {"follows_up": "parent-1", "logbook": "Physics"}
+
+    async def test_follows_up_replaced_when_incoming_has_it(
+        self, repository, seed_entry_factory, method
+    ):
+        entry_id = f"{INTEG_PREFIX}fu-replaced-{method}"
+        await self._write(
+            repository, seed_entry_factory, method, entry_id, {"follows_up": "parent-1"}
+        )
+        stored = await self._write(
+            repository, seed_entry_factory, method, entry_id, {"follows_up": "parent-2"}
+        )
+        assert stored == {"follows_up": "parent-2"}
+
+    async def test_follows_up_incoming_null_replaces_stored(
+        self, repository, seed_entry_factory, method
+    ):
+        """A present key wins even when its value is null: only absence keeps the stored id."""
+        entry_id = f"{INTEG_PREFIX}fu-null-{method}"
+        await self._write(
+            repository, seed_entry_factory, method, entry_id, {"follows_up": "parent-1"}
+        )
+        stored = await self._write(
+            repository, seed_entry_factory, method, entry_id, {"follows_up": None, "a": 1}
+        )
+        assert stored == {"follows_up": None, "a": 1}
+
+    async def test_follows_up_other_keys_still_overwritten(
+        self, repository, seed_entry_factory, method
+    ):
+        entry_id = f"{INTEG_PREFIX}fu-others-{method}"
+        await self._write(
+            repository,
+            seed_entry_factory,
+            method,
+            entry_id,
+            {"follows_up": "parent-1", "logbook": "Ops", "tags": ["a"], "sync_status": "pending"},
+        )
+        stored = await self._write(
+            repository, seed_entry_factory, method, entry_id, {"sync_status": "synced"}
+        )
+        # every key but follows_up is the incoming row's: dropped keys stay dropped
+        assert stored == {"follows_up": "parent-1", "sync_status": "synced"}
+
+    async def test_follows_up_absent_on_both_sides_stays_absent(
+        self, repository, seed_entry_factory, method
+    ):
+        entry_id = f"{INTEG_PREFIX}fu-none-{method}"
+        await self._write(repository, seed_entry_factory, method, entry_id, {"logbook": "Ops"})
+        stored = await self._write(repository, seed_entry_factory, method, entry_id, {})
+        assert stored == {}
+
+
+@pytest.mark.usefixtures("_seed_integ_prefix")
+class TestGetFollowUps:
+    """``get_follow_ups`` lists an entry's children oldest first, as list rows."""
+
+    async def _seed(self, repository, seed_entry_factory, entry_id, *, minutes=0, metadata=None):
+        base = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        entry = seed_entry_factory(
+            entry_id=entry_id,
+            timestamp=base + timedelta(minutes=minutes),
+            metadata=metadata,
+        )
+        await repository.upsert_entry(entry)
+
+    async def test_follow_ups_oldest_first(self, repository, seed_entry_factory):
+        parent = f"{INTEG_PREFIX}fq-parent"
+        await self._seed(repository, seed_entry_factory, parent)
+        # inserted out of order; two share a timestamp so entry_id breaks the tie
+        for entry_id, minutes in (("fq-c3", 30), ("fq-c1", 10), ("fq-c2b", 20), ("fq-c2a", 20)):
+            await self._seed(
+                repository,
+                seed_entry_factory,
+                f"{INTEG_PREFIX}{entry_id}",
+                minutes=minutes,
+                metadata={"follows_up": parent},
+            )
+        await self._seed(
+            repository,
+            seed_entry_factory,
+            f"{INTEG_PREFIX}fq-other",
+            minutes=5,
+            metadata={"follows_up": f"{INTEG_PREFIX}fq-elsewhere"},
+        )
+
+        children = await repository.get_follow_ups(parent)
+
+        assert [c["entry_id"] for c in children] == [
+            f"{INTEG_PREFIX}fq-c1",
+            f"{INTEG_PREFIX}fq-c2a",
+            f"{INTEG_PREFIX}fq-c2b",
+            f"{INTEG_PREFIX}fq-c3",
+        ]
+
+    async def test_follow_ups_have_the_list_row_columns(self, repository, seed_entry_factory):
+        parent = f"{INTEG_PREFIX}fq-cols-parent"
+        child = f"{INTEG_PREFIX}fq-cols-child"
+        await self._seed(repository, seed_entry_factory, parent)
+        await self._seed(
+            repository, seed_entry_factory, child, minutes=1, metadata={"follows_up": parent}
+        )
+
+        (row,) = await repository.get_follow_ups(parent)
+
+        # the same columns (has_images included) the list and the reader read
+        assert row == await repository.get_entry(child)
+        assert "has_images" in row
+        assert "subject" in row
+
+    async def test_follow_ups_exclude_self_reference(self, repository, seed_entry_factory):
+        entry_id = f"{INTEG_PREFIX}fq-self"
+        await self._seed(
+            repository, seed_entry_factory, entry_id, metadata={"follows_up": entry_id}
+        )
+
+        assert await repository.get_follow_ups(entry_id) == []
+
+    async def test_follow_ups_empty_for_unknown_id(self, repository):
+        assert await repository.get_follow_ups(f"{INTEG_PREFIX}fq-nobody") == []
+
+    async def test_linked_to_alone_is_not_a_follow_up(self, repository, seed_entry_factory):
+        """Criterion 6a: ``metadata.linked_to`` makes no thread and survives an upsert."""
+        target = f"{INTEG_PREFIX}fq-link-target"
+        linker = f"{INTEG_PREFIX}fq-linker"
+        await self._seed(repository, seed_entry_factory, target)
+        await self._seed(
+            repository, seed_entry_factory, linker, minutes=1, metadata={"linked_to": target}
+        )
+
+        # no children on either side, and no parent on the linking entry
+        assert await repository.get_follow_ups(target) == []
+        assert await repository.get_follow_ups(linker) == []
+        stored = await repository.get_entry(linker)
+        assert "follows_up" not in stored["metadata"]
+
+        # a re-upsert carrying the same linked_to leaves it as it was
+        await self._seed(
+            repository,
+            seed_entry_factory,
+            linker,
+            minutes=1,
+            metadata={"linked_to": target, "logbook": "Ops"},
+        )
+        assert (await repository.get_entry(linker))["metadata"] == {
+            "linked_to": target,
+            "logbook": "Ops",
+        }
+        assert await repository.get_follow_ups(target) == []
+
+
+#: The migration that builds the ``follows_up`` expression index.
+FOLLOWS_UP_MIGRATION = "follows_up_index"
+FOLLOWS_UP_INDEX = "idx_entries_metadata_follows_up"
+
+
+@pytest.fixture
+async def follow_scratch_pool(scratch_config):
+    """Pool on the empty scratch database."""
+    from osprey.services.ariel_search.database import create_connection_pool
+
+    async with await create_connection_pool(scratch_config.database) as pool:
+        yield pool
+
+
+async def _follows_up_indexdef(pool) -> str | None:
+    async with pool.connection() as conn:
+        result = await conn.execute(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = %s", [FOLLOWS_UP_INDEX]
+        )
+        row = await result.fetchone()
+        return row[0] if row else None
+
+
+class TestFollowsUpIndexMigration:
+    async def test_follows_up_migration_registered_always_on(self):
+        from osprey.services.ariel_search.database import migrations
+        from osprey.services.ariel_search.database.follows_up_migration import (
+            FollowsUpIndexMigration,
+        )
+
+        (row,) = [r for r in migrations.KNOWN_MIGRATIONS if r[0] == FOLLOWS_UP_MIGRATION]
+        assert row == (
+            FOLLOWS_UP_MIGRATION,
+            "osprey.services.ariel_search.database.follows_up_migration",
+            "FollowsUpIndexMigration",
+            None,
+        )
+        migration = FollowsUpIndexMigration()
+        assert migration.name == FOLLOWS_UP_MIGRATION
+        assert migration.depends_on == ["core_schema"]
+
+    async def test_follows_up_index_added_to_existing_database(
+        self, follow_scratch_pool, scratch_config, monkeypatch
+    ):
+        """A store migrated before the index existed gets it on the next run."""
+        from osprey.services.ariel_search.database import migrations
+
+        monkeypatch.setattr(
+            migrations,
+            "KNOWN_MIGRATIONS",
+            [r for r in migrations.KNOWN_MIGRATIONS if r[0] != FOLLOWS_UP_MIGRATION],
+        )
+        first = await migrations.run_migrations(follow_scratch_pool, scratch_config)
+        assert "core_schema" in first
+        assert await _follows_up_indexdef(follow_scratch_pool) is None
+
+        monkeypatch.undo()
+        assert await migrations.run_migrations(follow_scratch_pool, scratch_config) == [
+            FOLLOWS_UP_MIGRATION
+        ]
+        indexdef = await _follows_up_indexdef(follow_scratch_pool)
+        assert indexdef is not None
+        assert "(metadata ->> 'follows_up'::text)" in indexdef
+
+    async def test_follows_up_up_twice_is_idempotent(self, follow_scratch_pool, scratch_config):
+        from osprey.services.ariel_search.database import run_migrations
+        from osprey.services.ariel_search.database.follows_up_migration import (
+            FollowsUpIndexMigration,
+        )
+
+        await run_migrations(follow_scratch_pool, scratch_config)
+        async with follow_scratch_pool.connection() as conn, conn.transaction():
+            await FollowsUpIndexMigration().up(conn)
+        assert await _follows_up_indexdef(follow_scratch_pool) is not None
+        assert await run_migrations(follow_scratch_pool, scratch_config) == []
+
+    async def test_follows_up_down_drops_the_index(self, follow_scratch_pool, scratch_config):
+        from osprey.services.ariel_search.database import run_migrations
+        from osprey.services.ariel_search.database.follows_up_migration import (
+            FollowsUpIndexMigration,
+        )
+
+        await run_migrations(follow_scratch_pool, scratch_config)
+        async with follow_scratch_pool.connection() as conn, conn.transaction():
+            await FollowsUpIndexMigration().down(conn)
+        assert await _follows_up_indexdef(follow_scratch_pool) is None

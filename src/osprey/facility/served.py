@@ -1,13 +1,12 @@
-"""What a render serves: the facility file's models it runs and the channel it probes.
+"""What a render serves: the facility file's models it runs and the channels they hold.
 
 ``simulation.models`` in a render's ``config.yml`` names the models. Absent or
 ``null`` serves every model the facility file holds; ``[]`` and ``[texture]``
 serve no physics. ``texture`` is always served and always listed last, after
 the physics models sorted by name, so equal configs give equal lists.
 
-The connector blocks whose channels the build serves, the virtual
-accelerator's and the stand-in's, prove their target reachable by reading
-their ``probe_channel``; a stated one must be a channel of the facility file.
+The settings derived from what is served are listed in
+:mod:`osprey.facility.settings`.
 """
 
 from __future__ import annotations
@@ -15,17 +14,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
-from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
+from osprey.facility.records import ChannelSelection, FacilityRecords
 
-__all__ = [
-    "CONFIG_SOURCE",
-    "SERVED_PROBE_KEYS",
-    "SIMULATION_MODELS_KEY",
-    "check_served_probes",
-    "resolve_served",
-]
+__all__ = ["CONFIG_SOURCE", "SIMULATION_MODELS_KEY", "resolve_served"]
 
 #: The dotted config key that names the served models.
 SIMULATION_MODELS_KEY = "simulation.models"
@@ -33,18 +26,11 @@ SIMULATION_MODELS_KEY = "simulation.models"
 #: The file ``resolve_served`` reads the key from.
 CONFIG_SOURCE = "config.yml"
 
-#: The probe keys of the connector blocks whose channels the build serves, in
-#: the order they are checked: the stand-in copies the virtual accelerator's.
-SERVED_PROBE_KEYS: tuple[str, ...] = tuple(
-    f"control_system.connector.{block}.probe_channel"
-    for block in (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
-)
 
-
-def _invalid(detail: str, remedy: str, key: str = SIMULATION_MODELS_KEY) -> FacilityBuildError:
+def _invalid(detail: str, remedy: str) -> FacilityBuildError:
     return FacilityBuildError(
         "profile-invalid",
-        key,
+        SIMULATION_MODELS_KEY,
         [CONFIG_SOURCE],
         remedy,
         record_kind="path",
@@ -52,12 +38,12 @@ def _invalid(detail: str, remedy: str, key: str = SIMULATION_MODELS_KEY) -> Faci
     )
 
 
-def resolve_served(rendered_config: Mapping[str, Any], facility: Mapping[str, Any]) -> list[str]:
+def resolve_served(rendered_config: Mapping[str, Any], records: FacilityRecords) -> list[str]:
     """Compute the models one render serves.
 
     Args:
         rendered_config: The render's ``config.yml``, as a nested mapping.
-        facility: The build's facility file.
+        records: The build's facility file's records.
 
     Returns:
         The served model names: the physics models sorted by name, then
@@ -67,7 +53,7 @@ def resolve_served(rendered_config: Mapping[str, Any], facility: Mapping[str, An
         FacilityBuildError: ``profile-invalid`` when the key is not a list of
             names, or names a model the facility file does not hold.
     """
-    physics = sorted({str(m["name"]) for m in facility.get("models", [])} - {TEXTURE})
+    physics = sorted(records.ids("model") - {TEXTURE})
     known = [*physics, TEXTURE]
     simulation = rendered_config.get("simulation")
     if simulation is None:
@@ -95,44 +81,25 @@ def resolve_served(rendered_config: Mapping[str, Any], facility: Mapping[str, An
     return [*sorted(set(requested) - {TEXTURE}), TEXTURE]
 
 
-def check_served_probes(rendered_config: Mapping[str, Any], facility: Mapping[str, Any]) -> None:
-    """Hold each served block's stated ``probe_channel`` to the facility file.
+def _served_scope(records: FacilityRecords, served: list[str]) -> list[Mapping[str, Any]]:
+    """The channels the served simulator holds.
 
-    A block that states no probe channel passes: the target switch reports a
-    missing one itself.
-
-    Args:
-        rendered_config: The render's ``config.yml``, as a nested mapping.
-        facility: The build's facility file.
-
-    Raises:
-        FacilityBuildError: ``profile-invalid`` naming the first key of
-            ``SERVED_PROBE_KEYS`` whose address is not a channel of the
-            facility file, with the first readback by address as the remedy.
+    Each served physics model's selection, plus every channel in no model's
+    selection, served or not: a channel on a device the file assigns to an
+    unserved model is that model's and is not served. With no physics model
+    served, every channel.
     """
-    channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
-    for key in SERVED_PROBE_KEYS:
-        address = _dotted(rendered_config, key)
-        if address is None or str(address) in channels:
-            continue
-        readbacks = sorted(
-            candidate
-            for candidate, channel in channels.items()
-            if channel.get("role", DEFAULT_ROLE) == "readback"
-        )
-        remedy = (
-            f"set `{key}` to a readback the facility file holds, such as `{readbacks[0]}`"
-            if readbacks
-            else f"remove `{key}` from the profile"
-        )
-        raise _invalid(f"`{address}` is not a channel of the facility file", remedy, key)
+    channels = records.of_kind("channel")
+    physics = [name for name in served if name != TEXTURE]
+    if not physics:
+        return list(channels)
 
+    def selection(model: str) -> set[str]:
+        selected = records.select_channels(ChannelSelection(model=model))
+        return {str(channel["id"]) for channel in selected}
 
-def _dotted(mapping: Mapping[str, Any], key: str) -> Any:
-    """The value at a dotted ``key`` of a nested mapping, or ``None``."""
-    node: Any = mapping
-    for part in key.split("."):
-        if not isinstance(node, Mapping):
-            return None
-        node = node.get(part)
-    return node
+    owned = set().union(*(selection(name) for name in records.ids("model") - {TEXTURE}))
+    in_scope = set().union(*(selection(name) for name in physics)) | {
+        str(channel["id"]) for channel in channels if str(channel["id"]) not in owned
+    }
+    return [channel for channel in channels if str(channel["id"]) in in_scope]

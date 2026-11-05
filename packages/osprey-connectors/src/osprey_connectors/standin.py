@@ -31,7 +31,7 @@ kept while the framework releases that import them are supported and removed
 in a later connectors release. Nothing new reads them.
 
 ``live_standin_active`` — the ``standin`` target's deployed-container gate
--------------------------------------------------------------------------
+----------------------------------------------------------------------------
 
 Since the stand-in is its own target, nothing here has to rename anything: the
 target carries its own name, and an operator on ``standin`` is told

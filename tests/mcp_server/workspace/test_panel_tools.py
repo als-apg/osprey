@@ -108,7 +108,7 @@ class TestListPanels:
             {
                 "enabled": ["artifacts", "ariel", "lattice"],
                 "custom": [],
-                "labels": {"artifacts": "WORKSPACE", "ariel": "ARIEL", "lattice": "LATTICE"},
+                "labels": {"artifacts": "WORKSPACE", "ariel": "LOGBOOK", "lattice": "LATTICE"},
                 "visible": ["artifacts", "lattice"],
                 "active": None,
             }
@@ -128,7 +128,7 @@ class TestListPanels:
         assert ids == ["artifacts", "ariel", "lattice"]
         labels = {p["id"]: p["label"] for p in result["panels"]}
         assert labels["artifacts"] == "WORKSPACE"
-        assert labels["ariel"] == "ARIEL"
+        assert labels["ariel"] == "LOGBOOK"
         assert labels["lattice"] == "LATTICE"
         visible = {p["id"]: p["visible"] for p in result["panels"]}
         assert visible["artifacts"] is True

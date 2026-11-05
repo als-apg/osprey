@@ -119,6 +119,7 @@ from osprey.deployment.compose_generator import ensure_spool_dir, resolve_projec
 from osprey.port_layout import default_port
 from osprey.services.archive.manifest import MANIFEST_NAME
 from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, SPOOL_DIR_RELPATH
+from tests.e2e._deploy_support import env_from_example
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -471,8 +472,7 @@ def _example_env(repo: Path) -> None:
     # `osprey init` writes a .env only when the shell exports a provider key,
     # which this lane never does: the `cp .env.example .env` the CLI
     # recommends, with the dispatch tokens it leaves commented out.
-    text = (repo / ".env.example").read_text()
-    (repo / ".env").write_text(f"{text.rstrip()}\n{_DISPATCH_TOKENS}")
+    (repo / ".env").write_text(f"{env_from_example(repo)}{_DISPATCH_TOKENS}")
 
 
 def _common_config() -> dict[str, Any]:

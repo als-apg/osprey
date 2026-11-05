@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: PhysicsNote
 title: Beam Current Calibration
 description: Notes on DCCT calibration, systematic offsets, and how to interpret beam current readbacks accurately.

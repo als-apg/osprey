@@ -249,11 +249,13 @@ Once registered and enabled in ``config.yml`` (``search_modules.my_search.enable
 
 Modules may also export ``get_parameter_descriptors()`` to declare tunable parameters for the frontend capabilities API. Each :class:`~osprey.services.ariel_search.search.base.ParameterDescriptor` describes a single knob --- its name, type, default, range, and UI grouping --- so the web interface can render controls dynamically.
 
-**What a module returns.** ``execute`` may return a plain list of entries, as it always could, or a ``ModuleOutput(entries, diagnostics, expansion)`` when it has something to report alongside them: ``diagnostics`` for the notices the caller should see (a truncated query, a skipped step), and ``expansion`` for the :ref:`vocabulary groups <vocabulary-expansion>` that actually reached the query it ran. A bare list stays valid and needs no change.
+**What a module returns.** ``execute`` may return a plain list of entries, as it always could, or a ``ModuleOutput`` when it has something to report alongside them: ``diagnostics`` for the notices the caller should see (a truncated query, a skipped step), ``expansion`` for the :ref:`vocabulary groups <vocabulary-expansion>` that actually reached the query it ran, and optionally ``total``, ``total_exact``, ``has_more``, ``tier`` and ``filter_applied`` for paging and counts. A bare list stays valid and needs no change.
 
-**Opting into the shared query work.** Three descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called with exactly the arguments it is called with today.
+**Opting into the shared query work.** Five descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called as before, except that ``max_results`` is widened to ``min(offset + page_size * 2, 200)``.
 
 * ``accepts_expansion`` --- set it to ``True`` and the service passes ``query_expansion=`` when, and only when, expansion was resolved for that request. The module never sees the ``expand_query`` request argument itself: whether to expand is settled once, in the service.
+* ``accepts_entry_filter`` --- set it to ``True`` and the service passes ``entry_filter=`` (an ``EntryFilter``, possibly empty) for the module to apply. The service post-filters every result with ``EntryFilter.matches`` either way.
+* ``accepts_offset`` --- set it to ``True`` and the service passes ``offset=``, with ``max_results`` as the page size; otherwise the service slices the page out of the module's results.
 * ``needs_search_calls`` --- set it to ``True`` and the service passes its search-call pool as ``search_calls=``. A module that calls a provider at search time runs that call on the pool it receives, with ``await search_calls.run(fn, *args, timeout_s=...)``, and never builds a pool of its own. The service closes the pool when it stops.
 * ``query_parser`` --- an optional callable that takes the raw query string and returns a ``ParsedKeywordQuery`` (search text, field filters, phrases, pattern spans, diagnostics). The service calls it once and hands the result to the module as ``parsed=``. Keyword search declares its own ``parse_keyword_query`` here; a module that wants a different query language supplies its own parser, and one that wants none is never given ARIEL's.
 
@@ -282,9 +284,10 @@ and every rewrite is reported back with the results, so a hit that looks
 surprising always arrives with the reason it appeared.
 
 Nothing is built in. With no vocabulary configured, no query is ever rewritten.
-The ``control-assistant`` template ships a twenty-concept example at
-``data/ariel/vocabulary.yml`` as a starting point and a format tutorial; it is
-meant to be edited down to what your control room actually says.
+``osprey build`` turns expansion on when the facility ships
+``data/facility/ariel/vocabulary.yml``, and states that path. The example
+facility ships one as a starting point and a format tutorial; it is meant to be
+edited down to what your control room actually says.
 
 The vocabulary file
 ~~~~~~~~~~~~~~~~~~~
@@ -461,6 +464,8 @@ Turning expansion off, for a deployment or for one search
 
 ``ariel.vocabulary.enabled: false`` switches the whole thing off: nothing is
 read, and a stale ``path`` left behind is inert rather than a startup failure.
+A profile that states ``true`` and no ``path`` of its own, for a facility that
+ships no ``data/facility/ariel/vocabulary.yml``, is refused at ``osprey build``.
 
 For a single search, every surface takes an ``expand_query`` argument --- the
 **Expand vocabulary** toggle in the web interface's advanced options, and an
@@ -564,14 +569,14 @@ Configuration
 
    ariel:
      vocabulary:
-       enabled: true                       # default: false
-       path: data/ariel/vocabulary.yml     # required when enabled
-       expand_by_default: true             # default: true
-       expand_entries: false               # default: false
-       canonical_to_acronym: true          # default: true
-       canonical_to_shorthand: false       # default: false
-       # expand_modes: [keyword, semantic] # default: every enabled module
-                                           # (semantic/hybrid only with expand_entries)
+       enabled: true                                # stated by the build when the file exists
+       path: data/facility/ariel/vocabulary.yml     # stated by the build when the file exists
+       expand_by_default: true                      # default: true
+       expand_entries: false                        # default: false
+       canonical_to_acronym: true                   # default: true
+       canonical_to_shorthand: false                # default: false
+       # expand_modes: [keyword, semantic]          # default: every enabled module
+                                                    # (semantic/hybrid only with expand_entries)
 
      search_modules:
        keyword:
@@ -613,7 +618,7 @@ Checking the file, and reading the status
 .. code-block:: bash
 
    osprey ariel vocab-check                            # the configured file
-   osprey ariel vocab-check data/ariel/vocabulary.yml  # any file
+   osprey ariel vocab-check data/facility/ariel/vocabulary.yml  # any file
    osprey ariel vocab-check --json                     # one JSON document
 
 Neither this command nor the vocabulary line of ``osprey ariel status`` needs a
@@ -671,6 +676,10 @@ everything else running:
   or repoint ``ariel.vocabulary.path`` from the panel itself, then restart.
 * The MCP server refuses to start, naming the same key, so the OSPREY agent
   never gets a half-working search.
+
+A stated ``ariel.vocabulary.path`` that is not a file stops ``osprey build``
+while the vocabulary is on, so a missing file never reaches this mode (see
+:ref:`architecture-facility-settings`).
 
 If the broken file is baked into a deployed image, the panel's editor cannot
 reach it: ``vocabulary.yml`` ships inside the image, like the channel databases.

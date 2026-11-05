@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from osprey.facility.build import build_facility
+from osprey.facility.records import FacilityRecords
 from osprey.facility.sources import read_yaml
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines.calibration import (
@@ -194,7 +195,7 @@ def test_the_held_setpoints_are_the_golden_currents(section: str, built: Any) ->
     golden = _golden()
     held = {
         entry["address"]: entry["default"]
-        for entry in simulator_wiring(built, section)
+        for entry in simulator_wiring(FacilityRecords(built), section)
         if entry["address"] in golden
     }
     assert held, section

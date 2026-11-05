@@ -37,8 +37,8 @@ from dataclasses import dataclass
 #: The canopy-contract check runs against exactly these; a payload and the shipped
 #: library's report must name them.
 PROVEN_COMMITS: dict[str, str] = {
-    "canopy": "6bf78fcc612d2be15bb1f39ad7dff6e6d1a97fe8",  # osprey:not-a-port (a sha)
-    "PyDMConverter": "69d41977bbe53e456220b2f8ca3cb73057cd21ea",
+    "canopy": "166989aade14853aeefaa8b34ce760ea4d68ed37",  # osprey:not-a-port (a sha)
+    "PyDMConverter": "67129697d7fa8b87309f96e4f08ee05f38dc7867",
 }
 
 #: The ``STAGED.json`` key that names each distribution's commit.

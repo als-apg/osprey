@@ -352,10 +352,8 @@ va_archiver:
   hot_cadence_sec: 10      # seconds between samples inside the hot span
   tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
   recorder_cadence_sec: 10  # how often the recorder samples the machine
-  # A channel `osprey health` watches to check the archive is still recording:
-  # if this stops moving, history has quietly stopped. Point it at something on
-  # your machine that always changes; delete the key for no check at all.
-  freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+  # The build derives `freshness_channel`, the channel `osprey health` watches,
+  # from the facility file; a stated line is an override checked against it.
 
 # ── Agent record ─────────────────────────────────────────────────────────────
 # Every prompt, answer, tool call and decision, kept once. `clickhouse` keeps
@@ -497,9 +495,8 @@ config:
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
   # control_system.connector.virtual_accelerator.response_delay_ms: 10
-  # Channel the target switch reads to prove this target is reachable before
-  # making it active. The simulator serves it from the built facility.
-  control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+  # The build derives `probe_channel`, the channel the target switch reads, from
+  # the facility file; a stated line is an override checked against it.
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
   # port is written: the connector follows `services.virtual_accelerator.port`,
@@ -667,12 +664,9 @@ config:
   # ── Channel finder ─────────────────────────────────────────────────────────
   # The pipeline itself is derived from `channel_finder_mode:` above. When that
   # field selects the graph paradigm it answers from the `services.graphdb.*`
-  # store below.
+  # store below. The build states `channel_finder.benchmark.dataset_path` when
+  # the facility ships benchmark query sources.
   #
-  # The scored benchmark query set every paradigm reads, materialized by the
-  # build; `osprey channel-finder benchmark` runs it (`--queries-path FILE`
-  # for another).
-  channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
   # Rows one `run_sql` answer carries before it is cut. The cap is on the
   # AGENT's context, not on DuckDB: a truncated answer says so and names this
   # key, so the agent narrows the query rather than presenting a partial list.
@@ -736,9 +730,6 @@ config:
   # Links from the agent's answers to each entry's page in your logbook: one
   # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
   # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
-  # The ARIEL tab inside the web terminal offers Browse and New Entry; the
-  # agent searches the logbook. true adds the Search view there and opens on it.
-  # ariel.embedded_search: false
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -769,16 +760,11 @@ config:
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
-  # reported back as `expanded_terms`. The file is read once at startup; a
-  # broken one fails loudly there (panel in CONFIGURATION INVALID mode, search
-  # 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/ariel/vocabulary.yml`.
-  ariel.vocabulary.enabled: true
-  # A twenty-concept EXAMPLE covering what most circular-accelerator facilities
-  # share (a linac or FEL should delete the group the file's header marks for
-  # it). A starting point, not your vocabulary: edit it. Relative to the
-  # project root.
-  ariel.vocabulary.path: data/ariel/vocabulary.yml
+  # reported back as `expanded_terms`. The build turns it on when the facility
+  # ships data/facility/ariel/vocabulary.yml. The file is read once at startup;
+  # a broken one fails loudly there (panel in CONFIGURATION INVALID mode,
+  # search 503, MCP server refuses to start). Check edits with
+  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true
@@ -1387,6 +1373,7 @@ config:
   # Scenarios a deployment that never chose a set starts in, by name from
   # the facility's scenarios; `osprey sim apply` replaces the set.
   # Absent or [] starts in nominal alone.
+  # A stated start set is checked against the file at build.
   simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────
@@ -1525,6 +1512,17 @@ panel_presets: {}
 #       label: Beam scan
 #       base_form: plots
 #       viewer: viewers/beam_scan.js
+
+# --- Optimizer ---------------------------------------------------------------
+# Tunes machine variables against an objective with Bayesian optimization. The
+# service takes the optimizer slot of this deployment's port block and keeps
+# its jobs in a Redis sidecar. `targets` lists the control targets it may
+# drive (va, standin); the live machine is not allowed yet. Environment files
+# (YAML) in `environments_dir` are mounted read-only into the service.
+#
+# optimizer:
+#   targets: [va]
+#   environments_dir: optimizer/environments
 
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
@@ -2223,8 +2221,10 @@ ENV_EXAMPLE = """\
 # Anything else starting with `.env` is written by OSPREY itself (`osprey up`
 # keeps `.env.auth` there, for one) — kept out of git, and not edited by hand.
 
-# API key for the provider this assistant uses. Fill this in.
-ANTHROPIC_API_KEY=your-anthropic-api-key-here
+# API key for the provider this assistant uses.
+# Needed when the web terminals run in containers or call the Anthropic API
+# directly; a host `osprey web` signed in to Claude needs none.
+# ANTHROPIC_API_KEY=your-anthropic-api-key-here
 
 # Other providers OSPREY supports. Uncomment one if you switch to it with
 # `osprey set provider=...`.
@@ -2263,6 +2263,7 @@ OSPREY_AUTH_PW_CAROL=carol
 # BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_STANDIN_LAUNCH_TOKEN=  # bluesky_standin — arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft IOC (only on a deployment with `bluesky.second_lane`)
 # OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
+# OPTIMIZER_LAUNCH_TOKEN=  # optimizer — arms the optimizer API's routes that start runs, write to the machine or load a model
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # ARIEL_DB_READONLY_PASSWORD=  # postgresql — password of the SELECT-only Postgres role the agent's SQL tool queries through
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
@@ -3033,10 +3034,11 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "web-terminal-context/bob/.gitkeep": "",
     "web-terminal-context/carol/.gitkeep": "",
     "data/README.md": DATA_README_MD,
-    "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
+    "data/facility/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
     "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
     "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
     "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "data/facility/scenarios/rf-thermal.yaml": "{}\n",
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
     "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,

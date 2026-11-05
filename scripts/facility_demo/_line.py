@@ -348,10 +348,18 @@ def measurement() -> dict[str, Any]:
     }
 
 
+def origin_line() -> str:
+    """The bundled-origin line every generated YAML file of the example tree opens with."""
+    from osprey.facility.bundled import header_line
+
+    return f"{header_line('example')}\n"
+
+
 def _dump(data: Any) -> str:
     import yaml
 
-    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=float("inf"))
+    text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=float("inf"))
+    return origin_line() + text
 
 
 def _load(path: Path) -> list[dict[str, Any]]:

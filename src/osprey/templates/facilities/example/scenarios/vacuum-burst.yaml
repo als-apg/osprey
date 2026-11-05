@@ -1,3 +1,4 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 description: Sector-7 vacuum burst with correlated beam loss at 14:32:08 local time, recurring daily.
 archiver:
 - channel: SR:VAC:GAUGE:SR07:PRESSURE:RB

@@ -20,6 +20,7 @@ import pytest
 
 import osprey
 import osprey_connectors
+from osprey.facility.records import FacilityRecords
 from osprey_connectors_tests.compat import contracts, scan_framework_imports
 
 # The framework and the connectors this suite imports, wherever they are
@@ -85,10 +86,10 @@ def test_the_connectors_open_the_view_the_framework_writes(tmp_path: Path) -> No
     write_simulator_view(
         tmp_path / "data" / "simulator",
         ViewInputs(
-            doc=doc,
+            records=FacilityRecords(doc),
             rendered_config=VIEW_CONFIG,
             facility_dir=TEMPLATE_FACILITY,
-            served=resolve_served(VIEW_CONFIG, doc),
+            served=resolve_served(VIEW_CONFIG, FacilityRecords(doc)),
             reported=None,
         ),
     )

@@ -61,6 +61,7 @@ from .build_profile_schema import (
     LifecycleConfig,
     McpServerDef,
     NextcloudBridgeProfileConfig,
+    OptimizerConfig,
     ProfileProvenance,
     ServiceDef,
     TeamsBridgeProfileConfig,
@@ -71,6 +72,7 @@ from .build_profile_schema import (
     http_errors,
     listens_errors,
     network_mode_errors,
+    optimizer_errors,
     osprey_declares_binding,
 )
 from .build_profile_va_faults import (
@@ -147,6 +149,7 @@ _SLOT_CLAIM_ALIASES: dict[str, tuple[str, ...]] = {
     "tiled": ("bluesky.tiled_port",),
     "bluesky": ("bluesky.port",),
     "bluesky_web": ("bluesky_web.port",),
+    "optimizer": ("optimizer.port",),
     "mongo": ("va_archiver.port_host",),
 }
 """Ledger keys that move a layout slot under a name other than the slot's own.
@@ -484,6 +487,7 @@ class BuildProfile:
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
     bluesky_web: BlueskyWebConfig | None = None
+    optimizer: OptimizerConfig | None = None
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
     teams_bridge: TeamsBridgeProfileConfig | None = None
@@ -1089,6 +1093,9 @@ class BuildProfile:
 
         if self.bluesky_web is not None:
             claimed["bluesky_web.port"] = self.bluesky_web.port
+
+        if self.optimizer is not None:
+            claimed["optimizer.port"] = self.optimizer.port
 
         if self.dispatch is not None:
             d = self.dispatch
@@ -2096,6 +2103,9 @@ class BuildProfile:
             sp = self.bluesky_web
             if not (1 <= sp.port <= 65535):
                 errors.append(f"bluesky_web.port must be in 1..65535 (got {sp.port})")
+
+        if self.optimizer is not None:
+            errors.extend(optimizer_errors(self.optimizer))
 
         # Validate the archiver store's knobs, and its agreement with the rest
         # of the profile — see va_archiver_errors for why the rules live beside

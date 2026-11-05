@@ -3427,7 +3427,7 @@ def test_context_menu_closes_when_a_click_lands_in_a_panel_iframe(tmp_path, chro
 #     an empty query and survives a reload.
 #
 # ARIEL is the panel under test because it is the one the synonym table has
-# domain vocabulary for ("logbook"/"elog"). It is enabled as a built-in panel
+# domain vocabulary for ("elog"). It is enabled as a built-in panel
 # with its companion server URL published post-startup - the catalog entry
 # carries no healthEndpoint, so it is healthy the moment its config fetch
 # resolves, and the stub backend behind it lets the proxied /panel/ariel URL
@@ -3616,7 +3616,7 @@ def test_palette_hotkey_opens_with_input_focused_and_types_immediately(tmp_path,
 
         # Assert - the keystrokes landed AND re-filtered the list.
         expect(_palette_input(page)).to_have_value("ariel")
-        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Pop out Logbook")).to_have_count(1, timeout=5_000)
         expect(_palette_row(page, "Open Settings")).to_have_count(0)
 
         page.close()
@@ -3640,34 +3640,34 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
-        _focus_service_panel(page, "ariel", "ARIEL")
+        _focus_service_panel(page, "ariel", "LOGBOOK")
 
         _open_palette(page)
         _palette_query(page, "ariel")
 
-        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Pop out Logbook")).to_have_count(1, timeout=5_000)
         # The query really narrowed the list, so the absences below mean the
         # rows do not exist rather than that everything is still on screen.
         expect(_palette_row(page, "Open Settings")).to_have_count(0)
-        expect(_palette_row(page, "Open Ariel in a new tile")).to_have_count(0)
+        expect(_palette_row(page, "Open Logbook in a new tile")).to_have_count(0)
         # Focus is the same story as the new tile: the active panel is not
         # offered a verb that would do nothing.
-        expect(_palette_row(page, "Focus Ariel")).to_have_count(0)
+        expect(_palette_row(page, "Focus Logbook")).to_have_count(0)
 
         # The new-tile verb itself is alive here - it just skips the active panel.
         _palette_query(page, "tile")
         expect(_palette_row(page, "Open Artifacts in a new tile")).to_have_count(1, timeout=5_000)
-        expect(_palette_row(page, "Open Ariel in a new tile")).to_have_count(0)
+        expect(_palette_row(page, "Open Logbook in a new tile")).to_have_count(0)
 
         page.close()
 
 
-def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
-    """FR8: "logbook" - the domain word, not the label - finds the ARIEL rows.
+def test_palette_elog_synonym_matches_logbook(tmp_path, chromium_browser):
+    """FR8: "elog" - the domain word, not the label - finds the Logbook rows.
 
-    ARIEL's rail label says nothing about logbooks, so an operator who types
-    what the panel IS gets nothing unless the synonym tokens really reach the
-    live rows' searchText.
+    The rail label is not the only word an operator reaches for, so one who
+    types "elog" gets nothing unless the synonym tokens really reach the live
+    rows' searchText.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3676,9 +3676,9 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
         _open_palette(page)
-        _palette_query(page, "logbook")
+        _palette_query(page, "elog")
 
-        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Pop out Logbook")).to_have_count(1, timeout=5_000)
         # A word ARIEL's own rows are the only ones carrying: Artifacts, the
         # other rail member, is filtered out entirely.
         expect(_palette_row(page, "Artifacts")).to_have_count(0)
@@ -3704,7 +3704,7 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
         _wait_for_ariel_ready(page)
         _open_palette(page)
         _palette_query(page, "ariel window")
-        row = _palette_row(page, "Pop out Ariel")
+        row = _palette_row(page, "Pop out Logbook")
         expect(row).to_have_count(1, timeout=5_000)
 
         with page.context.expect_page() as popup_info:

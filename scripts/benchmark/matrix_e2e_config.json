@@ -91,6 +91,10 @@
       "reason": "Docker build/deploy smoke for the minimum bluesky stack (bridge + RE manager + Redis): loopback bind, unpublished manager/Redis ports, token and control-plane keypair mint, image content, and the browse-only capability refusal — all via docker + raw HTTP; no LLM."
     },
     {
+      "path": "tests/e2e/test_optimizer_deploy.py",
+      "reason": "Docker build/deploy smoke for the optimizer API and its Redis job store: loopback bind, an unpublished job store, launch-token mint, the optimizer's own image and identity, and the API reaching its store — all via docker + raw HTTP; no run is started and no LLM."
+    },
+    {
       "path": "tests/e2e/test_bluesky_web_deploy.py",
       "reason": "VA + bridge + bluesky-web sidecar container stack exercised via raw HTTP; neither service calls an LLM."
     },

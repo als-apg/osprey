@@ -42,17 +42,20 @@ may touch.
        and ``[]`` serve no physics. Every shipped preset sets ``null``.
    * - ``simulation.tick_s``
      - Seconds between the simulator's ticks. Absent means ``1.0``; every
-       shipped preset sets ``1.0``. A value at or below ``0`` stops the build
+       shipped preset sets ``1.0``. A value of ``0`` or less stops the build
        with a ``profile-invalid`` line naming the key.
    * - ``simulation.default_scenarios``
      - The scenarios a deployment that has never chosen a set starts in, by
        name from the facility's scenarios. ``osprey up`` activates them
        the way ``osprey sim apply`` would, before it seeds the archive and the
        logbook, and only while no set has been chosen. Absent, ``null`` or
-       ``[]`` starts in ``nominal`` alone. The control-assistant preset sets
-       ``[rf-thermal]``; the other presets leave it out. A value that is not a
-       list of non-empty names stops the build with a ``profile-invalid`` line
-       naming the key.
+       ``[]`` starts in ``nominal`` alone, which is the default: the build
+       derives no start set. The control-assistant preset sets ``[rf-thermal]``;
+       the other presets leave it out. A value that is not a list of non-empty
+       names, or a name that is not a scenario the facility serves (its own or
+       the built-in ``still``), stops the
+       build with a ``profile-invalid`` line naming the key (see
+       :ref:`architecture-facility-settings`).
 
 ``texture`` is always served, and always last. A name the facility file does
 not hold stops the build with a ``profile-invalid`` line that lists the valid
@@ -224,7 +227,7 @@ configured or deployed, so a minimal build shows no empty tiles.
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
-  graph MCP server (the graph store), the ARIEL panel and MCP server
+  graph MCP server (the graph store), the Logbook panel and ARIEL MCP server
   (Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
   virtual-accelerator connector. One row per service, and the address it
   knocks on is the one **the client itself resolves** from this config, in the
@@ -235,6 +238,17 @@ configured or deployed, so a minimal build shows no empty tiles.
   names the config key the client resolved it from, and a client switched on
   with nothing to resolve warns with the key that would give it one — the
   same condition ``osprey build`` refuses (:doc:`/how-to/build-profiles`).
+- ``simulator`` — appears when the render carries a simulator view with a
+  physics model and the deployment serves a simulator from a process of its
+  own: the ``va`` target's container, the ``standin`` target, or both. One row
+  per target and model, read from the model's status channel exactly as
+  ``osprey sim status --target`` reads it: ``ok`` while the model serves,
+  ``ok`` with "no deck, not built by design" for a model that names no deck
+  and wires no channel, and ``error`` naming the error for a model that
+  failed. A failed model serves NaN while the container keeps serving every
+  other channel, so its healthcheck stays green and this row is where the
+  failure shows. A target whose channels cannot be read is one ``warning``
+  row. A simulator served only in process gives no rows.
 
 .. note::
 
@@ -932,8 +946,12 @@ When the key is set, every entry the ARIEL tools return carries an
 ``entries_by_ids``, the rows of ``sql_query`` that select ``entry_id``, and the
 result of ``entry_publish``. The id is URL-encoded before it is filled in. The
 agent is told to link that URL as given and never to build one, so with the key
-unset it shows plain entry IDs. An entry written by ``entry_create`` and not yet
-published gets no URL, because the logbook has no page for it.
+unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
+because the logbook has no page for it: one ``entry_create`` wrote directly
+(``source_system`` ``ARIEL MCP``) or one saved local-only (``metadata.sync_status``
+``local_only``, such as a Logbook web save or a publish the logbook did not take).
+A ``sql_query`` row also gets none when looking up the ``source_system`` or
+``metadata`` it does not select fails.
 
 A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
@@ -963,7 +981,7 @@ the rest.
 
 Each value must be a positive whole number, and ``read_chars`` may not be below
 ``listing_chars``. Anything else is refused when the configuration is parsed:
-the ARIEL MCP server does not start, and the ARIEL panel reports the key. The
+the ARIEL MCP server does not start, and the Logbook panel reports the key. The
 keys are read at startup, so a change lands after ``osprey build`` and a
 restart. When choosing a value, the question is whether the part of an entry
 the agent needs routinely runs past 500 characters.
@@ -1172,6 +1190,14 @@ default. One row per image:
      - ``OSPREY_BLUESKY_WEB_IMAGE``
      - ``services.bluesky_web.image``
      - ``<project>-bluesky-web``
+   * - optimizer
+     - ``OSPREY_OPTIMIZER_IMAGE``
+     - ``services.optimizer.image``
+     - ``<project>-optimizer``
+   * - optimizer (Redis sidecar)
+     - ``OSPREY_OPTIMIZER_REDIS_IMAGE``
+     - ``services.optimizer.redis_image``
+     - upstream pin
    * - virtual_accelerator
      - ``OSPREY_VA_IMAGE``
      - ``services.virtual_accelerator.image``

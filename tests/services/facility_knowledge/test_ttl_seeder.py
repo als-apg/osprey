@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.validate import FACILITY_HEADER
 
 # ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@ def mini_ttl(tmp_path: Path) -> Path:
     from osprey.facility.views.graph import graph_text
 
     p = tmp_path / "mini.ttl"
-    p.write_text(graph_text(_mini_facility()), encoding="utf-8")
+    p.write_text(graph_text(FacilityRecords(_mini_facility())), encoding="utf-8")
     return p
 
 
@@ -304,7 +305,7 @@ class TestSeedFromGraphView:
             "devices": [{"id": "SR/QF-1.A", "class": "Quadrupole", "place": "SR"}],
         }
         ttl = tmp_path / "facility.ttl"
-        ttl.write_text(graph_text(doc), encoding="utf-8")
+        ttl.write_text(graph_text(FacilityRecords(doc)), encoding="utf-8")
 
         [stub] = seed_from_ttl(ttl)
 

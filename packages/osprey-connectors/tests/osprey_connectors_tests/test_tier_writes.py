@@ -138,7 +138,7 @@ def test_a_section_that_is_not_a_mapping_is_never(section: Any) -> None:
                 "writes_enabled": True,
                 "connector": {
                     LIVE_STANDIN: {"writes_enabled": True},
-                    "mypackage.Moat": {"writes_enabled": True},
+                    "mypackage.Site": {"writes_enabled": True},
                 },
             },
             id="every-leaf",
