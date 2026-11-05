@@ -595,6 +595,10 @@ these items:
   rows of the group go back to **Tools**. You cannot delete **Workspace** or
   **Tools**, but you can rename them.
 
+Double-click a group's name to fold it down to its heading, and double-click
+again to unfold it. To make **Workspace** taller, drag the faint line below it;
+double-click the line to go back to automatic height.
+
 To move a row to a different group, do one of these:
 
 - Right-click the row and pick **Move to** and the name of the group. Pick

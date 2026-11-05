@@ -82,6 +82,8 @@ html[data-sidebar-resizing] * {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .sidebar-sections > * {
@@ -231,6 +233,105 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
   .sidebar-group-head [data-group-menu] {
     opacity: 1;
   }
+}
+
+/* Folding (sidebar-fold.js): a double-click on the heading leaves only the
+   heading. The chevron shows while folded and on hover while open. */
+.sidebar-group-chevron {
+  flex: none;
+  width: 12px;
+  margin-right: var(--space-1);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.sidebar-group-head:is(:hover, :focus-within) .sidebar-group-chevron,
+.sidebar-group[data-folded] .sidebar-group-chevron {
+  opacity: 1;
+}
+
+.sidebar-group-head .sidebar-group-name {
+  outline: none;
+}
+
+.sidebar-group-head .sidebar-group-name:focus-visible {
+  box-shadow: 0 0 0 2px var(--surface-focus);
+}
+
+html:not([data-sidebar="collapsed"]) .sidebar-group[data-folded] {
+  flex: none;
+  height: auto;
+  overflow: hidden;
+}
+
+html:not([data-sidebar="collapsed"]) .sidebar-group[data-folded] > :not(.sidebar-group-head) {
+  display: none;
+}
+
+/* The Workspace divider (sidebar-divider.js): a zero-height row between
+   groups, so it shifts nothing; a 1 px faint line with a 10 px hit zone
+   across it. As on the sidebar's edge handle, hover, focus and drag draw an
+   accent line. The group it sizes reads --sidebar-group-height. */
+.sidebar-divider {
+  position: relative;
+  height: 0;
+  outline: none;
+  z-index: 1;
+}
+
+.sidebar-divider::before {
+  content: "";
+  position: absolute;
+  inset: -5px 0;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.sidebar-divider::after {
+  content: "";
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  top: 0;
+  height: 1px;
+  background: var(--surface-hairline);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: background var(--duration-instant) ease;
+}
+
+.sidebar-divider:hover::after {
+  height: 2px;
+  background: var(--color-accent);
+  opacity: 0.55;
+}
+
+.sidebar-divider:focus-visible::after,
+.sidebar-divider.dragging::after {
+  height: 2px;
+  background: var(--color-accent);
+  opacity: 1;
+}
+
+.sidebar-divider[hidden],
+html[data-sidebar="collapsed"] .sidebar-divider {
+  display: none;
+}
+
+html[data-sidebar-dividing],
+html[data-sidebar-dividing] * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
+html:not([data-sidebar="collapsed"]) .sidebar-group[data-sized]:not([data-folded]) {
+  flex: none;
+  height: var(--sidebar-group-height);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .sidebar-group-rename {
