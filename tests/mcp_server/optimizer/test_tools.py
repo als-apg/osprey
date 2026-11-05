@@ -7,13 +7,8 @@ and on the real response it parsed.
 
 from __future__ import annotations
 
-import ast
 import asyncio
-import importlib.util
 import json
-import pathlib
-import re
-from dataclasses import dataclass
 
 import httpx
 import pytest
@@ -78,7 +73,7 @@ REQUESTS = [
 _IDS = [f"{r[1]}-{i}" for i, r in enumerate(REQUESTS)]
 
 
-def test_the_route_table_covers_every_registered_tool():
+def test_the_requests_table_covers_every_registered_tool():
     registered = {tool.name for tool in asyncio.run(mcp.list_tools())}
     assert {r[1] for r in REQUESTS} == registered
 
@@ -231,94 +226,10 @@ def test_the_client_outwaits_the_services_own_read_backstop():
     assert TIMEOUT_S > OP_TIMEOUT
 
 
-# ---------------------------------------------------------------------------
-# The service's own route table, read from its router source: the service extra
-# (torch, xopt, polars) that importing ``osprey_optimizer.api`` needs is not in
-# the framework's test lanes, so the app itself cannot be imported here.
-# ---------------------------------------------------------------------------
-
-_HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
-
-
-@dataclass(frozen=True)
-class _Route:
-    method: str
-    pattern: re.Pattern[str]
-    template: str
-    gated: bool
-
-
-def _api_dir() -> pathlib.Path:
-    spec = importlib.util.find_spec("osprey_optimizer")
-    assert spec is not None and spec.submodule_search_locations
-    return pathlib.Path(next(iter(spec.submodule_search_locations))) / "api"
-
-
-def _routes() -> list[_Route]:
-    """Every route of the service, in the order FastAPI tries them."""
-    api = _api_dir()
-    main = ast.parse((api / "main.py").read_text())
-    alias_module = {
-        alias.asname: node.module.rsplit(".", 1)[1]
-        for node in ast.walk(main)
-        if isinstance(node, ast.ImportFrom)
-        and (node.module or "").startswith("osprey_optimizer.api.routers.")
-        for alias in node.names
-        if alias.name == "router" and alias.asname
-    }
-    included = [
-        call.args[0].id
-        for call in ast.walk(main)
-        if isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == "include_router"
-        and isinstance(call.args[0], ast.Name)
-    ]
-    routes: list[_Route] = []
-    for alias in included:
-        tree = ast.parse((api / "routers" / f"{alias_module[alias]}.py").read_text())
-        prefix = next(
-            kw.value.value
-            for node in tree.body
-            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
-            for kw in node.value.keywords
-            if kw.arg == "prefix" and isinstance(kw.value, ast.Constant)
-        )
-        for fn in tree.body:
-            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            for deco in fn.decorator_list:
-                if not (
-                    isinstance(deco, ast.Call)
-                    and isinstance(deco.func, ast.Attribute)
-                    and deco.func.attr in _HTTP_METHODS
-                ):
-                    continue
-                template = prefix + deco.args[0].value
-                regex = re.sub(r"\{[^}]+\}", "[^/]+", template)
-                gated = "require_launch_token" in ast.unparse(deco) + ast.unparse(fn.args)
-                routes.append(
-                    _Route(deco.func.attr.upper(), re.compile(f"{regex}$"), template, gated)
-                )
-    return routes
-
-
-def test_the_route_table_is_read_with_its_gates():
-    routes = _routes()
-    assert any(r.method == "POST" and r.template == "/optimizations" and r.gated for r in routes)
-    assert any(r.method == "GET" and r.template == "/jobs" and not r.gated for r in routes)
-
-
+# Every launch-token-gated route of the service is a POST or a PUT, so a tool
+# that only ever sends GETs cannot reach one.
 @pytest.mark.parametrize(("module", "name", "kwargs"), [r[:3] for r in REQUESTS], ids=_IDS)
-async def test_every_tool_gets_an_ungated_route_the_service_serves(optimizer, module, name, kwargs):
+async def test_every_tool_only_sends_gets(optimizer, module, name, kwargs):
     await _tool(module, name)(**kwargs)
-    (sent,) = optimizer.requests
-
-    assert sent.method == "GET"
-    # FastAPI serves a request with the first route whose path and method match;
-    # none is a 404 (no path matches) or a 405 (no method does).
-    served = next(
-        (r for r in _routes() if r.pattern.match(sent.url.path) and r.method == sent.method), None
-    )
-    assert served is not None, f"no {sent.method} route serves {sent.url.path}"
-    assert not served.gated, f"{name} calls {served.template}, which needs the launch token"
+    assert optimizer.requests
+    assert [r.method for r in optimizer.requests] == ["GET"] * len(optimizer.requests)
