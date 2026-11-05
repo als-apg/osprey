@@ -71,8 +71,10 @@ Two ways to add a plan
             bluesky:
               plan_dir: plans/
 
-      #. Run ``osprey build``. Every plan in the directory is installed
-         read-only into the plan stack.
+      #. Run ``osprey build``.
+
+      #. Restart the stack (``osprey up``). The next ``osprey up`` mounts
+         every plan in the directory read-only into the plan stack.
 
       #. Open BLUESKY's Plans view and check that your plans are listed next
          to the shipped plans.
@@ -350,7 +352,7 @@ one of:
 
 The rest of OSPREY works from that one marking. It decides:
 
-- which stand-in devices the validator builds for the rehearsal (the dry run);
+- which mock devices the validator builds for the dry run;
 - which names are checked against your machine before a plan is queued;
 - what the approval prompt shows the person who is about to say yes;
 - which channel the default plot uses for its x axis.

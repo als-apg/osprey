@@ -48,7 +48,7 @@ deployment has the ones its config describes, which is often two:
    :widths: 14 14 72
 
    * - Target
-     - Web Terminal label
+     - Web Terminal label (default)
      - The machine it names
    * - ``live``
      - *Live*
