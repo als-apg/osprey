@@ -5,8 +5,9 @@ import logging
 from typing import Any
 
 import nbformat
+from fastmcp.exceptions import ToolError
 
-from osprey.audit.call import note, write_stamps
+from osprey.audit.call import current_tool_use_id, note, write_stamps
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.python_executor.executor import (
     FAILURE_KIND_APPROVAL_CONFIG_INVALID,
@@ -16,6 +17,7 @@ from osprey.mcp_server.python_executor.executor import (
     FAILURE_KIND_SWITCH_IN_PROGRESS,
     FAILURE_KIND_TIMEOUT,
     FAILURE_KIND_UNREVIEWED,
+    NOT_STARTED_FAILURE_KINDS,
     ExecutionResult,
 )
 from osprey.stores.artifact_manifest import read_collected_file
@@ -66,6 +68,79 @@ _UNREVIEWED_SUGGESTIONS = [
     "Nothing ran: the code review had not read this code. Call the tool again; the review "
     "runs on the next call.",
 ]
+
+
+def _exec_id() -> str:
+    """The run's identity: the tool call in scope, or ``""`` (nothing links)."""
+    return current_tool_use_id() or ""
+
+
+def _run_status(exec_result: ExecutionResult) -> str:
+    """The result head's stored status for *exec_result*."""
+    if exec_result.success:
+        return "succeeded"
+    if exec_result.failure_kind in NOT_STARTED_FAILURE_KINDS:
+        return "not_run"
+    return "failed"
+
+
+def _error_message(error: ToolError) -> str:
+    """The envelope's ``error_message``, else the error's text."""
+    text = str(error)
+    try:
+        envelope = json.loads(text)
+    except ValueError:
+        return text
+    if isinstance(envelope, dict) and isinstance(envelope.get("error_message"), str):
+        return envelope["error_message"]
+    return text
+
+
+def save_refusal_head(
+    *,
+    tool_source: str,
+    code: str,
+    description: str,
+    execution_mode: str,
+    error: ToolError,
+    launched: bool,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Store the head of a run a tool refused: ``not_run`` before the launch, ``failed`` after.
+
+    The head carries the proposed code and the refusal's message. Best-effort:
+    a store failure is logged and never replaces the refusal the caller re-raises.
+    """
+    status = "failed" if launched else "not_run"
+    message = _error_message(error)
+    data: dict[str, Any] = {
+        "description": description,
+        "execution_mode": execution_mode,
+        "code": code,
+        "error": message,
+        "has_errors": True,
+        **(extra or {}),
+    }
+    try:
+        from osprey.stores.artifact_store import RUN_RECORD_KEY, get_artifact_store
+
+        get_artifact_store().save_data(
+            tool=tool_source,
+            data=data,
+            title=description or tool_source,
+            description=description,
+            summary={
+                "description": description,
+                "status": "Failed" if launched else "Not run",
+                "error": message[:_STDERR_PREVIEW_LIMIT],
+                "has_errors": True,
+            },
+            access_details={"execution_mode": execution_mode, "code_lines": len(code.splitlines())},
+            metadata={RUN_RECORD_KEY: True, "run_part": "result", "run_status": status},
+            exec_id=_exec_id(),
+        )
+    except Exception:
+        logger.debug("Refused-run head save failed (non-fatal)", exc_info=True)
 
 
 def _note_writes(exec_result: ExecutionResult) -> None:
@@ -174,7 +249,8 @@ async def build_execution_response(
         execution_mode: "readonly" or "readwrite".
         exec_result: Result from ``execute_code()``.
         patterns: Dict from ``detect_control_system_operations()``.
-        save_output: If True, persist to ArtifactStore; otherwise return inline.
+        save_output: If True, reply with the stored result record; otherwise
+            return the result inline. The record (the run's head) is stored either way.
         tool_source: Tool identifier for stored metadata ("execute" or "execute_file").
 
     Returns:
@@ -183,6 +259,7 @@ async def build_execution_response(
     _note_writes(exec_result)
 
     artifact_ids: list[str] = []
+    exec_id = _exec_id()
 
     stdout_text = exec_result.stdout
     stderr_text = exec_result.stderr
@@ -201,6 +278,8 @@ async def build_execution_response(
                 description=f"Figure from: {description}",
                 mime_type=f"image/{fig_path.suffix.lstrip('.')}",
                 tool_source=tool_source,
+                metadata={"run_part": "output", "figure": True},
+                exec_id=exec_id,
             )
             artifact_ids.append(fig_entry.id)
         except Exception:
@@ -220,7 +299,8 @@ async def build_execution_response(
                 description=art["description"],
                 mime_type=art["mime_type"],
                 tool_source=tool_source,
-                category=art.get("category", ""),
+                metadata={"run_part": "output"},
+                exec_id=exec_id,
             )
             artifact_ids.append(art_entry.id)
         except Exception:
@@ -262,31 +342,13 @@ async def build_execution_response(
             description=description,
             mime_type="application/x-ipynb+json",
             tool_source=tool_source,
-            metadata={RUN_RECORD_KEY: True},
+            metadata={RUN_RECORD_KEY: True, "run_part": "code"},
+            exec_id=exec_id,
         )
         notebook_artifact_id = nb_entry.id
         artifact_ids.append(notebook_artifact_id)
     except Exception:
         logger.debug("Notebook artifact creation failed (non-fatal)", exc_info=True)
-
-    if not save_output:
-        # Return inline (the path for callers that opt out of saving)
-        result = {
-            "description": description,
-            "execution_mode": execution_mode,
-            "execution_method": exec_result.execution_method_used,
-            "stdout": stdout_text,
-            "stderr": stderr_text,
-            "has_errors": has_errors,
-            "detected_patterns": patterns,
-        }
-        if artifact_ids:
-            result["artifact_ids"] = artifact_ids
-        if exec_result.code_review is not None:
-            result["code_review"] = exec_result.code_review
-        if has_errors:
-            _raise_failure(exec_result, stderr_text, result)
-        return json.dumps(result, default=str)
 
     # Build compact summary inline
     summary: dict[str, Any] = {
@@ -310,20 +372,50 @@ async def build_execution_response(
         "stderr_length": len(stderr_text),
     }
 
-    # Save via ArtifactStore (unified)
+    # The result record is the run's head, stored whether or not the reply
+    # carries it: it holds the run's status.
     from osprey.stores.artifact_store import RUN_RECORD_KEY, get_artifact_store
 
-    store = get_artifact_store()
-    entry = store.save_data(
-        tool=tool_source,
-        data=full_result,
-        title=description,
-        description=description,
-        summary=summary,
-        access_details=access_details,
-        category="code_output",
-        metadata={RUN_RECORD_KEY: True},
-    )
+    try:
+        entry = get_artifact_store().save_data(
+            tool=tool_source,
+            data=full_result,
+            title=description,
+            description=description,
+            summary=summary,
+            access_details=access_details,
+            metadata={
+                RUN_RECORD_KEY: True,
+                "run_part": "result",
+                "run_status": _run_status(exec_result),
+            },
+            exec_id=exec_id,
+        )
+    except Exception:
+        # The saved reply points at the record, so its save failing is the
+        # tool's failure; an inline reply does without it.
+        if save_output:
+            raise
+        logger.debug("Result head save failed (non-fatal)", exc_info=True)
+
+    if not save_output:
+        # Return inline (the path for callers that opt out of saving)
+        result = {
+            "description": description,
+            "execution_mode": execution_mode,
+            "execution_method": exec_result.execution_method_used,
+            "stdout": stdout_text,
+            "stderr": stderr_text,
+            "has_errors": has_errors,
+            "detected_patterns": patterns,
+        }
+        if artifact_ids:
+            result["artifact_ids"] = artifact_ids
+        if exec_result.code_review is not None:
+            result["code_review"] = exec_result.code_review
+        if has_errors:
+            _raise_failure(exec_result, stderr_text, result)
+        return json.dumps(result, default=str)
 
     response = entry.to_tool_response()
     if artifact_ids:
