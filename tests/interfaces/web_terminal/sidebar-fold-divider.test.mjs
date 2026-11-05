@@ -5,7 +5,7 @@
  *   npx vitest run tests/interfaces/web_terminal/sidebar-fold-divider.test.mjs
  *
  * A double-click on a heading folds and unfolds its group and persists the
- * ids under the scoped `osprey-sidebar-folded` key; the chevron and the name's
+ * ids under the scoped `osprey-sidebar-folded` key; the name's
  * keys do the same, the ⋯ button and a rename field do not. The divider sets
  * the Agent group's height by drag, steps it by key, resets it by double-click,
  * clamps it, stores it under `osprey-sidebar-workspace-height`, and hides when
@@ -108,15 +108,23 @@ describe('folding a group', () => {
     expect(group('tools').hasAttribute('data-folded')).toBe(false);
   });
 
-  test('the chevron shows the state and toggles', async () => {
+  test('headings carry no chevron, and a stale one is removed', async () => {
+    const stale = Object.assign(document.createElement('span'), {
+      className: 'sidebar-group-chevron',
+    });
     await boot();
-    const chevron = qs(head('workspace'), '.sidebar-group-chevron');
-    expect(chevron.textContent).toBe('▾');
-    chevron.click();
-    expect(group('workspace').hasAttribute('data-folded')).toBe(true);
-    expect(chevron.textContent).toBe('▸');
-    chevron.click();
-    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+    head('tools').prepend(stale);
+    dbl(head('tools'));
+    expect(rail().querySelector('.sidebar-group-chevron')).toBeNull();
+  });
+
+  test('folding restores the scroll range when the browser clamped it', async () => {
+    await boot();
+    // Layout is stubbed: folding the last group slides its heading 40px down.
+    head('tools').getBoundingClientRect = () =>
+      /** @type {DOMRect} */ ({ top: group('tools').hasAttribute('data-folded') ? 340 : 300 });
+    dbl(head('tools'));
+    expect(rail().style.paddingBottom).toBe('40px');
   });
 
   test('Enter and Space on the name toggle', async () => {
