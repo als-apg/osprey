@@ -4,10 +4,12 @@
 Switch the Control Target at Run Time
 =====================================
 
-How to move a running deployment between the machines it describes — rehearse
-a piece of work on the **virtual accelerator**, run it on the **live
-machine**, or rehearse the whole go-live procedure on a **stand-in** — without
-rebuilding the project or restarting anything.
+This page shows you how to move a running deployment between the machines it
+describes, without rebuilding the project or restarting anything. You can:
+
+- rehearse a piece of work on the **virtual accelerator**;
+- run it on the **live machine**;
+- rehearse the whole go-live procedure on a **stand-in**.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -30,10 +32,10 @@ The workflow
 ============
 
 The point of the switch is a rehearsal. You have a script, a set of writes or a
-plan you would rather not try for the first time on the real machine, so you run
-it against the simulator, look at what it did, and then run it for real —
-in one sitting, with the same tools, the same limits and the same approval
-prompts on both.
+plan that you would rather not try for the first time on the real machine. So
+you run it against the simulator, look at what it did, and then run it for
+real. You do this in one sitting, with the same tools, the same limits and the
+same approval prompts on both.
 
 Three machines
 --------------
@@ -43,80 +45,97 @@ deployment has the ones its config describes, which is often two:
 
 .. list-table::
    :header-rows: 1
-   :widths: 16 84
+   :widths: 14 14 72
 
    * - Target
+     - Web Terminal label (default)
      - The machine it names
    * - ``live``
-     - The facility's own control system — the gateways written under
+     - *Live*
+     - The facility's own control system: the gateways written under
        ``control_system.connector.epics``. A write here moves real hardware.
        ``osprey build`` never rewrites that block, so ``live`` means the same
        machine on every deployment.
    * - ``va``
-     - The virtual accelerator: a simulator this deployment stands up, serving
-       the same channel names from its container over real Channel Access, or
-       in this process (see :ref:`va-two-venues`). A write here moves nothing
-       real.
+     - *Simulator*
+     - The virtual accelerator: a simulator this deployment stands up. It
+       serves the same channel names, either from its container over real
+       Channel Access or in this process (see :ref:`va-two-venues`). A write
+       here moves nothing real.
    * - ``standin``
+     - *Rehearsal*
      - The **live stand-in**: a second soft IOC the deployment runs for itself,
        configured from its own ``control_system.connector.live_standin`` block.
-       It is a machine of its own, not a relabelled ``live`` — and it is
-       operated like the real one, which is what makes it worth rehearsing on.
+       It is a machine of its own, not a relabelled ``live``. It is operated
+       like the real one, which is what makes it worth rehearsing on.
+
+Two more terms run through this page:
+
+- **Stand-in.** *Live stand-in*, *stand-in* and *Rehearsal* all name the
+  ``standin`` target. The build-profile key
+  ``virtual_accelerator.live_standin: true`` deploys it, and
+  ``control_system.type: live_standin`` makes it the baseline.
+- **Baseline.** The target a deployment starts on before anything has ever
+  switched it, and the one it comes home to. ``control_system.type`` sets it.
 
 .. note::
 
    **One real machine per deployment.** ``live`` names one machine, and the
-   connector blocks are keyed by connector type, so a second real one — the
-   injector beside the ring, a second complex's control system — cannot be
-   written into this config at all. A facility that operates two runs one
-   deployment per machine, each with its own targets, write posture, limits and
-   archive, behind the same login origin if that is convenient. A config that
-   does carry a second non-simulated connector block gets no target for it, and
-   the controls server's log names the block nothing reaches.
+   connector blocks are keyed by connector type. So you cannot write a second
+   real machine into this config at all, such as the injector beside the ring
+   or a second complex's control system.
+
+   A facility that operates two machines runs one deployment per machine. Each
+   has its own targets, write posture, limits and archive, behind the same
+   login origin if that is convenient. A config that does carry a second
+   non-simulated connector block gets no target for it. The controls server's
+   log names the block that nothing reaches.
 
 Two tools move between them:
 
 ``control_target``
-   Reports where the deployment is pointed and where else it could go — one row
-   per target this deployment configures. Read-only: it opens no connections
-   and changes nothing, so it is safe to ask at any moment, including before
-   anything has ever been switched.
+   Reports where the deployment is pointed and where else it could go, with one
+   row per target this deployment configures. It is read-only: it opens no
+   connections and changes nothing. You can ask it at any moment, including
+   before anything has ever been switched.
 
 ``control_target_set(target)``
    Moves the deployment. ``target`` is ``va``, ``live`` or ``standin``, spelled
-   exactly. Where the deployment gates it on approval — the shipped presets
-   do — the prompt names the machine you would be moving to.
+   exactly. Where the deployment gates it on approval, as the shipped presets
+   do, the prompt names the machine you would be moving to.
 
-Ask the OSPREY agent for these in plain language — *"what am I pointed at?"*,
+Ask the OSPREY agent for these in plain language: *"what am I pointed at?"*,
 *"switch to the virtual accelerator"*. Working on the simulator looks like
-working on the machine: reads, writes, the python executor and notebook cells
+working on the machine. Reads, writes, the python executor and notebook cells
 all follow the switch.
 
 There is **one control target per deployment**, not one per conversation. A
 switch made anywhere moves everything: every chat and terminal window, every
-notebook kernel on its next cell, and the agent's own tools. That is the
-point — a machine one window can write to while another shows something else
-is not a safety control.
+notebook kernel on its next cell, and the agent's own tools. That is
+deliberate. A machine that one window can write to while another window shows
+something else is not a safety control.
 
 In the Web Terminal you can also move the deployment yourself, without asking
-the agent: the :ref:`control-target chip <web-terminal-session-posture>` in the
-header opens a popover with a **Switch to** button per machine. The switch it
-asks for is the same one — the same gate, the same checks, the same refusal
-reasons — and a target the gate would refuse shows why where the button
-would be. See `From the Web Terminal`_.
+the agent. The :ref:`control-target chip <web-terminal-session-posture>` in the
+header opens a popover with a **Switch to** button per machine. It asks for the
+same switch, with the same gate, the same checks and the same refusal reasons.
+For a target the gate would refuse, the popover shows why in place of the
+button. See `From the Web Terminal`_.
 
-Whether writes may run follows it too. Your write switch is per machine
-and starts off on each, so a setpoint the simulator took is refused on the real
-machine until you arm that machine from the chip
-(:ref:`write-safety-config`). Moving the deployment never arms a switch. Ask
-``control_target`` if you want to know before you move: every row carries its
-own ``writes_permitted``.
+Whether writes may run follows the target too. Your write switch is per
+machine and starts off on each. So a setpoint the simulator took is refused on
+the real machine until you arm that machine from the chip
+(:ref:`write-safety-config`). Moving the deployment never arms a switch. To
+check before you move, ask ``control_target``: every row carries its own
+``writes_permitted``.
 
-The archive does not follow the switch — archive reads keep the deployment's one
-configured archiver, answer only for the machines whose past it holds (see
-`Rehearse on a stand-in live machine`_), and are stamped with the control
-target and the archiver that served them, so which machine a set of history is
-about is never ambiguous.
+The archive does not follow the switch. Archive reads:
+
+- keep the deployment's one configured archiver;
+- answer only for the machines whose past it holds (see
+  `Rehearse on a stand-in live machine`_);
+- are stamped with the control target and the archiver that served them, so
+  which machine a set of history is about is never ambiguous.
 
 Rehearse on the virtual accelerator
 -----------------------------------
@@ -126,11 +145,11 @@ Start by asking where you are, then move to the simulator::
    > what control target are we on?
    > switch to the virtual accelerator
 
-The switch starts the new connection **before** it retires the old one, and
-proves it by reading one channel — the target's ``probe_channel`` — through the
-new connection. Only when that read answers does the deployment move. A switch
-that cannot prove the destination leaves you exactly where you were, still
-working, with the reason reported.
+The switch starts the new connection **before** it retires the old one. It
+proves the new connection by reading one channel through it: the target's
+``probe_channel``. Only when that read answers does the deployment move. A
+switch that cannot prove the destination leaves you exactly where you were,
+still working, with the reason reported.
 
 Now do the work: run the script, make the writes, look at the results. Nothing
 about the tools changes; only the machine behind them does.
@@ -138,87 +157,110 @@ about the tools changes; only the machine behind them does.
 Go live
 -------
 
-A deployment baselined on the stand-in
-(``control_system.type: live_standin``) starts on ``standin``, so
-going to the real machine is one tool call — the same call, and the same
-prompts, as on a deployment that never had a stand-in at all. The
-``control-assistant`` preset starts on the simulator (``va``) instead, so there
-the stand-in is a switch of its own before the real machine.
+A deployment baselined on the stand-in (``control_system.type: live_standin``)
+starts on ``standin``. There, going to the real machine is one tool call: the
+same call, and the same prompts, as on a deployment that never had a stand-in
+at all. The ``control-assistant`` preset starts on the simulator (``va``)
+instead, so there the stand-in is a switch of its own before the real machine.
 
-Read the roster before you ask for it, so you know what will happen::
+Moving toward the live machine is the direction with the extra gates. Clearing
+them **is** the go-live procedure:
 
-   > what control target are we on, and where else could we go?
+#. Read the roster before you ask for the switch, so you know what will
+   happen::
 
-Each row carries ``available_now`` and, when that is ``false``, the ``reason``
-the switch itself would refuse with. Clearing those reasons **is** the go-live
-procedure. Then::
+      > what control target are we on, and where else could we go?
 
-   > switch to the live machine
+   Each row carries ``available_now``. When that is ``false``, the row also
+   carries the ``reason`` the switch itself would refuse with.
 
-Moving toward the live machine is the direction with the extra gates. The switch
-checks them in this order and reports the first one that fails, so the answer
-names the nearest thing to fix rather than the whole list.
+#. Put your facility's gateway addresses in
+   ``control_system.connector.epics.gateways``. This clears
+   ``gateways_missing``.
+
+#. Set ``control_system.connector.epics.probe_channel`` to a channel your
+   facility actually serves. This clears ``probe_channel_missing``.
+
+#. Set ``control_system.target_switch.live_gateway_acknowledged`` to the
+   hostname of the live gateway this deployment is configured against. This
+   clears ``operator_ack_missing``.
+
+#. Ask for the switch::
+
+      > switch to the live machine
+
+The switch checks the gates in the order below and reports the first one that
+fails. The answer names the nearest thing to fix rather than the whole list.
 
 **A control system the switch can dial** (``connector_not_switchable``).
 The switch moves a session by pointing a connector host at a Channel Access
-gateway, so a deployment whose live block is on another protocol has nothing for
-it to dial. The refusal names the connector type rather than sending you to
-author a gateways table your control system has no use for. It is not a fault in
-the config and it does not touch the machine: the deployment still runs on that
-control system, and its own baseline is still where a session comes home to.
-What it cannot do is move a session onto it.
+gateway. A deployment whose live block is on another protocol has nothing for
+it to dial. The refusal names the connector type, rather than sending you to
+author a gateways table your control system has no use for. It is not a fault
+in the config, and it does not touch the machine. The deployment still runs on
+that control system, and its own baseline is still where a session comes home
+to. What the switch cannot do is move a session onto it.
 
 **The gateways** (``gateways_missing``).
 ``control_system.connector.epics.gateways`` names where the live machine is
 reached. A facility's gateways cannot be guessed, so nothing usable ships
-here: the control-assistant template leaves the whole block commented out —
-there this is the first gate, and the live target reads *not configured*
-until you author it — while the generic project template writes placeholder
-addresses instead, which pass this gate and fail the probe. Either way, the
-edit is the same: put your facility's gateway addresses in the block.
+here. The shipped templates differ:
+
+- The control-assistant template leaves the whole block commented out. There
+  this is the first gate, and the live target reads *not configured* until you
+  author it.
+- The generic project template writes placeholder addresses instead. They pass
+  this gate and fail the probe.
+
+Either way, the edit is the same: put your facility's gateway addresses in the
+block.
 
 **A probe channel** (``probe_channel_missing``).
 ``control_system.connector.epics.probe_channel`` names the channel the switch
-reads to prove the machine answered before the deployment moves onto it. It ships
-commented out — a facility's channel names cannot be guessed, and a placeholder
-would make the live target look ready while naming a channel nothing answers.
-Set it to a channel your facility actually serves.
+reads to prove the machine answered, before the deployment moves onto it. It
+ships commented out. A facility's channel names cannot be guessed, and a
+placeholder would make the live target look ready while naming a channel
+nothing answers. Set it to a channel your facility actually serves.
 
 **An operator acknowledgment** (``operator_ack_missing``).
-``control_system.target_switch.live_gateway_acknowledged`` must be set, to the
-hostname of the live gateway this deployment is configured against. Setting it
-is you saying *"the gateways in this config really are my facility's machine"*.
-Nothing infers that: the shipped example value looks like a real hostname, so no
-check could tell an operator's answer from a placeholder. It is the live
-machine's gate alone — the stand-in's equivalent was said in the build profile,
-by the line that stood the stand-in up.
+``control_system.target_switch.live_gateway_acknowledged`` must be set to the
+hostname of the live gateway this deployment is configured against. By setting
+it, you say *"the gateways in this config really are my facility's machine"*.
+Nothing infers that. The shipped example value looks like a real hostname, so
+no check could tell an operator's answer from a placeholder. This gate is the
+live machine's alone. For the stand-in, the line in the build profile that
+stood the stand-in up said the same thing.
 
 The archive is not a gate. The deployment's own store is the virtual
-accelerator's — the recorder samples the simulator and nothing else — and the
-live machine and its stand-in share the facility's archiver appliance, so no
-switch can put one machine's readings into another machine's past. See
+accelerator's: the recorder samples the simulator and nothing else. The live
+machine and its stand-in share the facility's archiver appliance. So no switch
+can put one machine's readings into another machine's past. See
 `Rehearse on a stand-in live machine`_ for whose history each target is shown.
 
 There is one exemption. A deployment can always come **home** to its own
-baseline — whichever of the three that is — with none of the gates above
-applied: not the acknowledgment, and not the gateway and probe-channel checks
-either. Stranding a deployment away
-from the machine it was built for is the less safe outcome of the two, and a
-baseline whose block is half authored — no gateways yet, the probe channel still
-commented out, a machine reached over something other than Channel Access —
-would otherwise be a machine a session can leave and never come back to. Where
-the baseline names a probe channel the return is proven with it like any other
-switch; where it does not, the return is made unprobed and the controls server's
-log says so.
+baseline, whichever of the three that is, with none of the gates above
+applied. That covers the acknowledgment and the gateway and probe-channel
+checks.
 
-Three things still refuse, coming home as much as going out: a target that
-resolves to no ``control_system.connector`` block at all, a ``standin`` block
-pointed at something other than the stand-in this deployment runs; and a
-baseline whose connector block derives no endpoint at all, which publishes no
-reachability row and so, while a controls server is live, is still refused as
-``reachability_unknown`` — the switch gate's reachability rung is
-direction-blind and has nothing to read. None of the three is a machine the
-switch can prove it came home to.
+Stranding a deployment away from the machine it was built for is the less
+safe outcome of the two. Without the exemption, a half-authored baseline would
+be a machine that a session can leave and never come back to. Half-authored
+means no gateways yet, the probe channel still commented out, or a machine
+reached over something other than Channel Access. Where the baseline names a
+probe channel, the return is proven with it like any other switch. Where it
+does not, the return is made unprobed and the controls server's log says so.
+
+Three things still refuse, coming home as much as going out:
+
+- a target that resolves to no ``control_system.connector`` block at all;
+- a ``standin`` block pointed at something other than the stand-in this
+  deployment runs;
+- a baseline whose connector block derives no endpoint at all. It publishes no
+  reachability row. So while a controls server is live, it is still refused as
+  ``reachability_unknown``: the switch gate's reachability rung is
+  direction-blind and has nothing to read.
+
+None of the three is a machine the switch can prove it came home to.
 
 Coming home
 -----------
@@ -227,20 +269,19 @@ Ask for the baseline and the switch runs like any other, under the exemption
 above.
 
 Nothing else brings a deployment home. The control target and each login's
-write switches are recorded on the deployment's durable volume, so they
-outlive the conversation that set them, a controls server restarting, and
-``osprey down && osprey up``: a fresh server adopts the recorded target rather
+write switches are recorded on the deployment's durable volume. They outlive
+the conversation that set them, a controls server restarting, and
+``osprey down && osprey up``. A fresh server adopts the recorded target rather
 than resetting it. A deployment somebody left on the real machine yesterday is
-still on the real machine today, which is why the chip is worth reading before
-you start work.
+still on the real machine today, so read the chip before you start work.
 
 From the Web Terminal
 ---------------------
 
-Everything above can also be done by hand, without a prompt. Click the
-control-target chip at the top of the sidebar and the popover lists every machine this
-deployment configures — the one the agent stands on as a card, every other as
-a row.
+You can also do everything above by hand, without a prompt. Click the
+control-target chip at the top of the sidebar. The popover lists every machine
+this deployment configures: the one the agent stands on as a card, and every
+other one as a row.
 
 .. grid:: 1 1 2 2
    :gutter: 2
@@ -263,41 +304,41 @@ away. Captured with OSPREY |captured_control_target_popover|.
 
 Each machine carries:
 
-- **A writes switch** — your login's switch for that machine, and the control
-  that changes it, in one widget: *off*, *asked* or *allowed*. Narrowing
-  applies as you click and nothing refuses it; widening asks first. A position
-  your tier or a lock forbids is disabled, with the reason on hover.
-- **A small ⓘ** after the name — what writing to this machine means (*Writes
-  move hardware*, or one of the *nothing moves* lines), the endpoint, and the
-  controls server's own technical label, shown on hover or keyboard focus.
-- **Switch to** — a confirmation names where every control read and write goes
-  next and the write state the deployment arrives in; the row reads
-  ``switching…`` until every one of the deployment's control-system servers has
-  moved onto the new machine, and the outcome then lands on the row:
+- **A writes switch.** One widget shows your login's switch for that machine
+  and changes it: *off*, *asked* or *allowed*. Narrowing applies as you click,
+  and nothing refuses it. Widening asks first. A position your tier or a lock
+  forbids is disabled, with the reason on hover.
+- **A small ⓘ after the name.** On hover or keyboard focus it shows what
+  writing to this machine means (*Writes move hardware*, or one of the
+  *nothing moves* lines). It also shows the endpoint and the controls server's
+  own technical label.
+- **Switch to.** A confirmation names where every control read and write goes
+  next, and the write state the deployment arrives in. The row reads
+  ``switching…`` until every one of the deployment's control-system servers
+  has moved onto the new machine. Then the outcome lands on the row:
   ``✓ switched``, or ``✗`` with an operator phrase for the same refusal code
-  the agent is given, the gate's own sentence on its tooltip. A server that
-  could not make the move is named, so you know which one to look at. The line
-  leaves the row after a minute — an outcome is news for about as long as
-  someone is watching for it.
+  the agent is given. The gate's own sentence is on the tooltip. A server that
+  could not make the move is named, so you know which one to look at. The
+  outcome line leaves the row after a minute.
 
-The foot's **Turn all writes off** turns every switch of your login off in one
-click. It stops your login's writes only; other logins keep theirs. A switch
-is one login's: two logins on one machine never change each other's writes.
-:doc:`../web-terminal/operate` walks the whole surface, including what the
-chip cannot lift and who can.
+**Turn all writes off**, at the foot of the popover, turns every switch of your
+login off in one click. It stops your login's writes only; other logins keep
+theirs. A switch belongs to one login: two logins on one machine never change
+each other's writes. :doc:`../web-terminal/operate` walks the whole surface,
+including what the chip cannot lift and who can.
 
 One process holds the deployment's control context at a time, and only that
-one moves the deployment. A second web terminal of the same login moves
-switches as the first does, but its **Switch to** buttons give way
-to a phrase naming the holder.
+process moves the deployment. A second web terminal of the same login moves
+write switches as the first does. In place of its **Switch to** buttons, it
+shows a phrase naming the holder.
 
 What a deployment needs first
 =============================
 
 A deployment can only be moved to a target its config describes. Each target
-reads its settings from a connector block of its own, and a target with no block is
-not offered at all — it has no roster row, rather than a row saying a machine
-nobody deployed is unavailable.
+reads its settings from a connector block of its own. A target with no block is
+not offered at all. It has no roster row, rather than a row saying that a
+machine nobody deployed is unavailable.
 
 .. list-table::
    :header-rows: 1
@@ -306,23 +347,23 @@ nobody deployed is unavailable.
    * - Target
      - Its connector block
    * - ``live``
-     - ``control_system.connector.epics`` — the facility's own, and yours to
+     - ``control_system.connector.epics``: the facility's own, and yours to
        write. The build never touches it.
    * - ``va``
-     - ``control_system.connector.virtual_accelerator`` — rendered for you, with
+     - ``control_system.connector.virtual_accelerator``: rendered for you, with
        the simulator's gateway pointed at the Virtual Accelerator the stack
        deploys.
    * - ``standin``
-     - ``control_system.connector.live_standin`` — derived, and only when the
+     - ``control_system.connector.live_standin``: derived, and only when the
        build profile asks for a stand-in. See `Rehearse on a stand-in live
        machine`_.
 
 A deployment serving the simulator in process is switchable like any simulator
-deployment: with a ``live`` or ``standin`` block in its config, it moves between
-the in-process ``va`` and those targets the same way.
+deployment. With a ``live`` or ``standin`` block in its config, it moves
+between the in-process ``va`` and those targets the same way.
 
-One key is not filled in for you. Each target names a ``probe_channel`` — the
-channel the switch reads to prove that target is reachable:
+One key is not filled in for you. Each target names a ``probe_channel``: the
+channel the switch reads to prove that target is reachable.
 
 .. list-table::
    :header-rows: 1
@@ -343,37 +384,53 @@ channel the switch reads to prove that target is reachable:
        same machine model, so the channel that proves one proves the other. A
        deployment whose simulator names none gets none here either.
 
-A target with no ``probe_channel`` is never switched to — except the
-deployment's own baseline, which is come home to unprobed rather than made
-unreachable — and the roster says so by name. Naming the live machine's probe
-channel is therefore a deliberate act by whoever knows the facility — the same
-posture as the acknowledgment key above.
+A target with no ``probe_channel`` is never switched to, and the roster says
+so by name. The one exception is the deployment's own baseline: the
+deployment comes home to it unprobed rather than making it unreachable. So
+naming the live machine's probe channel is a deliberate act by whoever knows
+the facility. It is the same posture as the acknowledgment key above.
 
-Three more keys bound the switch itself, all under
-``control_system.target_switch:``: ``probe_timeout_s`` (default 5) is how long
-the new connection gets to read the target's ``probe_channel`` before the
-switch is refused and the deployment stays where it was — raise it where a
-first read through your gateway takes longer; ``drain_timeout_s`` (default 5)
-is how long work already in flight gets to finish on the old target before it
-is torn down regardless (``0`` tears it down at once); and ``probe_interval_s`` (default 30) is how often the
-background reachability check runs.
+Three more keys, all under ``control_system.target_switch:``, bound the switch
+itself:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 12 64
+
+   * - Key
+     - Default
+     - What it bounds
+   * - ``probe_timeout_s``
+     - 5
+     - How long the new connection gets to read the target's
+       ``probe_channel``. After that the switch is refused and the deployment
+       stays where it was. Raise it where a first read through your gateway
+       takes longer.
+   * - ``drain_timeout_s``
+     - 5
+     - How long work already in flight gets to finish on the old target before
+       it is torn down regardless. ``0`` tears it down at once.
+   * - ``probe_interval_s``
+     - 30
+     - How often the background reachability check runs.
 
 .. note::
 
    Changing the target is **not** a config change and not a rebuild.
-   ``control_system.type`` only sets the deployment's baseline — the target it
+   ``control_system.type`` only sets the deployment's baseline: the target it
    starts on before anything has ever switched it, and the one it comes home
-   to. The
-   agent's own setup guidance carries the same rule in its hot/cold settings
-   table: target changes go through ``control_target_set``, and nobody should be
-   sent to ``osprey build`` to change which machine a deployment is talking to.
+   to. The agent's own setup guidance carries the same rule in its hot/cold
+   settings table. Target changes go through ``control_target_set``. Nobody
+   should be sent to ``osprey build`` to change which machine a deployment is
+   talking to.
 
 Reading the roster
 ==================
 
-``control_target`` answers with one row per target. The row says what the target
-*is*, whether the deployment may move there **right now**, and — where something
-has actually measured it — whether its gateway answered.
+``control_target`` answers with one row per target. The row says what the
+target *is*, and whether the deployment may move there **right now**. Where
+something has actually measured it, the row also says whether its gateway
+answered.
 
 .. list-table::
    :header-rows: 1
@@ -386,18 +443,19 @@ has actually measured it — whether its gateway answered.
        not. The reason is the same word the switch itself would refuse with, so
        the two can never tell you different stories.
    * - ``eligible_from_baseline``
-     - The same question asked as if the deployment sat on its own baseline
-       — the static view, unaffected by where it happens to be. On a
-       live-baseline deployment with no acknowledgment set, currently
-       on the simulator, this reads ``false`` for ``live`` while
-       ``available_now`` reads ``true``; that is the coming-home exemption made
-       visible, not a contradiction.
+     - The same question, asked as if the deployment sat on its own baseline.
+       This is the static view, unaffected by where the deployment happens to
+       be. Take a live-baseline deployment with no acknowledgment set,
+       currently on the simulator. This field reads ``false`` for ``live``
+       while ``available_now`` reads ``true``. That is the coming-home
+       exemption made visible, not a contradiction.
    * - ``endpoints``
-     - One entry per configured gateway role — ``read_only``, ``write_access``,
-       and ``pva`` where it exists — with the host, port and routing mode
-       derived from config, plus ``selected_role``: the gateway this deployment
-       would actually use, which follows the write verdict — the read-only
-       gateway while writes are refused, where the machine has one.
+     - One entry per configured gateway role (``read_only``, ``write_access``,
+       and ``pva`` where it exists), with the host, port and routing mode
+       derived from config. Also ``selected_role``: the gateway this
+       deployment would actually use. It follows the write verdict, so it is
+       the read-only gateway while writes are refused, where the machine has
+       one.
    * - ``endpoint_tcp`` and ``probed_at``
      - The background check's last observation of that gateway, and when it made
        it. A row older than three probe intervals is marked ``stale`` rather
@@ -408,7 +466,7 @@ has actually measured it — whether its gateway answered.
        of the same deployment can disagree about the first one: the switch is
        per machine, so the simulator may be armed beside a real machine that is off.
    * - ``limits_strict``
-     - Whether **this target** runs exclusive limits — limits checking on and
+     - Whether **this target** runs exclusive limits: limits checking on and
        ``mode: exclusive``, so only channels in the limits file can be written.
        Rows can disagree here too, but only from the deployment's config: a
        deployment can state a different mode for one connector type. Unlike
@@ -416,38 +474,39 @@ has actually measured it — whether its gateway answered.
        states neither setting reads ``false``, because a deployment that has
        stated nothing has refused nothing.
 
-Two things the roster is careful about are worth knowing, because they are the
-difference between a report you can act on and one that flatters you:
+The roster is careful about two things. They make it a report you can act on,
+rather than one that flatters you:
 
 **It is correct before anything has been switched.** A target nobody has ever
 activated is judged from configuration alone, so the roster is useful as a
 first question rather than only as an after-the-fact record.
 
 **A reachability row is not offered where nothing measured one.** If no
-measurement exists, the row simply carries no ``endpoint_tcp`` — "not measured"
-and "measured as down" are different claims and are never spelled the same way.
+measurement exists, the row carries no ``endpoint_tcp``. "Not measured" and
+"measured as down" are different claims, and they are never spelled the same
+way.
 
 .. important::
 
    **The honest limit of the reachability check.** A gateway reached by
    *address list* rather than by name server reports ``not_applicable``, not a
-   status. Channel Access — the EPICS protocol OSPREY speaks — finds channels by
-   UDP broadcast in that mode, and a TCP probe proves only that something is
-   listening on a socket, not that a channel search would be answered. Reporting
-   it as "up" would be a guess dressed as a measurement.
+   status. In that mode, Channel Access (the EPICS protocol OSPREY speaks)
+   finds channels by UDP broadcast. A TCP probe proves only that something is
+   listening on a socket, not that a channel search would be answered.
+   Reporting it as "up" would be a guess presented as a measurement.
 
-   On a stock EPICS deployment that is exactly the live machine's situation: it
-   has no continuous liveness row, and the probe the switch performs — a real
-   read of a real channel, through the connection it is about to hand you — is
-   its only real evidence. That probe is why the switch is trustworthy even
-   where the background check has nothing to say.
+   On a stock EPICS deployment, that is exactly the live machine's situation.
+   It has no continuous liveness row. Its only real evidence is the probe the
+   switch performs: a real read of a real channel, through the connection the
+   switch is about to hand you. That probe is why the switch is trustworthy
+   even where the background check has nothing to say.
 
 What the switch refuses, and why
 ================================
 
-Every refusal names one thing you can act on, and refusals are reported in a
-fixed order from "this deployment may never switch" to "this destination is
-not usable right now".
+Every refusal names one thing you can act on. Refusals are reported in a fixed
+order, from "this deployment may never switch" to "this destination is not
+usable right now".
 
 .. list-table::
    :header-rows: 1
@@ -463,172 +522,193 @@ not usable right now".
      - A python execution or a notebook cell is running, and it was launched
        against the target it started on. Wait for it to finish or stop it, then
        switch. The refusal names which target the running work is on and who is
-       holding it — this session, another session, or a notebook kernel with
-       *interrupt that kernel* as the remedy — so you know what to stop rather
-       than what to wait for. Asked from the chip, a notebook kernel is named
-       by the notebook it is running; asked through the agent's own tool it is
-       named by its kernel id, which JupyterLab shows beside the running
-       kernel.
+       holding it: this session, another session, or a notebook kernel with
+       *interrupt that kernel* as the remedy. So you know what to stop rather
+       than what to wait for. Asked from the chip, the refusal names a notebook
+       kernel by the notebook it is running. Asked through the agent's own
+       tool, it names the kernel by its kernel id, which JupyterLab shows
+       beside the running kernel.
    * - **A switch is already in progress**
      - An earlier switch has not yet reached every control-system server. The
        refusal names the servers still working. Wait for the chip to settle and
-       ask again; the request is refused rather than queued, so nothing lands
+       ask again. The request is refused rather than queued, so nothing lands
        later without you. A server that has not launched a connector yet is
-       not one of them — it has nothing to move off, so it holds up nobody
+       not one of them. It has nothing to move off, so it holds up nobody
        else.
    * - **Already there**
      - The deployment is on that target already. The active target always
        answers this, whatever else would also be true of it.
    * - **Switching not supported**
      - The target's connector type is not reached over Channel Access, and the
-       switch has no way to dial it. Nothing is missing from the config and the
-       deployment still runs on that control system — a session simply cannot be
-       moved onto it.
+       switch has no way to dial it. Nothing is missing from the config, and the
+       deployment still runs on that control system. A session cannot be moved
+       onto it.
    * - **The target is not configured**
      - No connector block for that target, no gateways table, or no entry for
        the gateway role this deployment would select. This is a build or config
        gap, not something a switch can resolve.
    * - **No probe channel**
      - The target names no ``probe_channel``, so nothing could prove it
-       reachable. For the live machine this is the shipped state — see
+       reachable. For the live machine this is the shipped state. See
        `What a deployment needs first`_.
    * - **The stand-in is not this deployment's**
      - ``standin`` is refused unless the endpoint its block selects really is
        the stand-in this deployment co-deploys, on that port over loopback.
-       Anything else — a tunnel, a gateway someone repointed — is a machine in
-       its own right, and it must not sit behind a soft label. Use ``live`` for
-       the machine your facility runs.
+       Anything else, such as a tunnel or a gateway someone repointed, is a
+       machine in its own right. It must not sit behind a soft label. Use
+       ``live`` for the machine your facility runs.
    * - **A simulated present with an invented past**
-     - Switching to a machine this deployment stands up for itself and serves
-       over the network — the virtual accelerator from its container, or the
-       stand-in — is refused while the deployment's archiver is the mock one,
-       which makes history up at read time. The pairing would put a made-up past
-       next to a modelled present with nothing linking them. See "The honesty
-       rule" in :doc:`use-virtual-accelerator`.
+     - The switch refuses to move to a machine that this deployment stands up
+       for itself and serves over the network, while the deployment's archiver
+       is the mock one. Those machines are the virtual accelerator from its
+       container, and the stand-in. The mock archiver makes history up at read
+       time. The pairing would put a made-up past next to a modelled present,
+       with nothing linking them. See "The honesty rule" in
+       :doc:`use-virtual-accelerator`.
    * - **The live machine's gate**
      - The operator acknowledgment, the live machine's alone. See `Go live`_.
 
-Two more refusals arrive *after* a switch rather than instead of one, and both
-exist for the same reason: something was approved for one machine and must not
-quietly land on another.
+Two more refusals arrive *after* a switch rather than instead of one. Both
+exist for the same reason: something was approved for one machine, and it
+must not quietly land on another.
 
 - **A write approved before the switch.** Every write carries the target and
-  the generation it was approved under — a counter every switch advances, so
-  even a round trip back to the same target retires older approvals — and
-  refuses if either moved before it executed. Nothing is written; ask for the
-  write again on the target you actually mean.
+  the generation it was approved under. The generation is a counter that every
+  switch advances, so even a round trip back to the same target retires older
+  approvals. The write refuses if either one moved before it executed. Nothing
+  is written. Ask for the write again on the target you actually mean.
 - **A python execution that outlived the switch.** A running script keeps the
-  target it was launched with, and its writes refuse once the deployment moves
-  past that point rather than being redirected. A notebook cell refuses the
-  same way and says to re-run the cell, because a kernel re-reads the target
-  before every cell (:doc:`../web-terminal/notebooks`).
+  target it was launched with. Once the deployment moves past that point, the
+  script's writes refuse rather than being redirected. A notebook cell refuses
+  the same way and says to re-run the cell, because a kernel re-reads the
+  target before every cell (:doc:`../web-terminal/notebooks`).
 
 Finally, two surfaces stay deliberately pinned to the deployment baseline while
-the deployment is switched, and say so rather than following along: driving a Phoebus
-widget is refused, and ``osprey health`` keeps reporting against the baseline
-with an added line naming the targets. Both talk to the deployment's own
-configured stack, which a switch does not move.
+the deployment is switched. They say so rather than following along:
+
+- Driving a Phoebus widget is refused.
+- ``osprey health`` keeps reporting against the baseline, with an added line
+  naming the targets.
+
+Both talk to the deployment's own configured stack, which a switch does not
+move.
 
 Failures name the machine they happened on
 ==========================================
 
-On a deployment with more than one target, "the read of ``SR:...:RB`` timed out"
-is a materially different situation on the live machine than on the simulator. So
-every control-system failure envelope — a connect failure, a timeout, a limits
-refusal, a write the control system itself denied — names the target the
-deployment was pointed at when it failed: a human clause in the message
-(``active target: Live — writes move hardware at 10.0.0.5:5064``) and a machine-readable
-``details.active_target`` block carrying the target name, its label, and the
-endpoint where the configuration knows one. The agent narrating a failure, and
-any script asserting on one, can attribute it to the right machine from the
-payload alone instead of reconstructing the answer from memory.
+On a deployment with more than one target, "the read of ``SR:...:RB`` timed
+out" means something very different on the live machine than on the
+simulator. So every control-system failure envelope names the target the
+deployment was pointed at when it failed. That covers a connect failure, a
+timeout, a limits refusal, and a write the control system itself denied. The
+envelope carries:
+
+- a human clause in the message
+  (``active target: Live — writes move hardware at 10.0.0.5:5064``);
+- a machine-readable ``details.active_target`` block carrying the target name,
+  its label, and the endpoint where the configuration knows one.
+
+The agent narrating a failure, and any script asserting on one, can attribute
+it to the right machine from the payload alone. Neither has to reconstruct the
+answer from memory.
 
 Knowing which machine you are on
 ================================
 
-The switch would be a hazard if it were quiet. It is not:
+OSPREY tells you which machine you are on at every step:
 
-- **Every approval prompt names the target**, not only the write prompts — a
-  queue start, a patch or an execution all carry the line too, so its absence is
-  never something you learn to read as safe. The live machine is named as
-  ``Live — writes move hardware`` with the gateway the deployment
-  actually holds; the stand-in as ``Rehearsal — nothing moves``; the
-  simulator as ``virtual accelerator (simulation)``. If the target cannot be read at all, the
-  line says so explicitly instead of disappearing. (The web terminal names the
-  same machines by what they are --- *Live*, *Rehearsal*, *Simulator*,
-  or the deployment's own configured names --- and keeps these technical labels
-  on its tooltips.)
+- **Every approval prompt names the target**, not only the write prompts. A
+  queue start, a patch or an execution all carry the line too, so you never
+  learn to read its absence as safe. The prompt names:
+
+  - the live machine as ``Live — writes move hardware``, with the gateway the
+    deployment actually holds;
+  - the stand-in as ``Rehearsal — nothing moves``;
+  - the simulator as ``virtual accelerator (simulation)``.
+
+  If the target cannot be read at all, the line says so explicitly instead of
+  disappearing. The web terminal names the same machines by what they are
+  (*Live*, *Rehearsal*, *Simulator*, or the deployment's own configured names)
+  and keeps these technical labels on its tooltips.
 - **Results and artifacts are stamped.** Archive reads carry the control
   target and the archiver that served them, so a saved plot still says what it
   is about a week later.
-- **The target is visible in the Web Terminal** activity stream as
-  work happens, and on the :ref:`control-target chip
+- **The target is visible in the Web Terminal.** It shows in the activity
+  stream as work happens. It also shows on the :ref:`control-target chip
   <web-terminal-session-posture>` in the header, which names the machine the
-  deployment stands on and the write state on *that* machine ---
+  deployment stands on and the write state on *that* machine:
   ``● Simulator · writes allowed``, ``● Live · writes locked``. The write
   state is per machine, so a deployment can arm its simulator and leave the
-  live machine read-only; the chip is where that shows. The terminal tells the
-  chip when the record moves, so it repaints as soon as a switch lands, whoever
-  made it and in whichever window; it falls back to the deployment's default
-  target when none can be resolved.
+  live machine read-only. The chip is where that shows.
+
+  The terminal tells the chip when the record moves. So the chip repaints as
+  soon as a switch lands, whoever made it and in whichever window. It falls
+  back to the deployment's default target when none can be resolved.
 - **The choice outlives the conversation, so read it before you work.** The
-  target is recorded on the deployment's durable volume and a restart adopts it
-  rather than resetting it, which means a deployment can be sitting on the real
-  machine when you open it. The chip is where you check, and coming home is a
-  switch like any other.
+  target is recorded on the deployment's durable volume, and a restart adopts
+  it rather than resetting it. A deployment can be sitting on the real machine
+  when you open it. Check the chip, and remember that coming home is a switch
+  like any other.
 
 Bluesky plans while switched
 ============================
 
-A Bluesky **plan lane** is a whole plan stack — bridge, queue manager, worker —
+A Bluesky **plan lane** is a whole plan stack (bridge, queue manager, worker)
 wired at build time to one target. Every deployment renders one.
 
-On a single-lane deployment, which is every deployment by default, queueing or
-starting a plan is **refused** while the deployment is pointed somewhere the
-lane does not serve. The refusal says which target the lane serves, and that
-adding a second lane is a deployment change rather than something to retry.
+By default every deployment has a single lane. On a single-lane deployment,
+queueing or starting a plan is **refused** while the deployment is pointed
+somewhere the lane does not serve. The refusal says which target the lane
+serves. It also says that adding a second lane is a deployment change rather
+than something to retry.
 
 Setting ``bluesky.second_lane: true`` in the build profile renders a second
 complete lane. Which machine each lane serves is **derived**, never authored:
-the first lane serves the deployment's baseline, and the second covers the other
-interesting machine — a ``live`` or ``standin`` baseline gets a ``va`` lane, and
-a ``va`` baseline gets a ``live`` lane. A ``standin`` lane dials the co-deployed
-soft IOC by name, so there is nothing for you to supply; a ``live`` lane always
-dials the facility's own gateway through ``EPICS_CA_NAME_SERVERS``, and
-``osprey up`` refuses to start rather than let that lane come up searching for
-channels at nowhere.
 
-The switch then stops being a refusal and becomes an address: a plan is routed
-to the lane serving the deployment's target, ``queue_add`` reports the lane it
-bound the plan to, and ``queue_start`` must name that lane — so a plan composed
-for the simulator cannot be started on the machine because the deployment moved
-in between. Switching moves which lane is addressed; it does not restart any
-lane's containers. See :doc:`../bluesky/index` for the plan stack itself.
+- The first lane serves the deployment's baseline.
+- The second lane covers the other machine of interest. A ``live`` or
+  ``standin`` baseline gets a ``va`` lane, and a ``va`` baseline gets a
+  ``live`` lane.
+
+A ``standin`` lane dials the co-deployed soft IOC by name, so there is nothing
+for you to supply. A ``live`` lane always dials the facility's own gateway
+through ``EPICS_CA_NAME_SERVERS``. ``osprey up`` refuses to start rather than
+let that lane come up searching for channels at nowhere.
+
+With two lanes, the switch stops being a refusal and becomes an address:
+
+- A plan is routed to the lane serving the deployment's target.
+- ``queue_add`` reports the lane it bound the plan to.
+- ``queue_start`` must name that lane. So a plan composed for the simulator
+  cannot be started on the machine because the deployment moved in between.
+
+Switching moves which lane is addressed. It does not restart any lane's
+containers. See :doc:`../bluesky/index` for the plan stack itself.
 
 The **BLUESKY panel** follows the same two-lane deployment with a picker of its
-own. It does not follow the control target: which lane the panel shows is its
-own choice, made in the panel. It shows which machine it is pointed at in its
-status strip, labelled by target, and switching lanes there reloads the panel onto the other
-lane's bridge: its plans, shared draft, queue and results all move together, and
-starting the queue uses that lane's own launch token. A single-lane deployment
-shows no picker and nothing about its panel changes.
+own. It does not follow the control target: you choose which lane the panel
+shows, in the panel. The panel's status strip shows which machine it is
+pointed at, labelled by target. Switching lanes there reloads the panel onto
+the other lane's bridge. Its plans, shared draft, queue and results all move
+together, and starting the queue uses that lane's own launch token. A
+single-lane deployment shows no picker, and nothing about its panel changes.
 
 Rehearse on a stand-in live machine
 ===================================
 
-A generated project describes a simulator and a facility gateway, but the
-gateway may not exist yet, or not from this laptop — so the ``live`` half of
-this page cannot be tried at all. A **live stand-in** gives you something to
-rehearse the procedure on: a second soft IOC the deployment runs for itself,
-deployed as a third control target of its own.
+A generated project describes a simulator and a facility gateway. But the
+gateway may not exist yet, or not be reachable from this laptop, so you cannot
+try the ``live`` half of this page at all. A **live stand-in** gives you
+something to rehearse the procedure on. It is a second soft IOC the deployment
+runs for itself, deployed as a third control target of its own.
 
 Setting ``virtual_accelerator.live_standin: true`` in the build profile deploys
-it, and the ``control-assistant`` preset ships that line on. What the build
-derives from it is the stand-in's own ``control_system.connector.live_standin``
-block and nothing else — where the stand-in listens, and what proves it
-reachable. The ``epics`` block beside it is untouched, so a facility already
-pointed at its own control system can stand a rehearsal up next to it without
-losing sight of its machine.
+it, and the ``control-assistant`` preset ships that line on. From it, the build
+derives the stand-in's own ``control_system.connector.live_standin`` block and
+nothing else: where the stand-in listens, and what proves it reachable. The
+``epics`` block beside it is untouched. So a facility already pointed at its
+own control system can stand a rehearsal up next to it, without losing sight
+of its machine.
 
 **Limits are the profile's to state.** Limits are optional, and the limits
 pair lives in the profile's ``config:`` block. The stand-in gets no block of
@@ -641,11 +721,11 @@ its own, so it runs the deployment-wide pair:
      control_system.limits_checking.mode: optional
 
 ``mode: exclusive`` means only channels in the limits file can be written.
-``mode: optional`` means channels in the file are held to their limits and every
-other channel is written with no limits. ``enabled: false`` means no limits at
-all. A ``control_system.connector.<type>.limits_checking`` block replaces the
-pair above for that type alone, and must state both settings or ``osprey
-build`` and ``osprey validate`` refuse it.
+``mode: optional`` means channels in the file are held to their limits, and
+every other channel is written with no limits. ``enabled: false`` means no
+limits at all. A ``control_system.connector.<type>.limits_checking`` block
+replaces the pair above for that type alone. It must state both settings, or
+``osprey build`` and ``osprey validate`` refuse it.
 
 **Three rows on the roster.** Ask where the deployment could go and you get one
 row per configured machine::
@@ -654,21 +734,20 @@ row per configured machine::
    > switch to the stand-in
 
 ``control_target_set standin`` moves the deployment the same way every other
-switch does — the probe, the approval prompt, the write posture that follows the
-target. From there, ``control_target_set live`` walks the real go-live path
-(`Go live`_) against a machine that cannot move a magnet.
+switch does: the probe, the approval prompt, and the write posture that follows
+the target. From there, ``control_target_set live`` walks the real go-live
+path (`Go live`_) against a machine that cannot move a magnet.
 
 **Start there rather than switch there.** ``osprey set connector=live_standin``
-writes ``control_system.type: live_standin`` into the profile, and from the next
-``osprey build`` the deployment *starts* on the stand-in — the posture for a
-deployment that is not yet wired to its facility, or whose machine is down.
+writes ``control_system.type: live_standin`` into the profile. From the next
+``osprey build``, the deployment *starts* on the stand-in. Use this posture for
+a deployment that is not yet wired to its facility, or whose machine is down.
 
-Flipping it back is three settings, not one, because the archive goes with the
-machine. The ``va_archiver:`` block is the virtual accelerator's store — the
-simulator's seeded and recorded history — and the build refuses to serve a
-simulated store as the facility's past, so the store is dropped and the
-archiver pointed at the one that records the facility's machine, in the same
-step:
+Flipping it back takes three settings, not one, because the archive goes with
+the machine. The ``va_archiver:`` block is the virtual accelerator's store: the
+simulator's seeded and recorded history. The build refuses to serve a
+simulated store as the facility's past. So in the same step, you drop the
+store and point the archiver at the one that records the facility's machine:
 
 .. code-block:: bash
 
@@ -679,36 +758,44 @@ step:
 ``epics`` stands for your control system; see :doc:`use-connectors` for the
 others and their archivers.
 
-``osprey init`` does not offer the stand-in, and the build refuses
+``osprey init`` does not offer the stand-in. The build refuses
 ``control_system.type: live_standin`` on a profile that asks for no
-``virtual_accelerator.live_standin``: both would name a machine the deployment
+``virtual_accelerator.live_standin``. Both would name a machine the deployment
 does not run.
 
 **The label stays honest.** Nothing calls the stand-in the live machine. The
-banner reads ``Rehearsal — nothing moves``, the roster says the same, and the
-control-target chip in the web terminal's sidebar reads *Rehearsal* — named for what it is for, with
-the technical label kept on its ⓘ tooltip. It carries a real machine's posture — the
-same limits, the same approval prompts — because it is operated as one, not
-because a write reaches the facility. What the stand-in rehearses is the procedure, not the risk.
+banner reads ``Rehearsal — nothing moves``, and the roster says the same. The
+control-target chip in the web terminal's sidebar reads *Rehearsal*, named for
+what the stand-in is for, with the technical label kept on its ⓘ tooltip. The
+stand-in carries a real machine's posture (the same limits, the same approval
+prompts) because it is operated as one, not because a write reaches the
+facility. What the stand-in rehearses is the procedure, not the risk.
 
 **Telling the two machines apart.** Both run one image over one simulator view,
-and the stand-in carries no errors of its own. The two machines are told apart
-by a write to the sandbox not showing on the stand-in and by the model RPC
-status naming its instance (``virtual_accelerator`` or ``live_standin``).
+and the stand-in carries no errors of its own. You can tell them apart in two
+ways:
+
+- A write to the sandbox does not show on the stand-in.
+- The model RPC status names its instance (``virtual_accelerator`` or
+  ``live_standin``).
 
 **The archive belongs to the machine.** The stand-in rehearses your real
-machine, so the past it is shown is the real machine's: the
-``epics_archiver`` appliance when the deployment names one (a ``mya_archiver``
-or ``doocs_archiver`` block is the facility's archive in the same way), and no
-archive otherwise — never the simulator's store. That store stays the virtual
+machine, so the past it is shown is the real machine's:
+
+- the ``epics_archiver`` appliance when the deployment names one (a
+  ``mya_archiver`` or ``doocs_archiver`` block is the facility's archive in
+  the same way);
+- no archive otherwise.
+
+It is never shown the simulator's store. That store stays the virtual
 accelerator's: the recorder samples the simulator, and the history seeded on
-the first deploy is the simulator's own. A trend read on the stand-in and one
-read on the live machine therefore come from one archive, the way a rehearsal
+the first deploy is the simulator's own. So a trend read on the stand-in and
+one read on the live machine come from one archive, the way a rehearsal
 should. ``osprey sim apply`` reaches both machines: a scenario changes the
 world, not one lane.
 
-On a laptop the second container is a real cost — a second simulator runs
-for the life of the deployment. Delete the line when the rehearsal is over.
+On a laptop the second container is a real cost: a second simulator runs for
+the life of the deployment. Delete the line when the rehearsal is over.
 
 .. seealso::
 
@@ -716,6 +803,6 @@ for the life of the deployment. Delete the line when the rehearsal is over.
      deploys, and the one configuration the stack refuses.
    - :ref:`profile-virtual-accelerator` — the build-profile keys behind the
      simulator and the stand-in.
-   - :doc:`/architecture/python-executor` — how executions are launched, and what the
-     target stamp pins them to.
+   - :doc:`/architecture/python-executor` — how executions are launched, and what
+     the target stamp pins them to.
    - :doc:`../bluesky/index` — the plan stack that plan lanes belong to.
