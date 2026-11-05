@@ -39,7 +39,7 @@ reasoning over results delegated to the OSPREY agent layer.
    ready before proceeding.
 
    - **Python 3.11+** with a virtual environment
-   - **Osprey installed:** ``uv sync``
+   - **Osprey installed:** see :doc:`/getting-started/installation`
    - **Container runtime:** `Docker Desktop 4.0+ <https://docs.docker.com/get-docker/>`_ or `Podman 4.0+ <https://podman.io/getting-started/installation>`_ (for PostgreSQL)
    - **LLM API access:** An API key for your configured provider (e.g., ``ANTHROPIC_API_KEY``)
    - **(Recommended) Ollama** --- for local text embeddings powering semantic search:
@@ -99,21 +99,25 @@ reasoning over results delegated to the OSPREY agent layer.
             osprey init my-project --preset control-assistant
             cd my-project
 
-         Run ``osprey build`` in it and you get a ready-to-use ``config.yml``
-         with PostgreSQL, the ARIEL web interface, and all search modules
+         Its build (Step 2) gives you a ready-to-use ``config.yml`` with
+         PostgreSQL, the ARIEL web interface, and all search modules
          enabled --- skip to Step 2. The repository's ``profile.yml`` is what
          the build reads, and its ``.env`` is where your provider keys belong.
 
       .. tab-item:: 2. Deploy
 
-         Two commands bring everything up. The first run pulls container images,
+         Three commands bring everything up. The first run pulls container images,
          so it may take a few minutes depending on your internet connection.
 
-         Generate Docker Compose files from your ``config.yml``, pull the
-         container images, and start them in the background:
+         ``osprey build`` renders ``config.yml`` and the Docker Compose files
+         from ``profile.yml`` into ``build/``. ``osprey up`` then pulls the
+         container images and starts what the build rendered, in the
+         background. It re-renders nothing, so run ``osprey build`` again after
+         you edit ``profile.yml``:
 
          .. code-block:: bash
 
+            osprey build
             osprey up -d
 
          ``osprey up`` creates the schema and seeds the demo logbook. Then
@@ -230,18 +234,24 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
 
    * - Command
      - Description
+   * - ``qmd-resync``
+     - Re-export logbook entries the markdown mirror never saw
    * - ``quickstart``
-     - Quick setup: migrate, load the demo logbook, and enable search
+     - Quick setup: check the database, migrate, load the demo logbook, and enhance it
    * - ``status``
      - Show ARIEL service status
    * - ``search``
-     - Search the logbook (``--mode keyword|semantic``)
+     - Search the logbook (``--mode keyword|semantic|hybrid``)
+   * - ``attachments``
+     - Attachment copy commands (``attachments backfill``)
    * - ``ingest``
      - Ingest logbook entries from a source file or URL
    * - ``migrate``
      - Run ARIEL database migrations
    * - ``sync``
      - Sync database: migrate, incremental ingest, and enhance
+   * - ``vocab-check``
+     - Validate a facility vocabulary file
    * - ``watch``
      - Watch a source for new logbook entries
    * - ``enhance``
