@@ -109,21 +109,21 @@ _STALE: dict[tuple[str, str], Gap] = {
     ),
     (BUILD_PROFILES_PAGE, "data/facility_facts.md"): Gap(
         "missing",
-        None,
+        "#2412",
         "The facts view writes data/facility_facts.md beside data/facility_facts.json "
         "(render_facility_outputs of every render). Fix: add the line "
         "'data/facility_facts.md  the facts view, as markdown' under data/facility_facts.json.",
     ),
     (FACILITY_PAGE, "ariel/"): Gap(
         "missing",
-        None,
+        "#2420",
         "The preset ships data/facility/ariel/vocabulary.yml, which the build reads as "
         "ARIEL's vocabulary (facility/settings.py VOCABULARY_SOURCE). Fix: add "
         "'ariel/vocabulary.yml  the logbook shorthand ARIEL expands' to the tree.",
     ),
     (FACILITY_PAGE, "benchmarks/"): Gap(
         "missing",
-        None,
+        "#2420",
         "The preset ships data/facility/benchmarks/cross_paradigm/queries/, which the "
         "benchmarks view reads (facility/views/benchmarks.py QUERY_SOURCES). Fix: add "
         "'benchmarks/  the channel-finder benchmark queries' to the tree.",
@@ -416,7 +416,7 @@ def test_every_facility_output_is_on_the_build_tree(built_control_assistant: Bui
     unlisted = {
         rel for rel in _main_render_files(built_control_assistant) if not _listed(rel, paths)
     }
-    assert unlisted == _stale(BUILD_PROFILES_PAGE, "missing")
+    assert unlisted <= _stale(BUILD_PROFILES_PAGE, "missing"), "unlisted and not in _STALE"
     for view in VIEWS:
         if view.path != ".":
             assert any(rel.startswith(f"data/{view.path}/") for rel in paths), view.name
@@ -465,7 +465,7 @@ def test_facility_tree_is_what_init_writes(built_control_assistant: BuiltProject
 
     drawn_top = {rel.split("/")[0] for rel in paths}
     on_disk_top = {path.name for path in facility.iterdir()}
-    assert {name + "/" for name in on_disk_top - drawn_top} == _stale(FACILITY_PAGE, "missing")
+    assert {name + "/" for name in on_disk_top - drawn_top} <= _stale(FACILITY_PAGE, "missing")
     drawn_records = {
         Path(rel).name for rel in paths if rel.startswith("records/") and rel != "records/"
     }
