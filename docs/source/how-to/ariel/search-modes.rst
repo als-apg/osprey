@@ -444,8 +444,8 @@ the modes other than ``semantic`` and ``hybrid`` until then (see below).
 With ``ariel.vocabulary.expand_entries: true`` the **entries** are expanded too.
 That happens once, when they are embedded and when they are written to the qmd
 mirror. Every matched span gets its alternatives inserted right after it, in the
-text itself, under the same direction gates as the query: ``BPM drifted`` is
-embedded as ``BPM beam position monitor drifted``. An entry that already spells both terms
+text itself (``BPM drifted`` is embedded as ``BPM beam position monitor
+drifted``). The same direction gates apply as for the query. An entry that already spells both terms
 next to each other (``beam position monitor (BPM)``) gains nothing. Keyword
 search never sees entry expansion: it searches the stored text, which is not
 changed.
@@ -524,8 +524,8 @@ tool to see it.
 into entries are not listed there. They do show up in one place: the web
 panel's ``hybrid`` result previews. Those previews are snippets of the qmd
 mirror, which holds the expanded text. A preview can therefore read
-``BPM beam position monitor drifted`` where the stored entry says ``BPM drifted``. The entry itself, the ``keyword``
-and ``semantic`` previews, and the MCP tools (which return no snippets or
+``BPM beam position monitor drifted`` where the stored entry says
+``BPM drifted``. The entry itself, the ``keyword`` and ``semantic`` previews, and the MCP tools (which return no snippets or
 highlights) show the stored text unchanged. The inserted terms also count
 toward the sidecar's BM25 half of ``hybrid`` scoring.
 
