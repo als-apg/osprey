@@ -60,7 +60,8 @@ class TestSessionSummaryEmpty:
 
         assert "entry_count" in totals
         assert "total_bytes" in totals
-        assert "categories" in totals
+        assert "forms" in totals
+        assert "categories" not in totals
         assert "tools_used" in totals
         assert "artifact_types" in totals
 
@@ -79,7 +80,6 @@ class TestSessionSummaryWithData:
             description="Beam current and voltage",
             summary={"channels": ["SR:CURRENT", "SR:VOLTAGE"], "points": 100},
             access_details={"format": "split"},
-            category="archiver_data",
             artifact_type="json",
         )
         art_store.save_data(
@@ -89,7 +89,6 @@ class TestSessionSummaryWithData:
             description="Temperature reading",
             summary={"channel_count": 1},
             access_details={"format": "list"},
-            category="channel_values",
             artifact_type="json",
         )
 
@@ -128,7 +127,9 @@ class TestSessionSummaryWithData:
         # Check first entry (archiver_read data)
         archiver = entries[0]
         assert archiver["tool"] == "archiver_read"
-        assert archiver["category"] == "archiver_data"
+        assert archiver["form"] == "trends"
+        assert archiver["form_label"]
+        assert "category" not in archiver
         assert archiver["artifact_type"] == "json"
         assert archiver["description"] == "Beam current and voltage"
         assert "size_bytes" in archiver
@@ -151,15 +152,15 @@ class TestSessionSummaryWithData:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("populated_workspace")
-    async def test_category_counts(self):
+    async def test_form_counts(self):
         fn = _get_session_summary()
         raw = await fn()
         result = json.loads(raw)
 
-        cat_counts = result["totals"]["categories"]
-        assert cat_counts["archiver_data"] == 1
-        assert cat_counts["channel_values"] == 1
-        # Gallery artifact has no category, so it doesn't appear here
+        forms = {f["key"]: f for f in result["totals"]["forms"]}
+        assert sum(f["count"] for f in forms.values()) == 3
+        assert forms["trends"]["count"] == 2
+        assert all(f["label"] for f in forms.values())
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("populated_workspace")
@@ -204,7 +205,8 @@ class TestSessionSummaryWithData:
         expected_keys = {
             "id",
             "tool",
-            "category",
+            "form",
+            "form_label",
             "artifact_type",
             "title",
             "description",
@@ -229,7 +231,6 @@ class TestSessionSummaryChannelExtraction:
             description="test",
             summary={},
             access_details={"columns": ["PV:A", "PV:B"]},
-            category="archiver_data",
         )
         fn = _get_session_summary()
         raw = await fn()
@@ -247,7 +248,6 @@ class TestSessionSummaryChannelExtraction:
             description="test",
             summary={"channels": ["PV:A", "PV:B"]},
             access_details={"channels": ["PV:B", "PV:C"]},
-            category="archiver_data",
         )
         fn = _get_session_summary()
         raw = await fn()
@@ -283,7 +283,6 @@ class TestSessionSummaryChannelExtraction:
             description="test",
             summary={"pvs": ["PV:X", "PV:Y"]},
             access_details={},
-            category="channel_values",
         )
         fn = _get_session_summary()
         raw = await fn()
@@ -301,7 +300,6 @@ class TestSessionSummaryChannelExtraction:
             description="test",
             summary={},
             access_details={"channel_names": ["PV:M", "PV:N"]},
-            category="archiver_data",
         )
         fn = _get_session_summary()
         raw = await fn()
