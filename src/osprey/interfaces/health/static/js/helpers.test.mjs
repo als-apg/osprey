@@ -6,7 +6,18 @@
 
 import { test, expect, describe } from 'vitest';
 
-import { STATUS_RANK, esc, el, worstStatus, fmtName, fmtMs, msCls, byCategory } from './helpers.js';
+import {
+  STATUS_RANK,
+  esc,
+  el,
+  worstStatus,
+  fmtName,
+  fmtMs,
+  msCls,
+  byCategory,
+  detailText,
+  detailKey,
+} from './helpers.js';
 import { fmtName as sharedFmtName } from '/design-system/js/check-name.js';
 import {
   STATUS_RANK as sharedStatusRank,
@@ -196,5 +207,25 @@ describe('byCategory', () => {
 
   test('an empty result list yields an empty map', () => {
     expect(byCategory([]).size).toBe(0);
+  });
+});
+
+describe('detailText', () => {
+  test('details win; a row without a value falls back to its message', () => {
+    expect(detailText({ message: 'm', details: 'd', value: 'v' })).toBe('d');
+    expect(detailText({ message: 'restart to apply' })).toBe('restart to apply');
+  });
+
+  test('a row that shows a value and has no details has no expandable text', () => {
+    expect(detailText({ message: 'm', value: '12 GB' })).toBe('');
+  });
+});
+
+describe('detailKey', () => {
+  test('names a row by category and name, so equal names in two categories differ', () => {
+    expect(detailKey({ category: 'a', name: 'x' })).not.toBe(
+      detailKey({ category: 'b', name: 'x' })
+    );
+    expect(detailKey({ category: 'a', name: 'x' })).toBe(detailKey({ category: 'a', name: 'x' }));
   });
 });
