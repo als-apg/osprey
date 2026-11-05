@@ -564,14 +564,16 @@ ships a service that runs it in a container. Declare it in the build profile:
 
 The build copies the bundled compose template into the project and adds
 ``ariel_sync`` to ``deployed_services``. ``osprey up`` then starts a container
-that runs ``osprey ariel sync --watch``. The profile key is ``ariel_sync``; the
-compose service it renders is ``ariel-sync`` (container
-``<project>-ariel-sync``). Both names refer to this one service. That command syncs once on startup ---
+that runs ``osprey ariel sync --watch``. That command syncs once on startup:
 schema migration, an incremental ingest, and an enhancement pass over entries
-that are still missing derived fields --- and then enters the polling loop. Every later poll runs the same enhancement pass after it stores
-what it fetched, so a larger backlog is worked down over successive polls. A
-failure in that pass is logged and does not count toward
-``max_consecutive_failures``.
+that are still missing derived fields. It then enters the polling loop. Every
+later poll runs the same enhancement pass after it stores what it fetched, so a
+larger backlog is worked down over successive polls. A failure in that pass is
+logged and does not count toward ``max_consecutive_failures``.
+
+The profile key is ``ariel_sync``; the compose service it renders is
+``ariel-sync`` (container ``<project>-ariel-sync``). Both names refer to this
+one service.
 
 The deployed loop does not wait for a prior ingest. It overrides
 ``require_initial_ingest``, so a container started against an empty database

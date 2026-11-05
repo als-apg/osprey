@@ -20,7 +20,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PAGE = _REPO_ROOT / "docs" / "source" / "how-to" / "facility-knowledge" / "okf-bundle.rst"
 _OUT = _PAGE.parent / "examples" / "knowledge-help.out"
 
-#: Width the help is wrapped at, the CliRunner default made explicit.
+#: Width the help is wrapped at, pinned so the comparison does not depend on the terminal.
 _WIDTH = 80
 
 _NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}

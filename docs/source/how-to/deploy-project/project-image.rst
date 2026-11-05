@@ -27,8 +27,8 @@ every project.
 Overview
 ========
 
-Every ``osprey build`` renders a reference container recipe into the project
-it builds under ``build/``:
+Every ``osprey build`` renders a reference container recipe into ``build/``
+(and its image-context copy under ``build/.image/<project>/build/``):
 
 - ``Dockerfile`` — an image definition that installs the agent CLI and OSPREY,
   copies the project in, relocates its recorded paths, and serves the web
@@ -38,9 +38,9 @@ it builds under ``build/``:
 
 Both files are re-rendered from the framework on every build, so an edit made
 in ``build/`` lasts only until the next ``osprey build``. To customize them, put
-your version in the source zone's ``project/`` mirror instead. A
-``.dockerignore`` of your own must still exclude ``.env``: the image build
-depends on that file to keep your secrets out of the image.
+your version in the source zone's ``project/`` mirror instead. Keep ``.env``
+excluded in a ``.dockerignore`` of your own; the build also strips every
+``.env`` file except ``.env.example`` from the image context.
 
 .. code-block:: text
 

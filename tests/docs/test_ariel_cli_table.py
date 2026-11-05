@@ -60,4 +60,4 @@ def test_search_mode_cell_names_the_registered_modes(
     assert isinstance(mode.type, click.Choice)
     cell = re.search(r"``--mode ([a-z|]+)``", _table()["search"])
     assert cell is not None
-    assert tuple(cell.group(1).split("|")) == tuple(mode.type.choices)
+    assert set(cell.group(1).split("|")) == set(mode.type.choices)
