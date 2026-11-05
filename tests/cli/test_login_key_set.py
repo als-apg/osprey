@@ -42,6 +42,7 @@ _FACTS = frozenset(
         "dispatch",
         "bluesky",
         "bluesky_web",
+        "optimizer",
         "virtual_accelerator",
         "nextcloud_bridge",
         "gchat_bridge",
