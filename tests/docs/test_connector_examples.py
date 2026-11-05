@@ -311,6 +311,7 @@ def test_scripts_leave_nothing_behind(quickstart_ioc, tmp_path):
 def simulator_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A project holding the example facility's built simulator view and its config."""
     from osprey.facility.build import build_facility
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
@@ -318,14 +319,14 @@ def simulator_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     config = {"control_system": {"type": "virtual_accelerator"}}
     root = tmp_path_factory.mktemp("project")
-    doc = build_facility(TEMPLATE_FACILITY, project_name="example")
+    records = FacilityRecords(build_facility(TEMPLATE_FACILITY, project_name="example"))
     write_simulator_view(
         root / "data" / "simulator",
         ViewInputs(
-            doc=doc,
+            records=records,
             rendered_config=config,
             facility_dir=TEMPLATE_FACILITY,
-            served=resolve_served(config, doc),
+            served=resolve_served(config, records),
             reported=None,
         ),
     )
