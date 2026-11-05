@@ -42,7 +42,8 @@ Making Changes
 
    git checkout -b feature/your-feature-name
 
-**2. Make changes** -- follow the code standards below, add tests, update docs.
+**2. Make changes** -- follow the code standards on :doc:`development-setup`, add
+tests, update docs.
 
 **3. Test locally** with the check command, ``scripts/check.py``, which runs
 the merge gate from the checks every owner declares:
@@ -146,9 +147,10 @@ escape hatch.
 Model-Spending Lanes: ``full-ci`` on a PR, On Demand on ``main``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Eight CI lanes drive real agent sessions against a live model endpoint: the
-agentic per-preset flows, the E2E suite, the two dispatch stacks, the scan-stack
-and control-target-switch agentic lanes, and the two chat bridges. Together they
+Ten CI lanes drive real agent sessions against a live model endpoint: the
+agentic per-preset flows, the E2E suite, the two dispatch stacks, the
+single-user narrowing and host-record lanes, the scan-stack and
+control-target-switch agentic lanes, and the two chat bridges. Together they
 cost about $15 per run — and they used to run on every push of every pull
 request, which at this repository's pace was the group's whole model bill.
 
@@ -176,10 +178,18 @@ They now run on exactly two events:
 A release-notes pull request always carries ``full-ci``: these lanes are the
 only proof the agentic paths work on the tree about to be tagged.
 
-There is deliberately no schedule. A scheduled run spends model tokens with
-nobody watching, and its red reaches nobody; a lane that only runs when someone
-asked for it has a person waiting on the result. If you consume ``main``
-directly, pin a sha a full run was green on rather than raw head.
+On ``main``, ``.github/workflows/main-full-ci.yml`` starts that dispatch once a
+day, and only when ``main`` has moved since the last revalidation run, so a quiet
+day spends no model tokens. A red revalidation run opens or updates the one
+"Full CI red on main" issue, and the next green run closes it, so a red reaches
+a person. If you consume ``main`` directly, pin a sha a full run was green on
+rather than raw head. This prints the newest such sha, for the whole run or for
+one lane; it reads the runs through ``gh``, so sign in to the GitHub CLI first:
+
+.. code-block:: bash
+
+   python3 scripts/ci/full_ci_on_main.py last-green
+   python3 scripts/ci/full_ci_on_main.py last-green scan-agentic-e2e
 
 Everything else on a PR is unchanged: the unit, lint, docs and package lanes and
 every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
@@ -233,6 +243,6 @@ If you use the OSPREY agent (e.g., via `Claude Code <https://code.claude.com/doc
 the ``/osprey:contribute`` skill gives guided help following this workflow. It
 walks you through branching, commits, push, PR, and CI iteration,
 auto-detecting whether you have push access to ``als-apg/osprey`` or are
-contributing from a fork. It ships in the ``osprey`` plugin alongside five
+contributing from a fork. It ships in the ``osprey`` plugin alongside nine
 others; how to install it, and which skill fits which step of the journey, is
 on :doc:`agent-skills`.
