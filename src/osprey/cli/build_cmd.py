@@ -2222,9 +2222,25 @@ def _render_project(
         # tier and app files (validation refuses a profile spelling of it). The
         # deployment projects it when it stands up web terminals or runs its
         # dispatch workers at a tier; a tier's or app's render stands up neither,
-        # so no render projects renders-of-a-render.
+        # so no render projects renders-of-a-render. The `facility` entry is
+        # OVERRIDE-CHECKED: `osprey.facility.settings` derives each key the
+        # profile leaves unstated and refuses a stated one the facility
+        # contradicts.
         from osprey.deployment.web_terminals.render_naming import derived_renders
+        from osprey.facility.records import FacilityRecords
+        from osprey.facility.settings import fill_facility_settings
 
+        # Written for what the profile leaves unstated. The stand-in copies the
+        # simulator's probe, so it reads the filled value.
+        facility_fill = fill_facility_settings(
+            FacilityRecords(shared.facility),
+            data_root / "facility",
+            repo_root,
+            _rendered_config(render_dir),
+            build_profile.config,
+            build_profile.va_archiver,
+            reported=shared.views_omitted_reported,
+        )
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
@@ -2242,12 +2258,13 @@ def _render_project(
             "agent_record": agent_record_config_overrides(build_profile.agent_record),
             # The enabled watchdogs; no key at all when none is.
             "watchdogs": watchdog_config_overrides(build_profile.watchdogs),
+            "facility": facility_fill,
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
             # that named none of its own.
             "virtual_accelerator": live_standin_config_overrides(
                 build_profile.virtual_accelerator,
-                build_profile.config,
+                {**build_profile.config, **facility_fill},
                 _rendered_config(render_dir),
             ),
         }

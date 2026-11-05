@@ -34,7 +34,6 @@ from typing import Any
 from osprey_connectors.simulation import topoff
 
 __all__ = [
-    "STILL_ALL",
     "active_envelopes",
     "declares_motion",
     "motion_envelope",
@@ -45,9 +44,6 @@ _MOTION_SIGMAS = 6.0
 
 _ABSOLUTE = "absolute"
 _RELATIVE = "relative"
-
-#: The ``still`` value that stills every reading of the scenario stating it.
-STILL_ALL = "all"
 
 
 def _number(value: Any) -> float | None:
@@ -156,8 +152,7 @@ def active_envelopes(
     later scenario's noise record replacing an earlier one's, and each
     coupling takes its driver's ``drive`` from the merged ``drivers``; a
     coupling to an undeclared driver adds nothing, as it serves nothing. A
-    reading any active scenario stills has an envelope of 0.0; ``all`` stills
-    every one.
+    reading any active scenario's ``still`` list names has an envelope of 0.0.
 
     Args:
         seeds: Seeds by address.
@@ -172,14 +167,9 @@ def active_envelopes(
     couple: dict[str, list[Mapping[str, Any]]] = {}
     noise: dict[str, Mapping[str, Any]] = {}
     still: set[str] = set()
-    still_all = False
     for name in active:
         scenario = scenarios.get(name) or {}
-        stilled = scenario.get("still")
-        if stilled == STILL_ALL:
-            still_all = True
-        elif stilled and not isinstance(stilled, str):
-            still.update(str(address) for address in stilled)
+        still.update(str(address) for address in scenario.get("still") or ())
         drivers.update(scenario.get("drivers") or {})
         for address, terms in (scenario.get("couple") or {}).items():
             couple.setdefault(str(address), []).extend(terms)
@@ -197,7 +187,7 @@ def active_envelopes(
             seeds.get(address),
             noise=noise.get(address),
             couplings=resolved.get(address, ()),
-            still=still_all or address in still,
+            still=address in still,
         )
         for address in sorted(addresses)
     }

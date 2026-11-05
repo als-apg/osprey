@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.facility.bundled import header_line
 from osprey.facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +41,9 @@ MERGED = [
 WRITTEN = ["decks/LINE.json", "measurement/LINE.yaml"]
 
 
+_ORIGIN = f"{header_line('example')}\n"
+
+
 def _is_line(record_id: str) -> bool:
     return record_id == "LINE" or record_id.startswith(("LINE/", "LINE:"))
 
@@ -47,7 +51,7 @@ def _is_line(record_id: str) -> bool:
 def _chunks(text: str) -> list[str]:
     """A top-level YAML list's items, each as its exact text."""
     chunks: list[str] = []
-    for line in text.splitlines(keepends=True):
+    for line in text.removeprefix(_ORIGIN).splitlines(keepends=True):
         if line.startswith("- ") or not chunks:
             chunks.append(line)
         else:
@@ -77,7 +81,7 @@ def _stripped(text: str, *, keep_place: bool) -> str:
             kept.append("- id: LINE\n  description: stub\n")
         elif not _is_line(key):
             kept.append(chunk)
-    return "".join(kept)
+    return _ORIGIN + "".join(kept)
 
 
 def _run_line(tree: Path) -> None:

@@ -27,7 +27,6 @@ from typing import Any
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
-from osprey_connectors.simulation.envelope import STILL_ALL
 
 __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
@@ -65,7 +64,6 @@ logger = get_logger("simulation_state")
 _MOTION_MARK = "\x00"
 _SETS_MOTION = _MOTION_MARK + "sets:"
 _STILLS = _MOTION_MARK + "stills:"
-_STILLS_ALL = _MOTION_MARK + "stills-all"
 
 
 def parse_active_state(text: str) -> tuple[list[str], float | None]:
@@ -235,11 +233,7 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
     moved = {str(address) for slot in ("couple", "noise") for address in scenario.get(slot) or {}}
     targets.update(moved)
     targets.update(_SETS_MOTION + address for address in moved)
-    still = scenario.get("still")
-    if still == STILL_ALL:
-        targets.add(_STILLS_ALL)
-    elif still and not isinstance(still, str):
-        targets.update(_STILLS + str(address) for address in still)
+    targets.update(_STILLS + str(address) for address in scenario.get("still") or ())
     return targets
 
 
@@ -284,15 +278,13 @@ def _motion_overlaps(
 ) -> list[Overlap]:
     """One motion :class:`Overlap` per reading one scenario stills and another moves."""
     movers: list[tuple[str, set[str]]] = []
-    stillers: list[tuple[str, set[str] | None]] = []
+    stillers: list[tuple[str, set[str]]] = []
     for name in names:
         targets = scenarios_view.get(name, ())
         moved = {t.removeprefix(_SETS_MOTION) for t in targets if t.startswith(_SETS_MOTION)}
         if moved:
             movers.append((name, moved))
-        if _STILLS_ALL in targets:
-            stillers.append((name, None))
-        elif stilled := {t.removeprefix(_STILLS) for t in targets if t.startswith(_STILLS)}:
+        if stilled := {t.removeprefix(_STILLS) for t in targets if t.startswith(_STILLS)}:
             stillers.append((name, stilled))
     order = {name: index for index, name in enumerate(names)}
     found: dict[tuple[str, str, str], Overlap] = {}
@@ -301,7 +293,7 @@ def _motion_overlaps(
             if stiller == mover:
                 continue
             first, second = sorted((mover, stiller), key=order.__getitem__)
-            for address in sorted(addresses if readings is None else addresses & readings):
+            for address in sorted(addresses & readings):
                 found.setdefault(
                     (first, second, address),
                     Overlap(target=address, first=first, second=second, motion=True),

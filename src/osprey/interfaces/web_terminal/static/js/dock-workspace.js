@@ -693,6 +693,17 @@ function schedulePersist() {
 }
 
 /**
+ * Write a pending debounced persist now. A reload or a closed tab inside the
+ * debounce window would otherwise drop the last change.
+ */
+function flushPersist() {
+  if (persistHandle == null) return;
+  clearTimeout(persistHandle);
+  persistHandle = null;
+  persistCurrentLayout();
+}
+
+/**
  * Resolve the per-project storage key and the panels the dock can build, apply
  * any stored layout over the default, then wire settled-change persistence
  * (layout changes and tab switches). The listeners are subscribed AFTER the
@@ -731,6 +742,7 @@ async function initPersistence(api) {
   announceLayoutRestored();
   api.onDidLayoutChange(schedulePersist);
   api.onDidActivePanelChange(schedulePersist);
+  window.addEventListener('pagehide', flushPersist);
 }
 
 /**

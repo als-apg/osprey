@@ -126,10 +126,10 @@ def test_every_name_in_the_configuration_resolves_back_through_the_mapping(
     inputs = view_inputs(tmp_path, tree)
     directory, _ = write_view(tmp_path / "view", tree)
     for model in ("SR", "LINE"):
-        names = view_names(inputs.doc, model)
+        names = view_names(inputs.records, model)
         configuration = _configuration(directory, model)
         arrays = configuration["arrays"]
-        groups_named = _measurement(inputs.doc, model)["groups"]
+        groups_named = _measurement(dict(inputs.records.document), model)["groups"]
         named = {
             names.array_name(role): tuple(group_families(value))
             for role, value in groups_named.items()

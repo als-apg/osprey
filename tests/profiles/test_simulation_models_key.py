@@ -19,6 +19,7 @@ from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
 from osprey.facility.served import resolve_served
 from osprey.utils.workspace import TIERS_DIRNAME
 
@@ -38,9 +39,9 @@ def _config(models: Any) -> dict[str, Any]:
 
 
 def test_null_and_absent_resolve_byte_equal_lists(demo: dict[str, Any]) -> None:
-    absent = resolve_served({}, demo)
-    null = resolve_served(_config(None), demo)
-    block_without_key = resolve_served({"simulation": {}}, demo)
+    absent = resolve_served({}, FacilityRecords(demo))
+    null = resolve_served(_config(None), FacilityRecords(demo))
+    block_without_key = resolve_served({"simulation": {}}, FacilityRecords(demo))
     assert json.dumps(null).encode() == json.dumps(absent).encode()
     assert block_without_key == absent
     assert absent == ["BTS", "LINE", "LTB", "SR", TEXTURE]
@@ -48,16 +49,16 @@ def test_null_and_absent_resolve_byte_equal_lists(demo: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize("models", [[], [TEXTURE]])
 def test_texture_or_empty_serves_no_physics(demo: dict[str, Any], models: list[str]) -> None:
-    assert resolve_served(_config(models), demo) == [TEXTURE]
+    assert resolve_served(_config(models), FacilityRecords(demo)) == [TEXTURE]
 
 
 def test_a_named_model_is_served_with_texture_last(demo: dict[str, Any]) -> None:
-    assert resolve_served(_config([TEXTURE, "SR", "SR"]), demo) == ["SR", TEXTURE]
+    assert resolve_served(_config([TEXTURE, "SR", "SR"]), FacilityRecords(demo)) == ["SR", TEXTURE]
 
 
 def test_an_unknown_model_stops_naming_every_valid_name(demo: dict[str, Any]) -> None:
     with pytest.raises(FacilityBuildError) as excinfo:
-        resolve_served(_config(["SR", "NOPE"]), demo)
+        resolve_served(_config(["SR", "NOPE"]), FacilityRecords(demo))
     error = excinfo.value
     assert error.kind == "profile-invalid"
     assert error.record_id == "simulation.models"
@@ -68,7 +69,7 @@ def test_an_unknown_model_stops_naming_every_valid_name(demo: dict[str, Any]) ->
 @pytest.mark.parametrize("models", ["SR", 3, [["SR"]], {"SR": True}])
 def test_a_value_that_is_not_a_list_of_names_stops(demo: dict[str, Any], models: Any) -> None:
     with pytest.raises(FacilityBuildError) as excinfo:
-        resolve_served(_config(models), demo)
+        resolve_served(_config(models), FacilityRecords(demo))
     assert excinfo.value.kind == "profile-invalid"
     assert excinfo.value.record_id == "simulation.models"
 
@@ -103,7 +104,7 @@ def _repo(tmp_path: Path, connector: str, renders: dict[str, str]) -> Path:
 
 def _served_for(delta: Path, facility: dict[str, Any]) -> list[str]:
     config = _expand_dotted(load_profile_document(delta).profile.config)
-    return resolve_served(config, facility)
+    return resolve_served(config, FacilityRecords(facility))
 
 
 def test_two_in_process_renders_differing_only_in_the_key_resolve_different_lists(

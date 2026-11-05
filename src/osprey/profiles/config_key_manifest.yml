@@ -1045,11 +1045,14 @@ keys:
     default: 1.0
   simulation.default_scenarios:
     evidence: '\.get\("default_scenarios"\)'
+    facility-fact: true
     note: >-
       Per-preset: control-assistant alone states it ([rf-thermal]), the
       preset whose facility tree ships scenarios. Read at deploy time by
       `simulation.apply.activate_default_scenarios`, only while the deployment
-      has no scenario state.
+      has no scenario state. Never derived: the build derives no start set from
+      the facility file, and a stated name is an override checked against it.
+      Listed in `osprey.facility.settings`.
     default: []
 
   # ── Control system ──────────────────────────────────────────────────
@@ -1299,12 +1302,14 @@ keys:
     evidence: 'use_name_server'
     default: false
   control_system.connector.virtual_accelerator.probe_channel:
-    forward-declared: true
+    rendered: false
+    evidence: 'PROBE_CHANNEL_KEY'
+    facility-fact: true
     note: >-
       The channel the target switch reads to prove this target is reachable
-      before it becomes the active one. Written by the presets ahead of the
-      switch's own reader (this branch); a target without one is ineligible,
-      which is why the VA block ships it set and the epics block does not.
+      before it becomes the active one; a target without one is ineligible.
+      Derived from the facility file at build for the VA block; a stated value
+      is an override checked against the file. Listed in `osprey.facility.settings`.
     default: ''
   control_system.connector.live_standin:
     rendered: false
@@ -2120,17 +2125,24 @@ keys:
       `services.graphdb.query_max_rows`, the same bound for the graph paradigm.
     default: 500
   channel_finder.benchmark:
+    rendered: false
     evidence: 'channel_finder\.benchmark\.dataset_path'
     note: >-
-      control_assistant ONLY, deliberately. It is the only bundle shipping the
-      query corpus; the build copies the mode's benchmark query file to
-      data/benchmarks/queries.json, and a bundle that ships none has no
-      queries.json, so a dataset_path in the other templates would name a
-      phantom. The channel-finder app runs the command
-      via --queries-path instead.
+      The benchmarks facility view writes the mode's query file to
+      dataset_path; a facility that ships no query sources gets none. No preset
+      states it: the build states data/benchmarks/queries.json when the
+      facility ships data/facility/benchmarks/cross_paradigm/queries/, a stated
+      value is the location, and a stated value for a facility with no query
+      sources is refused at build.
     default: {}
   channel_finder.benchmark.dataset_path:
+    rendered: false
     evidence: 'No benchmark query set configured'
+    facility-fact: true
+    note: >-
+      The build states data/benchmarks/queries.json when the facility ships
+      benchmark query sources; a stated value with no sources is refused at
+      build. Listed in `osprey.facility.settings`.
     default: no-fallback
     default_note: >-
       the runner refuses a benchmark with no query set, naming this key and --queries-path
@@ -2261,20 +2273,29 @@ keys:
     evidence: 'config_dict\.get\("vocabulary"\)'
     default: {}
   ariel.vocabulary.enabled:
+    rendered: false
     evidence: '_vocab_bool\(data, "enabled"'
+    facility-fact: true
     note: >-
-      The off switch. Shipped false everywhere except the control_assistant
-      bundle, which ships the example vocabulary as the format tutorial. False
-      means nothing is read at all, so a stale `path` left behind is inert
-      rather than a startup failure.
+      The off switch. No preset states it: the build states true when the
+      facility ships data/facility/ariel/vocabulary.yml, a stated false turns
+      it off, and a stated true with no such file and no path of its own is
+      refused at build. False means nothing is read at all, so a stale `path`
+      left behind is inert rather than a startup failure. Listed in `osprey.facility.settings`.
     default: false
   ariel.vocabulary.path:
+    rendered: false
     evidence: '_VOCABULARY_PREFIX\}\.path must be a non-empty string'
+    facility-fact: true
     note: >-
-      Config-relative, resolved against the directory holding config.yml — the
+      The build states data/facility/ariel/vocabulary.yml when the facility
+      ships that file; a stated value is the profile's own file, and one that
+      is not a file while the vocabulary is on is refused at build.
+      Config-relative, resolved against the project root of config.yml — the
       same rule as `facility_knowledge.bundle_path` and the qmd mirror. Enabled
       with no value here is a validate() error rather than a silent no-op, and
       a file that fails to load is stored as a keyed error, never swallowed.
+      Listed in `osprey.facility.settings`.
     default: null
   ariel.vocabulary.expand_by_default:
     evidence: '_vocab_bool\(data, "expand_by_default"'
@@ -2823,13 +2844,24 @@ keys:
     evidence: 'FRESHNESS_CATEGORY = "archiver"'
     note: >-
       The one category name under `health.categories` that is not free-form: it
-      is the archive-freshness category `osprey build` DERIVES when a profile's
-      `va_archiver:` block names a `freshness_channel`, written out as
+      is the archive-freshness category `osprey build` DERIVES for a profile's
+      `va_archiver:` block, from the facility file or from a stated
+      `freshness_channel` (an override checked against the file), written out as
       `health.categories.archiver.checks`. Declaring it by hand while
       `freshness_channel` is set is refused at build time, so the name is
       effectively reserved and the reference documents it as such. Evidence
       anchors on the constant the injector spells it from rather than on the
       derived dotted string, which is assembled at runtime.
+    default: n/a
+  health.categories.archiver.checks:
+    rendered: false
+    covered-by: health.categories.archiver
+    facility-fact: true
+    note: >-
+      The archive-freshness check the build derives for a `va_archiver:` block,
+      watching the probe's channel unless `va_archiver.freshness_channel`
+      states one; a stated channel is an override checked against the facility
+      file. Listed in `osprey.facility.settings`.
     default: n/a
   health.auto:
     rendered: false
@@ -4130,7 +4162,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 373
+  expected_union_size: 368
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

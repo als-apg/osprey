@@ -82,6 +82,7 @@ from osprey.deployment.web_terminals.render_naming import (
     RENDER_KIND_TIER,
     RENDERS_KEY,
 )
+from osprey.facility.settings import FACILITY_SETTINGS
 from osprey.port_layout import DEFAULT_PORT_BASE
 from osprey.profiles.providers import load_provider_catalog
 from tests.cli.test_explicit_config_equivalence import (
@@ -89,6 +90,9 @@ from tests.cli.test_explicit_config_equivalence import (
     ABSENT,
     CELL_DELTAS,
 )
+
+#: The keys the build derives from the facility when the profile leaves them unstated.
+_FACT_KEYS = {row.key for row in FACILITY_SETTINGS}
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "explicit_config"
 
@@ -301,6 +305,7 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
         "B": set(),
         "Ports": set(),
         "Corpus": set(),
+        "Fill": set(),
         "W": set(),
         "C": set(),
     }
@@ -317,6 +322,8 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
             sets["Ports"].add(key)
         elif key in corpus:
             sets["Corpus"].add(key)
+        elif key in _FACT_KEYS and key not in config:
+            sets["Fill"].add(key)
         elif _WRITTEN_BY_BUILD_PATTERN.match(key) and key not in config:
             sets["W"].add(key)
         elif key in config:
@@ -508,6 +515,7 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
             is_derived_key(key)
             or _WRITTEN_BY_BUILD_PATTERN.match(key)
             or key in corpus
+            or (key in _FACT_KEYS and key not in config)
             or key == _PROVIDERS_KEY
             or key in panel_switches
             or _PORT_LEAF.match(key)

@@ -109,6 +109,10 @@ VIEW_FILES: dict[str, tuple[str, ...]] = {
 #: channel of this tree because it tags none ``in_context``.
 IN_CONTEXT_VIEW = "in_context"
 
+#: The view no render of the chain carries: its tree ships no benchmark query
+#: sources.
+BENCHMARKS_VIEW = "benchmarks"
+
 
 # ===================================================================
 # Running the chain
@@ -325,7 +329,9 @@ class TestTheViews:
         """Every view the build has is one this module accounts for."""
         from osprey.facility import views
 
-        assert sorted(view.name for view in views.VIEWS) == sorted([*VIEW_FILES, IN_CONTEXT_VIEW])
+        assert sorted(view.name for view in views.VIEWS) == sorted(
+            [*VIEW_FILES, IN_CONTEXT_VIEW, BENCHMARKS_VIEW]
+        )
 
     def test_every_view_of_the_render_is_written(self, chain: Chain) -> None:
         """The chain's render holds the facility file and each of its views, no more."""
@@ -506,7 +512,7 @@ class TestTheDeckBesideAnExport:
             f"holds elements 3510 and the export states 876; {REMEDY}"
         ]
         facility = tmp_path / "data" / "facility"
-        assert sorted(_files(facility, facility)) == [MAPPING_FILE]
+        assert sorted(_files(facility, facility)) == sorted([MAPPING_FILE, "knowledge/index.md"])
 
     def test_an_export_that_differs_in_energy_alone_imports_with_a_warning(
         self, tmp_path: Path

@@ -311,4 +311,5 @@ def test_sql_query_docstring_lists_attachment_text_columns():
     doc = get_tool_fn(sql_query).__doc__ or ""
     assert "attachment_text (text)" in doc
     assert "attachment_captions (jsonb)" in doc
+    assert "facility_refs (jsonb)" in doc
     assert "attachment_files" in doc

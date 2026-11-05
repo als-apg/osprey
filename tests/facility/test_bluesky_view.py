@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.bluesky import (
     BLUESKY_DEVICES_FILE,
     BLUESKY_DEVICES_SCHEMA,
@@ -43,7 +44,7 @@ def _inputs(channels: list[dict[str, Any]], services: dict[str, Any] | None = No
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc={"channels": channels},  # type: ignore[arg-type]
+        records=FacilityRecords({"channels": channels}),  # type: ignore[arg-type]
         rendered_config={"services": services or {}},
         facility_dir=Path("."),
         served=[],
@@ -55,7 +56,9 @@ def _inputs(channels: list[dict[str, Any]], services: dict[str, Any] | None = No
 
 def test_a_setpoint_is_a_settable_reading_its_pair_back() -> None:
     document = bluesky_document(
-        {"channels": [_channel("A:SP", "setpoint", "A:RB"), _channel("A:RB", "readback")]}
+        FacilityRecords(
+            {"channels": [_channel("A:SP", "setpoint", "A:RB"), _channel("A:RB", "readback")]}
+        )
     )
 
     assert document == {
@@ -65,25 +68,27 @@ def test_a_setpoint_is_a_settable_reading_its_pair_back() -> None:
 
 
 def test_a_setpoint_paired_with_itself_names_no_readback() -> None:
-    document = bluesky_document({"channels": [_channel("A:SP", "setpoint", "A:SP")]})
+    document = bluesky_document(
+        FacilityRecords({"channels": [_channel("A:SP", "setpoint", "A:SP")]})
+    )
 
     assert document["settables"] == [{"name": "A:SP", "setpoint": "A:SP"}]
 
 
 def test_an_unpaired_readback_is_a_readable() -> None:
-    document = bluesky_document({"channels": [_channel("T:01", "readback")]})
+    document = bluesky_document(FacilityRecords({"channels": [_channel("T:01", "readback")]}))
 
     assert document == {"settables": [], "readables": [{"name": "T:01", "pv": "T:01"}]}
 
 
 def test_a_channel_with_role_none_is_no_device() -> None:
-    document = bluesky_document({"channels": [_channel("S:01", "none")]})
+    document = bluesky_document(FacilityRecords({"channels": [_channel("S:01", "none")]}))
 
     assert document == {"settables": [], "readables": []}
 
 
 def test_no_channel_is_an_empty_document() -> None:
-    assert bluesky_document({"channels": []}) == {"settables": [], "readables": []}
+    assert bluesky_document(FacilityRecords({"channels": []})) == {"settables": [], "readables": []}
 
 
 def test_a_seeded_readback_writes_its_motion_band_for_its_settable() -> None:
@@ -95,14 +100,16 @@ def test_a_seeded_readback_writes_its_motion_band_for_its_settable() -> None:
         },
     }
     document = bluesky_document(
-        {
-            "channels": [
-                _channel("A:SP", "setpoint", "A:RB"),
-                readback,
-                _channel("B:SP", "setpoint", "B:RB"),
-                {**_channel("B:RB", "readback"), "simulation": {"nominal": 1.0}},
-            ]
-        }
+        FacilityRecords(
+            {
+                "channels": [
+                    _channel("A:SP", "setpoint", "A:RB"),
+                    readback,
+                    _channel("B:SP", "setpoint", "B:RB"),
+                    {**_channel("B:RB", "readback"), "simulation": {"nominal": 1.0}},
+                ]
+            }
+        )
     )
 
     first, second = document["settables"]
@@ -114,14 +121,16 @@ def test_a_seeded_readback_writes_its_motion_band_for_its_settable() -> None:
 def test_a_declared_tolerance_is_written_and_the_band_is_not() -> None:
     noisy = {"noise": {"absolute": 0.001}, "drift": {"amplitude": 0.005, "period_s": 600.0}}
     document = bluesky_document(
-        {
-            "channels": [
-                {**_channel("A:SP", "setpoint", "A:RB"), "tolerance": {"absolute": 0.05}},
-                {**_channel("A:RB", "readback"), "simulation": noisy},
-                {**_channel("B:SP", "setpoint", "B:RB"), "tolerance": {"relative": 1e-4}},
-                {**_channel("B:RB", "readback"), "simulation": noisy},
-            ]
-        }
+        FacilityRecords(
+            {
+                "channels": [
+                    {**_channel("A:SP", "setpoint", "A:RB"), "tolerance": {"absolute": 0.05}},
+                    {**_channel("A:RB", "readback"), "simulation": noisy},
+                    {**_channel("B:SP", "setpoint", "B:RB"), "tolerance": {"relative": 1e-4}},
+                    {**_channel("B:RB", "readback"), "simulation": noisy},
+                ]
+            }
+        )
     )
 
     first, second = document["settables"]
@@ -146,7 +155,7 @@ def test_each_device_states_the_unit_its_channels_declare() -> None:
     ]
     unit = {channel["id"]: channel["unit"] for channel in channels if channel.get("unit")}
 
-    document = bluesky_document({"channels": channels})
+    document = bluesky_document(FacilityRecords({"channels": channels}))
 
     paired, unpaired, unitless, blank = document["settables"]
     assert (paired["unit"], paired["setpoint_unit"]) == (unit["A:RB"], unit["A:SP"])
@@ -188,7 +197,7 @@ def _rendered(
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc=doc,  # type: ignore[arg-type]
+        records=FacilityRecords(doc),  # type: ignore[arg-type]
         rendered_config={"services": services, "control_system": {"type": system}},
         facility_dir=Path("."),
         served=[],

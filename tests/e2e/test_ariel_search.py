@@ -498,9 +498,8 @@ SHIPPED_VOCABULARY_PATH = (
     / "src"
     / "osprey"
     / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
+    / "facilities"
+    / "example"
     / "ariel"
     / "vocabulary.yml"
 )
@@ -540,7 +539,7 @@ def _write_vocabulary_project(project_dir: Path, database_uri: str, vocabulary_p
 def vocabulary_project_dir(tmp_path_factory, e2e_database_url: str) -> Path:
     """A project directory carrying the shipped vocabulary at a RELATIVE path.
 
-    The vocabulary is copied to ``data/ariel/vocabulary.yml`` and referenced as
+    The vocabulary is copied to ``data/facility/ariel/vocabulary.yml`` and referenced as
     that relative path, so the test exercises resolution against the directory
     of the config file the process actually loaded.
     """
@@ -552,11 +551,11 @@ def vocabulary_project_dir(tmp_path_factory, e2e_database_url: str) -> Path:
     )
 
     project_dir = tmp_path_factory.mktemp("ariel-vocabulary-project")
-    vocabulary_dir = project_dir / "data" / "ariel"
+    vocabulary_dir = project_dir / "data" / "facility" / "ariel"
     vocabulary_dir.mkdir(parents=True)
     shutil.copy(SHIPPED_VOCABULARY_PATH, vocabulary_dir / "vocabulary.yml")
 
-    _write_vocabulary_project(project_dir, e2e_database_url, "data/ariel/vocabulary.yml")
+    _write_vocabulary_project(project_dir, e2e_database_url, "data/facility/ariel/vocabulary.yml")
     return project_dir
 
 

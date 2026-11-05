@@ -41,13 +41,18 @@ async def sql_query(
     Columns: entry_id (text PK), timestamp (timestamptz), author (text),
       source_system (text), raw_text (text), metadata (jsonb),
       summary (text), keywords (text[]), attachments (jsonb),
-      attachment_text (text), attachment_captions (jsonb),
+      attachment_text (text), attachment_captions (jsonb), facility_refs (jsonb),
       enhancement_status (jsonb), created_at (timestamptz), updated_at (timestamptz)
 
     attachment_text is the text read from an entry's attachments, and
     attachment_captions the captions of its pictures; both are NULL until the
     attachments are processed. Binary tables are not queryable: attachment_files
     holds the stored file bytes and is refused.
+
+    facility_refs lists each channel address or device id the text quotes as
+    {start, end, target, kinds} (code-point offsets into raw_text); NULL until the
+    entry is checked against the facility file. Tool results resolve it as
+    facility_references.
 
     metadata JSONB keys: logbook, tag, shift, activity_type, logbook_name,
       entry_type, references, event_time, facility_section

@@ -1331,6 +1331,42 @@ def test_a_source_file_selects_its_mirrored_tests() -> None:
         assert selected("quick", path)["pytest"] == check.Selection(check.PATHS, ("tests/cli",))
 
 
+_PACKAGE = [
+    "src/osprey/pkg/__init__.py",
+    "src/osprey/pkg/sub/__init__.py",
+    "src/osprey/pkg/sub/mod.py",
+    "src/osprey/pkg/gap/inner/__init__.py",
+    "src/osprey/pkg/gap/inner/mod.py",
+    "src/osprey/top.py",
+    "tests/pkg/test_a.py",
+]
+
+
+@pytest.mark.parametrize(
+    ("path", "tests", "expected"),
+    [
+        ("src/osprey/pkg/sub/mod.py", [], ("tests/pkg",)),
+        ("src/osprey/top.py", [], None),
+        (
+            "src/osprey/pkg/sub/mod.py",
+            ["tests/pkg/sub/__init__.py", "tests/pkg/sub/data.json"],
+            ("tests/pkg",),
+        ),
+        ("src/osprey/pkg/sub/mod.py", ["tests/pkg/sub/test_b.py"], ("tests/pkg/sub",)),
+        ("src/osprey/pkg/gap/inner/mod.py", [], ("tests/pkg",)),
+    ],
+    ids=["climbs-to-ancestor", "top-level-widens", "skips-testless-mirror", "nearest-wins", "gap"],
+)
+def test_a_source_file_selects_its_nearest_ancestor_mirror(
+    path: str, tests: list[str], expected: tuple[str, ...] | None
+) -> None:
+    files = _PACKAGE + tests
+    want = (
+        check.Selection(check.WHOLE) if expected is None else check.Selection(check.PATHS, expected)
+    )
+    assert fw._select_pytest([path], files) == want
+
+
 def test_a_helper_script_selects_only_its_mirror() -> None:
     assert selected("quick", "scripts/scenario_plots.py")["pytest"] == check.Selection(
         check.PATHS, ("tests/scripts/test_scenario_plots.py",)

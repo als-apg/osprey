@@ -1106,9 +1106,10 @@ derives exactly seven keys from it, all under
 - the six ``gateways.*`` keys — ``address``, ``port`` and ``use_name_server``
   for each of the ``read_only`` and ``write_access`` roles, pointing both lanes
   at loopback on the stand-in's port over the Channel Access name server;
-- ``probe_channel``, copied from the simulator's own, since the stand-in is the
-  same soft IOC over the same machine model. A deployment whose simulator names
-  none gets none here either.
+- ``probe_channel``, copied from the simulator's own, stated or derived from the
+  facility file (see :ref:`architecture-facility-settings`), since the stand-in
+  is the same soft IOC over the same machine model. A deployment whose simulator
+  has none gets none here either.
 
 A profile that spells any of the seven in its own ``config:`` block is refused by
 name at build time rather than silently having the derived copy win: two homes
@@ -1171,7 +1172,6 @@ the ``mongodb_archiver`` connector reads it back.
      hot_span_hours: 48
      hot_cadence_sec: 10
      tail_cadence_sec: 60
-     freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
 
 Every key is optional and the defaults describe a working archive; the block's
 presence is the decision, not its contents.
@@ -1214,9 +1214,12 @@ presence is the decision, not its contents.
        to record at all. It records only for a ``virtual_accelerator`` control
        system, and this is what lets that flip take effect without a restart.
    * - ``freshness_channel``
-     - unset
-     - Canary channel for a derived ``archiver_freshness`` health check. Unset
-       derives no check (see
+     - derived
+     - Canary channel for a derived ``archiver_freshness`` health check. The
+       build derives it from the facility file: the first readback by address
+       the served simulator holds (the probe's channel); none derives no check.
+       A stated value is an override checked against the file (see
+       :ref:`architecture-facility-settings` and
        :doc:`/how-to/health-and-monitoring/configure-health-checks`).
    * - ``host``
      - ``localhost``
@@ -1259,7 +1262,8 @@ by name, rather than silently having one copy win:
   all derived from the keys above;
 - the shape knobs, written to ``va_archiver.*`` in the rendered ``config.yml``
   for the seeder and the recorder to read;
-- ``health.categories.archiver``, when ``freshness_channel`` is set.
+- ``health.categories.archiver``, from the channel the build derives from the
+  facility file or a stated ``freshness_channel``, an override checked against it.
 
 Two homes for one fact are free to disagree, and the disagreement is the
 dangerous case: a stale ``collection`` or ``host`` in ``config:`` points the

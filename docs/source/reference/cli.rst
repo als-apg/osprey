@@ -1180,19 +1180,20 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    its path under the render and whether it is written. The views are those of
    the main render, ``build/config.yml``; a tier's or app's selection does not change
    them. A view that is not written names the config key or model fact that
-   left it out. With ``ID`` it prints the place, device, channel, group or
-   model of that id with its provenance (the layer and file each field came
-   from, the fields the build filled) and the fixes applied to it. An id that
-   names no record prints ``facility show: no record <id>``, and an id that
-   names records of more than one kind prints
-   ``facility show: <id> names a <kind> and a <kind>``; both go to stderr and
-   exit 1. ``--json`` prints one JSON document on stdout and every other line,
-   view notes included, on stderr; on an error stdout is empty. The facility
+   left it out. With ``ID`` it prints every place, device, channel, group or
+   model of that id, each under its kind, with its provenance (the layer and
+   file each field came from, the fields the build filled) and the fixes
+   applied to it. An id that names no record prints
+   ``facility show: no record <id>`` on stderr and exits 1. ``--json`` prints
+   one JSON document on stdout and every other line, view notes included, on
+   stderr; on an error stdout is empty. The facility
    document's keys are ``identity``, ``counts`` (``places``, ``devices``,
    ``channels``, ``groups``, and ``wiring`` keyed by model), ``models``
    (``name``, ``engine``, ``served``, ``solve``) and ``views`` (``name``,
    ``path``, ``written``, and ``reason`` only on a view that is not written);
-   a record's are ``record``, ``kind``, ``provenance`` and ``fixes_applied``.
+   the record document is ``records``, one entry per record with ``record``,
+   ``kind``, ``provenance`` and ``fixes_applied``, in place, device, channel,
+   group, model order.
 
 ``osprey facility import``
    Group for the importers that write an export as sources under
@@ -1218,16 +1219,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the mapping names and no given export carries is one such line,
    ``models.<system>: <system> is no exported system``. A mapping with the
    wrong structure, or a profile that does not resolve, prints a one-line
-   failure with its cause and exits 1. An authored record source that would
-   merge against the layer prints ``import mml: authored-present: <n> files``
-   (``1 file`` for one) and one ``rm <path>`` line per file and exits 1;
-   ``fixes.yaml``, ``classes.yaml``, ``scenarios/`` and ``knowledge/`` are
-   never named. After the import, each scenario file that names a channel or
-   model the facility no longer has is printed as one ``rm <path>`` line under
-   ``these scenario files name channels that no longer exist:``, followed by
-   an ``rm -r <folder>/`` line for the scenario's folder of attached files
-   when it has one; the import
-   deletes nothing, and ``osprey build`` stops while one is left.
+   failure with its cause and exits 1. Before it reads an export, the import runs one step that every format runs.
+   Hand-written records of a kind the format writes print
+   ``import mml: data/facility/ holds hand-written <kinds> records, which this
+   import writes:``, each file, and a remedy, then exit 1 with nothing changed.
+   Otherwise bundled files are replaced, printing
+   ``import mml: replaced the bundled <name> facility (<n> files)``, everything
+   else stays, the knowledge indexes are regenerated, and a blank
+   ``knowledge/index.md`` is left when no page remains. The mml format
+   writes channel, device, group, model, deck, seed, limit, identity and
+   measurement records.
 
 ``osprey facility import mml --print-exporter``
    Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
@@ -1235,8 +1236,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
 
 ``osprey facility import list FILE [--repo DIRECTORY]``
    Write a CSV channel list as the list layer's sources,
-   ``data/facility/imported/list/channels.yaml``, one channel record per row;
-   no authored file is seeded. ``FILE`` is UTF-8 CSV whose header row names
+   ``data/facility/imported/list/channels.yaml``, one channel record per row.
+   It runs the same step as the mml import under the prefix ``import list:``,
+   refuses only hand-written channel and device records, and seeds the knowledge
+   stub. ``FILE`` is UTF-8 CSV whose header row names
    ``address``, required, and any of the optional columns ``role`` (empty
    means readback), ``pair``, ``device``, ``place``, ``unit``,
    ``description``, ``tags`` (``;``-separated), ``s`` (metres, a number) and
@@ -1411,7 +1414,7 @@ repo: the commands read its ``build/config.yml``.
 
    osprey ariel quickstart
    osprey ariel search "RF cavity fault"
-   osprey ariel vocab-check data/ariel/vocabulary.yml
+   osprey ariel vocab-check data/facility/ariel/vocabulary.yml
    osprey ariel web --port 8080
 
 osprey artifacts

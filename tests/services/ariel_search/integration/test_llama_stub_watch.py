@@ -280,7 +280,7 @@ async def test_a_hanging_embeddings_route_ends_the_pass_after_two_timeouts(
         assert _copied(scratch_database) == len(PICTURES)
         assert len(stub.embeddings) == 2
         assert availability.current_reason(EMBED) == "transient"
-        warned = _warnings(caplog)
+        warned = [r for r in _warnings(caplog) if r.name == "ariel"]
         assert len(warned) == 1, [r.getMessage() for r in warned]
         assert EMBED in warned[0].getMessage()
         assert _image_rows(scratch_database) == 0

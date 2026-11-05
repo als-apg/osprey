@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
+
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
@@ -36,7 +38,7 @@ def _inputs(
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc=doc,
+        records=FacilityRecords(doc),
         rendered_config=rendered_config or {},
         facility_dir=Path("."),
         served=[],
@@ -48,7 +50,7 @@ def _inputs(
 def _document(doc: dict[str, Any]) -> tuple[dict[str, Any], int, int]:
     from osprey.facility.views.channel_finder import middle_layer_document
 
-    return middle_layer_document(doc)
+    return middle_layer_document(FacilityRecords(doc))
 
 
 def _fields(family: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -121,11 +123,11 @@ def test_each_class_lists_the_families_the_index_files_its_members_under() -> No
 
     document, _left_out, _by_address = _document(SYNTHETIC)
 
-    assert middle_layer_families(SYNTHETIC) == {
+    assert middle_layer_families(FacilityRecords(SYNTHETIC)) == {
         "Gauge": [("M", "ALL"), ("M", "Gauge")],
         "Quadrupole": [("M", "ALL"), ("M", "QUAD"), ("N", "M/QUAD")],
     }
-    for pairs in middle_layer_families(SYNTHETIC).values():
+    for pairs in middle_layer_families(FacilityRecords(SYNTHETIC)).values():
         assert all(family in document[system] for system, family in pairs)
 
 
@@ -1048,11 +1050,11 @@ def test_every_demo_row_names_its_place_index(
     facility = built_control_assistant.facility
     devices = {str(device["id"]): device for device in facility["devices"]}
     on = {str(c["id"]): (c.get("on") or {}).get("device") for c in facility["channels"]}
-    indices = _place_indices(facility)
-    document, _left_out, _by_address = middle_layer_document(facility)
+    indices = _place_indices(FacilityRecords(facility))
+    document, _left_out, _by_address = middle_layer_document(FacilityRecords(facility))
 
     indexed = unindexed = 0
-    for system, families in _families_by_system(facility).items():
+    for system, families in _families_by_system(FacilityRecords(facility)).items():
         for family in families:
             setup = document[system][family.name]["_setup"]
             rows = [tuple(row) for row in setup["DeviceList"]]
@@ -1089,7 +1091,11 @@ def test_every_demo_row_names_its_place_index(
     }
     assert database.list_channel_names("SR", "BPM", field, place="SR") == bpm[field]["ChannelNames"]
 
-    rf = next(family for family in _families_by_system(facility)["SR"] if family.name == "RF")
+    rf = next(
+        family
+        for family in _families_by_system(FacilityRecords(facility))["SR"]
+        if family.name == "RF"
+    )
     held = [member.get("place") for member in rf.members]
     below = sorted(place for place in set(held) if place != "SR")
     assert "SR" in held and len(below) == 1

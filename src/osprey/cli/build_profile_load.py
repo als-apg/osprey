@@ -845,7 +845,8 @@ def _check_default_scenarios(raw: dict[str, Any]) -> None:
             ``simulation.default_scenarios`` if the value is not a list of
             non-empty strings.
     """
-    from osprey.simulation.apply import DEFAULT_SCENARIOS_KEY, resolve_default_scenarios
+    from osprey.simulation import DEFAULT_SCENARIOS_KEY
+    from osprey.simulation.apply import resolve_default_scenarios
 
     try:
         resolve_default_scenarios(_expand_dotted(raw.get("config")))

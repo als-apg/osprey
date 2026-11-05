@@ -56,7 +56,7 @@ def pool_factory(monkeypatch):
     monkeypatch.setattr(conn_mod, "create_connection_pool", _fake_create_pool)
     monkeypatch.setattr(
         "osprey.services.ariel_search.database.repository.ARIELRepository",
-        lambda pool, config: object(),
+        lambda pool, config, **_: object(),
     )
     return calls
 
@@ -144,7 +144,7 @@ async def test_a_refused_readonly_login_records_why_and_says_so(monkeypatch, cap
     monkeypatch.setattr(conn_mod, "create_connection_pool", _fake_create_pool)
     monkeypatch.setattr(
         "osprey.services.ariel_search.database.repository.ARIELRepository",
-        lambda pool, config: object(),
+        lambda pool, config, **_: object(),
     )
 
     from osprey.services.ariel_search.service import create_ariel_service

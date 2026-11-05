@@ -42,6 +42,22 @@ class AttachmentResponse(BaseModel):
     skip_reason_text: str | None = None
 
 
+class FacilityReferenceResponse(BaseModel):
+    """One channel address or device id an entry quotes, with the records it names.
+
+    ``start`` and ``end`` are code-point offsets into the entry's ``raw_text``.
+    ``records`` is empty when the facility file does not hold ``target`` and null
+    when no facility file was read.
+    """
+
+    start: int
+    end: int
+    target: str
+    kinds: list[str]
+    label: str | None = None
+    records: list[dict[str, Any]] | None = None
+
+
 class EntryResponse(BaseModel):
     """Single logbook entry in response."""
 
@@ -67,6 +83,8 @@ class EntryResponse(BaseModel):
     # How a search found the entry, and which of its attachments it matched.
     matched_via: list[str] = []
     matched_attachment_ids: list[str] = []
+    # Null when the entry was never checked against a facility file.
+    facility_references: list[FacilityReferenceResponse] | None = None
 
 
 class SearchRequest(BaseModel):
