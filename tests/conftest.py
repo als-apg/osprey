@@ -11,6 +11,7 @@ from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -55,6 +56,9 @@ from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant_watchdog_on,
     offline_build_env,
 )
+
+if TYPE_CHECKING:
+    from tests._graphdb_container import WatchedStore
 
 # ===================================================================
 # Provider gateway stand-in
@@ -1319,8 +1323,7 @@ def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     Every lane that starts a real graph store mounts the same two jars, and the
     expensive half of resolving them is a release download — so this is shared
-    across lanes even though the *stores* are not (two of them wipe the graph
-    between corpora and therefore run their own module-scoped container).
+    across lanes, as is the store in :func:`graphdb_session_store`.
 
     Skips, with the reason, on a host that could not start the container:
     see :func:`tests._graphdb_container.resolve_plugin_dir`.
@@ -1328,6 +1331,65 @@ def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from tests._graphdb_container import resolve_plugin_dir
 
     return resolve_plugin_dir(tmp_path_factory)
+
+
+@pytest.fixture(scope="session")
+def graphdb_session_store(graphdb_plugin_dir: Path) -> Iterator["WatchedStore"]:
+    """One started graph store for every lane that seeds a corpus of its own.
+
+    Starting the container is most of what such a lane costs, and the corpus
+    is the lane's own, so each lane takes this store through
+    :func:`tests._graphdb_container.wiped_graphdb_store`, which empties it to
+    the state a fresh deploy starts from before the lane seeds. Those lanes are
+    all in the ``docker`` xdist group, so they run on one worker, one module
+    after another, and share this container. A lane that proves something of a
+    store nothing has touched yet starts a container of its own.
+    """
+    from tests._graphdb_container import watched_graphdb_store
+
+    with watched_graphdb_store(
+        graphdb_plugin_dir, label="graphdb (neo4j + n10s) shared by the session"
+    ) as store:
+        yield store
+
+
+@pytest.fixture(scope="session")
+def mongodb_container() -> Iterator[dict[str, object]]:
+    """Start a MongoDB container for the test session.
+
+    Yields a dict with connection parameters. Skips the entire chain
+    of dependent tests if Docker isn't available.
+
+    Defined here rather than beside the connector tests so that the connector,
+    recorder and simulation lanes share one container: a fixture imported into
+    a test module is a fixture of that module, with a container of its own.
+    Every lane that uses it is in the ``docker`` xdist group, which puts them on
+    one worker. Each lane works in a collection of its own and empties it.
+    """
+    from tests._container_support import is_docker_available
+    from tests._mongo_container import MONGO_AUTH_DB, started_mongo
+
+    if not is_docker_available():
+        pytest.skip(
+            "Docker not available — install Docker Desktop or Podman "
+            "to run MongoDB archiver integration tests."
+        )
+
+    username = "testuser"
+    password = "testpass123"
+    db_name = "test_archiver_db"
+    collection_name = "test_archiver_collection"
+
+    with started_mongo("mongodb", username=username, password=password) as (host, port):
+        yield {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "auth_db": MONGO_AUTH_DB,
+            "db_name": db_name,
+            "collection_name": collection_name,
+        }
 
 
 # ===================================================================
