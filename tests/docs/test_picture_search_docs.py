@@ -24,6 +24,9 @@ from osprey.imaging.formats import RENDITION_MAX_BYTES, RENDITION_MAX_SIDE, ROWS
 from osprey.models.providers.llama_cpp import LLAMA_CPP_DEFAULT_MODEL
 from osprey.services.ariel_search.attachments.copy import BYTE_BUDGET_FILES, COPY_MAX_PER_ENTRY
 from osprey.services.ariel_search.cli_operations import FORCE_REFUSAL, _held_lock_line
+from osprey.services.ariel_search.database.attachment_text_migration import (
+    UPSTREAM_CAPTION_JSONPATH,
+)
 from osprey.services.ariel_search.enhancement.image_caption.module import (
     DEFAULT_MAX_IMAGES_PER_ENTRY,
     DEFAULT_TIMEOUT_SECONDS,
@@ -237,8 +240,7 @@ def test_upgrade_note_profile_lines_match_the_presets() -> None:
 
 def test_upgrade_note_count_query_is_the_fold_predicate() -> None:
     query = (
-        "SELECT count(*) FROM enhanced_entries WHERE attachments @? "
-        "'$[*] ? (@.caption != null && @.caption != \"\")'"
+        f"SELECT count(*) FROM enhanced_entries WHERE attachments @? '{UPSTREAM_CAPTION_JSONPATH}'"
     )
     assert query in _code_blocks(_text(_GUIDE))
 

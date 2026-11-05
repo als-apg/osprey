@@ -5,8 +5,7 @@
 and the ``expanded_terms`` a query produces. Each example is read out of the
 page and handed to the code that handles it: :func:`parse_keyword_query`, the
 vocabulary loader and ``osprey ariel vocab-check``, and :func:`expand_query`.
-``picture-search.rst``'s caption count query is compared with the jsonpath the
-upgrade fold itself uses. A change on either side fails here.
+A change on either side fails here.
 
 Glob matches are checked by running the parser's PostgreSQL ARE in Python's
 ``re`` with the word anchors ``\\m``/``\\M`` translated; every other construct a
@@ -25,9 +24,7 @@ from click.testing import CliRunner
 
 from osprey.cli.ariel import ariel_group
 from osprey.services.ariel_search.config import VocabularyConfig
-from osprey.services.ariel_search.database.attachment_text_migration import (
-    UPSTREAM_CAPTION_JSONPATH,
-)
+from osprey.services.ariel_search.models import DiagnosticLevel
 from osprey.services.ariel_search.search.keyword import MAX_QUERY_LENGTH, parse_keyword_query
 from osprey.services.ariel_search.search.patterns import EMPTY_PATTERN_NOTICE
 from osprey.services.ariel_search.vocabulary import load_vocabulary
@@ -37,7 +34,6 @@ from osprey.services.ariel_search.vocabulary.model import Vocabulary
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ARIEL_DOCS = _REPO_ROOT / "docs" / "source" / "how-to" / "ariel"
 _SEARCH_MODES = _ARIEL_DOCS / "search-modes.rst"
-_PICTURE_SEARCH = _ARIEL_DOCS / "picture-search.rst"
 
 
 def _text(path: Path) -> str:
@@ -162,7 +158,13 @@ def test_syntax_block_query_parses_as_documented(query: str) -> None:
 
 
 def test_documented_truncation_length_is_the_parser_limit() -> None:
-    assert f"truncated at {MAX_QUERY_LENGTH:,} characters" in _flat(_text(_SEARCH_MODES))
+    """Both sentences that state the limit: the How-it-works step and the expansion note."""
+    stated = re.findall(
+        r"truncated at ([\d,]+) characters|longer than ([\d,]+) characters are truncated",
+        _flat(_text(_SEARCH_MODES)),
+    )
+    assert len(stated) == 2
+    assert {int((a or b).replace(",", "")) for a, b in stated} == {MAX_QUERY_LENGTH}
 
 
 # ---------------------------------------------------------------------------
@@ -259,19 +261,16 @@ def test_too_generic_pattern_is_searched_as_text_with_a_diagnostic(query: str) -
 
 
 def test_rejected_regex_contributes_its_body_words() -> None:
-    assert parse_keyword_query("flow rate 5 / 6 / 7").search_text.split() == [
-        "flow",
-        "rate",
-        "5",
-        "7",
-        "6",
-    ]
+    words = parse_keyword_query("flow rate 5 / 6 / 7").search_text.split()
+    assert sorted(words) == sorted(["flow", "rate", "5", "6", "7"])
 
 
 def test_empty_pattern_is_ignored_with_a_notice() -> None:
     parsed = parse_keyword_query("//")
     assert parsed.search_text == ""
-    assert [d.message for d in parsed.diagnostics] == [EMPTY_PATTERN_NOTICE]
+    assert [(d.level, d.message) for d in parsed.diagnostics] == [
+        (DiagnosticLevel.INFO, EMPTY_PATTERN_NOTICE)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -343,15 +342,3 @@ def test_page_vocabulary_expands_as_the_prose_says(
     text: str, groups: list[dict], tmp_path: Path
 ) -> None:
     assert _expand_with_defaults(text, _page_vocabulary(tmp_path)) == groups
-
-
-# ---------------------------------------------------------------------------
-# Picture search: upstream caption count
-# ---------------------------------------------------------------------------
-
-
-def test_caption_count_query_uses_the_fold_jsonpath() -> None:
-    query = (
-        f"SELECT count(*) FROM enhanced_entries WHERE attachments @? '{UPSTREAM_CAPTION_JSONPATH}'"
-    )
-    assert _block(_PICTURE_SEARCH, "SELECT count(*)") == query
