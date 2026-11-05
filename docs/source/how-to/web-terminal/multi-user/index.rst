@@ -347,12 +347,12 @@ app onto a seeded facility graph, not an empty shell.
 .. note::
 
    Running from a **source checkout** of the OSPREY repository rather than a
-   released install? Add ``--dev`` to both commands: ``osprey build --dev``,
-   then ``osprey up --dev`` (or ``osprey up --build --dev`` in one step).
-   ``osprey up --dev`` alone refuses a render that was built without
-   ``--dev``. The images install the framework from PyPI by default, and a
-   source tree's version isn't published there; ``--dev`` bakes your local
-   checkout into the images instead.
+   released install? The images install the framework from PyPI by default,
+   and a source tree's version isn't published there; ``--dev`` bakes your
+   local checkout into the images instead. Give it to both commands,
+   ``osprey build --dev`` then ``osprey up --dev``, or run
+   ``osprey up --build --dev``: ``osprey up --dev`` refuses a render built
+   without it.
 
 What ``osprey build`` and ``osprey up`` do for the web tier
 -----------------------------------------------------------

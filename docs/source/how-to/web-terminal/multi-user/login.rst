@@ -42,11 +42,10 @@ name files under ``tiers/``. The ``control-assistant`` preset sets
 ``method: password`` with ``allow_insecure_http: true``, which suits
 ``127.0.0.1`` only; set ``method: token`` to use login URLs.
 
-Each snippet goes in ``profile.yml``, under ``config:``. Merge its keys into
-the ``modules.web_terminals:`` entry already there; a second copy of that key
-silently replaces the first. Keep ``modules.web_terminals`` as one dotted key:
-a nested ``modules:`` block would replace the whole ``modules`` subtree and
-drop the keys the preset sets.
+Merge each snippet's keys into the ``modules.web_terminals:`` entry under
+``config:`` in ``profile.yml``; a second copy of that key silently replaces the
+first. Keep it one dotted key: a nested ``modules:`` block would replace the
+whole ``modules`` subtree, dropping the keys the preset sets.
 
 Choose a method
 ===============

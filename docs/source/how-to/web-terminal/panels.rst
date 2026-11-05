@@ -494,11 +494,11 @@ server's tools.
 
       .. tab-item:: Serving & discovery
 
-         Discovered panels are served straight from disk, with no proxy, under a
-         capability address bound to the operator's login. They run at an opaque
-         origin, not the terminal's own; see
-         :ref:`web-terminal-panels-opaque-origin`. Discovery is
-         **fail-closed**: only a fully valid panel is ever served. The ``allow_runtime_panels`` switch is deliberately
+         Discovered panels are served straight from disk, with no proxy, at an
+         opaque origin rather than the terminal's own (see
+         :ref:`web-terminal-panels-opaque-origin`). Discovery is
+         **fail-closed**: only a fully valid panel is ever served. The
+         ``allow_runtime_panels`` switch is deliberately
          off by default because it is also what lets the agent register panels at
          runtime — turning it on is your explicit decision to trust the panels the
          terminal makes available.

@@ -94,10 +94,9 @@ the same image — so they all read the same ``web.theme``. To start a particula
 user somewhere else, add ``theme`` to their entry in the user list. The snippet
 shows only the keys this section is about; the deployment also carries
 ``default_tier`` and each user's ``tier`` from the multi-user page (see the
-worked example in :ref:`multi-user-registry-images`). The snippet goes in
-``profile.yml``, under ``config:``. Merge its keys into the
-``modules.web_terminals:`` entry already there; a second copy of that key
-silently replaces the first.
+worked example in :ref:`multi-user-registry-images`). Merge its keys into the
+``modules.web_terminals:`` entry under ``config:`` in ``profile.yml``; a second
+copy of that key silently replaces the first.
 
 .. code-block:: yaml
 
