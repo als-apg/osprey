@@ -11941,13 +11941,13 @@ def test_the_unit_shards_cover_the_test_tree__mutation_drops_a_matrix_shard() ->
 
 
 # ---------------------------------------------------------------------------
-# The unit lane's macOS cells are one trimmed job each
+# The unit lane's macOS cells are one job each
 # ---------------------------------------------------------------------------
 #
 # The account's macOS ceiling is 5 concurrent jobs, so a macOS cell is one
-# `include` job running the check's `macos` trim, never os x shard.
+# `include` job running the check's `macos` subset, never os x shard.
 
-UNIT_MACOS_TRIM = "macos"
+UNIT_MACOS_SUBSET = "macos"
 
 #: macOS jobs per event against the ceiling of 5: one push and three PRs fit.
 UNIT_MACOS_BUDGET = {"pull_request": 1, "other": 2}
@@ -11971,15 +11971,15 @@ def _macos_cell_problems(wf: dict[str, Any]) -> list[str]:
         problems.append(
             f"macos-latest is on the os axis, so each shard is a macOS job: {matrix['os']}"
         )
-    if UNIT_MACOS_TRIM in matrix["shard"]:
-        problems.append(f"'{UNIT_MACOS_TRIM}' is on the shard axis, so ubuntu runs it too")
-    if UNIT_MACOS_TRIM not in framework_checks.UNIT_SELECTION.trims:
-        problems.append(f"the check declares no '{UNIT_MACOS_TRIM}' trim")
+    if UNIT_MACOS_SUBSET in matrix["shard"]:
+        problems.append(f"'{UNIT_MACOS_SUBSET}' is on the shard axis, so ubuntu runs it too")
+    if UNIT_MACOS_SUBSET not in framework_checks.UNIT_SELECTION.subsets:
+        problems.append(f"the check declares no '{UNIT_MACOS_SUBSET}' subset")
     cells = _unit_macos_cells(wf)
     for event, event_cells in cells.items():
         for cell in event_cells:
-            if cell != {**cell, "os": "macos-latest", "shard": UNIT_MACOS_TRIM}:
-                problems.append(f"{event} cell is not one macOS '{UNIT_MACOS_TRIM}' job: {cell}")
+            if cell != {**cell, "os": "macos-latest", "shard": UNIT_MACOS_SUBSET}:
+                problems.append(f"{event} cell is not one macOS '{UNIT_MACOS_SUBSET}' job: {cell}")
         if len(event_cells) > UNIT_MACOS_BUDGET[event]:
             problems.append(
                 f"{event} runs {len(event_cells)} macOS jobs, over its "
@@ -11995,24 +11995,24 @@ def _macos_cell_problems(wf: dict[str, Any]) -> list[str]:
     return problems
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each(workflow: dict[str, Any]) -> None:
+def test_the_unit_macos_cells_are_one_job_each(workflow: dict[str, Any]) -> None:
     assert _macos_cell_problems(workflow) == []
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_puts_macos_on_the_axis() -> None:
+def test_the_unit_macos_cells_are_one_job_each__mutation_puts_macos_on_the_axis() -> None:
     mutated = _load_workflow()
     _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]["os"].append("macos-latest")
     assert any("on the os axis" in p for p in _macos_cell_problems(mutated))
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_runs_a_shard() -> None:
+def test_the_unit_macos_cells_are_one_job_each__mutation_runs_a_shard() -> None:
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
     matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli"', 1)
     assert any("is not one macOS 'macos' job" in p for p in _macos_cell_problems(mutated))
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_moves_the_pr_cell() -> None:
+def test_the_unit_macos_cells_are_one_job_each__mutation_moves_the_pr_cell() -> None:
     """Off the coverage cell's interpreter, a PR macOS failure no longer
     isolates to the OS."""
     mutated = _load_workflow()
@@ -12025,7 +12025,7 @@ def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_moves_the_pr_ce
     assert any("not the coverage cell's" in p for p in _macos_cell_problems(mutated))
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_adds_a_pr_cell() -> None:
+def test_the_unit_macos_cells_are_one_job_each__mutation_adds_a_pr_cell() -> None:
     """A second PR macOS cell lets one push and three PRs exceed the ceiling."""
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
