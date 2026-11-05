@@ -1,18 +1,27 @@
-"""The CLI reference page and click's command tree name the same verbs.
+"""Every ``osprey`` command the docs write is one click registers.
 
-``docs/source/reference/cli.rst`` is written by hand, so it drifts from the
-command tree in both directions: a verb is retired and its row stays behind,
-sending a reader to a command that no longer exists, or a verb is added and
-never gets a row, so nobody learns it is there. This check walks the tree
-``osprey.cli.main.cli`` registers and compares it with the page both ways.
+The pages are written by hand, so they drift from the command tree: a verb is
+retired or renamed and a page keeps sending readers to it, an option is
+dropped, a choice loses a value. Two checks read the pages against the tree
+``osprey.cli.main.cli`` registers:
+
+* every page under ``docs/source`` names only registered verbs, options of the
+  command it names, and values a fixed ``click.Choice`` accepts;
+* ``docs/source/reference/cli.rst`` also has a row for every visible verb, so a
+  new verb cannot ship without one.
 
 Matching rule
 -------------
-Only two places on the page are read as commands, never prose:
+Only two places on a page are read as commands, never prose:
 
 * an inline literal that starts with the word ``osprey`` (````osprey build````);
 * a line inside a literal block (``::`` or ``.. code-block::``) that starts with
-  the word ``osprey``, after an optional ``$`` prompt.
+  the word ``osprey``, after an optional ``$`` prompt. A line ending in ``\\``
+  continues on the next one. A shell line is split at ``&&``, ``||``, ``;`` and
+  ``|``, and each part that starts with ``osprey`` (after ``uv run``, ``sudo``
+  or ``VAR=value`` prefixes) is a reference of its own.
+
+A ``#`` word ends the reference: the rest is a comment.
 
 From each, the words after ``osprey`` are followed down the tree while they
 name a subcommand of a group. The walk stops at a leaf command, at an option,
@@ -20,9 +29,17 @@ or at a placeholder (an upper-case word, a bracket, a pipe). A lower-case word
 under a group that names none of its subcommands is a verb the tree does not
 register, and fails.
 
-A verb counts as documented when some reference resolves to exactly that
-verb. A group is a verb of its own: a row for ``osprey web sessions clear``
-does not document ``osprey web sessions``.
+The words after the walk are then read for options. A word that starts with
+``-`` (brackets stripped, ``-d|--detached`` split at the pipe, ``--opt=value``
+split at the ``=``) must be an option of the command the walk reached, or a
+global option of ``osprey``. When that option's type is a fixed
+``click.Choice``, the value after it, or each ``|`` alternative of it, must be
+one of its choices unless it is a placeholder. Choice types that resolve their
+values at parse time (a registry an application extends) are not checked.
+
+A verb counts as documented on the CLI page when some reference resolves to
+exactly that verb. A group is a verb of its own: a row for
+``osprey web sessions clear`` does not document ``osprey web sessions``.
 """
 
 from __future__ import annotations
@@ -36,14 +53,42 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: The page this check reads, relative to the repo root.
+#: The docs tree every page is read from.
+_DOCS = _REPO_ROOT / "docs" / "source"
+
+#: The page that must document every verb, relative to the repo root.
 _PAGE = "docs/source/reference/cli.rst"
+
+#: Problems the guard reports that are correct as written, keyed by
+#: ``"<page relative to docs/source>: <problem>"``, each with the reason.
+#: Empty by design: fix the page instead. An entry that no longer matches a
+#: problem fails ``test_every_exemption_is_still_needed``.
+_EXEMPTIONS: dict[str, str] = {}
 
 #: An RST inline literal; the content may wrap onto the next line.
 _LITERAL_PATTERN = re.compile(r"``([^`]+)``")
 
 #: A word that can name a subcommand.
 _VERB_WORD = re.compile(r"^[a-z][a-z0-9-]*$")
+
+#: A word that names an option: ``-d``, ``--repo``, ``--no-cache``.
+_OPTION_WORD = re.compile(r"^--?[A-Za-z][A-Za-z0-9-]*$")
+
+#: A literal choice value; anything else (``MODE``, ``<x>``, ``$VAR``) is a
+#: placeholder.
+_CHOICE_WORD = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
+
+#: Shell words that end one command and may start the next.
+_SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|"})
+
+#: Shell words that end a command without starting another.
+_SHELL_ENDS = frozenset({">", ">>", "2>", "2>&1", "&", "<"})
+
+#: Words that may precede ``osprey`` on a shell line.
+_PREFIXES = (("uv", "run"), ("sudo",))
+
+#: A ``VAR=value`` environment assignment before a command.
+_ENV_ASSIGNMENT = re.compile(r"^[A-Z_][A-Z0-9_]*=\S*$")
 
 #: A code directive, or a paragraph ending in ``::``, that opens a literal block.
 #: Other directives (``.. note::``) hold prose and open nothing.
@@ -97,6 +142,56 @@ def _block_lines(lines: list[str]) -> list[tuple[int, str]]:
     return inside
 
 
+def _joined_block_lines(lines: list[str]) -> list[tuple[int, str]]:
+    """Block lines with ``\\`` continuations joined, numbered by their first line."""
+    joined: list[tuple[int, str]] = []
+    pending: tuple[int, str] | None = None
+    previous = -1
+    for line, text in _block_lines(lines):
+        if pending is not None and line == previous + 1:
+            pending = (pending[0], f"{pending[1]} {text}")
+        else:
+            if pending is not None:
+                joined.append(pending)
+            pending = (line, text)
+        previous = line
+        if not pending[1].endswith("\\"):
+            joined.append(pending)
+            pending = None
+        else:
+            pending = (pending[0], pending[1][:-1].rstrip())
+    if pending is not None:
+        joined.append(pending)
+    return joined
+
+
+def _commands(words: list[str]) -> list[list[str]]:
+    """The words after ``osprey`` of every command on one shell line."""
+    found: list[list[str]] = []
+    segment: list[str] = []
+    for word in [*words, ";"]:
+        if word not in _SHELL_SEPARATORS:
+            segment.append(word)
+            continue
+        while segment and _ENV_ASSIGNMENT.match(segment[0]):
+            segment = segment[1:]
+        for prefix in _PREFIXES:
+            if tuple(segment[: len(prefix)]) == prefix:
+                segment = segment[len(prefix) :]
+        if segment and segment[0] == "osprey":
+            found.append(_until_comment(segment[1:]))
+        segment = []
+    return found
+
+
+def _until_comment(words: list[str]) -> list[str]:
+    """``words`` up to a ``#`` comment or an output redirection."""
+    for index, word in enumerate(words):
+        if word.startswith("#") or word in _SHELL_ENDS:
+            return words[:index]
+    return words
+
+
 def _references(page_text: str) -> list[tuple[int, list[str]]]:
     """``(line number, words after osprey)`` for every command reference."""
     found: list[tuple[int, list[str]]] = []
@@ -104,13 +199,12 @@ def _references(page_text: str) -> list[tuple[int, list[str]]]:
         words = match.group(1).split()
         if words and words[0] == "osprey":
             line = page_text.count("\n", 0, match.start()) + 1
-            found.append((line, words[1:]))
-    for line, text in _block_lines(page_text.splitlines()):
+            found.append((line, _until_comment(words[1:])))
+    for line, text in _joined_block_lines(page_text.splitlines()):
         words = text.split()
         if words and words[0] == "$":
             words = words[1:]
-        if words and words[0] == "osprey":
-            found.append((line, words[1:]))
+        found.extend((line, command) for command in _commands(words))
     return sorted(found)
 
 
@@ -132,24 +226,110 @@ def _resolve(
     return path, None
 
 
+def _options(command: click.Command) -> dict[str, click.Option]:
+    """Every spelling of every option ``command`` declares, ``--help`` included."""
+    found: dict[str, click.Option] = {}
+    for param in command.get_params(click.Context(command)):
+        if isinstance(param, click.Option):
+            for spelling in (*param.opts, *param.secondary_opts):
+                found[spelling] = param
+    return found
+
+
+def _option_problems(command: click.Command, words: list[str]) -> list[str]:
+    """What is wrong with the options and choice values in ``words``.
+
+    ``words`` follow the command the walk reached. Global options of
+    ``osprey`` are accepted anywhere, as the docs write them either side of
+    the verb.
+    """
+    from osprey.cli.main import cli
+
+    known = {**_options(cli), **_options(command)}
+    problems: list[str] = []
+    for index, raw in enumerate(words):
+        for word in raw.strip("[](){},").split("|"):
+            spelling, equals, value = word.partition("=")
+            if not _OPTION_WORD.match(spelling):
+                continue
+            option = known.get(spelling)
+            if option is None:
+                problems.append(f"no option {spelling}")
+                continue
+            # Only a fixed choice list: a subclass may resolve its values late.
+            if type(option.type) is not click.Choice or option.is_flag:
+                continue
+            if not equals:
+                value = words[index + 1] if index + 1 < len(words) else ""
+            for choice in value.strip("[](){},").split("|"):
+                if _CHOICE_WORD.match(choice) and choice not in option.type.choices:
+                    problems.append(
+                        f"{spelling} {choice} is not one of {', '.join(option.type.choices)}"
+                    )
+    return problems
+
+
+def _problems(page_text: str) -> list[tuple[int, str]]:
+    """``(line, problem)`` for every reference that does not resolve in full."""
+    from osprey.cli.main import cli
+
+    registered = _registered()
+    global_flags = {spelling for spelling, option in _options(cli).items() if option.is_flag}
+    found: list[tuple[int, str]] = []
+    for line, words in _references(page_text):
+        # ``osprey --verbose build``: a global flag before the verb.
+        leading = 0
+        while leading < len(words) and words[leading] in global_flags:
+            leading += 1
+        path, stray = _resolve(words[leading:], registered)
+        named = " ".join(("osprey", *path))
+        if stray is not None:
+            found.append((line, f"{named} has no verb {stray}"))
+            continue
+        command = registered[path] if path else cli
+        found.extend(
+            (line, f"{named}: {problem}")
+            for problem in _option_problems(command, words[leading + len(path) :])
+        )
+    return found
+
+
+def _pages() -> list[Path]:
+    return sorted(_DOCS.rglob("*.rst"))
+
+
+def _all_problems() -> list[tuple[str, int]]:
+    """Every problem on every page, keyed as ``_EXEMPTIONS`` keys them, with its line."""
+    found: list[tuple[str, int]] = []
+    for page in _pages():
+        relative = page.relative_to(_DOCS).as_posix()
+        for line, problem in _problems(page.read_text(encoding="utf-8")):
+            found.append((f"{relative}: {problem}", line))
+    return found
+
+
 def _page_text() -> str:
     return (_REPO_ROOT / _PAGE).read_text(encoding="utf-8")
 
 
-def test_every_reference_resolves() -> None:
-    """Every ``osprey …`` the page writes names a registered verb."""
-    registered = _registered()
-    broken = []
-    for line, words in _references(_page_text()):
-        path, stray = _resolve(words, registered)
-        if stray is not None:
-            named = " ".join(("osprey", *path, stray))
-            broken.append(f"{_PAGE}:{line}: {named}")
-    assert not broken, "the page names verbs click does not register:\n" + "\n".join(broken)
+def test_every_reference_on_every_page_resolves() -> None:
+    """Every ``osprey …`` any page writes names a registered verb, its options and choices."""
+    broken = [
+        f"docs/source/{key.split(': ', 1)[0]}:{line}: {key.split(': ', 1)[1]}"
+        for key, line in _all_problems()
+        if key not in _EXEMPTIONS
+    ]
+    assert not broken, "the docs name commands click does not accept:\n" + "\n".join(broken)
+
+
+def test_every_exemption_is_still_needed() -> None:
+    """An exemption whose problem is gone is removed, so it cannot hide a new one."""
+    stale = sorted(set(_EXEMPTIONS) - {key for key, _line in _all_problems()})
+    assert not stale, "exemptions that match no problem:\n" + "\n".join(stale)
 
 
 def test_every_registered_verb_is_documented() -> None:
-    """Every registered verb has a reference that resolves to exactly it."""
+    """Every registered verb has a reference on the CLI page that resolves to exactly it."""
     registered = _registered()
     documented = set()
     for _line, words in _references(_page_text()):
@@ -187,3 +367,47 @@ def test_prose_is_not_a_reference() -> None:
     """A sentence that begins with the word osprey is not read as a command."""
     text = "osprey rendered it.\n\nRun ``osprey build`` first.\n\n::\n\n   osprey up -d\n"
     assert _references(text) == [(3, ["build"]), (7, ["up", "-d"])]
+
+
+def test_shell_lines_split_into_commands() -> None:
+    """Chains, prefixes, continuations and comments are read the way a shell reads them."""
+    text = (
+        ".. code-block:: bash\n"
+        "\n"
+        "   cd x && uv run osprey build --repo . | tee log  # then\n"
+        "   osprey query \\\n"
+        "      --json  # comment --bogus\n"
+        "   OSPREY_X=1 osprey up -d > out\n"
+        "   echo osprey up\n"
+    )
+    assert _references(text) == [
+        (3, ["build", "--repo", "."]),
+        (4, ["query", "--json"]),
+        (6, ["up", "-d"]),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("``osprey up [-d|--detached]``", []),
+        ("``osprey --verbose build --repo x``", []),
+        ("``osprey chat --effort high``", []),
+        ("``osprey validate --drift error|warn``", []),
+        ("``osprey chat --effort EFFORT``", []),
+        ("``osprey deploy``", [(1, "osprey has no verb deploy")]),
+        ("``osprey up --bogus``", [(1, "osprey up: no option --bogus")]),
+        ("``osprey up -q``", [(1, "osprey up: no option -q")]),
+        (
+            "``osprey chat --effort=extreme``",
+            [(1, "osprey chat: --effort extreme is not one of low, medium, high, max")],
+        ),
+        (
+            "``osprey validate --drift error|ignore``",
+            [(1, "osprey validate: --drift ignore is not one of error, warn")],
+        ),
+    ],
+)
+def test_bad_verbs_options_and_choices_fail(text: str, expected: list[tuple[int, str]]) -> None:
+    """A dead verb, an undeclared option and a value outside a fixed choice are reported."""
+    assert _problems(text) == expected
