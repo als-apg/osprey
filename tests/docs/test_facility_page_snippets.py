@@ -216,7 +216,7 @@ def test_every_block_on_the_facility_page_is_checked() -> None:
     assert sorted((placed | skipped) - present) == []
 
 
-@pytest.mark.slow  # validating the whole preset takes about 15 s
+@pytest.mark.slow  # validating the whole preset takes a few seconds
 def test_the_pasted_blocks_build_on_the_preset(tmp_path: Path) -> None:
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
@@ -240,15 +240,15 @@ def test_a_partial_block_is_a_subset_of_the_preset_record(first: str) -> None:
 
 def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> None:
     """``osprey facility import list`` replaces the bundled preset, then imports."""
-    from osprey.facility.bundled import classify
+    import click
+
+    from osprey.cli.facility_cmd import _replace_or_refuse
     from osprey.facility.layers.list import import_list
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
-    kinds = classify(facility, TEMPLATE_ROOT)
-    assert kinds.authored == ()
-    for relative in kinds.bundled:
-        (facility / relative).unlink()
+    with click.Context(click.Command("list")) as ctx:
+        _replace_or_refuse(ctx, "list", facility, tmp_path)
 
     import_list(HOW_TO / CHANNEL_LIST, facility)
     _dump(facility / "fixes.yaml", _block(FACILITY_PAGE, FIXES).data)
@@ -270,12 +270,13 @@ def _includes() -> Iterator[Block]:
 @pytest.mark.parametrize("block", list(_includes()), ids=lambda block: block.arg)
 def test_an_included_preset_file_is_a_bundled_file(block: Block) -> None:
     """The page shows the shipped file after the line that marks it bundled."""
-    from osprey.facility.bundled import bundled_origin
+    from osprey.facility.bundled import bundled_origin, header_line
 
     path = (HOW_TO / block.arg).resolve()
     assert path.is_relative_to(PRESET), f"{block.arg} is not a file of the preset"
     assert bundled_origin(path) == "example"
-    assert block.options.get("start-after") == "Delete this line to make the file yours."
+    marker = header_line("example").split(". ", 1)[1]
+    assert block.options.get("start-after") == marker
 
 
 # --- the MML mapping fragments ---------------------------------------------------

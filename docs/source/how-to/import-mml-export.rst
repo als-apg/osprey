@@ -192,8 +192,9 @@ both families, both ids and the fix.
 ``models.<name>.wiring`` lists the families the model drives or reads, each
 with the field, engine attribute and calibration that bind it to the deck.
 The optional ``models.<name>.tune`` names the channels the model's tunes are
-read on: one address per plane, ``{x: <address>, y: <address>}``, or one
-waveform, ``{address: <address>, planes: [x, y]}``.
+read on: one address per plane, ``{x: <address>, y: <address>}`` and
+optionally ``s``, or one waveform, ``{address: <address>, planes: [x, y]}``,
+its planes optionally ending in ``s``.
 
 The optional top-level ``branches:`` block declares classes the shared
 vocabulary lacks, each as ``<class>: {parent, description}``. A family whose
