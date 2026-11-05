@@ -138,6 +138,7 @@ the render, never back into ``data/facility/``:
      facility.json                        the facility file
      data/channel_limits.json             the limits view
      data/facility_facts.json             the facts view
+     data/facility_facts.md               the facts view, as markdown
      data/simulator/                      the simulator view and its decks
      data/pyaml/<model>/                  the pyAML view, per served model with a measurement file
      data/graph/facility.ttl              the graph view
