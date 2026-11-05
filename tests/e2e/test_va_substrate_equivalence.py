@@ -303,11 +303,11 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     view are built in memory from the repo's tree, because the pairs are
     chosen before the build.
     """
+    from osprey.facility import TEXTURE
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
-    from osprey_connectors.simulation.view import TEXTURE
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     coupled = {
@@ -349,11 +349,12 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     that same model wires, and which a limits record gives a range to write
     inside. The first by setpoint address is taken.
     """
+    from osprey.facility import TEXTURE
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
-    from osprey_connectors.simulation.view import TEXTURE, Binding
+    from osprey_connectors.simulation.view import Binding
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     readback_of = {

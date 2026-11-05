@@ -25,7 +25,6 @@
 export const HELP_PAGES = Object.freeze({
   'channel-finder': 'how-to/use-channel-finder.html',
   ariel: 'how-to/ariel/web-interface.html',
-  lattice: 'how-to/web-terminal/lattice-dashboard.html',
   okf: 'how-to/facility-knowledge/okf-bundle.html',
   'system-health': 'how-to/health-and-monitoring/index.html',
   jupyter: 'how-to/web-terminal/notebooks.html',

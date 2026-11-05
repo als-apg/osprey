@@ -88,9 +88,9 @@ describe('openHelp', () => {
   test('opens the page in a new tab without an opener', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     document.documentElement.dataset.docsUrl = 'https://d.example';
-    expect(openHelp('lattice')).toBe(true);
+    expect(openHelp('jupyter')).toBe(true);
     expect(open).toHaveBeenCalledWith(
-      'https://d.example/how-to/web-terminal/lattice-dashboard.html',
+      'https://d.example/how-to/web-terminal/notebooks.html',
       '_blank',
       'noopener'
     );
@@ -98,7 +98,7 @@ describe('openHelp', () => {
 
   test('is false without a docs root or a page', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    expect(openHelp('lattice')).toBe(false);
+    expect(openHelp('jupyter')).toBe(false);
     document.documentElement.dataset.docsUrl = 'https://d.example';
     expect(openHelp('no-such-panel')).toBe(false);
     expect(open).not.toHaveBeenCalled();

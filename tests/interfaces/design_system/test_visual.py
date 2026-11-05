@@ -140,7 +140,6 @@ _MULTI_USER_LANDING_CONFIG = {
             "web_base_port": 8100,
             "artifact_base_port": 8200,
             "ariel_base_port": 8300,
-            "lattice_base_port": 8400,
             "default_tier": "operator",
             "landing": {"groups": [{"type": "users", "label": "Users"}, {"type": "apps"}]},
             "renders": {
@@ -260,12 +259,6 @@ def _channel_finder_graph_server(tmp_path: Path):
     return launch_graph_channel_finder(tmp_path)
 
 
-def _lattice_dashboard_server(tmp_path: Path):
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    return run_app_server(create_app(workspace_root=tmp_path / "lattice_ws"))
-
-
 def _dispatch_dashboard_server(_tmp_path: Path):
     return run_app_server(create_dispatch_dashboard_app())
 
@@ -382,7 +375,6 @@ TARGETS: list[VisualTarget] = [
         path="/",
         wait_selector="#graph-finder-table .result-table tbody tr[data-pv]:first-child",
     ),
-    VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/"),
     VisualTarget(
         "okf_panel",
         _okf_panel_server,

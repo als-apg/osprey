@@ -217,7 +217,7 @@ config:
     # No port is named here, and that is the point: every one this deployment
     # publishes is `deployment.port_base` plus a fixed offset. The landing page
     # sits at the base itself, and each panel gets a hundred-port family above
-    # it — terminals at + 100, artifacts + 200, ARIEL + 300, lattice + 400,
+    # it — terminals at + 100, artifacts + 200, ARIEL + 300,
     # channel finder + 500, and the two panels this profile enables from the
     # registry at + 600 (knowledge) and + 700 (system health). The containers
     # share the host network namespace, so those per-user offsets are what
@@ -644,12 +644,6 @@ config:
   # Seed one shipped example (an interactive plot, synthetic data) into an
   # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
   artifact_server.example_artifact: true
-  # osprey:panel-port lattice_dashboard
-  # The LATTICE tab never auto-launches here: it needs this section and
-  # `lattice` in `web_panels:` above.
-  # lattice_dashboard.host: 127.0.0.1
-  # lattice_dashboard.port: <a port outside this deployment's block>
-  # lattice_dashboard.auto_launch: true
   # osprey:panel-port system_health
   # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.

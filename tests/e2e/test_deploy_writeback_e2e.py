@@ -131,7 +131,6 @@ PORTS_RENDER_WEB = {
     "web": 21610,
     "artifact": 21620,
     "ariel": 21630,
-    "lattice": 21640,
     "channel_finder": 21650,
 }
 
@@ -708,7 +707,6 @@ def test_renders_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path: 
             "modules.web_terminals.web_base_port": web["web"],
             "modules.web_terminals.artifact_base_port": web["artifact"],
             "modules.web_terminals.ariel_base_port": web["ariel"],
-            "modules.web_terminals.lattice_base_port": web["lattice"],
             "modules.web_terminals.channel_finder_base_port": web["channel_finder"],
         }
     }

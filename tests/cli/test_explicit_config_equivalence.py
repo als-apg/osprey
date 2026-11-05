@@ -280,6 +280,13 @@ def _canopy_panel_deltas(document: str) -> tuple[Delta, ...]:
     return tuple(deltas)
 
 
+def _retired_lattice_panel_deltas(document: str) -> tuple[Delta, ...]:
+    """The retired LATTICE tab's block, gone from each render that showed it."""
+    if document not in _CANOPY_RENDERS:
+        return ()
+    return (Delta(document=document, path="web.panels.lattice.enabled", fixture=True, live=ABSENT),)
+
+
 def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
     """The ``api.providers`` delta each of *documents* gains from the catalog additions.
 
@@ -300,6 +307,7 @@ def _control_assistant_deltas() -> tuple[Delta, ...]:
     for document in _CONTROL_ASSISTANT_RENDERS:
         deltas.extend(_retired_governed_policies(document))
         deltas.extend(_canopy_panel_deltas(document))
+        deltas.extend(_retired_lattice_panel_deltas(document))
         if document in _ASKED_RENDERS:
             deltas.append(
                 Delta(

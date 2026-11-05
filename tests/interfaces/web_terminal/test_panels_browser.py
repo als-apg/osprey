@@ -1882,9 +1882,9 @@ def test_add_menu_shows_register_error(tmp_path, chromium_browser):
 
         page.locator("#panel-add-btn").click()
         page.locator('.panel-add-menu input[name="url"]').fill("http://x.internal:3000")
-        # Label "Lattice" derives id "lattice", which collides with a built-in →
+        # Label "Ariel" derives id "ariel", which collides with a built-in →
         # the server 422s and the menu must display the reason, not fail silently.
-        page.locator('.panel-add-menu input[name="label"]').fill("Lattice")
+        page.locator('.panel-add-menu input[name="label"]').fill("Ariel")
         page.locator(".panel-add-submit").click()
 
         error = page.locator(".panel-add-url-error")

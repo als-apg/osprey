@@ -1272,13 +1272,18 @@ def reembed_command(
 def quickstart_command(source: str | None) -> None:
     """Quick setup for ARIEL logbook search.
 
+    \b
     Runs the complete setup sequence:
     1. Checks database connection (prompts to run 'osprey up' if down)
     2. Runs database migrations
-    3. Ingests demo logbook data (or custom source)
+    3. Ingests the configured logbook source (or the --source file)
+    4. Enhances: the enabled inline modules on each entry as it is
+       ingested; with no ingestion source, every enabled module over
+       the entries the logbook already holds
 
+    \b
     Example:
-        osprey ariel quickstart                    # Use bundled demo data
+        osprey ariel quickstart                    # Use the configured source
         osprey ariel quickstart -s my_logbook.json # Use custom data
     """
     from osprey.services.ariel_search.cli_operations import run_quickstart

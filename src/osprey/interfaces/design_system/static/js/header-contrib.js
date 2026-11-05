@@ -16,8 +16,8 @@
  * v3 vocabulary (what a first-party panel sends):
  *
  * - `{kind:'text', id, text}` — the tile SUBTITLE, beside the name. Identity
- *   only: the shown artifact's name, the open concept's id, the lattice
- *   model. Never a status, a count or a control.
+ *   only: the shown artifact's name, the open concept's id. Never a status,
+ *   a count or a control.
  * - `{kind:'icon', id, icon, title, disabled?, pressed?, priority?}` — one
  *   icon-only button in the panel-icon slot, left of the shared controls.
  *   `icon` is an `icons.js` name (an unknown name drops the item); `title` is

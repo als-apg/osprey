@@ -30,7 +30,6 @@ const SOURCES = [
   'src/osprey/interfaces/channel_finder/static/js/app.js',
   'src/osprey/interfaces/channel_finder/static/js/graph-finder-verbs.js',
   'src/osprey/interfaces/okf_panel/static/js/app.js',
-  'src/osprey/interfaces/lattice_dashboard/static/js/header.js',
   'src/osprey/interfaces/bluesky_web/panels/bluesky/panel.js',
   'src/osprey/dispatch/dashboard.html',
   'src/osprey/interfaces/health/static/js/chrome.js',
