@@ -571,9 +571,8 @@ later poll runs the same enhancement pass after it stores what it fetched, so a
 larger backlog is worked down over successive polls. A failure in that pass is
 logged and does not count toward ``max_consecutive_failures``.
 
-The profile key is ``ariel_sync``; the compose service it renders is
-``ariel-sync`` (container ``<project>-ariel-sync``). Both names refer to this
-one service.
+The profile key ``ariel_sync`` renders the compose service ``ariel-sync``
+(container ``<project>-ariel-sync``): two spellings of this one service.
 
 The deployed loop does not wait for a prior ingest. It overrides
 ``require_initial_ingest``, so a container started against an empty database

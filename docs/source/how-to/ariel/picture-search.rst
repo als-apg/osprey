@@ -96,8 +96,8 @@ To turn a module off, set its ``enabled`` key to ``false`` in ``profile.yml``:
 
 Both ``osprey ariel watch`` and ``osprey ariel sync --watch`` (the command the
 ``ariel-sync`` service runs) caption and embed pictures on every poll. A
-deployment with either needs no ``osprey ariel enhance`` for them. Run by hand while the watcher is working on
-a module, ``osprey ariel enhance --module image_caption`` prints
+deployment with either needs no ``osprey ariel enhance`` for them. Run by hand
+while the watcher is working on a module, ``osprey ariel enhance --module image_caption`` prints
 ``image_caption: skipped, another pass is running it (osprey ariel watch runs the picture modules on every poll)``
 and does nothing for that module. The same holds for ``--retry-failed`` and
 ``--refresh-stale``. Run it again once the watcher's pass has ended.
