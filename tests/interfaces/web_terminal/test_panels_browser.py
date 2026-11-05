@@ -482,8 +482,10 @@ def _tile_menu_pick(page: Page, tab, label: str, *, panel_entry: bool = False) -
     first match.
     """
     menu = _open_tile_menu(page, tab)
+    # The `has` locator is queried relative to each row, so it must not be
+    # rooted at the menu.
     row = menu.locator(_RAIL_MENU_ITEM).filter(
-        has=menu.locator(".rail-context-label", has_text=re.compile(rf"^{re.escape(label)}$"))
+        has=page.locator(".rail-context-label", has_text=re.compile(rf"^{re.escape(label)}$"))
     )
     if panel_entry:
         expect(menu.locator(".rail-context-heading").first).to_have_text("This panel")
@@ -1523,8 +1525,23 @@ def _reset_layout_from_palette(page: Page) -> None:
 
 
 def _reset_layout_from_terminal_menu(page: Page) -> None:
-    """Run "Reset layout" from the terminal tile header's right-click menu."""
-    page.locator(".tile-tab-terminal .op-session-label").click(button="right")
+    """Run "Reset layout" from the Agent tile bar's right-click menu.
+
+    The bar's label is the session switcher, an interactive control the tile
+    menu yields to, so the right-click lands on the bar's empty spacer.
+    """
+    bar = page.locator(".tile-tab-terminal .op-session-bar")
+    spacer = bar.locator(".agent-bar-spacer").bounding_box()
+    assert spacer is not None, "the Agent bar has no spacer"
+    bar_box = bar.bounding_box()
+    assert bar_box is not None
+    bar.click(
+        button="right",
+        position={
+            "x": spacer["x"] - bar_box["x"] + spacer["width"] / 2,
+            "y": bar_box["height"] / 2,
+        },
+    )
     expect(_context_menu(page)).to_have_count(1, timeout=5_000)
     _menu_row(page, "Reset layout").click()
     expect(_context_menu(page)).to_have_count(0, timeout=5_000)
@@ -2598,7 +2615,9 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
             expect(tab.locator('[data-contrib-key="menu:more"]')).to_be_hidden()
             expect(tab.locator('[data-contrib-key="menu:more"] *')).to_have_count(0)
             menu = _open_tile_menu(page, tab)
-            headings = [t.strip() for t in menu.locator(".rail-context-heading").all_inner_texts()]
+            headings = [
+                t.strip() for t in menu.locator(".rail-context-heading").all_text_contents()
+            ]
             assert headings == ["This panel", "Tile"], headings
             labels = _menu_labels(page)
             assert (
@@ -2928,7 +2947,7 @@ _GHOST_ICON_PROBE = """
     const r = el.getBoundingClientRect();
     return { w: Math.round(r.width), h: Math.round(r.height) };
   };
-  const icons = [...ghost.querySelectorAll('.bar-icon')].map((el) => ({
+  const icons = [...ghost.querySelectorAll('.bar-icon, .osprey-ic')].map((el) => ({
     cls: el.getAttribute('class'),
     ...box(el),
     parent: el.parentElement.getAttribute('class') || el.parentElement.tagName,
@@ -2991,8 +3010,9 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
             assert probe["live"] == {"w": 12, "h": 12}, probe["live"]
 
             icons = probe["icons"]
-            # The bar always renders a close ×, and this panel adds a search
-            # magnifier — a ghost with no icons would be a vacuous pass.
+            # The bar always renders its ⋯, Pop out and close × (design-system
+            # icons), and this panel adds a search magnifier (a hub icon) — a
+            # ghost with no icons would be a vacuous pass.
             assert len(icons) >= 2, icons
             assert any("search" in i["cls"] for i in icons), icons
 
@@ -3394,7 +3414,9 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             menu = _context_menu(page)
             expect(menu).to_have_count(1, timeout=5_000)
             expect(menu).to_have_attribute("aria-label", "Searchy actions")
-            headings = [t.strip() for t in menu.locator(".rail-context-heading").all_inner_texts()]
+            headings = [
+                t.strip() for t in menu.locator(".rail-context-heading").all_text_contents()
+            ]
             assert headings == ["This panel", "Tile"], headings
             labels = _menu_labels(page)
             assert not any(label.startswith("Focus ") for label in labels), labels

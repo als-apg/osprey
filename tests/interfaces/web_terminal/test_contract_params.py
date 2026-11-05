@@ -105,7 +105,9 @@ def test_hash_deep_links_to_concept(tmp_path, monkeypatch, chromium_browser):
         expect(page.locator("h1.concept-title")).to_have_text("Channel Finding", timeout=10_000)
         # Assert -- highlightActive() marked the matching sidebar entry active.
         expect(
-            page.locator('.concept-link.active[data-concept-id="control-system/channel-finding"]')
+            page.locator(
+                '.concept-link[aria-current="page"][data-concept-id="control-system/channel-finding"]'
+            )
         ).to_be_attached(timeout=10_000)
 
         page.close()
