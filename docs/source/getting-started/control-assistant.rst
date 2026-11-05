@@ -219,18 +219,19 @@ The first resolves to ``SR:DIAG:DCCT:01:CURRENT:RB`` (the storage-ring DC curren
 transformer); the second resolves to the ``SR:MAG:HCM:*:CURRENT:SP`` family.
 
 **How it works.** The preset runs the ``graph`` channel finder. It answers
-from the facility knowledge graph: ``osprey build`` writes it from the facility
-file, and ``osprey up`` loads it into the graph store. The channel-finder agent
-works with five tools:
+from the facility knowledge graph that ``osprey build`` writes from the
+facility file. The channel-finder agent works with five tools:
 
-- **Keyword lookup.** ``search_channels`` matches your words against each
-  channel's address, description, device and signals. It returns matching
-  channels a page at a time, with counts by section, system, class, signal and
-  direction to narrow the search.
+- **Keyword lookup.** ``search_channels`` reads the search index that
+  ``osprey build`` derives from the graph. It matches your words against each
+  channel's address, description, device, signals, class names and their
+  alternative labels. It returns matching channels a page at a time, with
+  counts by section, system, class, signal and direction to narrow the search.
 - **Graph queries.** For questions about structure, such as what a device
-  carries or how classes relate, the agent adapts an example from
-  ``example_queries``. It checks the graph's labels and properties with
-  ``get_schema``, then runs one read-only query with ``read_cypher``.
+  carries or how classes relate, the agent queries the graph store that
+  ``osprey up`` loads. It adapts an example from ``example_queries``, can check
+  the graph's labels and properties with ``get_schema``, then runs the query
+  with ``read_cypher``.
 - **The rules.** ``capabilities`` tells the agent how addresses are spelled and
   which tool fits which question.
 
@@ -437,8 +438,8 @@ search, historical plotting, and operator skills. Where to go next:
   the BLUESKY panel, all against the Virtual Accelerator.
   :doc:`../how-to/bluesky/run-first-plan` walks through it in ten minutes.
 - **Channel finder in depth**: :doc:`../how-to/use-channel-finder` compares the
-  graph, hierarchical, in-context, and middle-layer strategies and explains the
-  database format.
+  graph, hierarchical, in-context, and middle-layer strategies and explains
+  each one's data format.
 - **Web terminal**: :doc:`../how-to/web-terminal/operate` launches the browser UI and
   its panels with ``osprey web``.
 - **Tailor a preset to your facility**: :doc:`../how-to/build-profiles` shows how

@@ -78,10 +78,7 @@ literally, uncommenting one block at a time and rebuilding.
 
 The parts that *are* set are short. The agent's capabilities are lists of named
 artifacts from the OSPREY library — eleven hooks (three of which form the
-write-safety chain), three rules, and one output style. The build also copies
-three helper scripts into ``build/.claude/hooks/`` beside them; the hooks
-import those helpers, and no event runs them, so they are not hooks of their
-own:
+write-safety chain), three rules, and one output style:
 
 .. code-block:: yaml
 
@@ -95,6 +92,9 @@ own:
      - writes-check   # Kill switch: refuse every write to a machine whose writes are off
      - approval       # Gate hardware-write tool calls on human approval prompt
      - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
+
+The build also copies three helper scripts into ``build/.claude/hooks/``. The
+hooks import them; no event runs them.
 
 And all remaining configuration lives in the ``config:`` block, one dotted key
 per line:

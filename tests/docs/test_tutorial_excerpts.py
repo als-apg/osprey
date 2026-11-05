@@ -35,12 +35,12 @@ ELISIONS = {"...", "# ..."}
 
 #: Number words the page spells counts with.
 WORDS = {
-    "three": 3,
-    "eleven": 11,
-    "twelve": 12,
-    "thirteen": 13,
-    "fourteen": 14,
-    "fifteen": 15,
+    word: number
+    for number, word in enumerate(
+        "one two three four five six seven eight nine ten eleven twelve thirteen "
+        "fourteen fifteen sixteen seventeen eighteen nineteen twenty".split(),
+        start=1,
+    )
 }
 
 #: An emitted commented block opens with a ``# --- Title ---`` banner.
@@ -122,7 +122,7 @@ def test_the_hook_counts_the_page_names_are_the_profiles(
     stated = {WORDS.get(word, -1) for pair in named_hooks for word in pair if word}
     assert stated == {len(hooks)}
     helper_counts = {
-        WORDS[w] for w in re.findall(r"\b(\w+)\s+helper\s+scripts\b", text) if w in WORDS
+        WORDS.get(word, -1) for word in re.findall(r"\b(\w+)\s+helper\s+scripts\b", text)
     }
     assert helper_counts == {len(helpers)}
 

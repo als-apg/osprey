@@ -5,8 +5,9 @@ refuses any other address, so an address a tutorial asks the reader to read or
 write must be a channel of that preset's facility tree: hello-world's own small
 facility, or the example facility the control-assistant preset ships. A family
 written with a ``*`` segment (``SR:MAG:HCM:*:CURRENT:SP``) must match at least
-one channel. The one address the hello-world tutorial shows being refused is
-the exception, and must stay outside it.
+one channel, and a ``*`` stands for one segment. The one address the
+hello-world tutorial shows being refused is the exception, and must stay
+outside it.
 
 A file a tutorial pulls in with ``literalinclude`` is read as part of the page,
 so the shipped ``limits.yaml`` the hello-world page shows is held to the same
@@ -16,7 +17,6 @@ rule.
 from __future__ import annotations
 
 import re
-from fnmatch import fnmatchcase
 from functools import cache
 from pathlib import Path
 
@@ -61,6 +61,13 @@ def _page(name: str) -> str:
     return "\n".join([text, *included])
 
 
+def _family(address: str) -> re.Pattern[str]:
+    """*address* as a pattern in which each ``*`` stands for exactly one segment."""
+    return re.compile(
+        ":".join("[^:]+" if part == "*" else re.escape(part) for part in address.split(":"))
+    )
+
+
 def _refused_examples(text: str) -> set[str]:
     return set(REFUSAL.findall(text))
 
@@ -82,6 +89,6 @@ def test_every_address_a_tutorial_names_is_a_channel_of_its_facility(
     unknown = sorted(
         address
         for address in named
-        if not any(fnmatchcase(channel, address) for channel in channels)
+        if not any(_family(address).fullmatch(channel) for channel in channels)
     )
     assert unknown == [], f"{page} names addresses {facility} does not serve"
