@@ -76,7 +76,7 @@ To measure through the agent:
    measurement asks`_.
 #. Approve the call. The measurement steps the setpoints under the control
    target's run lock; see `What happens to the machine`_.
-#. Read the result. The agent answers with the measured matrix and where it
+#. Read the result. The agent answers with the measured values and where it
    saved the data; see `The result`_.
 
 What a measurement asks

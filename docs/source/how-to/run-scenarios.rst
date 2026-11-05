@@ -179,7 +179,9 @@ To add a scenario to your facility:
      - The entries the scenario narrates, each with ``entry_id``, ``when``
        (``{days_ago, time}``), ``author``, ``title`` and ``text``, and
        optionally ``tags``, ``categories``, ``loto_tag``, ``extra`` and
-       ``attachments``.
+       ``attachments``. ``attachments`` lists the entry's pictures, each
+       ``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative
+       to the folder ``data/facility/scenarios/<name>/``.
    * - ``drivers``, ``couple``
      - Slow shared signals, and the channels that follow them.
    * - ``noise``
@@ -259,10 +261,3 @@ that is its own readback reads its demand and reports ``udf`` itself.
 
 A channel fault holds in both venues of the simulator. ``offline``, a read
 that never answers, is not one of these faults.
-
-Logbook attachments
--------------------
-
-An entry's ``attachments`` lists its pictures. Each is
-``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative to the
-folder ``data/facility/scenarios/<name>/`` beside the scenario file.

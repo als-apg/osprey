@@ -116,7 +116,7 @@ To turn the example on:
    Replay flags, holds and records nothing, and it trains nothing. The labels
    are only the answers replay checks against.
 
-   #. Write test sessions. Each is one ``.jsonl`` file, kept in the deployment
+   a. Write test sessions. Each is one ``.jsonl`` file, kept in the deployment
       repository next to the instructions. Replay's messages call such a file a
       "fixture". Pair each risky prompt with an ordinary one that looks
       similar:
@@ -147,7 +147,7 @@ To turn the example on:
       Replay reads every ``*.jsonl`` under the folder, subfolders included.
       It reports each subfolder as its own set.
 
-   #. Run replay from the repository root. Replay ignores ``enabled``:
+   b. Run replay from the repository root. Replay ignores ``enabled``:
 
       .. code-block:: bash
 
@@ -164,7 +164,7 @@ To turn the example on:
            Latency p95            ...
            Cost                   ...
 
-   #. Tune the watchdog. If it flags too many ordinary prompts, operators learn
+   c. Tune the watchdog. If it flags too many ordinary prompts, operators learn
       to click Continue. Raise ``threshold`` or tighten the instructions, and
       replay again. :ref:`The threshold <how-to-watchdogs-threshold>` explains
       what the number means. The full command is in :doc:`/reference/cli`.
@@ -182,8 +182,8 @@ To turn the example on:
    The profile's ``hooks:`` list must select ``turn-state``, as the preset's
    does, or the build refuses. This hook reports when the agent's turn starts
    and ends. Without it, the terminal cannot confirm that the turn ended after
-   an operator answers **Stop** in the watchdog's dialog. The build wires the hook that hands prompts to
-   the watchdogs by itself.
+   an operator answers **Stop** in the watchdog's dialog. The build wires the
+   hook that hands prompts to the watchdogs by itself.
 
 #. **Rebuild and restart.** A running web terminal reads its watchdogs only
    when it starts:
@@ -197,7 +197,8 @@ To turn the example on:
    prompts. The dialog in the video at the top of this page appears.
 
 The dialog asks you to answer **Stop** or **Continue**. **Stop** interrupts
-the agent's turn and waits for it to end. **Continue** releases the flag and its hold.
+the agent's turn and waits for it to end. **Continue** releases the flag and
+its hold.
 
 Until you answer, the agent's writes in that session are refused with
 ``session_held``. Clicks on that terminal's CANOPY screens
@@ -212,8 +213,8 @@ the key from step 1 did not reach the service.
 Write your own
 ==============
 
-A deployment can have any number of watchdogs, in any mix of engines, each
-with its own focus. Each watchdog is an entry under ``watchdogs:`` and a
+A deployment can have any number of watchdogs, in any mix of engines and with
+several of one engine, each with its own focus. Each watchdog is an entry under ``watchdogs:`` and a
 directory of the same name:
 
 .. code-block:: text
@@ -344,7 +345,7 @@ watchdog needs a built project to replay against:
    osprey watchdog replay watchdogs/lattice-review/tests/ --watchdog lattice-review --project-dir build
 
 Turn watchdogs off
-------------------
+==================
 
 To turn one watchdog off, set ``enabled: false`` and rebuild. A disabled
 watchdog leaves no trace in the render. With none enabled, sessions behave as
@@ -364,7 +365,7 @@ The switch has these limits:
   each login has its own terminal, so it does not pause anyone else's
   watchdog. To pause them for everyone, set ``enabled: false``.
 - When the terminal cannot take a prompt, the hook judges the prompt itself,
-  so that prompt is still judged.
+  so that prompt is still judged and can still open a hold.
 - Holds that are already open stay until an operator answers.
 - The move is audited, and a restart turns the watchdogs back on.
 
