@@ -1568,10 +1568,11 @@ refused. The routes that move hardware are guarded by
 the token says a caller may start a run, not whose run it is. Drafts are not
 guarded: creating one (``POST /optimizations``), editing it (``PUT
 /jobs/{id}/config``) and selecting it (``PUT /jobs/current``) need no token. A
-draft write reads the target's setpoints and writes nothing. ``GET
-/jobs/{id}/config`` returns the draft's revision in its ``X-Config-Revision``
-header, and ``POST /jobs/{id}/start`` must name it (``?config_revision=``): a
-draft written after it was shown answers ``409`` rather than run. The image is built locally on the first
+draft write reads the target's setpoints and writes nothing to the machine.
+``GET /jobs/{id}/config`` returns the draft's revision in its
+``X-Config-Revision`` header, and ``POST /jobs/{id}/start`` must name it
+(``?config_revision=``): when the draft changed since it was shown, the start
+answers ``409`` rather than run. The image is built locally on the first
 ``osprey up``; set ``OSPREY_OPTIMIZER_IMAGE`` to run a published one.
 
 A run writes only under one **write authorization** (:ref:`how-to-write-from-a-program`),
@@ -1620,6 +1621,13 @@ What these rules do not cover:
 * **The owner header is trusted.** ``X-Osprey-Owner`` is taken as given from
   any caller holding the launch token: a token holder can start runs, and
   make manual writes while that login's switch is at *allowed*, as any login.
+  While the switch is at *allowed* a run issues its own write authorization,
+  so the person who clicks Start is the only reviewer of its plan.
+* **Drafts are open to any caller.** Any caller that can reach the service can
+  edit any draft or move the current-job pointer. The revision protects a start
+  only if the token-holding panel or relay forwards the revision it displayed.
+  For a plugin environment, preparing a draft constructs the plugin with the
+  caller's ``environment_config``.
 * **The single-job slot needs Redis.** During a Redis outage longer than the
   slot's lease (about a minute) while a worker is writing, the slot can lapse
   and a second job can start.

@@ -115,7 +115,7 @@ def test_the_start_hands_its_owner_to_the_worker() -> None:
         patch(f"{ol.__name__}.read_job_status"),
     ):
         reader.return_value.get_status.return_value = JobStatus.CREATED
-        ol.start_optimization_job("job-1", MagicMock(), make_gate_config(), owner="alice")
+        ol.start_optimization_job("job-1", MagicMock(), make_gate_config(), "{}", owner="alice")
     assert launch.call_args.kwargs["spawn_target"] is run_optimization_process
     assert launch.call_args.kwargs["spawn_args"][3] == "alice"
 
@@ -137,7 +137,7 @@ def test_the_start_route_reads_the_owner_from_the_header(
     mock_job_tracker.get_job.return_value = job_meta()
     config = make_gate_config()
     with (
-        patch(f"{_JOBS}.read_optimization_config", return_value=config),
+        patch(f"{_JOBS}.read_optimization_draft", return_value=(config, config.model_dump_json())),
         patch(f"{_JOBS}.load_environment"),
         patch(f"{_JOBS}.run_start_gates"),
         patch(
@@ -149,7 +149,7 @@ def test_the_start_route_reads_the_owner_from_the_header(
     ):
         resp = client.post(
             "/jobs/test-job-id/start",
-            params={"config_revision": ol.config_revision(config)},
+            params={"config_revision": ol.draft_revision(config)},
             headers=headers,
         )
     assert resp.status_code == 200, resp.text

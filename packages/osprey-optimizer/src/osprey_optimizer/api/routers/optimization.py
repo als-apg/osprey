@@ -30,8 +30,7 @@ def create_optimization(
     """Create an optimization job from a JSON config. Does not start it.
 
     Returns the new ``job_id`` with status ``created``; start it with
-    ``POST /jobs/{job_id}/start``. Not gated: a draft moves nothing, and the
-    start that runs it must name the draft's current ``config_revision``.
+    ``POST /jobs/{job_id}/start``. Not gated: a draft moves nothing.
     """
     job_id = create_optimization_job(request, tracker, registry)
     # Point the server-side current-job at the new draft, so a UI that follows
