@@ -112,7 +112,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/panel-commands.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-empty-state.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-health.js",
-    "src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-queries.js",
     "src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js",
     "src/osprey/interfaces/web_terminal/static/js/scaffold/cards.js",
