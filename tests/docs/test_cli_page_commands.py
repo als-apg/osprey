@@ -92,7 +92,13 @@ _ENV_ASSIGNMENT = re.compile(r"^[A-Z_][A-Z0-9_]*=\S*$")
 
 #: A code directive, or a paragraph ending in ``::``, that opens a literal block.
 #: Other directives (``.. note::``) hold prose and open nothing.
-_BLOCK_OPENER = re.compile(r"^(\s*)(\.\. (code-block|code|sourcecode)::.*|(?!\.\. ).*::)\s*$")
+_BLOCK_OPENER = re.compile(
+    r"^(\s*)(\.\. (code-block|code|sourcecode)::.*|(?!\.\.\s)(?:\S.*)?::)\s*$"
+)
+
+#: The opening of a command substitution, ``$(`` or ``(``, optionally after a
+#: ``var=`` assignment: ``result=$(osprey query --json ...)``.
+_SUBSTITUTION = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=)?\$?\(")
 
 
 @lru_cache(maxsize=1)
@@ -173,6 +179,7 @@ def _commands(words: list[str]) -> list[list[str]]:
         if word not in _SHELL_SEPARATORS:
             segment.append(word)
             continue
+        segment = _unwrap_substitution(segment)
         while segment and _ENV_ASSIGNMENT.match(segment[0]):
             segment = segment[1:]
         for prefix in _PREFIXES:
@@ -182,6 +189,18 @@ def _commands(words: list[str]) -> list[list[str]]:
             found.append(_until_comment(segment[1:]))
         segment = []
     return found
+
+
+def _unwrap_substitution(segment: list[str]) -> list[str]:
+    """The command inside a leading ``$(...)`` or ``(...)``, else ``segment``."""
+    if not segment or not _SUBSTITUTION.match(segment[0]):
+        return segment
+    inner = [_SUBSTITUTION.sub("", segment[0], count=1), *segment[1:]]
+    inner = [word for word in inner[:1] if word] + inner[1:]
+    for index, word in enumerate(inner):
+        if word.endswith(")"):
+            return [*inner[:index], word[:-1]] if word[:-1] else inner[:index]
+    return inner
 
 
 def _until_comment(words: list[str]) -> list[str]:
@@ -196,10 +215,10 @@ def _references(page_text: str) -> list[tuple[int, list[str]]]:
     """``(line number, words after osprey)`` for every command reference."""
     found: list[tuple[int, list[str]]] = []
     for match in _LITERAL_PATTERN.finditer(page_text):
-        words = match.group(1).split()
-        if words and words[0] == "osprey":
+        commands = _commands(match.group(1).split())
+        if commands:
             line = page_text.count("\n", 0, match.start()) + 1
-            found.append((line, _until_comment(words[1:])))
+            found.extend((line, command) for command in commands)
     for line, text in _joined_block_lines(page_text.splitlines()):
         words = text.split()
         if words and words[0] == "$":
@@ -298,14 +317,18 @@ def _pages() -> list[Path]:
     return sorted(_DOCS.rglob("*.rst"))
 
 
-def _all_problems() -> list[tuple[str, int]]:
-    """Every problem on every page, keyed as ``_EXEMPTIONS`` keys them, with its line."""
-    found: list[tuple[str, int]] = []
-    for page in _pages():
-        relative = page.relative_to(_DOCS).as_posix()
-        for line, problem in _problems(page.read_text(encoding="utf-8")):
-            found.append((f"{relative}: {problem}", line))
-    return found
+@lru_cache(maxsize=1)
+def _all_problems() -> tuple[tuple[str, int, str], ...]:
+    """``(page relative to docs/source, line, problem)`` for every page."""
+    return tuple(
+        (page.relative_to(_DOCS).as_posix(), line, problem)
+        for page in _pages()
+        for line, problem in _problems(page.read_text(encoding="utf-8"))
+    )
+
+
+def _exemption_key(page: str, problem: str) -> str:
+    return f"{page}: {problem}"
 
 
 def _page_text() -> str:
@@ -315,16 +338,19 @@ def _page_text() -> str:
 def test_every_reference_on_every_page_resolves() -> None:
     """Every ``osprey …`` any page writes names a registered verb, its options and choices."""
     broken = [
-        f"docs/source/{key.split(': ', 1)[0]}:{line}: {key.split(': ', 1)[1]}"
-        for key, line in _all_problems()
-        if key not in _EXEMPTIONS
+        f"docs/source/{page}:{line}: {problem}"
+        for page, line, problem in _all_problems()
+        if _exemption_key(page, problem) not in _EXEMPTIONS
     ]
     assert not broken, "the docs name commands click does not accept:\n" + "\n".join(broken)
 
 
 def test_every_exemption_is_still_needed() -> None:
     """An exemption whose problem is gone is removed, so it cannot hide a new one."""
-    stale = sorted(set(_EXEMPTIONS) - {key for key, _line in _all_problems()})
+    stale = sorted(
+        set(_EXEMPTIONS)
+        - {_exemption_key(page, problem) for page, _line, problem in _all_problems()}
+    )
     assert not stale, "exemptions that match no problem:\n" + "\n".join(stale)
 
 
@@ -400,14 +426,44 @@ def test_shell_lines_split_into_commands() -> None:
         ("``osprey up -q``", [(1, "osprey up: no option -q")]),
         (
             "``osprey chat --effort=extreme``",
-            [(1, "osprey chat: --effort extreme is not one of low, medium, high, max")],
+            [(1, "osprey chat: --effort extreme is not one of ")],
         ),
         (
             "``osprey validate --drift error|ignore``",
-            [(1, "osprey validate: --drift ignore is not one of error, warn")],
+            [(1, "osprey validate: --drift ignore is not one of ")],
         ),
     ],
 )
 def test_bad_verbs_options_and_choices_fail(text: str, expected: list[tuple[int, str]]) -> None:
-    """A dead verb, an undeclared option and a value outside a fixed choice are reported."""
-    assert _problems(text) == expected
+    """A dead verb, an undeclared option and a value outside a fixed choice are reported.
+
+    Each expected message is a prefix, so the test does not restate a choice list.
+    """
+    found = _problems(text)
+    assert [line for line, _problem in found] == [line for line, _prefix in expected]
+    for (_line, problem), (_line_expected, prefix) in zip(found, expected, strict=True):
+        assert problem.startswith(prefix), problem
+
+
+def test_a_prose_directive_is_not_a_literal_block() -> None:
+    """An indented ``.. note::`` holds prose: a sentence in it is not a command."""
+    text = "Text\n\n   .. note::\n\n      osprey renders the files.\n"
+    assert _references(text) == []
+
+
+def test_substitutions_and_inline_prefixes_are_read() -> None:
+    """``$(osprey ...)`` and an inline ``uv run osprey ...`` are references too."""
+    text = (
+        "Run ``uv run osprey build`` here.\n"
+        "\n"
+        ".. code-block:: bash\n"
+        "\n"
+        '   result=$(osprey query --json "x")\n'
+        "   code=$(osprey health --bogus)\n"
+    )
+    assert _references(text) == [
+        (1, ["build"]),
+        (5, ["query", "--json", '"x"']),
+        (6, ["health", "--bogus"]),
+    ]
+    assert _problems(text) == [(6, "osprey health: no option --bogus")]
