@@ -110,8 +110,9 @@ Delete closes the tab in front.
 A panel you open lands as a new tab, in front, in the service tile you used
 last. That holds whether you open it from its sidebar row or from a link, or
 the agent opens it for you. Nothing resizes, and the tab it covers is one click
-away. A panel already open is brought forward where it is. To open a panel in a tile of its own,
-pick **Open in a new tile** from its row's menu, or drag the row (below).
+away. A panel already open is brought forward where it is. To open a panel in
+a tile of its own, pick **Open in a new tile** from its row's menu, or drag the
+row (below).
 
 Drag a tab, a whole tile (by its header), or a sidebar row, and drop it on the
 tile under the pointer:
@@ -195,8 +196,9 @@ Attaching a file
 Attach a file to a message with the paperclip button. You can also paste an
 image, or drop a file on the composer. The file is uploaded when you attach
 it. An attachment chip shows the file name and its size. To remove an
-attachment, select its chip's **x** button. Type your question, then send. The chat does not send a file by
-itself. The agent opens the file with its Read tool.
+attachment, select its chip's **x** button. Type your question, then send.
+The chat does not send a file by itself. The agent opens the file with its
+Read tool.
 
 The chat accepts images (PNG, JPEG, GIF, WebP), PDF files, and plain-text files
 (TXT, LOG, CSV, JSON, YAML, Markdown, Python). A file can be 20 MB at most. A
@@ -265,8 +267,8 @@ and one login's position never changes the other's writes.
 Click the chip to open a popover next to the sidebar. It covers **every**
 control target the deployment configures, not only the one you are standing
 on. A click outside the popover, Escape, or a change of the window or sidebar
-width closes it. When a confirm dialog is open over the popover, the first Escape
-closes only the dialog.
+width closes it. When a confirm dialog is open over the popover, the first
+Escape closes only the dialog.
 
 The machine you are on, and the others
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -313,10 +315,11 @@ writes, until this time. To approve a request that names your login:
 #. Click the chip. The request appears in the popover under **Programs**, with
    **Review**.
 
-   While the current values are read the request line says *reading values…*;
-   a machine that does not answer within a few seconds leaves them *not read*.
+#. Click **Review**.
 
-#. Click **Review**. The card shows:
+   While the current values are read, the request line says
+   *reading values…* in place of **Review**; a machine that does not answer
+   within a few seconds leaves them *not read*. The card then shows:
 
    - every channel with the range asked for, the limits-database bound it sits
      inside, and its current value;
@@ -446,9 +449,9 @@ switch:
 
    The page that holds the control context runs the same checks the agent's
    own switch runs. It checks that the move is allowed, and that nothing is
-   mid-flight on the machine you are leaving. It records the outcome. The deployment's
-   control-system servers then move themselves onto the machine and report
-   when they have arrived.
+   mid-flight on the machine you are leaving. It records the outcome. The
+   deployment's control-system servers then move themselves onto the machine
+   and report when they have arrived.
 
 #. Watch the row. It reads ``switching…`` until every server has arrived, and
    then ``✓ switched``.
@@ -462,7 +465,7 @@ What can go wrong:
   for the same reason, the agent is given.
 - A server that could not make the move says so by name, so you know which
   one to look at.
-- If nothing answers within 30 seconds, the row reads ``request_expired``:
+- If nothing answers within 30 seconds, the row reads ``✗ no answer``:
   nothing that could carry out the switch was alive to pick it up.
 - Ask for a second switch while one is still landing and it is refused
   rather than queued, naming the servers still working. Wait for the chip to
