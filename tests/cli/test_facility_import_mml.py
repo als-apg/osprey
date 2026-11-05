@@ -20,7 +20,7 @@ from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE, _writes, import_group
 from osprey.cli.main import cli
 from osprey.facility.bundled import classify
-from osprey.facility.layers import HEADER
+from osprey.facility.layers import FORMER_HEADER, HEADER
 from osprey.facility.layers.mml.importer import LAYER_DIR
 from osprey.facility.layers.mml.mapping import MAPPING_FILE
 from tests._builds import init_project
@@ -295,6 +295,64 @@ def test_a_limits_file_without_the_layer_header_is_refused_and_named(
     assert result.exit_code == 1
     assert result.stderr.splitlines() == _refusal("data/facility/limits.yaml", kinds="limit")
     assert not (_facility(cleared) / LAYER_DIR / "channels.yaml").exists()
+
+
+def _former(*paths: str) -> list[str]:
+    return [
+        "import mml: data/facility/ holds files seeded under the old header, "
+        "which this import writes:",
+        *paths,
+        f"set line 1 of each to: {HEADER}",
+    ]
+
+
+def test_a_file_under_the_former_header_is_refused_with_the_header_fix(cleared: Path) -> None:
+    facility = _facility(cleared)
+    (facility / "limits.yaml").write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
+    (facility / "seeds.yaml").write_text(f"{FORMER_HEADER}\nseeds: []\n", encoding="utf-8")
+    before = _snapshot(cleared)
+
+    result = _import(cleared)
+
+    assert result.exit_code == 1
+    assert result.stderr.splitlines() == _former(
+        "data/facility/limits.yaml", "data/facility/seeds.yaml"
+    )
+    assert result.stdout == ""
+    assert _snapshot(cleared) == before
+
+
+def test_a_former_header_set_to_the_current_one_imports_and_keeps_the_edits(
+    cleared: Path,
+) -> None:
+    pytest.importorskip("at")
+    limits = _facility(cleared) / "limits.yaml"
+    limits.write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
+    assert _import(cleared).exit_code == 1
+    limits.write_text(f"{HEADER}\nrecords: []\n", encoding="utf-8")
+
+    result = _import(cleared)
+
+    assert result.exit_code == 0, result.output
+    assert limits.read_text(encoding="utf-8") == f"{HEADER}\nrecords: []\n"
+
+
+def test_hand_written_and_former_header_files_are_named_in_their_own_groups(
+    repo: Path,
+) -> None:
+    facility = _facility(repo)
+    _drop_header(facility / "records" / "devices.yaml")
+    (facility / "limits.yaml").write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
+    before = _snapshot(repo)
+
+    result = _import(repo)
+
+    assert result.exit_code == 1
+    assert result.stderr.splitlines() == [
+        *_refusal("data/facility/records/devices.yaml", kinds="device"),
+        *_former("data/facility/limits.yaml"),
+    ]
+    assert _snapshot(repo) == before
 
 
 def test_a_mapping_that_fails_its_check_stops_before_any_record(cleared: Path) -> None:
