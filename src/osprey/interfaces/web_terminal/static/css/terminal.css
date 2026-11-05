@@ -57,11 +57,9 @@
 }
 
 /* Height budget: the head, the control-system block, search, the groups and
-   the footer never shrink, except for the one group that holds the
-   disclosing rows (Artifacts and Script runs, which always sit together, so
-   only one group ever holds them). In that group an open list shrinks below
-   its 8-row cap to a floor of two rows (row 28 + list padding 6 + two rows
-   52, + the filter 28 while it shows), then the group scrolls. #panel-rail
+   the footer never shrink, except for the one group that holds the Agent
+   row's session tree. In that group the open tree shrinks to a floor of two
+   rows (row 28 + padding 6 + two rows 52), then the group scrolls. #panel-rail
    holds the groups and hands the shrink on to that one, keeping the others
    whole. */
 .sidebar > * {
@@ -105,10 +103,6 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row:not([hidden])
   min-height: 86px;
 }
 
-html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row:not([hidden]):has(> .sidebar-kids:not([hidden]) > [data-art-filter]:not([hidden])) {
-  min-height: 114px;
-}
-
 .sidebar-group > .sidebar-row > .osprey-nav-row {
   flex: none;
 }
@@ -120,12 +114,7 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
   min-height: 0;
 }
 
-.sidebar-group > .sidebar-row .sidebar-kids > :not(.sidebar-kids-list) {
-  flex: none;
-}
-
-.sidebar-group > .sidebar-row .sidebar-kids-list {
-  flex: 0 1 auto;
+.sidebar-group > .sidebar-row > [data-session-tree] {
   min-height: 52px;
 }
 
@@ -368,31 +357,10 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   display: inline;
 }
 
-/* ---- Rows that disclose a list: Artifacts, Script runs ---- */
+/* ---- The row that discloses a tree: the Agent row and its sessions ---- */
 
 .sidebar-row {
   position: relative;
-}
-
-.sidebar-row-actions {
-  position: absolute;
-  top: 4px;
-  right: 26px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--duration-fast);
-}
-
-.sidebar-row:is(:hover, :focus-within) > .sidebar-row-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.sidebar-row:is(:hover, :focus-within) > .osprey-nav-row .osprey-nav-badge {
-  visibility: hidden;
 }
 
 .sidebar-kids {
@@ -419,61 +387,20 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   margin-left: var(--space-2);
 }
 
-.sidebar-kids-filter {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 26px;
-  margin-bottom: 2px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--surface-hairline);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-card) 60%, transparent);
-  color: var(--text-muted);
+/* The session tree draws its own indent ladder (sidebar-artifacts.css). */
+.sidebar-kids.osprey-tree {
+  padding-left: 0;
 }
 
-.sidebar-kids-filter[hidden] {
+.sidebar-kids.osprey-tree::before {
   display: none;
 }
 
-.sidebar-kids-filter:focus-within {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--surface-focus);
+.sidebar-kids.osprey-tree > * {
+  margin-left: 0;
 }
 
-.sidebar-kids-filter .osprey-ic {
-  width: 14px;
-  height: 14px;
-}
-
-.sidebar-kids-filter input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  outline: none;
-  font: inherit;
-  font-size: var(--text-md);
-  color: var(--text-primary);
-}
-
-.sidebar-kids-filter input::placeholder {
-  color: var(--text-muted);
-}
-
-/* About eight rows, then the list scrolls inside itself with a fade. */
-.sidebar-kids-list {
-  max-height: calc(8 * 26px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
-
-.sidebar-kids-list.fade {
-  mask-image: linear-gradient(to bottom, currentColor calc(100% - 28px), transparent);
-}
-
-/* The collapsed sidebar's Artifacts flyout: the same list beside it. */
+/* The collapsed sidebar's sessions flyout: the same tree beside it. */
 .sidebar-flyout {
   width: 320px;
   padding: var(--space-1) var(--space-1) var(--space-2);
@@ -493,13 +420,6 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   color: var(--text-primary);
 }
 
-.sidebar-flyout-head .sidebar-row-actions {
-  position: static;
-  margin-left: auto;
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .sidebar-flyout .sidebar-kids {
   padding-left: 0;
 }
@@ -512,8 +432,11 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   margin-left: 0;
 }
 
-.sidebar-flyout .sidebar-kids-list {
+.sidebar-flyout [data-session-tree] {
   max-height: calc(12 * 26px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 /* ---- Control-system block (sidebar-target.js around the chip) ----
@@ -694,7 +617,6 @@ html[data-sidebar="collapsed"] :is(
   .sidebar .osprey-nav-disc,
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
-  .sidebar-row > .sidebar-row-actions,
   .sidebar-row > .sidebar-kids,
   .sidebar-open-hint,
   .sidebar-agent-dot
@@ -902,7 +824,6 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-row-actions,
   .sidebar-group-head [data-group-menu] {
     transition: none;
   }

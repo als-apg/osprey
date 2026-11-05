@@ -6,9 +6,9 @@
  * What the shell adds to the rows index.html ships and panel-rail.js renders:
  * the glyphs (empty `svg[data-icon]` placeholders filled in place), the
  * platform's key hints, the labels toggle (collapsible.js, under the scoped
- * `osprey-sidebar` key sidebar-boot.js reads), the Artifacts and Script runs
- * disclosures (kept under the scoped `osprey-sidebar-open` key), the collapsed
- * sidebar's Artifacts flyout, the Agent row's waiting badge, and the fades of
+ * `osprey-sidebar` key sidebar-boot.js reads), the Agent row's session-tree
+ * disclosure (kept under the scoped `osprey-sidebar-open` key), the collapsed
+ * sidebar's sessions flyout, the Agent row's waiting badge, and the fades of
  * a group that scrolls.
  *
  * The fixture is the sidebar block and the flyout from index.html, copied with
@@ -33,7 +33,7 @@ let icons;
 
 const SCOPE_ATTR = 'data-osprey-storage-scope';
 
-/** index.html's `nav#sidebar` and the body-level Artifacts flyout. */
+/** index.html's `nav#sidebar` and the body-level sessions flyout. */
 const SIDEBAR_HTML = `
     <nav class="sidebar" id="sidebar" aria-label="Panels">
       <div class="sidebar-head">
@@ -68,52 +68,19 @@ const SIDEBAR_HTML = `
                     data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
           </div>
 
-          <button class="osprey-nav-row panel-rail-button disabled" id="sidebar-agent-row"
-                  data-panel-id="terminal" type="button" aria-label="Agent" title="Agent" data-tip="Agent">
-            <svg class="osprey-ic osprey-nav-icon" data-icon="agent" aria-hidden="true"></svg>
-            <span class="osprey-nav-label">Agent</span>
-            <span class="osprey-dot sidebar-agent-dot" data-agent-dot aria-hidden="true"></span>
-            <span class="sidebar-open-hint" aria-hidden="true">Open</span>
-            <span class="osprey-nav-badge" data-agent-badge hidden></span>
-          </button>
-
-          <div class="sidebar-row" id="sidebar-artifacts-row">
-            <button class="osprey-nav-row parent panel-rail-button disabled" data-panel-id="artifacts"
-                    type="button" aria-expanded="true" aria-controls="sidebar-artifacts-kids"
-                    aria-label="Artifacts" title="Artifacts" data-tip="Artifacts">
-              <svg class="osprey-ic osprey-nav-icon" data-icon="layers" aria-hidden="true"></svg>
-              <span class="osprey-nav-label">Artifacts</span>
-              <span class="osprey-nav-badge" data-art-count hidden></span>
+          <div class="sidebar-row" id="sidebar-agent-wrap">
+            <button class="osprey-nav-row parent panel-rail-button disabled" id="sidebar-agent-row"
+                    data-panel-id="terminal" type="button" aria-label="Agent" title="Agent" data-tip="Agent"
+                    aria-expanded="true" aria-controls="sidebar-session-tree">
+              <svg class="osprey-ic osprey-nav-icon" data-icon="agent" aria-hidden="true"></svg>
+              <span class="osprey-nav-label">Agent</span>
+              <span class="osprey-dot sidebar-agent-dot" data-agent-dot aria-hidden="true"></span>
+              <span class="sidebar-open-hint" aria-hidden="true">Open</span>
+              <span class="osprey-nav-badge" data-agent-badge hidden></span>
               <svg class="osprey-ic osprey-nav-disc" data-disc data-icon="chevron-right" aria-hidden="true"></svg>
             </button>
-            <div class="sidebar-row-actions">
-              <button class="osprey-mini" type="button" data-art-filter-toggle title="Filter"
-                      aria-label="Filter artifacts" aria-pressed="false"><svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg></button>
-              <button class="osprey-mini" type="button" data-art-menu title="More"
-                      aria-label="Artifact options" aria-haspopup="menu" aria-expanded="false"
-                      aria-controls="sidebar-artifacts-menu"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
-            </div>
-            <div class="sidebar-kids" id="sidebar-artifacts-kids">
-              <label class="sidebar-kids-filter" data-art-filter hidden>
-                <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
-                <input type="search" placeholder="Filter by title" aria-label="Filter artifacts by title">
-              </label>
-              <div class="sidebar-kids-list" id="sidebar-artifacts-list" role="listbox" aria-label="Artifacts"></div>
-            </div>
-          </div>
-
-          <div class="sidebar-row" id="sidebar-runs-row">
-            <button class="osprey-nav-row parent" id="sidebar-runs-toggle" type="button"
-                    aria-expanded="false" aria-controls="sidebar-runs-kids" aria-label="Script runs"
-                    data-tip="Script runs" data-tip-detail="Output of scripts the agent ran">
-              <svg class="osprey-ic osprey-nav-icon" data-icon="bash" aria-hidden="true"></svg>
-              <span class="osprey-nav-label">Script runs</span>
-              <span class="osprey-nav-badge" data-runs-count hidden></span>
-              <svg class="osprey-ic osprey-nav-disc" data-disc data-icon="chevron-right" aria-hidden="true"></svg>
-            </button>
-            <div class="sidebar-kids" id="sidebar-runs-kids" hidden>
-              <div class="sidebar-kids-list" id="sidebar-runs-list" role="listbox" aria-label="Script runs"></div>
-            </div>
+            <div class="sidebar-kids osprey-tree" id="sidebar-session-tree" data-session-tree
+                 role="tree" aria-label="Sessions"></div>
           </div>
         </div>
 
@@ -152,25 +119,9 @@ const SIDEBAR_HTML = `
       </div>
     </nav>
 
-  <div class="osprey-popover sidebar-flyout" id="sidebar-artifacts-flyout" role="dialog" aria-label="Artifacts" hidden>
-    <div class="sidebar-flyout-head">
-      <b>Artifacts</b>
-      <span class="osprey-count" data-art-count></span>
-      <div class="sidebar-row-actions">
-        <button class="osprey-mini" type="button" data-art-filter-toggle title="Filter"
-                aria-label="Filter artifacts" aria-pressed="false"><svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg></button>
-        <button class="osprey-mini" type="button" data-art-menu title="More"
-                aria-label="Artifact options" aria-haspopup="menu" aria-expanded="false"
-                aria-controls="sidebar-artifacts-menu"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
-      </div>
-    </div>
-    <div class="sidebar-kids">
-      <label class="sidebar-kids-filter" data-art-filter hidden>
-        <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
-        <input type="search" placeholder="Filter by title" aria-label="Filter artifacts by title">
-      </label>
-      <div class="sidebar-kids-list" id="sidebar-artifacts-flyout-list" role="listbox" aria-label="Artifacts"></div>
-    </div>
+  <div class="osprey-popover sidebar-flyout" id="sidebar-sessions-flyout" role="dialog" aria-label="Sessions" hidden>
+    <div class="sidebar-flyout-head"><b>Sessions</b></div>
+    <div class="sidebar-kids osprey-tree" data-session-tree role="tree" aria-label="Sessions"></div>
   </div>`;
 
 /** @param {string} platform */
@@ -195,12 +146,9 @@ async function boot() {
   return wired;
 }
 
-const artifactsRow = () => qs(document, '#sidebar-artifacts-row > .osprey-nav-row');
-const artifactsKids = () => byId('sidebar-artifacts-kids');
-const runsToggle = () => byId('sidebar-runs-toggle');
-const runsKids = () => byId('sidebar-runs-kids');
-const flyout = () => byId('sidebar-artifacts-flyout');
 const agentRow = () => byId('sidebar-agent-row');
+const tree = () => byId('sidebar-session-tree');
+const flyout = () => byId('sidebar-sessions-flyout');
 const agentBadge = () => qs(agentRow(), '[data-agent-badge]');
 
 /** Click a row's chevron, which is an svg (no `.click()` of its own). @param {HTMLElement} row */
@@ -343,182 +291,152 @@ describe('labels toggle', () => {
 /* ---- disclosure ---------------------------------------------------------- */
 
 describe('disclosure', () => {
-  test('a first visit opens Artifacts and leaves Script runs closed', async () => {
+  test('a first visit opens the session tree', async () => {
     await load();
-    // Paint the opposite first, so the defaults are the module's answer.
-    artifactsKids().hidden = true;
-    artifactsRow().setAttribute('aria-expanded', 'false');
-    runsKids().hidden = false;
-    runsToggle().setAttribute('aria-expanded', 'true');
+    tree().hidden = true;
+    agentRow().setAttribute('aria-expanded', 'false');
 
     sidebar.initSidebar();
 
-    expect(artifactsKids().hidden).toBe(false);
-    expect(artifactsRow().getAttribute('aria-expanded')).toBe('true');
-    expect(artifactsRow().getAttribute('aria-controls')).toBe('sidebar-artifacts-kids');
-    expect(runsKids().hidden).toBe(true);
-    expect(runsToggle().getAttribute('aria-expanded')).toBe('false');
-    expect(runsToggle().getAttribute('aria-controls')).toBe('sidebar-runs-kids');
+    expect(tree().hidden).toBe(false);
+    expect(agentRow().getAttribute('aria-expanded')).toBe('true');
+    expect(agentRow().getAttribute('aria-controls')).toBe('sidebar-session-tree');
   });
 
-  test('the open lists persist per user under the scoped key', async () => {
+  test('the shipped sidebar has no Artifacts or Script runs row, filter or menu', async () => {
+    await boot();
+    expect(document.getElementById('sidebar-artifacts-row')).toBeNull();
+    expect(document.getElementById('sidebar-runs-row')).toBeNull();
+    expect(
+      document.querySelector('[data-art-filter], [data-art-menu], #sidebar-artifacts-menu')
+    ).toBeNull();
+  });
+
+  test('the open tree persists per user under the scoped key', async () => {
     document.documentElement.setAttribute(SCOPE_ATTR, 'alice');
     await boot();
     const key = `${sidebar.OPEN_LISTS_STORAGE_KEY}--alice`;
 
-    runsToggle().click();
-    expect(runsKids().hidden).toBe(false);
-    expect(storedOpen(key)).toEqual(['artifacts', 'runs']);
+    clickDisc(agentRow());
+    expect(tree().hidden).toBe(true);
+    expect(storedOpen(key)).toEqual([]);
     expect(window.localStorage.getItem(sidebar.OPEN_LISTS_STORAGE_KEY)).toBeNull();
-
-    clickDisc(artifactsRow());
-    expect(storedOpen(key)).toEqual(['runs']);
 
     // The next page load paints what was stored.
     await boot();
-    expect(artifactsKids().hidden).toBe(true);
-    expect(artifactsRow().getAttribute('aria-expanded')).toBe('false');
-    expect(runsKids().hidden).toBe(false);
-    expect(runsToggle().getAttribute('aria-expanded')).toBe('true');
+    expect(tree().hidden).toBe(true);
+    expect(agentRow().getAttribute('aria-expanded')).toBe('false');
+
+    clickDisc(agentRow());
+    expect(storedOpen(key)).toEqual(['agent']);
   });
 
   test('another user on the same browser keeps the defaults', async () => {
-    window.localStorage.setItem('osprey-sidebar-open--alice', JSON.stringify(['runs']));
+    window.localStorage.setItem('osprey-sidebar-open--alice', JSON.stringify([]));
     document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
     await boot();
-    expect(artifactsKids().hidden).toBe(false);
-    expect(runsKids().hidden).toBe(true);
+    expect(tree().hidden).toBe(false);
   });
 
   test('an unreadable stored value falls back to the defaults', async () => {
-    for (const raw of ['not json', '{"runs": true}']) {
+    for (const raw of ['not json', '{"agent": false}']) {
       window.localStorage.setItem('osprey-sidebar-open', raw);
       await boot();
-      expect(artifactsKids().hidden).toBe(false);
-      expect(runsKids().hidden).toBe(true);
+      expect(tree().hidden).toBe(false);
     }
   });
 
-  test('a stored list keeps only the rows it knows', async () => {
-    window.localStorage.setItem('osprey-sidebar-open', '["nope", 3]');
+  test('a stored list keeps only the rows it knows (an old ["artifacts"] closes the tree)', async () => {
+    window.localStorage.setItem('osprey-sidebar-open', '["artifacts", "runs", 3]');
     await boot();
-    expect(artifactsKids().hidden).toBe(true);
-    expect(runsKids().hidden).toBe(true);
+    expect(tree().hidden).toBe(true);
   });
 
-  test('a click on the Artifacts row opens its list and never closes it', async () => {
+  test('a click on the Agent row opens the tree and never closes it', async () => {
     await boot();
-    clickDisc(artifactsRow());
-    expect(artifactsKids().hidden).toBe(true);
+    clickDisc(agentRow());
+    expect(tree().hidden).toBe(true);
 
-    artifactsRow().click();
-    expect(artifactsKids().hidden).toBe(false);
-    expect(artifactsRow().getAttribute('aria-expanded')).toBe('true');
+    agentRow().click();
+    expect(tree().hidden).toBe(false);
+    expect(agentRow().getAttribute('aria-expanded')).toBe('true');
 
-    artifactsRow().click();
-    expect(artifactsKids().hidden).toBe(false);
-    expect(storedOpen('osprey-sidebar-open')).toEqual(['artifacts']);
+    agentRow().click();
+    expect(tree().hidden).toBe(false);
+    expect(storedOpen('osprey-sidebar-open')).toEqual(['agent']);
   });
 
-  test("the chevron toggles the list only, never the row's own click", async () => {
+  test("the chevron toggles the tree only, never the row's own click", async () => {
     await boot();
     const activate = vi.fn();
-    // panel-rail.js's activation listens on the same row.
-    artifactsRow().addEventListener('click', activate);
+    // panel-rail.js's activation (open the Agent pane) listens on the same row.
+    agentRow().addEventListener('click', activate);
 
-    clickDisc(artifactsRow());
-    expect(artifactsKids().hidden).toBe(true);
-    expect(artifactsRow().getAttribute('aria-expanded')).toBe('false');
+    clickDisc(agentRow());
+    expect(tree().hidden).toBe(true);
+    expect(agentRow().getAttribute('aria-expanded')).toBe('false');
 
-    clickDisc(artifactsRow());
-    expect(artifactsKids().hidden).toBe(false);
-    expect(artifactsRow().getAttribute('aria-expanded')).toBe('true');
+    clickDisc(agentRow());
+    expect(tree().hidden).toBe(false);
+    expect(agentRow().getAttribute('aria-expanded')).toBe('true');
 
     expect(activate).not.toHaveBeenCalled();
   });
 
-  test('ArrowRight opens and ArrowLeft closes a list from the keyboard', async () => {
+  test('ArrowRight opens and ArrowLeft closes the tree from the keyboard', async () => {
     await boot();
-
-    const left = press(artifactsRow(), 'ArrowLeft');
+    const left = press(agentRow(), 'ArrowLeft');
     expect(left.defaultPrevented).toBe(true);
-    expect(artifactsKids().hidden).toBe(true);
-    press(artifactsRow(), 'ArrowRight');
-    expect(artifactsKids().hidden).toBe(false);
-
-    press(runsToggle(), 'ArrowRight');
-    expect(runsKids().hidden).toBe(false);
-    expect(runsToggle().getAttribute('aria-expanded')).toBe('true');
-    press(runsToggle(), 'ArrowLeft');
-    expect(runsKids().hidden).toBe(true);
-
-    // Other keys are left to the page.
-    expect(press(runsToggle(), 'ArrowDown').defaultPrevented).toBe(false);
-  });
-
-  test('a click on Script runs toggles its list', async () => {
-    await boot();
-    runsToggle().click();
-    expect(runsKids().hidden).toBe(false);
-    runsToggle().click();
-    expect(runsKids().hidden).toBe(true);
+    expect(tree().hidden).toBe(true);
+    press(agentRow(), 'ArrowRight');
+    expect(tree().hidden).toBe(false);
+    expect(press(agentRow(), 'ArrowDown').defaultPrevented).toBe(false);
   });
 });
 
 /* ---- collapsed ----------------------------------------------------------- */
 
 describe('collapsed', () => {
-  test('Script runs, which has no flyout, does nothing', async () => {
+  test('the arrow keys leave the tree alone', async () => {
     await boot();
     collapse();
-    const stored = window.localStorage.getItem('osprey-sidebar-open');
-
-    runsToggle().click();
-    clickDisc(runsToggle());
-    press(runsToggle(), 'ArrowRight');
-
-    expect(runsKids().hidden).toBe(true);
-    expect(runsToggle().getAttribute('aria-expanded')).toBe('false');
-    expect(window.localStorage.getItem('osprey-sidebar-open')).toBe(stored);
-  });
-
-  test('the arrow keys leave the Artifacts list alone', async () => {
-    await boot();
-    collapse();
-    const left = press(artifactsRow(), 'ArrowLeft');
+    const left = press(agentRow(), 'ArrowLeft');
     expect(left.defaultPrevented).toBe(false);
-    expect(artifactsKids().hidden).toBe(false);
+    expect(tree().hidden).toBe(false);
   });
 
-  test('the Artifacts row opens the flyout beside the sidebar and closes it again', async () => {
+  test("the Agent row opens the sessions flyout beside the sidebar, not the row's pane half", async () => {
     await boot();
+    const activate = vi.fn();
+    agentRow().addEventListener('click', activate);
     collapse();
 
-    artifactsRow().click();
+    agentRow().click();
     expect(flyout().hidden).toBe(false);
-    expect(artifactsRow().getAttribute('aria-controls')).toBe('sidebar-artifacts-flyout');
-    expect(artifactsRow().getAttribute('aria-expanded')).toBe('true');
-    // The flyout is the list, not a change to it.
+    expect(agentRow().getAttribute('aria-controls')).toBe('sidebar-sessions-flyout');
+    expect(agentRow().getAttribute('aria-expanded')).toBe('true');
+    expect(activate).not.toHaveBeenCalled();
+    // The flyout is the tree, not a change to it.
     expect(storedOpen('osprey-sidebar-open')).toBeNull();
 
-    artifactsRow().click();
+    agentRow().click();
     expect(flyout().hidden).toBe(true);
-    expect(artifactsRow().getAttribute('aria-expanded')).toBe('false');
+    expect(agentRow().getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('back to labels closes the flyout and points the row at its list again', async () => {
+  test('back to labels closes the flyout and points the row at its tree again', async () => {
     await boot();
     collapse();
-    artifactsRow().click();
+    agentRow().click();
     expect(flyout().hidden).toBe(false);
 
     collapse();
 
     expect(document.documentElement.getAttribute('data-sidebar')).toBe('expanded');
     expect(flyout().hidden).toBe(true);
-    expect(artifactsRow().getAttribute('aria-controls')).toBe('sidebar-artifacts-kids');
-    expect(artifactsRow().getAttribute('aria-expanded')).toBe('true');
-    expect(artifactsKids().hidden).toBe(false);
+    expect(agentRow().getAttribute('aria-controls')).toBe('sidebar-session-tree');
+    expect(agentRow().getAttribute('aria-expanded')).toBe('true');
+    expect(tree().hidden).toBe(false);
   });
 });
 

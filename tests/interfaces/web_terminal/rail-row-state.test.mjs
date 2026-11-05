@@ -34,7 +34,7 @@ import { hideTooltip, initTooltips } from '/design-system/js/tooltip.js';
 import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 const PANELS = [
-  { id: 'artifacts', label: 'Artifacts' },
+  { id: 'events', label: 'Events' },
   { id: 'ariel', label: 'Ariel' },
   { id: 'channel-finder', label: 'Channels' },
 ];
@@ -48,14 +48,15 @@ function freshRail() {
   return el;
 }
 
-/** A rail holding the page-owned Artifacts row, as index.html ships it.
+/** A rail holding the page-owned Agent row, as index.html ships it.
  *  @returns {HTMLElement} */
 function pageRail() {
   document.body.innerHTML = `
     <div id="panel-rail">
-      <div class="sidebar-row" id="sidebar-artifacts-row">
-        <button class="osprey-nav-row parent panel-rail-button disabled" data-panel-id="artifacts"
-                type="button"><span class="osprey-nav-label">Artifacts</span></button>
+      <div class="sidebar-row" id="sidebar-agent-wrap">
+        <button class="osprey-nav-row parent panel-rail-button disabled" id="sidebar-agent-row"
+                data-panel-id="terminal" type="button"><span class="osprey-nav-label">Agent</span></button>
+        <div class="sidebar-kids osprey-tree" id="sidebar-session-tree" data-session-tree></div>
       </div>
     </div>`;
   return byId('panel-rail');
@@ -84,20 +85,20 @@ describe('setActive', () => {
     setActive(rail, 'ariel');
     expect(row(rail, 'ariel').classList.contains('active')).toBe(true);
     expect(row(rail, 'ariel').getAttribute('aria-current')).toBe('page');
-    expect(row(rail, 'artifacts').classList.contains('active')).toBe(false);
-    expect(row(rail, 'artifacts').hasAttribute('aria-current')).toBe(false);
+    expect(row(rail, 'events').classList.contains('active')).toBe(false);
+    expect(row(rail, 'events').hasAttribute('aria-current')).toBe(false);
   });
 
   test('switching active clears the previous one', () => {
-    setActive(rail, 'artifacts');
+    setActive(rail, 'events');
     setActive(rail, 'channel-finder');
-    expect(row(rail, 'artifacts').classList.contains('active')).toBe(false);
-    expect(row(rail, 'artifacts').hasAttribute('aria-current')).toBe(false);
+    expect(row(rail, 'events').classList.contains('active')).toBe(false);
+    expect(row(rail, 'events').hasAttribute('aria-current')).toBe(false);
     expect(row(rail, 'channel-finder').classList.contains('active')).toBe(true);
   });
 
   test('a null / unknown id clears active on every row', () => {
-    setActive(rail, 'artifacts');
+    setActive(rail, 'events');
     setActive(rail, null);
     expect(rail.querySelectorAll('.panel-rail-button.active').length).toBe(0);
     expect(rail.querySelectorAll('[aria-current]').length).toBe(0);
@@ -113,10 +114,10 @@ describe('setEntryEnabled', () => {
   });
 
   test('setEntryEnabled toggles the disabled class', () => {
-    setEntryEnabled(rail, 'artifacts', true);
-    expect(row(rail, 'artifacts').classList.contains('disabled')).toBe(false);
-    setEntryEnabled(rail, 'artifacts', false);
-    expect(row(rail, 'artifacts').classList.contains('disabled')).toBe(true);
+    setEntryEnabled(rail, 'events', true);
+    expect(row(rail, 'events').classList.contains('disabled')).toBe(false);
+    setEntryEnabled(rail, 'events', false);
+    expect(row(rail, 'events').classList.contains('disabled')).toBe(true);
   });
 
   test('is a no-op for an unknown id', () => {
@@ -552,17 +553,15 @@ describe('setEntryPoppedOut', () => {
 
   test('a render of a popped-out page-owned row writes its detail to the parking place', () => {
     const page = pageRail();
-    createRail(page, [{ id: 'artifacts', label: 'Artifacts' }]);
-    setEntryPoppedOut(page, 'artifacts', true);
+    createRail(page, [{ id: 'terminal', label: 'Agent' }]);
+    setEntryPoppedOut(page, 'terminal', true);
 
-    createRail(page, [{ id: 'artifacts', label: 'Artifacts' }]);
+    createRail(page, [{ id: 'terminal', label: 'Agent' }]);
 
-    const entry = row(page, 'artifacts');
+    const entry = row(page, 'terminal');
     expect(entry.classList.contains('popped-out')).toBe(true);
     expect(entry.dataset.tipDetail).toBe(POPPED);
-    expect(entry.getAttribute('data-tip-detail-base')).toBe(
-      'Files, plots and notebooks the agent produced'
-    );
+    expect(entry.getAttribute('data-tip-detail-base')).toMatch(/^Chat with the agent/);
   });
 
   test('the attention dot sits before the glyph, which stays last', () => {
