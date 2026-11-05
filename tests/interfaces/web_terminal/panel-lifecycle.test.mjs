@@ -88,7 +88,9 @@ beforeEach(() => {
     navigatePending: vi.fn(),
   });
   heard = [];
-  unfollow = lifecycle.onPanelStart((panelId, start) => heard.push({ panelId, start }));
+  unfollow = lifecycle.onPanelStart((/** @type {string} */ panelId, /** @type {unknown} */ start) =>
+    heard.push({ panelId, start })
+  );
 });
 
 afterEach(() => {

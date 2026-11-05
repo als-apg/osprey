@@ -56,18 +56,29 @@ const PANEL = {
   startEndpoint: '/api/panels/jupyter/start',
 };
 
+/**
+ * The arguments of a mock's last call, as a loose tuple.
+ * @param {{mock: {calls: unknown[][]}}} fn
+ * @returns {any[]}
+ */
+const lastCall = (fn) => /** @type {any[]} */ (fn.mock.calls.at(-1) ?? []);
 /** The last contribution: [panelId, items, dispatch]. */
-const lastBar = () => m.contributeLocal.mock.calls.at(-1);
-/** The registered "This panel" rows. */
-const rows = () => m.setServiceMenuExtras.mock.calls.at(-1)[1]();
+const lastBar = () => lastCall(m.contributeLocal);
+/** The registered "This panel" rows. @returns {any[]} */
+const rows = () => lastCall(m.setServiceMenuExtras)[1]();
 /** @param {string} label */
 const row = (label) => rows().find((r) => r.label === label);
-/** Tell the module a start outcome, as panel-lifecycle does. */
+/**
+ * Tell the module a start outcome, as panel-lifecycle does.
+ * @param {string} panelId
+ * @param {string} state
+ * @param {string | null} [message]
+ */
 const tell = (panelId, state, message = null) =>
-  m.onPanelStart.mock.calls.at(-1)[0](panelId, { state, message });
+  lastCall(m.onPanelStart)[0](panelId, { state, message });
 /** Paint the last body state into a fresh host; null when the state was cleared. */
 function paintedBody() {
-  const [panelId, paint] = m.setPanelBodyState.mock.calls.at(-1);
+  const [panelId, paint] = lastCall(m.setPanelBodyState);
   expect(panelId).toBe(JUPYTER_PANEL_ID);
   if (!paint) return null;
   const host = document.createElement('div');
@@ -135,7 +146,7 @@ describe('tile bar', () => {
 
 describe('⋯ This panel', () => {
   test('lists Restart kernel server, then Show server log', () => {
-    expect(m.setServiceMenuExtras.mock.calls.at(-1)[0]).toBe('jupyter');
+    expect(lastCall(m.setServiceMenuExtras)[0]).toBe('jupyter');
     expect(rows().map((r) => r.label)).toEqual(['Restart kernel server', 'Show server log']);
   });
 
