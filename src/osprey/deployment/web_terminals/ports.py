@@ -15,12 +15,6 @@ from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import INDEX_MAX, PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
-
-def _family_name(key: str) -> str:
-    """A registry entry's port-family name (its key unless overridden)."""
-    return FRAMEWORK_WEB_SERVERS[key].port_family or key
-
-
 # Maps each `modules.web_terminals` base-port field to the family key allocate_ports()
 # expects: the fixed "web" family (the terminal itself) plus ONE family per
 # FRAMEWORK_WEB_SERVERS companion server. Derived, never hand-listed — the
@@ -32,7 +26,7 @@ def _family_name(key: str) -> str:
 # on which config field maps to which family.
 FAMILY_BASE_FIELDS = {
     "web_base_port": "web",
-    **{f"{_family_name(key)}_base_port": _family_name(key) for key in FRAMEWORK_WEB_SERVERS},
+    **{f"{key}_base_port": key for key in FRAMEWORK_WEB_SERVERS},
 }
 
 # Env var each companion family's allocated port is exported under in every
@@ -41,9 +35,7 @@ FAMILY_BASE_FIELDS = {
 # the two ends of one contract. The "web" family is not here: the terminal
 # itself exports the OSPREY_TERMINAL_WEB_PORT/OSPREY_WEB_PORT pair, handled
 # explicitly by the compose template.
-PANEL_ENV_VARS = {
-    _family_name(key): defn.port_env_var for key, defn in FRAMEWORK_WEB_SERVERS.items()
-}
+PANEL_ENV_VARS = {key: defn.port_env_var for key, defn in FRAMEWORK_WEB_SERVERS.items()}
 
 _PORT_FAMILIES = tuple(FAMILY_BASE_FIELDS.values())
 

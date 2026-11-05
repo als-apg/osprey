@@ -44,13 +44,13 @@ turn.  This hook spends nothing when nothing moved.
 **Silence is the default.**  The hook writes to stdout only when the workspace
 genuinely differs from the snapshot, and then only one line naming what moved::
 
-    Workspace changed: ariel replaced lattice in its tile; active now ariel.
+    Workspace changed: ariel replaced okf in its tile; active now ariel.
 
 Each tile shows one panel, and tiles are compared panel by panel, the
 terminal's included: a tile opened or closed (``bluesky tile opened``,
-``lattice tile closed``), a tile that kept its id while its panel left the
-screen and another came on (``ariel replaced lattice in its tile``), a panel
-now in a tile with another id (``lattice moved to a new tile``), and — only
+``okf tile closed``), a tile that kept its id while its panel left the
+screen and another came on (``ariel replaced okf in its tile``), a panel
+now in a tile with another id (``okf moved to a new tile``), and — only
 when nothing else moved — a reordering.  Ids are reused after a close, so a
 tile closed and a new one opened under its id between two turns reads as a
 replacement too; see :func:`_describe_tiles`.
@@ -92,7 +92,7 @@ Reads and rewrites the file seeded by ``osprey_panels_context.py``::
       ] | null,                                    # null = occupancy UNKNOWN
       "popouts": ["ariel"],                        # panels in their own windows
       "active":  "artifacts" | null,               # active panel id
-      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
+      "visible": ["okf", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
 The schema is documented in full in the sibling hook, which owns it.  Both hooks

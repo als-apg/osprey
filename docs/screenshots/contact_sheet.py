@@ -26,7 +26,7 @@ to it with a canned PTY (no live agent, no provider, no hardware).
 :func:`capture_contact_sheet` drives a headless browser over that stack once per
 entry in :data:`VARIANTS` (plus the :data:`EXTRA_VARIANTS` showcase cards),
 then boots every supported subpanel's real app
-(:data:`PANEL_SURFACES` — ARIEL, channels, lattice, knowledge, events, and the
+(:data:`PANEL_SURFACES` — ARIEL, channels, knowledge, events, and the
 Bluesky scan panel) and captures each in dark and light — always through the
 hub's own iframe URL shape (``embedded=true`` + theme), so each card is the panel exactly as the
 terminal embeds it — writing one viewport PNG per card.
@@ -1793,13 +1793,6 @@ def _boot_channel_finder(workspace: Path):
     return run_app_server(create_app(project_cwd=str(workspace)))
 
 
-def _boot_lattice(workspace: Path):
-    from osprey.interfaces._serving import run_app_server
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    return run_app_server(create_app(workspace_root=workspace / "lattice_ws"))
-
-
 def _boot_okf(workspace: Path):
     from osprey.interfaces._serving import run_app_server
     from osprey.interfaces.okf_panel.app import create_app
@@ -1839,7 +1832,6 @@ def _boot_bluesky_web(_workspace: Path):
 _PANEL_BOOTS = {
     "ariel": _boot_ariel,
     "channel_finder": _boot_channel_finder,
-    "lattice": _boot_lattice,
     "okf": _boot_okf,
     "dispatch": _boot_dispatch_dashboard,
     "bluesky": _boot_bluesky_web,
@@ -1852,7 +1844,6 @@ _PANEL_BOOTS = {
 PANEL_SURFACES: list[PanelSurface] = [
     PanelSurface("ariel", "ARIEL — logbook search", "/", "ariel"),
     PanelSurface("channels", "Channels — channel finder", "/", "channel_finder"),
-    PanelSurface("lattice", "Lattice — machine dashboard", "/", "lattice"),
     PanelSurface("knowledge", "Knowledge — OKF browser", "/", "okf", wait_selector="#tree"),
     PanelSurface("events", "Events — dispatch dashboard", "/", "dispatch"),
     PanelSurface(

@@ -645,7 +645,7 @@ html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-row { display:
 
 /* The splitter's look and drag behaviour are the design system's shared
    `.osprey-splitter` (base.css + js/splitter.js) — identical to the OKF and
-   PLAN panels, the LATTICE sidebar, the settings drawer, the event dashboard
+   PLAN panels, the settings drawer, the event dashboard
    and the hub's dockview sashes. Nothing gallery-specific remains except which
    of the two axis handles is showing. */
 

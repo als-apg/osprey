@@ -43,7 +43,7 @@ Injects three independent pieces of session context as ``additionalContext``:
    a ``list_panels`` tool round-trip.
 3. **Open tiles** — every tile on screen in spatial reading order, each named
    by the one panel it shows, the terminal's included, e.g.
-   ``Open tiles: [terminal], [lattice], [artifacts]; active artifacts.``
+   ``Open tiles: [terminal], [okf], [artifacts]; active artifacts.``
    Tiles are reported by the browser, so the line is omitted entirely whenever
    occupancy is *unknown* rather than empty (see below) — an unobserved
    workspace is never described as an empty one.
@@ -75,7 +75,7 @@ with these keys::
       ] | null,                                    # null = occupancy UNKNOWN
       "popouts": ["ariel"],                        # panels in their own windows
       "active":  "artifacts" | null,               # active panel id
-      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
+      "visible": ["okf", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
 ``tiles`` is the server's ``layout`` (the current dock client's dock layout tree)
@@ -334,7 +334,7 @@ def _build_tile_line(state):
     terminal's included — and the panels the operator moved into windows of
     their own::
 
-        Open tiles: [terminal], [lattice], [artifacts]; pop-outs: ariel; active artifacts.
+        Open tiles: [terminal], [okf], [artifacts]; pop-outs: ariel; active artifacts.
 
     Silence is the honest answer for an unreported workspace: the browser may
     not have connected yet, and "no tiles are open" would be a claim the server

@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 class WebServerDefinition:
     """Metadata for one companion web server.
 
+    No port is authored in this registry. A server's registry key is its port
+    family: the :data:`osprey.port_layout.LAYOUT` slot its ports come from, and
+    the ``modules.web_terminals.<family>_base_port`` config field that overrides
+    them. Every companion server's default is its family's offset from the
+    deployment's ``deployment.port_base``, and user *i* of a multi-user
+    deployment listens on ``port_base + offset + i``: the families sit one
+    hundred ports apart so the user index reads off the port, and the whole
+    deployment moves by moving its base. Read a default through
+    :func:`framework_web_port_default`; :mod:`osprey.port_layout` holds the
+    block as a whole.
+
     Attributes:
         name: Human-readable name for logging.
         factory_path: Dotted import path with colon separator, e.g.
@@ -56,22 +67,6 @@ class WebServerDefinition:
             ``bundle_path=``.
         import_error_message: Custom message when the factory import fails.
             If None, ImportError propagates normally.
-        port_family: Port-family name for this server: the
-            :data:`osprey.port_layout.LAYOUT` slot its ports come from, and the
-            ``modules.web_terminals.<family>_base_port`` config field that
-            overrides them. ``None`` means the family name is the server's
-            registry key. Only set when a server's family is conventionally
-            named something else (``lattice_dashboard`` → ``lattice``).
-
-            No port is authored in this registry. Every companion server's
-            default is its family's offset from the deployment's
-            ``deployment.port_base``, and user *i* of a multi-user deployment
-            listens on ``port_base + offset + i``: the families sit one hundred
-            ports apart so the user index reads off the port, and the whole
-            deployment moves by moving its base. Read a default through
-            :func:`framework_web_port_default`, which is handed the registry
-            key the family name falls back to; :mod:`osprey.port_layout` holds
-            the block as a whole.
     """
 
     name: str
@@ -85,7 +80,6 @@ class WebServerDefinition:
     require_section: bool = False
     factory_config_kwargs: dict[str, str] = field(default_factory=dict)
     import_error_message: str | None = None
-    port_family: str | None = None
 
     @property
     def port_env_var(self) -> str:
@@ -135,14 +129,6 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_web_subkey="web",
         require_section=True,
     ),
-    "lattice_dashboard": WebServerDefinition(
-        name="Lattice dashboard",
-        factory_path="osprey.interfaces.lattice_dashboard.app:create_app",
-        config_key="lattice_dashboard",
-        panel_id="lattice",
-        pass_workspace=True,
-        port_family="lattice",
-    ),
     # OKF "KNOWLEDGE" panel. config_key is the shared facility_knowledge section
     # (also read by the MCP server + CLI); require_section gates auto-launch on
     # that section existing, and factory_config_kwargs feeds the resolved
@@ -178,8 +164,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
 #:
 #: Derived from :attr:`WebServerDefinition.panel_id`, never hand-listed. The two
 #: namespaces genuinely differ (``artifacts``/``artifact``,
-#: ``channel-finder``/``channel_finder``, ``lattice``/``lattice_dashboard``,
-#: ``system-health``/``system_health``), and every consumer that used to keep its
+#: ``channel-finder``/``channel_finder``, ``system-health``/``system_health``), and every consumer that used to keep its
 #: own copy of that table — the health panel probe, the ``osprey web``
 #: port pre-flight, the web terminal's panel proxy — drifted from the others.
 #: Read this instead of writing a fifth one.
@@ -215,8 +200,9 @@ def framework_web_port_default(key: str, base: int | None = None) -> int:
         KeyError: *key* is not a known companion web server.
         ValueError: *base* is outside the range a block can start at.
     """
-    definition = FRAMEWORK_WEB_SERVERS[key]
-    return default_port(definition.port_family or key, 0, base=base)
+    if key not in FRAMEWORK_WEB_SERVERS:
+        raise KeyError(key)
+    return default_port(key, 0, base=base)
 
 
 def panel_url_state_attr(key: str) -> str:
@@ -269,10 +255,10 @@ def web_server_config_section(
     """Return the mapping holding *definition*'s host/port/auto_launch.
 
     The single navigation of :attr:`WebServerDefinition.config_web_subkey`. The
-    six companion servers disagree about depth — three take ``<section>.web.*``
-    (ariel, channel_finder, system_health), three take ``<section>.*`` (artifact,
-    lattice_dashboard, okf) — because three of the sections are shared with
-    non-web config and three are the panel's own. That disagreement is a shipped,
+    five companion servers disagree about depth — three take ``<section>.web.*``
+    (ariel, channel_finder, system_health), two take ``<section>.*`` (artifact,
+    okf) — because three of the sections are shared with non-web config and two
+    are the panel's own. That disagreement is a shipped,
     documented config format, so this function reconciles it in one place and
     rejects the wrong depth rather than letting each caller re-derive it.
 

@@ -1,49 +1,31 @@
-"""Which shipped presets carry the LATTICE tab.
+"""No shipped preset carries the retired LATTICE tab.
 
-The lattice dashboard is part of the control-assistant preset: the host profile
-lists ``lattice`` in ``web_panels:``; the readonly, readwrite and admin tiers it
-emits keep it, and the knowledge and logbook apps, which state their own
-panel list, leave it out. hello-world never lists it.
-
-Each preset is resolved the way ``osprey init`` resolves it, so ``extends:``,
-list unions and ``exclude:`` are all applied before the list is read; the
-tier and app files are the ones the materializer emits beside the host profile.
+The profile parser drops ``lattice`` from a document with a warning, so a
+resolved preset would hide one still listing it. The raw files are read
+instead: every preset, tier and app document the materializer ships.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+import yaml
 
-from osprey.cli.build_profile import resolve_build_profile
-from osprey.cli.profile_cmd import _layer_profile_texts, _parsed_layer_deltas
+from osprey.cli.build_profile_document import RETIRED_PANEL_ID
+from osprey.cli.build_profile_presets import _presets_dir
 
-_WITH_LATTICE = ("control-assistant",)
-
-_WITHOUT_LATTICE = ("hello-world",)
-
-
-def _panels(preset: str) -> list[str]:
-    resolved, _preset_dir = resolve_build_profile(None, preset, (), ())
-    return resolved.web_panels
+_DOCUMENTS = sorted(Path(_presets_dir()).rglob("*.yml"))
 
 
-@pytest.mark.parametrize("preset", _WITH_LATTICE)
-def test_the_control_room_presets_carry_the_lattice_tab(preset: str) -> None:
-    assert "lattice" in _panels(preset)
+def test_the_preset_tree_is_found() -> None:
+    assert any(path.name == "control-assistant.yml" for path in _DOCUMENTS)
 
 
-@pytest.mark.parametrize("preset", _WITHOUT_LATTICE)
-def test_the_other_presets_leave_the_lattice_tab_out(preset: str) -> None:
-    assert "lattice" not in _panels(preset)
-
-
-def test_the_emitted_knowledge_and_logbook_apps_leave_the_lattice_tab_out() -> None:
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
-    texts = _layer_profile_texts(resolved, "Exemplar", "")
-    deltas = _parsed_layer_deltas(texts)
-
-    for app in ("knowledge", "logbook"):
-        assert "lattice" not in (deltas[app].get("web_panels") or [])
-    for render in ("admin", "readonly", "readwrite"):
-        excluded = (deltas[render].get("exclude") or {}).get("web_panels") or []
-        assert "lattice" not in excluded
+@pytest.mark.parametrize("path", _DOCUMENTS, ids=lambda path: path.name)
+def test_no_preset_document_selects_the_retired_panel(path: Path) -> None:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        return
+    assert RETIRED_PANEL_ID not in (raw.get("web_panels") or [])
+    assert raw.get("default_panel") != RETIRED_PANEL_ID

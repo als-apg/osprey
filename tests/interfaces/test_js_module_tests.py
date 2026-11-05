@@ -88,7 +88,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/design_system/static/js/tokens.js",
     "src/osprey/interfaces/design_system/static/js/uuid.js",
     "src/osprey/interfaces/health/static/js/dashboard.js",
-    "src/osprey/interfaces/lattice_dashboard/static/js/app.js",
     "src/osprey/interfaces/okf_panel/static/js/app.js",
     "src/osprey/interfaces/web_terminal/static/js/activity-format.js",
     "src/osprey/interfaces/web_terminal/static/js/activity-history.js",
