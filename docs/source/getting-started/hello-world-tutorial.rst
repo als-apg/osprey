@@ -5,7 +5,7 @@ Hello World Tutorial
 Build and run your first OSPREY agent in about five minutes, with no containers
 and no hardware. The ``hello-world`` preset is the smallest deployment that
 still shows the whole write-safety chain: the simulator, served in this
-process, that answers for the channels of your facility file, fourteen safety
+process, that answers for the channels of your facility file, eleven safety
 and bookkeeping hooks, and a browser interface.
 
 Three ``osprey`` commands take you from nothing to a running agent:
@@ -52,7 +52,7 @@ spelled out in files you own — nothing is hidden or inherited:
 
      profile.yml   your assistant's settings; edit this
      data/         channel lists and facility docs; edit these
-     .env          from your shell: ANTHROPIC_API_KEY. Not in git
+     .env          seeded: ANTHROPIC_API_KEY. Not in git
      .env.shared   settings shared by every host; your .env wins
      README.md     what everything here does
 
@@ -71,14 +71,17 @@ Step 2: Read profile.yml — It Is the Curriculum
 Open ``profile.yml``. This one file is the manifest for the whole deployment,
 and the preset deliberately leaves most of it unset — because every key it
 leaves unset is emitted into your copy as a **commented block** you can turn on
-later. The hello-world preset's minimalism yields exactly **12** such blocks,
+later. The hello-world preset's minimalism yields exactly **14** such blocks,
 covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.
 
 The parts that *are* set are short. The agent's capabilities are lists of named
 artifacts from the OSPREY library — eleven hooks (three of which form the
-write-safety chain), three rules, and one output style:
+write-safety chain), three rules, and one output style. The build also copies
+three helper scripts into ``build/.claude/hooks/`` beside them; the hooks
+import those helpers, and no event runs them, so they are not hooks of their
+own:
 
 .. code-block:: yaml
 
@@ -118,7 +121,7 @@ per line:
      control_system.limits_checking.enabled: true
      # ...
      # The THIRD guard: a write that passed the master switch and the limits check
-     # still pauses for a yes/no prompt, unless the switch is at `allowed`.
+     # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
      # Applied by the approval hook, so it reaches only hook-wired tools;
      # everything else is gated by the rendered settings.json permissions.
      approval.enabled: true
@@ -274,7 +277,7 @@ Do **not** edit ``build/config.yml`` instead — that file is generated output,
 and your edit would vanish on the next build.
 
 The deployment now *may* write, but your switch is still off. Click the
-control-target chip in the header (``● Simulator · writes off``) and move the
+control-target chip in the sidebar (``● Simulator · writes off``) and move the
 simulator to *asked* (:ref:`web-terminal-session-posture`). A write asked for
 with the switch off is refused with a line telling you to do exactly that.
 
@@ -322,22 +325,11 @@ limits file, so the write is refused whatever the value.
 Step 9: Edit the Limits File
 -----------------------------
 
-``data/facility/limits.yaml`` is your first editable safety artifact. The
-shipped file looks like this (comments abridged):
+``data/facility/limits.yaml`` is your first editable safety artifact. This is
+the shipped file:
 
-.. code-block:: yaml
-
-   records:
-   - address: SR:MAG:QF:01:CURRENT:SP
-     min_value: 0.0
-     max_value: 300.0
-     writable: true
-   - address: SR:MAG:QD:01:CURRENT:SP
-     min_value: 0.0
-     max_value: 250.0
-     writable: true
-   - address: SR:BEAM:CURRENT
-     writable: false
+.. literalinclude:: ../../../src/osprey/templates/facilities/hello_world/limits.yaml
+   :language: yaml
 
 ``osprey build`` writes one entry per record into
 ``build/data/channel_limits.json``, each stating ``writable`` and ``confirm``:
@@ -406,12 +398,13 @@ counts what each identity wrote, by kind, across every exported day:
 .. literalinclude:: hello-world-tutorial.sql
    :language: sql
 
-Save it as ``hello-world-tutorial.sql`` in the repo root and run it with DuckDB,
-which OSPREY installs:
+Save it as ``hello-world-tutorial.sql`` in the repo root and run it from there
+with DuckDB, which ``osprey build`` installs into the build's own Python
+environment:
 
 .. code-block:: bash
 
-   python -c "import duckdb; duckdb.sql(open('hello-world-tutorial.sql').read()).show()"
+   build/.venv/bin/python -c "import duckdb; duckdb.sql(open('hello-world-tutorial.sql').read()).show()"
 
 On the first day the archive is still empty, and DuckDB reports that no file
 matches. See :doc:`/how-to/health-and-monitoring/agent-record` for what the
@@ -429,13 +422,13 @@ You have a working agent, and — more importantly — a ``profile.yml`` whose
 commented blocks map everything it can become.
 
 - **The production tutorial**: :doc:`control-assistant` builds the
-  ``control-assistant`` preset, which adds a channel database with
-  natural-language channel finding, a seeded electronic logbook, a real
+  ``control-assistant`` preset, which adds natural-language channel finding
+  over a facility knowledge graph, a seeded electronic logbook, a real
   archive, sub-agents, and operator skills — on the same safety model.
 - **How it works**: :doc:`conceptual-tutorial` explains the MCP server
   architecture, the connector system, and the safety mechanisms in depth.
 - **The profile format**: :doc:`../how-to/build-profiles` documents every key
-  those 12 commented blocks can hold.
+  those 14 commented blocks can hold.
 - **CLI reference**: :doc:`/reference/cli` covers all ``osprey``
   commands.
 
