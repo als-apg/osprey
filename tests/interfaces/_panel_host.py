@@ -12,6 +12,8 @@ plain controls that post ``canopy-host-header-action`` back into the frame:
 
 ==========  =================================================================
 ``text``    a ``<span>``
+``icon``    a button named by its ``title`` (``disabled``), the icon name in
+            ``data-icon``
 ``nav``     one button per entry (``aria-current`` on the active one)
 ``button``  a button (``disabled``, ``title``, ``data-tone``)
 ``search``  an ``<input type="search">``; ``value`` seeds it at creation only,
@@ -105,6 +107,16 @@ function render(item, live) {
     button.dataset.tone = item.tone ?? 'default';
     button.textContent = item.label ?? '';
     if (item.title) button.title = item.title;
+    button.disabled = Boolean(item.disabled);
+    button.addEventListener('click', () => act(item.id));
+    return [button];
+  }
+  if (item.kind === 'icon') {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.hostItem = item.id;
+    button.dataset.icon = item.icon ?? '';
+    button.textContent = item.title ?? item.id;
     button.disabled = Boolean(item.disabled);
     button.addEventListener('click', () => act(item.id));
     return [button];

@@ -91,6 +91,23 @@ describe('renderPreview: empty state', () => {
     expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
     expect(byId('preview-content').classList.contains('hidden')).toBe(true);
   });
+
+  test('the empty pane is the centred state: no artifact selected, pick one in the sidebar', () => {
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    const state = qs(byId('preview-empty'), '.osprey-state');
+    expect(qs(state, '.osprey-state-message').textContent).toBe('No artifact selected');
+    expect(qs(state, '.osprey-state-detail').textContent).toBe('Pick one in the sidebar.');
+    expect(state.querySelector('.osprey-ic')).not.toBeNull();
+  });
+
+  test('embedded, the list to pick from is the hub sidebar', () => {
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    expect(qs(byId('preview-empty'), '.osprey-state-detail').textContent).toBe(
+      'Pick one in the sidebar.'
+    );
+  });
 });
 
 describe('renderPreview: per-type viewport dispatch', () => {
@@ -273,28 +290,20 @@ describe('renderPreview: timeseries is told by data_type and the archiver, never
   });
 });
 
-describe('renderPreview: meta content', () => {
-  test('omits the Source meta item when tool_source is absent', () => {
-    setSelectedArtifact(makeArtifact());
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    expect(
-      Array.from(document.querySelectorAll('.preview-meta-label')).map((el) => el.textContent)
-    ).not.toContain('Source');
-  });
-});
-
-describe('renderPreview: the pane has no header (the hub renders it)', () => {
-  test('renders the description, the meta strip and the viewport, and no header', () => {
+describe('renderPreview: the artifact alone (the hub has the bar and the details)', () => {
+  test('renders the viewport, and no header, description, meta strip or path', () => {
     setSelectedArtifact(
       makeArtifact({ description: 'Horizontal beam size', tool_source: 'channel_finder' })
     );
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
+    const content = byId('preview-content');
+    expect(Array.from(content.children, (el) => el.className)).toEqual(['preview-viewport']);
     expect(document.querySelector('.preview-header')).toBeNull();
-    expect(qs(document, '.preview-desc').textContent).toBe('Horizontal beam size');
-    expect(qs(document, '.preview-meta-strip').textContent).toContain('channel_finder');
-    expect(document.querySelector('.preview-meta-strip .preview-path-text')).not.toBeNull();
+    expect(document.querySelector('.preview-desc')).toBeNull();
+    expect(document.querySelector('.preview-meta-strip')).toBeNull();
+    expect(document.getElementById('preview-copy-path')).toBeNull();
+    expect(content.textContent).not.toContain('Horizontal beam size');
     expect(document.querySelector('.preview-viewport img')).not.toBeNull();
   });
 
@@ -348,7 +357,7 @@ describe('deleteArtifact', () => {
 
     expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
     expect(getSelectedArtifact()).toBe(shown);
-    expect(qs(document, '.preview-path-text').textContent).toContain('orbit.png');
+    expect(byId('preview-content').classList.contains('hidden')).toBe(false);
   });
 
   test('does nothing when the confirm dialog is declined', async () => {
@@ -380,38 +389,5 @@ describe('deleteArtifact', () => {
 
     expect(getArtifacts()).toEqual([artifact]);
     expect(getSelectedArtifact()).toBe(artifact);
-  });
-});
-
-describe('renderPreview: copy path', () => {
-  test('copies the store\'s artifact path and toggles a "copied" class', async () => {
-    const meta = document.createElement('meta');
-    meta.setAttribute('name', 'osprey-artifact-dir');
-    meta.setAttribute('content', 'state/agent/artifacts');
-    document.head.appendChild(meta);
-    vi.useFakeTimers();
-    try {
-      setSelectedArtifact(makeArtifact());
-      createPreviewRenderer(makeCallbacks()).renderPreview();
-
-      expect(qs(document, '.preview-path-text').textContent).toBe(
-        'state/agent/artifacts/beam_profile.png'
-      );
-
-      const btn = byId('preview-copy-path');
-      btn.click();
-      await vi.waitFor(() =>
-        expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(
-          'state/agent/artifacts/beam_profile.png'
-        )
-      );
-
-      expect(btn.classList.contains('copied')).toBe(true);
-      vi.advanceTimersByTime(1500);
-      expect(btn.classList.contains('copied')).toBe(false);
-    } finally {
-      vi.useRealTimers();
-      meta.remove(); // this file's document is shared across tests
-    }
   });
 });

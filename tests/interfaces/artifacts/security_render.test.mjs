@@ -158,13 +158,11 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     expectNoLiveInjection(previewContent);
     expect(previewContent.innerHTML).not.toContain(HOSTILE.DQ_IMG);
 
-    const desc = previewContent.querySelector('.preview-desc');
-    expect(desc).not.toBeNull();
-    if (desc === null) throw new Error('unreachable: desc asserted non-null above');
-    expect(desc.textContent).toBe(HOSTILE.DQ_IMG);
+    // The description is the hub's Info popover's now: this pane has no sink for it.
+    expect(previewContent.textContent).not.toContain(HOSTILE.DQ_IMG);
   });
 
-  test('tool_source (currently-escaped field) renders as inert text — regression pin against future unescaping', () => {
+  test('tool_source is never rendered (Source left the page), so a hostile value has no sink', () => {
     setSelectedArtifact(
       makeArtifact({
         artifact_type: 'totally_unrecognized_type',
@@ -177,11 +175,7 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     const previewContent = byId('preview-content');
     expectNoLiveInjection(previewContent);
     expect(previewContent.innerHTML).not.toContain(HOSTILE.DQ_IMG);
-
-    const metaValues = Array.from(previewContent.querySelectorAll('.preview-meta-value')).map(
-      (el) => el.textContent
-    );
-    expect(metaValues).toContain(HOSTILE.DQ_IMG);
+    expect(previewContent.textContent).not.toContain(HOSTILE.DQ_IMG);
   });
 
   test('filename (currently-escaped field) renders as inert text at both the download link and copy-path sinks — regression pin', () => {
@@ -202,9 +196,6 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     expect(downloadLink).not.toBeNull();
     if (downloadLink === null) throw new Error('unreachable: downloadLink asserted non-null above');
     expect(downloadLink.textContent).toContain(HOSTILE.DQ_IMG);
-
-    const pathText = qs(previewContent, '.preview-path-text');
-    expect(pathText.textContent).toBe(`var/agent_data/artifacts/${HOSTILE.DQ_IMG}`);
   });
 
   test('a hostile id is percent-encoded at the download href', () => {

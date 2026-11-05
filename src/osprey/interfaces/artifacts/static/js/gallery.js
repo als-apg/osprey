@@ -177,6 +177,9 @@ window.addEventListener('message', (e) => {
 
 // ---- Init ----
 
+// Nothing is selected yet: the pane opens on its centred empty state.
+previewRenderer.renderPreview();
+
 // The hub says what to show, what to do with it and when it changed (viewer.js).
 createViewer({
   getHeld: getArtifacts,

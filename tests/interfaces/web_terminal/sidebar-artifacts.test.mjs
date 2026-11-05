@@ -889,18 +889,17 @@ describe('the viewer', () => {
     expect(shown()).not.toBe('a2');
   });
 
-  test("the pager steps through the shown artifact's own session", async () => {
+  test('the tile bar offers Info and Download, no subtitle and no pager', async () => {
     await boot();
-    expect(headerNow().items.find((i) => i.id === 'pager') ?? headerNow().items).toBeTruthy();
-    headerNow().dispatch('next');
+    const { items, dispatch } = headerNow();
+    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual(['icon:info', 'icon:download']);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    dispatch('download');
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+    dispatch('next');
     await settle();
-    expect(shown()).toBe('a2');
-    headerNow().dispatch('next');
-    await settle();
-    expect(shown()).toBe('run1');
-    headerNow().dispatch('prev');
-    await settle();
-    expect(shown()).toBe('a2');
+    expect(shown()).toBe('a3');
   });
 
   test('an artifact no session owns shows without a pager, and lists nowhere', async () => {
@@ -908,7 +907,7 @@ describe('the viewer', () => {
     frame({ type: 'focus', id: 'u1', automatic: false, session: T1 });
     await settle();
     expect(shown()).toBe('u1');
-    expect(headerNow().items.map((i) => i.id)).toEqual(['crumb', 'open', 'save']);
+    expect(headerNow().items.map((i) => i.id)).toEqual(['info', 'download']);
     expect(requests('/session-list').some((r) => !r.body.session && !r.body.key)).toBe(false);
     expect(tree().querySelector('.osprey-list-row[data-id="u1"]')).toBeNull();
   });

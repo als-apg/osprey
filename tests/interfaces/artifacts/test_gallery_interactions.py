@@ -175,8 +175,10 @@ def test_the_viewer_shows_what_the_hub_selects(tmp_path, monkeypatch, chromium_b
         expect(preview.locator(".osprey-md-rendered h1")).to_have_text(
             "Beam Current", timeout=10_000
         )
-        expect(preview.locator(".preview-desc")).to_have_text("A markdown fixture artifact")
         expect(page.locator(".preview-header")).to_have_count(0)
+        expect(preview.locator(".preview-desc")).to_have_count(0)
+        expect(preview.locator(".preview-meta-strip")).to_have_count(0)
+        expect(preview).not_to_contain_text("A markdown fixture artifact")
 
         # JSON: the recursive viewer ran, producing keyed rows.
         _select_in_viewer(page, JSON_TITLE)
