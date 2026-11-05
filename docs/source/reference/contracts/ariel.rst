@@ -305,13 +305,12 @@ The ``get_ariel_search_service()`` function provides a singleton
 ``ARIELSearchService`` instance. The service is lazily initialized from
 ``config.yml`` on first access and reused for subsequent calls.
 
-.. code-block:: python
+.. literalinclude:: examples/ariel-service-factory.py
+   :language: python
 
-   from osprey.services.ariel_search.capability import get_ariel_search_service
-
-   service = await get_ariel_search_service()
-   async with service:
-       result = await service.search(query="RF cavity fault")
+Don't use the singleton as an async context manager (``async with service:``):
+leaving the block closes the service, and every later call in the process gets
+the closed instance. Call ``close_ariel_service()`` once, at shutdown.
 
 **Lifecycle:** The singleton is created once per process. In the web
 interface, the ``create_app()`` factory manages its own service instance
