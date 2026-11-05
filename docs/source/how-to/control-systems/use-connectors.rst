@@ -14,33 +14,18 @@ One API, whatever the machine
 
 The Python API is the same for every connector, and works from a script of your
 own with no deployment at all (:doc:`use-connectors-standalone`). The simulator
-served in
-process answers for the addresses of the built facility file without hardware
-or network access, which is what makes it the development and R&D default. Run
-``osprey build`` first; the simulator refuses an address outside the facility
-file:
+served in process answers for the addresses of the built facility file without
+hardware or network access, which is what makes it the development and R&D
+default. Run ``osprey build`` first, and run the script from the deployment; the
+simulator refuses an address outside the facility file. This script reads the
+beam current, a channel of the example facility ``osprey build`` starts from:
 
-.. code-block:: python
+.. literalinclude:: examples/read_simulator.py
+   :language: python
+   :caption: read_simulator.py
 
-   from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
-
-   register_builtin_connectors()   # registers the built-in names; idempotent
-
-   # The simulator in process - serves the addresses of the built facility file
-   connector = await ConnectorFactory.create_control_system_connector({
-       'type': 'virtual_accelerator',
-       'connector': {
-           'virtual_accelerator': {
-               'serving': 'in_process',
-               'response_delay_ms': 10
-           }
-       }
-   })
-
-   channel_value = await connector.read_channel('SR:BEAM:CURRENT')
-   print(f"Value: {channel_value.value} {channel_value.metadata.units}")
-
-   await connector.disconnect()
+The examples on this page are files the test suite runs against a soft IOC and
+a built simulator view.
 
 A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
 index, with the state names alongside it in the metadata: ``value`` is the
@@ -577,23 +562,17 @@ machine's switch can stay off throughout, and moving it to *asked* or
 **1. Ask.** The program writes a request into its ledger directory
 (``OSPREY_WRITE_LEDGER_DIR``; on a host with no deployment, its own state
 directory). Spell each channel exactly as it will be written, and count the
-completion write (``apply_best`` or ``restore``) in ``steps``:
+completion write (``apply_best`` or ``restore``) in ``steps``. The steps below
+are taken from one program,
+:download:`write_from_a_program.py <examples/write_from_a_program.py>`, which
+the test suite runs against a stand-in soft IOC, approving its request as the
+person would:
 
-.. code-block:: python
-
-   import time
-
-   from osprey_connectors import write_authorization as wa
-
-   request = wa.write_request(
-       "standin",
-       {"SR:CORRECTOR:H1": (-0.5, 0.5), "SR:CORRECTOR:H2": (-0.5, 0.5)},
-       steps=41,                                  # 40 evaluations + apply_best
-       expires_at_ns=time.time_ns() + 2 * 3600 * 10**9,
-       lease_s=30.0,
-       label="injector tuning 7",
-       completion="apply_best",
-   )
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: ask begins
+   :end-before: # docs: ask ends
+   :dedent: 4
 
 The holder is the program's acting identity; the owner is the login the run
 stands in for (``OSPREY_CONTROL_OWNER`` in a container). A program's container
@@ -608,12 +587,11 @@ stays there.
 (:ref:`web-terminal-approve-program`) or with ``osprey write-authorization
 approve``. The grant carries the request's id, so the program polls for it:
 
-.. code-block:: python
-
-   while (grant := wa.approved_grant(request.id)) is None:
-       time.sleep(2)
-   wa.withdraw_request(request.id)
-   wa.start_lease(grant.id)        # once, by the process that renews it
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: wait begins
+   :end-before: # docs: wait ends
+   :dedent: 4
 
 ``approved_grant`` raises ``AuthorizationRefused`` for a grant that is there
 and does not stand (revoked, expired, unreadable, another holder's).
@@ -621,16 +599,24 @@ and does not stand (revoked, expired, unreadable, another holder's).
 **3. Write.** Name the authorization to the connector pool once the lease is
 open, and renew the lease from a heartbeat at a fraction of ``lease_s``. A
 handle taken before the lease started selected the read gateway, and its
-writes are refused ``switching`` (nothing spent) like any other refusal:
+writes are refused ``switching`` (nothing spent) like any other refusal. The
+program builds its pool from the deployment's own configuration,
+``ConnectorHostPool(get_config_value("control_system", {}),
+config_file=default_config_path())``:
 
-.. code-block:: python
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: write begins
+   :end-before: # docs: write ends
+   :dedent: 4
 
-   connector = await pool.connector("standin", owner=grant.owner, authorization=grant.id)
-   results = await connector.write_multiple_channels(
-       [("SR:CORRECTOR:H1", 0.12), ("SR:CORRECTOR:H2", -0.03)], confirm=True
-   )
-   ...
-   wa.renew_lease(grant.id)        # False: the lease has lapsed, stop
+and, between write calls, renews its lease:
+
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: renew begins
+   :end-before: # docs: renew ends
+   :dedent: 4
 
 One write call is one step, a batch included, and the step is spent before
 anything is put: a batch with an unlisted channel or a value out of range

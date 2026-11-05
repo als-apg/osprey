@@ -117,16 +117,16 @@ A write is **confirmed** when the channel it wrote now holds the value that was
 sent. The connector establishes that itself: it re-reads the channel once the
 control system has accepted the put, and reports what it found as a single word
 on :class:`~osprey_connectors.control_system.ChannelWriteResult`, which every
-``write_channel()`` call returns.
+``write_channel()`` call returns; ``write_multiple_channels()`` returns one per
+operation. The program in :ref:`how-to-write-from-a-program` reads it after a
+batch, with :class:`~osprey_connectors.control_system.WriteOutcome` imported
+from ``osprey_connectors.control_system``:
 
-.. code-block:: python
-
-   from osprey_connectors.control_system import WriteOutcome
-
-   result = await connector.write_channel("BEAM:CURRENT", 100.0)
-
-   if result.outcome is WriteOutcome.CONFIRMED:
-       print("the channel now holds the value that was sent")
+.. literalinclude:: ../../how-to/control-systems/examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: outcome begins
+   :end-before: # docs: outcome ends
+   :dedent: 4
 
 Every write ends in exactly one of six outcomes:
 

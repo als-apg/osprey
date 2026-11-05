@@ -1,0 +1,3 @@
+WRITES_DISABLED
+Write to 'DEMO:SETPOINT' blocked: Writes are refused because this login's write tier does not allow them; ask the deployment admin.
+[osprey-refusal: tier_never]
