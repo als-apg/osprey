@@ -26,11 +26,12 @@
  *
  * TWO SURFACES, ONE VERB SET
  * --------------------------
- * A panel's sidebar row and its tile header offer identical rows, built by the
- * same {@link buildServiceMenuItems} / {@link buildTerminalMenuItems}, so the
- * two can never drift apart. They differ in exactly one place, deliberately:
- * the sidebar applies an enabled gate (see openRailContextMenu) and the tile
- * header does not. A module that owns a panel's content can add rows to both
+ * A service panel's sidebar row and its tile header offer identical rows,
+ * built by the same {@link buildServiceMenuItems}, so the two can never drift
+ * apart. They differ in exactly one place, deliberately: the sidebar applies
+ * an enabled gate (see openRailContextMenu) and the tile header does not. The
+ * Agent is the exception: its sidebar row heads the session tree and gets the
+ * tree's menu, its tile header the pane verbs ({@link buildTerminalMenuItems}). A module that owns a panel's content can add rows to both
  * through {@link setServiceMenuExtras}.
  *
  * DECLINE BY EMPTY LIST
@@ -52,7 +53,7 @@ import {
 } from './dock-workspace.js';
 import { isTerminalSurface } from './agent-surface.js';
 import { focusTerminal, restartTerminal, startTerminal } from './terminal.js';
-import { startNewSession } from './sessions.js';
+import { buildAgentRowMenuItems, initTreeMenus } from './sidebar-artifact-menus.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
 import { getEntry, entryIds } from './panel-rail.js';
 import { showUndoNotice } from './undo-notice.js';
@@ -91,6 +92,8 @@ let deps = null;
  */
 export function initMenuPolicy(menuPolicyDeps) {
   deps = menuPolicyDeps;
+  // The session tree's rows open their menus (sidebar-artifact-menus.js).
+  initTreeMenus();
 }
 
 /**
@@ -256,8 +259,7 @@ function isFailed(id) {
 }
 
 // Tooltip suffix advertising the context menu on every service row. The
-// Agent row gets none: its verb set changes with the surface showing (see
-// buildTerminalMenuItems), so one fixed promise would misinform one of them.
+// Agent row gets none: it is the session tree's head, not a panel row.
 export const RAIL_MENU_HINT = 'right-click for actions';
 
 /**
@@ -279,6 +281,18 @@ export function openRailContextMenu(id, x, y) {
   const entry = getEntry(ctx().getRailEl(), id);
   if (!entry || entry.classList.contains('disabled') || entry.classList.contains('failed')) {
     return false;
+  }
+  // The Agent row heads the session tree, so its menu is the tree's (New
+  // session, Expand/Collapse all), not the Agent tile header's pane verbs.
+  if (id === TERMINAL_RAIL_ID) {
+    openContextMenu({
+      x,
+      y,
+      anchorEl: entry,
+      ariaLabel: `${TERMINAL_RAIL_LABEL} actions`,
+      items: buildAgentRowMenuItems(),
+    });
+    return true;
   }
   // The row is the anchor: it scopes the menu's scroll dismissal, so the menu
   // survives a panel scrolling its own content underneath it.
@@ -446,12 +460,14 @@ function moveToNewGroup(id) {
 }
 
 /**
- * The Agent pane's menu rows — the Agent row and the pane's tile header,
- * which share one verb set.
+ * The Agent tile header's menu rows: Restart terminal, Reset layout, Close
+ * Agent pane. The Agent row in the sidebar heads the session tree and has
+ * its own menu (buildAgentRowMenuItems, sidebar-artifact-menus.js), which is
+ * where New session lives.
  *
- * In chat the tile hosts the operator console, so the two PTY verbs would act
- * on a surface the operator cannot see and are withheld (the palette never
- * offers them). The layout rows are the same on both surfaces.
+ * In chat the tile hosts the operator console, so the PTY verb would act on a
+ * surface the operator cannot see and is withheld (the palette never offers
+ * it). The layout rows are the same on both surfaces.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalMenuItems() {
@@ -469,12 +485,6 @@ export function buildTerminalMenuItems() {
       run: async () => {
         await restartTerminal();
         startTerminal();
-      },
-    },
-    {
-      label: 'New session',
-      run: () => {
-        startNewSession();
       },
     },
     { divider: true },
