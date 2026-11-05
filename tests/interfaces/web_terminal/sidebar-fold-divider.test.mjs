@@ -237,6 +237,33 @@ describe('the Workspace divider', () => {
     expect(stored(HEIGHT)).toBe(544);
   });
 
+  test('the cap does not move when a group folds, only the rail content does', async () => {
+    localStorage.setItem(HEIGHT, '428');
+    await boot();
+    const side = document.createElement('div');
+    side.className = 'sidebar';
+    const headEl = document.createElement('div');
+    const foot = document.createElement('div');
+    rail().before(side);
+    side.append(headEl, rail(), foot);
+    Object.defineProperty(side, 'clientHeight', { value: 800, configurable: true });
+    Object.defineProperty(headEl, 'offsetHeight', { value: 36, configurable: true });
+    Object.defineProperty(foot, 'offsetHeight', { value: 125, configurable: true });
+    // The rail is content-sized: shorter while Tools is folded.
+    Object.defineProperty(rail(), 'clientHeight', {
+      configurable: true,
+      get: () => (group('tools').hasAttribute('data-folded') ? 444 : 531),
+    });
+    const h = () => group('workspace').style.getPropertyValue('--sidebar-group-height');
+    document.dispatchEvent(new CustomEvent('osprey-collapsible-change'));
+    expect(h()).toBe('428px');
+    dbl(name('tools'));
+    expect(group('tools').hasAttribute('data-folded')).toBe(true);
+    expect(h()).toBe('428px');
+    dbl(name('tools'));
+    expect(h()).toBe('428px');
+  });
+
   test('a press without a move stores nothing', async () => {
     await boot();
     ptr('pointerdown', 100);
