@@ -730,7 +730,7 @@ pending:
     what: the build/ tree's top level equals what osprey init plus osprey build write
   - test: tests/docs/test_bundle_and_tree_examples.py
     pr: W6-5
-    pages: [how-to/deploy-project/compose-templates.rst, how-to/describe-your-facility.rst, how-to/deploy-project/project-image.rst]
+    pages: [how-to/deploy-project/compose-templates.rst, how-to/describe-your-facility.rst, how-to/deploy-project/project-image.rst, reference/configuration/profile.rst]
     languages: [text]
     kind: pins
     matches: '^(services/|data/facility/|my-facility/)'
