@@ -196,7 +196,8 @@ JSON object:
        :ref:`audit-trail-attribution`
    * - ``role``
      - The role the actor held, where the decision was bound to one: on
-       ``auth_sidecar`` the role the session was minted with, on the web
+       ``auth_sidecar`` the role the session was minted with, or the role a
+       refused login was for, where one is known; on the web
        surfaces the role the login service forwarded. Absent otherwise
    * - ``source``, ``source_truncated``
      - On ``executor`` only: the code a refused run tried to execute, and
@@ -570,19 +571,22 @@ manifest.
 **Two surfaces carry a payload:** ``executor`` and ``canopy``. Every other
 default record holds identifiers and config keys only --- a surface name, a
 username, a tool name, a dotted key, a short reason --- never a config value, a
-prompt, or an agent message. A record of a refused write that does not say what
-the write *was* is an alert, not an audit trail, so there are two exceptions:
+prompt, or an agent message. A record of a write that does not say what the
+write *was* is an alert, not an audit trail, so there are two exceptions:
 
 - **The Python executor.** A refused run records the code it refused, whole, in
   a ``source`` field (8000 characters, with ``source_truncated: true`` where a
   longer script was cut).
-- **A CANOPY panel write.** It records the value it sent, as the last two
-  ``detail`` tokens, ``value_len=<n> value=<text>``. The text is cut at 256
-  characters and written as a JSON string with no whitespace, so a value cannot
-  forge a token. A panel write is one click with no tool call behind it, so no
-  tool-call record holds the value.
+- **A CANOPY panel write.** Every record of a panel write --- the attempt,
+  its outcome, a refusal --- carries the value, as the last two ``detail``
+  tokens, ``value_len=<n> value=<text>``. ``value_len`` is the length of the
+  whole value. The text keeps at most 256 characters, fewer where the rest of
+  ``detail`` leaves less room, and is written as a JSON string with no
+  whitespace, so a value cannot forge a token. A panel write is one click with
+  no tool call behind it, so no tool-call record holds the value.
 
 What that means for anyone reading or forwarding the trail: ``executor``
 contains whatever the agent tried to run, including anything the conversation
-put into the script. Give it the same care as the code itself, and expect it to
-be the surface that grows.
+put into the script, and ``canopy`` contains every value a person sent to the
+machine from a panel. Give both the same care as the code and the setpoints
+themselves, and expect ``executor`` to be the surface that grows.

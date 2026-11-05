@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import re
+import sys
 from functools import cache
 from pathlib import Path
 
@@ -141,8 +142,25 @@ _SURFACE_NAME = re.compile(r"(?:^|_)SURFACE(?:_|$)")
 
 
 def _surface_constants(tree: ast.Module) -> set[str]:
-    """String values of module-level ``*SURFACE*`` constants in *tree*."""
+    """The surface names *tree* declares as literals.
+
+    Module-level ``*SURFACE*`` constants, and any string literal passed as a
+    ``surface=`` keyword or stored under a ``"surface"`` dict key.
+    """
     found = set()
+    for node in ast.walk(tree):
+        values: list[ast.expr] = []
+        if isinstance(node, ast.Call):
+            values = [kw.value for kw in node.keywords if kw.arg == "surface"]
+        elif isinstance(node, ast.Dict):
+            values = [
+                v
+                for k, v in zip(node.keys, node.values, strict=True)
+                if isinstance(k, ast.Constant) and k.value == "surface"
+            ]
+        found |= {
+            v.value for v in values if isinstance(v, ast.Constant) and isinstance(v.value, str)
+        }
     for node in tree.body:
         targets: list[ast.expr] = []
         if isinstance(node, ast.Assign):
@@ -212,6 +230,8 @@ _NOT_AUDIT_SURFACES: dict[str, str] = {
     "notebook": "code_review.contract: the kind of code a review reads",
     "python_executor": "target_eligibility: the client an in-flight marker names",
     "write_switch": "osprey_connectors.write_authorization: who approved a write, not a surface",
+    "chip": "write_authorization.approve_request: where a person approved a write",
+    "cli": "write_authorization.approve_request: where a person approved a write",
     "hook_": "osprey_hook_log.AUDIT_SURFACE_PREFIX: the prefix the hook surfaces are built from",
 }
 
@@ -242,17 +262,80 @@ def test_every_audit_surface_constant_is_on_the_page() -> None:
     assert not stale, f"_NOT_AUDIT_SURFACES entries no constant declares: {sorted(stale)}"
 
 
-def test_a_surface_constant_off_the_page_is_caught() -> None:
-    planted = ast.parse('SURFACE_PLANTED = "planted_surface"\nOTHER = "x"\n')
-    assert _surface_constants(planted) == {"planted_surface"}
-    assert "planted_surface" not in _page_surfaces()
-    assert "planted_surface" not in _string_literals()
+def test_a_surface_declared_in_code_is_read_however_it_is_spelled() -> None:
+    planted = ast.parse(
+        'SURFACE_PLANTED = "a"\nOTHER = "x"\nrecord(surface="b")\nrow = {"surface": "c"}\n'
+    )
+    assert _surface_constants(planted) == {"a", "b", "c"}
 
 
-def test_a_planted_hook_name_composes_a_surface_the_page_lacks() -> None:
+def test_a_planted_hook_name_composes_its_surface() -> None:
     planted = ast.parse('_HOOK = "no-such-hook"\nemit_audit(_HOOK, {}, "refused", "s", "r")\n')
     assert {hook_log.audit_surface(n) for n in _hook_names(planted)} == {"hook_no_such_hook"}
-    assert "hook_no_such_hook" not in _page_surfaces()
+
+
+# --- negative controls: the real checks, run against a planted copy of the page ---------------
+
+
+@pytest.fixture
+def planted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Point the page readers at a copy of the page with *old* replaced by *new*."""
+
+    def plant(old: str, new: str) -> None:
+        text = _PAGE.read_text(encoding="utf-8")
+        assert text.count(old) == 1, old
+        copy = tmp_path / "audit-trail.rst"
+        copy.write_text(text.replace(old, new), encoding="utf-8")
+        monkeypatch.setattr(sys.modules[__name__], "_PAGE", copy)
+
+    return plant
+
+
+_SURFACE_ROW = "   * - ``jupyter_lab``\n"
+
+
+def test_a_planted_surface_is_reported(planted) -> None:
+    planted(_SURFACE_ROW, "   * - ``planted_surface``\n     - Planted\n" + _SURFACE_ROW)
+    assert "planted_surface" in _page_surfaces()
+    with pytest.raises(AssertionError, match="planted_surface"):
+        test_each_surface_the_page_names_is_a_literal_in_the_code("planted_surface")
+
+
+def test_a_dropped_surface_is_reported(planted) -> None:
+    planted("   * - ``canopy``\n", "   * - ``canopy_renamed``\n")
+    with pytest.raises(AssertionError, match="canopy"):
+        test_every_audit_surface_constant_is_on_the_page()
+
+
+def test_a_planted_hook_surface_is_reported(planted) -> None:
+    planted("``hook_limits``, ``hook_memory_guard``", "``hook_limits``, ``hook_planted``")
+    with pytest.raises(AssertionError):
+        test_the_hook_surfaces_are_the_ones_the_hooks_compose()
+
+
+def test_a_planted_field_is_reported(planted) -> None:
+    planted(
+        "   * - ``surface``\n     - Which layer decided\n",
+        "   * - ``surface``\n     - Which layer decided\n"
+        "   * - ``planted_field``\n     - Planted\n",
+    )
+    with pytest.raises(AssertionError):
+        test_the_record_table_is_the_envelope_fields()
+
+
+def test_a_planted_reason_is_reported(planted) -> None:
+    planted(
+        "   * - ``unverified_email``\n",
+        "   * - ``planted_reason``\n     - Planted\n   * - ``unverified_email``\n",
+    )
+    with pytest.raises(AssertionError):
+        test_each_principal_refusal_reason_is_the_sidecars()
+
+
+def test_a_planted_tool_call_key_is_reported(planted) -> None:
+    planted("   * - ``duration_ms``\n", "   * - ``duration_ms``, ``planted_key``\n")
+    with pytest.raises(AssertionError):
+        test_the_tool_call_table_is_the_built_record()
 
 
 # --- the record ------------------------------------------------------------------------------
@@ -261,12 +344,6 @@ def test_a_planted_hook_name_composes_a_surface_the_page_lacks() -> None:
 def test_the_record_table_is_the_envelope_fields() -> None:
     fields = {f.name for f in dataclasses.fields(envelope.AuditEnvelope)}
     assert set(_record_rows()) == fields
-
-
-def test_a_planted_field_is_not_an_envelope_field() -> None:
-    fields = {f.name for f in dataclasses.fields(envelope.AuditEnvelope)}
-    assert "planted_field" not in fields
-    assert set(_record_rows()) | {"planted_field"} != fields
 
 
 def test_the_posture_words_are_the_two_postures() -> None:
@@ -297,7 +374,7 @@ def test_the_watchdog_decision_words_are_the_watchdogs() -> None:
 def test_the_payload_bounds_are_the_envelopes() -> None:
     page = _flat(_section("What the trail is not"))
     assert f"({envelope.MAX_SOURCE_CHARS} characters" in page
-    assert f"cut at {envelope.SESSION_VALUE_CHARS} characters" in page
+    assert f"keeps at most {envelope.SESSION_VALUE_CHARS} characters" in page
     tokens = " ".join(f"{token}=" for token in envelope.SESSION_VALUE_TOKENS)
     assert tokens.replace("= ", "=<n> ") + "<text>" in page
     assert envelope.SURFACE_EXECUTOR == "executor"
@@ -352,7 +429,6 @@ def test_each_principal_refusal_reason_is_the_sidecars() -> None:
         "unsafe_asserted_identity",
     }
     assert on_page <= _sidecar_reasons()
-    assert "planted_reason" not in _sidecar_reasons()
 
 
 @pytest.mark.parametrize("reason", ["bad_credential", "credential_unevaluable", "no_card"])
@@ -402,6 +478,7 @@ def test_the_approval_keys_are_the_middlewares() -> None:
         if isinstance(node, ast.Dict)
         and any(isinstance(k, ast.Constant) and k.value == "outcome" for k in node.keys)
     ]
-    assert stamps == [{"outcome", "approver", "permission_mode", "position"}]
     cell = _tool_call_rows()["approval"]
-    assert all(f'"{key}"' in cell for key in stamps[0])
+    on_page = set(re.findall(r'"(\w+)"', cell)) - {"approved"}
+    assert "outcome" in on_page
+    assert any(on_page == keys for keys in stamps), (on_page, stamps)
