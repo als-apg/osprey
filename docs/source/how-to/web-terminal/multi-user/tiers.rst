@@ -128,8 +128,9 @@ read-only tier.
 
    The same table, as the rendered projects spell it. The single-user column
    is the one worth knowing: a plain
-   ``osprey init control-assistant --preset control-assistant`` render is readwrite at the machine and floored at the deployment — no
-   Config tab, no gallery writes. It opens on the simulator with every switch
+   ``osprey init control-assistant --preset control-assistant`` render is
+   readwrite at the machine and floored at the deployment — no Config tab, no
+   gallery writes. It opens on the simulator with every switch
    off. Admin in a single-user deployment means editing ``profile.yml`` and
    rebuilding.
 

@@ -76,9 +76,8 @@ Configuration
 Those four keys are the whole schema for a host that can reach the internet;
 ``models_dir`` covers one that cannot (see `Build the image without internet
 access`_), and ``corpora`` adds corpora of your own (see `Add a corpus`_).
-Notably
-**there is no ``bind_address`` here** --- see `Where the sidecar listens`_
-below.
+Notably **there is no ``bind_address`` here** --- see `Where the sidecar
+listens`_ below.
 
 ``interval`` is a ceiling on staleness, not the usual lag: a corpus writer
 touches a ``.qmd-touch`` marker file and the sidecar re-indexes within one poll.

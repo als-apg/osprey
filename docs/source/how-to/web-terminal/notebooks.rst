@@ -82,8 +82,8 @@ A kernel has no control-system identity of its own, and it follows no chat
 session. Cells read and write through the deployment's current control target
 and write posture, the same ones the control-target chip in the sidebar shows
 and the agent uses. The *write posture* is the position of the write switch on
-that chip: writes asked, allowed or off (see
-:ref:`web-terminal-session-posture`).
+that chip, for example writes asked, allowed or off (see
+:ref:`web-terminal-session-posture` for every state the chip shows).
 
 The kernel re-reads that before **every cell**, so a switch made anywhere, by
 anyone, reaches the next cell you run. A cell can read back what it was routed

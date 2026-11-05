@@ -17,8 +17,9 @@ channel the sender picks. Facility staff read those records back with
 Choose a channel
 ----------------
 
-Pick **Local** in a control room: it keeps the report on this deployment, and
-it is the only channel that works with outbound access blocked.
+Pick **Local** when the report is for this deployment's operators (the usual
+case in a control room). It keeps the report on this deployment, and it is the
+only channel that works with outbound access blocked.
 
 **Local** and **Email** are always offered. Between them sits one channel per
 issue tracker the facility configured (a GitHub repository or a GitLab
@@ -80,10 +81,19 @@ leaves the page — the same list as this section.
 - the sender's username, when the deployment knows it (in a single-user or
   development setup this falls back to the account the server runs under).
 
-**Deployment metadata** — the checkbox is **on** by default. It adds the OSPREY
-version, the application name, and the sender's browser, and that is all it
-governs: turning it off does not remove the text, the timestamp, or the
-username, which travel either way.
+**Deployment metadata** — the checkbox is **on** by default. It adds:
+
+- the OSPREY version,
+- the preset the deployment was built from, with a short prefix of its hash,
+- the channel-finder mode,
+- the application name,
+- the sender's browser,
+- an *escalate to OSPREY* link, when the deployment has one configured: a
+  prefilled upstream issue that carries the deployment's identity and none of
+  the report's text, for a maintainer who forwards a framework bug.
+
+Turning it off does not remove the text, the timestamp, or the username, which
+travel either way.
 
 **Session context** — the checkbox is **off** by default, and is greyed out with
 "no session yet" when there is no live session to attach. It adds:
@@ -104,9 +114,9 @@ different tab during the same minutes can be listed. Only its title and id
 appear — never its contents — but a sender attaching context to a **public**
 issue should know that the list is not strictly their own work.
 
-Session context has a size budget. When a session is over it, the oldest part
-is dropped first, so a long session is attached in part, with its most recent
-activity kept. The outbound copy (the clipboard payload behind a GitHub issue
+Session context has a size budget. When a session is over it, the oldest
+content within each part is dropped first, so a long session is attached in
+part, with its most recent activity kept. The outbound copy (the clipboard payload behind a GitHub issue
 or a mail draft) is trimmed harder than the record kept on the deployment,
 which holds a much larger version.
 Where the session had no readable transcript, the dialog says so and the
@@ -170,9 +180,8 @@ person's workspace volume and reads a fixed path inside it. With a
 feedback has been sent. Nothing detects that case, so do not read an empty
 listing as proof that nobody has written in.
 
-The single-user
-reader resolves the store through that key, so relocating it relocates the
-store and the reader together, and it refuses a ``~``-relative value loudly
+The single-user reader resolves the store through that key, so relocating it
+relocates the store and the reader together, and it refuses a ``~``-relative value loudly
 with that explanation.
 
 .. dropdown:: Where the records live

@@ -1,1 +1,0 @@
-Readability pass on the Web Terminal landing page and the notebooks, send-feedback and privilege-tier pages, and on the ARIEL search-sidecar page: task-first intros, defined terms, a numbered switch-off procedure, task headings, and implementation detail moved into dropdowns. No change of technical meaning.
