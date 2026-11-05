@@ -67,7 +67,7 @@ proposes a write, you see the target channel and value. You must approve it
 before anything reaches hardware, unless you set that machine's write switch to
 *allowed*.
 
-Every write passes three guards, one hook each, in this order:
+A channel write passes three guards, one hook each, in this order:
 
 #. **Who may write.** The hook asks for the **write verdict**: the runtime's
    yes or no on this write to this machine. The verdict refuses the write, with
@@ -81,9 +81,6 @@ Every write passes three guards, one hook each, in this order:
    ranges and read-only flags.
 #. **Approval.** A write that passes both checks still waits for your yes or
    no, unless the switch is at *allowed*.
-
-If either of the first two checks fails, the write is blocked before you are
-ever asked.
 
 The runtime enforces these checks in a layer that the agent's tool calls pass
 through. They run whether or not the agent cooperates. The agent holds no

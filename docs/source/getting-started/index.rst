@@ -2,8 +2,8 @@ Getting Started
 ===============
 
 These pages take you from a fresh machine to a working agent on a simulated
-accelerator, and then to a production-style deployment. Follow the four steps
-in order. Each one ends with something you can run.
+accelerator, and then to a production-style deployment. Follow steps 1 to 3
+in order; each one ends with something you can run. Step 4 is optional reading.
 
 **Before you start:** you need a terminal and a text editor.
 :doc:`installation` covers everything else, in order: Node.js, Claude Code,
