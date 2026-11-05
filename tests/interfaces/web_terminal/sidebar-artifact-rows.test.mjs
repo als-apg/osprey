@@ -555,7 +555,7 @@ describe('Activity mode', () => {
     expect(bands).not.toContain('Earlier');
   });
 
-  const bandsOf = (list) =>
+  const bandsOf = (/** @type {any[]} */ list) =>
     rows
       .activityRows(list, { shownId: null, openRuns: new Set() })
       .filter((n) => n instanceof HTMLElement && n.classList.contains('osprey-tree-day'))
