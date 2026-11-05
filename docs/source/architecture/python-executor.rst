@@ -60,9 +60,9 @@ between:
 
 .. code-block:: yaml
 
-   # config.yml
-   execution:
-     execution_method: subprocess
+   # profile.yml
+   config:
+     execution.execution_method: subprocess
 
 ``subprocess`` is the default and the key can be left out entirely. Two other
 spellings load: ``local`` is an alias for this same backend and is accepted
@@ -193,8 +193,9 @@ Ten safety layers are applied in sequence:
 
 .. code-block:: yaml
 
-   python_executor:
-     execution_timeout_seconds: 300
+   # profile.yml
+   config:
+     python_executor.execution_timeout_seconds: 300
 
 .. _python-executor-write-surface:
 
