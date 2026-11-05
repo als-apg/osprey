@@ -295,7 +295,7 @@ PORT_BASE = 23000
 
 #: The two gateway ports this lane drives from the host, derived the same way
 #: the render derives them: nginx at the base and the auth sidecar one above it.
-#: The per-user families (``web``, ``artifact``, ``ariel``, ``lattice``,
+#: The per-user families (``web``, ``artifact``, ``ariel``,
 #: ``channel_finder``) are NOT listed — nothing here reaches them directly, and
 #: the render places them off the same base.
 HOST_PORTS = {slot: default_port(slot, base=PORT_BASE) for slot in ("nginx", "auth")}

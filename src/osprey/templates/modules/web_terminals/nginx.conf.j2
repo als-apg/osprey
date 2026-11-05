@@ -19,7 +19,7 @@
     services: list[dict], required (may be empty)
       Same list docker-compose.web.yml.j2 consumes. Only `user`, `web`,
       `terminal_secret_env` and `session_cookie` are read here
-      — the artifact/ariel/lattice families get no nginx route of
+      — the artifact/ariel/okf families get no nginx route of
       their own: once a browser is on a user's own `/u/<user>/` origin, the
       per-user app reverse-proxies its own panels (routes/proxy.py) to those
       three families internally, so nginx never needs to know about them.

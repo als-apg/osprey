@@ -44,10 +44,10 @@ hook spends nothing when nothing moved.
 **Silence is the default.**  The hook writes to stdout only when the workspace
 genuinely differs from the snapshot, and then only one line naming what moved::
 
-    Workspace changed: lattice tab moved to [bluesky, lattice (showing)]; active now lattice.
+    Workspace changed: okf tab moved to [bluesky, okf (showing)]; active now okf.
 
 Tiles are compared tab by tab, the terminal included: a whole tile opened or
-closed (``bluesky tile opened``, ``lattice tile closed``), a tab opened into or
+closed (``bluesky tile opened``, ``okf tile closed``), a tab opened into or
 closed out of a tile that remains (``bluesky tab opened in [...]``, ``ariel tab
 closed``), a tab moved to another tile or a new one (``... moved to a new
 tile``), a tile now showing another of its tabs (``artifacts tab now
@@ -88,11 +88,11 @@ Reads and rewrites the file seeded by ``osprey_panels_context.py``::
     {
       "tiles": [                                   # on-screen, reading order;
         {"tile": "t1", "tabs": ["terminal"], "showing": "terminal"},
-        {"tile": "t2", "tabs": ["lattice", "artifacts"], "showing": "artifacts"}
+        {"tile": "t2", "tabs": ["okf", "artifacts"], "showing": "artifacts"}
       ] | null,                                    # null = occupancy UNKNOWN
       "popouts": ["ariel"],                        # panels in their own windows
       "active":  "artifacts" | null,               # active tab id
-      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
+      "visible": ["okf", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
 The schema is documented in full in the sibling hook, which owns it.  Both hooks

@@ -35,7 +35,7 @@ Themes come in **families**. OSPREY ships four:
 In the terminal, click **☰ More** at the bottom of the sidebar. It holds the
 light/dark switch and the theme family picker, as pictured below. Every
 panel opened as its own page (the Logbook, the workspace, Channel Finder, the
-lattice dashboard, the knowledge panel) has a sliders button in its own
+the knowledge panel) has a sliders button in its own
 header. It opens the display menu, which has the same display controls.
 
 A pick made on any of those pages is remembered by your browser and becomes

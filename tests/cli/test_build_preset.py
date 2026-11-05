@@ -1293,13 +1293,13 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
         "hooks: [memory-guard, writes-check, approval]\n"
-        "web_panels: [okf, lattice, grafana]\n"
-        "config:\n" + _POSTURE_FLOOR + "  web.panels.lattice.label: LATTICE\n"
+        "web_panels: [okf, system-health, grafana]\n"
+        "config:\n" + _POSTURE_FLOOR + "  web.panels.system-health.label: SYSTEM\n"
         "  web.panels.grafana.label: GRAFANA\n"
         "  web.panels.grafana.url: http://grafana.local:3000\n"
     )
     (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
-        "name: Narrow\nexclude:\n  web_panels:\n    - lattice\n    - grafana\n"
+        "name: Narrow\nexclude:\n  web_panels:\n    - system-health\n    - grafana\n"
     )
 
     result = _render_from(str(root / "profile.yml"))
@@ -1308,7 +1308,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
     narrow = _config_yaml(_render_project(root, "narrow"))["web"]["panels"]
     # The inherited facts are still there — a render cannot subtract config —
     # and each block now says it is not a tab of this render.
-    assert narrow["lattice"] == {"label": "LATTICE", "enabled": False}
+    assert narrow["system-health"] == {"label": "SYSTEM", "enabled": False}
     assert narrow["grafana"]["url"] == "http://grafana.local:3000"
     assert narrow["grafana"]["enabled"] is False
     assert narrow["okf"]["enabled"] is True
@@ -1322,7 +1322,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
 
     # Control: the deployment's own render, from the same build, shows all three.
     wide = _config_yaml(root / "build")["web"]["panels"]
-    assert wide["lattice"]["enabled"] is True
+    assert wide["system-health"]["enabled"] is True
     assert wide["grafana"]["enabled"] is True
     assert wide["okf"]["enabled"] is True
 

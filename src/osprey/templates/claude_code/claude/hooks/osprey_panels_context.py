@@ -43,7 +43,7 @@ Injects three independent pieces of session context as ``additionalContext``:
    ``list_panels`` tool round-trip.
 3. **Open tiles** — every tile on screen in spatial reading order, with its
    tabs and the tab it is showing, the terminal included, e.g.
-   ``Open tiles: [terminal], [lattice, artifacts (showing)]; active artifacts.``
+   ``Open tiles: [terminal], [okf, artifacts (showing)]; active artifacts.``
    Tiles are reported by the browser, so the line is omitted entirely whenever
    occupancy is *unknown* rather than empty (see below) — an unobserved
    workspace is never described as an empty one.
@@ -71,11 +71,11 @@ with these keys::
     {
       "tiles": [                                   # on-screen, reading order;
         {"tile": "t1", "tabs": ["terminal"], "showing": "terminal"},
-        {"tile": "t2", "tabs": ["lattice", "artifacts"], "showing": "artifacts"}
+        {"tile": "t2", "tabs": ["okf", "artifacts"], "showing": "artifacts"}
       ] | null,                                    # null = occupancy UNKNOWN
       "popouts": ["ariel"],                        # panels in their own windows
       "active":  "artifacts" | null,               # active tab id
-      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
+      "visible": ["okf", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
 ``tiles`` is the server's ``layout`` (the current dock client's dock layout tree)
@@ -347,7 +347,7 @@ def _build_tile_line(state):
     of several tabs, the one it shows — the terminal included — and the panels
     the operator moved into windows of their own::
 
-        Open tiles: [terminal], [lattice, artifacts (showing)]; pop-outs: ariel; active artifacts.
+        Open tiles: [terminal], [okf, artifacts (showing)]; pop-outs: ariel; active artifacts.
 
     Silence is the honest answer for an unreported workspace: the browser may
     not have connected yet, and "no tiles are open" would be a claim the server

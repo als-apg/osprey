@@ -228,7 +228,6 @@ WEB_PORTS = {
         "web",
         "artifact",
         "ariel",
-        "lattice",
         "channel_finder",
         "okf",
         "system_health",

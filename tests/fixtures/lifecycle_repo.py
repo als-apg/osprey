@@ -276,7 +276,6 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
-  - lattice         # LATTICE tab, optics of the simulator's served models
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
@@ -1041,8 +1040,7 @@ config:
   # ── Web terminal ───────────────────────────────────────────────────────────
   # Every panel tab is served by its own small web server, configured under its
   # own section: WORKSPACE `artifact_server`, ARIEL `ariel.web`, CHANNELS
-  # `channel_finder.web`, LATTICE `lattice_dashboard`, KNOWLEDGE
-  # `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
+  # `channel_finder.web`, KNOWLEDGE `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
   # `deployment.port_base`; the panel's env var wins, then its `port` key.
   # Multi-user deployments export the env var per user. The reference guide's
   # ports page prints the table.
@@ -1071,12 +1069,6 @@ config:
   # Seed one shipped example (an interactive plot, synthetic data) into an
   # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
   artifact_server.example_artifact: true
-  # osprey:panel-port lattice_dashboard
-  # The LATTICE tab needs no section: with `lattice` in `web_panels:` it
-  # binds its slot. Uncomment only to move it or switch it off.
-  # lattice_dashboard.host: 127.0.0.1
-  # lattice_dashboard.port: <a port outside this deployment's block>
-  # lattice_dashboard.auto_launch: true
   # osprey:panel-port system_health
   # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.

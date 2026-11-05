@@ -647,11 +647,9 @@ def test_mode_6_full_set_documented_nowhere_goes_red(tmp_path):
     """
     root = copy_presets(tmp_path)
     reference = root / CONTROL_ASSISTANT
-    reference.write_text(
-        reference.read_text().replace("# osprey:panel-port lattice_dashboard", "#")
-    )
+    reference.write_text(reference.read_text().replace("# osprey:panel-port system_health", "#"))
     minimal = root / HELLO_WORLD
-    minimal.write_text(minimal.read_text() + "\n# osprey:panel-port lattice_dashboard\n")
+    minimal.write_text(minimal.read_text() + "\n# osprey:panel-port system_health\n")
 
     guard = make_guard(root=root)
     markers = guard.panel_port_markers()

@@ -1,6 +1,6 @@
 """Reverse proxy for companion panel servers running inside the container.
 
-Companion servers (artifact gallery, ARIEL, channel-finder, lattice, OKF) and
+Companion servers (artifact gallery, ARIEL, channel-finder, OKF) and
 the notebook sidecar bind to 127.0.0.1 inside the Docker container.  The browser cannot reach them
 directly, so this proxy forwards ``/panel/{panel_id}/{path}`` to the internal
 server and rewrites root-absolute paths in HTML/JS/CSS responses.

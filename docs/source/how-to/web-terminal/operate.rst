@@ -67,7 +67,7 @@ The window has a sidebar on the left and two panes:
   not the agent, which never lists or cites it. Delete it when you no longer
   want it; it does not come back. It is switched on by
   ``artifact_server.example_artifact`` in ``config.yml``. Your
-  control-system tools (Channel Finder, the Logbook, the lattice dashboard, and so
+  control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
   on) open here too. See :doc:`panels`.
 
 The settings drawer (**☰ More** › **Settings**) lets you read and edit the

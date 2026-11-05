@@ -2963,8 +2963,6 @@ keys:
   web.panels.artifacts.enabled: {covered-by: web.panels.artifacts, default: derived, default_note: "the artifacts panel's registry default; a panel absent from the block is off"}
   web.panels.jupyter: {covered-by: web.panels, default: n/a}
   web.panels.jupyter.enabled: {covered-by: web.panels.jupyter, default: derived, default_note: "the jupyter panel's registry default; a panel absent from the block is off"}
-  web.panels.lattice: {covered-by: web.panels, default: n/a}
-  web.panels.lattice.enabled: {covered-by: web.panels.lattice, default: derived, default_note: "the lattice panel's registry default; a panel absent from the block is off"}
   web.panels.okf: {covered-by: web.panels, default: n/a}
   web.panels.okf.enabled: {covered-by: web.panels.okf, default: derived, default_note: "the okf panel's registry default; a panel absent from the block is off"}
   web.panels.system-health: {covered-by: web.panels, default: n/a}
@@ -3499,6 +3497,15 @@ deleted:
   # `web.terminal`, and warns about `web.ui_mode` and drops it.
 - web.ui_mode
 - web.expert_view
+  # The LATTICE panel and the dashboard server behind it. The profile parser
+  # warns about `lattice` in `web_panels:`, `web.panels.lattice` and a
+  # `lattice_dashboard` section, and drops each.
+- web.panels.lattice
+- web.panels.lattice.enabled
+- lattice_dashboard
+- lattice_dashboard.host
+- lattice_dashboard.port
+- lattice_dashboard.auto_launch
   # The ClickHouse store and the Collector gateway that fed it. The agent
   # record is the one store, stated in the top-level `agent_record:` block; the
   # profile parser refuses each of these keys with that replacement.
@@ -4180,7 +4187,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 368
+  expected_union_size: 366
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

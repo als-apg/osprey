@@ -149,7 +149,6 @@ describe('the sidecar panels come from the page', () => {
       'artifacts',
       'ariel',
       'channel-finder',
-      'lattice',
       'jupyter',
       'canopy',
       'okf',
@@ -197,7 +196,7 @@ describe('the sidecar panels come from the page', () => {
     const { PANELS } = await freshCatalog();
 
     expect(PANELS.find((p) => p.id === 'screens')?.label).toBe('Screens');
-    expect(PANELS).toHaveLength(7);
+    expect(PANELS).toHaveLength(6);
   });
 
   test.each([
@@ -216,7 +215,6 @@ describe('the sidecar panels come from the page', () => {
       'artifacts',
       'ariel',
       'channel-finder',
-      'lattice',
       'okf',
       'system-health',
     ]);

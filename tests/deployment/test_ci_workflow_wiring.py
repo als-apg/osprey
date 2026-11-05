@@ -4345,15 +4345,13 @@ def test_the_browser_lane_runs_unconditionally__mutation_gates_an_install_on_the
 
 COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
 HISTORY_BROWSER_TEST_FILE = "tests/interfaces/history/test_history_page_browser.py"
-LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
 
 #: The browser suites (h) and its siblings each pin by name: the login flow, the
-#: channel combobox, the history page and the lattice dashboard.
+#: channel combobox and the history page.
 _NAMED_BROWSER_TEST_FILES = [
     AUTH_BROWSER_TEST_FILE,
     COMBOBOX_BROWSER_TEST_FILE,
     HISTORY_BROWSER_TEST_FILE,
-    LATTICE_BROWSER_TEST_FILE,
 ]
 
 

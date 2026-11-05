@@ -685,7 +685,7 @@ other than a list is refused.
 
 An excluded ``web_panels`` entry renders no tab, whatever the render still
 inherits about that panel under ``config:``. ``exclude:`` takes entries out of
-lists, never scalars — a ``web.panels.lattice.label`` or a custom panel's
+lists, never scalars — a ``web.panels.okf.label`` or a custom panel's
 ``web.panels.<id>.url`` the base profile set is still in the render —
 but ``web_panels`` is what shows a tab: the build writes ``enabled`` onto every
 ``web.panels.<id>`` block a render carries, ``true`` for a selected panel and

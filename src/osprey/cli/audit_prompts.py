@@ -46,8 +46,7 @@ auto-allowed.
 layout verbs (`open_panel`, `open_panel_set`, `drop_panel`, `close_panel_tab`, \
 `close_panel_tile`, `arrange_workspace` -- which lays out the service tiles from \
 a preset or an exact layout and, under a `preset`, drops non-members from the \
-rail; none of them moves or closes the terminal) and the lattice dashboard's own \
-scratch state. `setup_patch` \
+rail; none of them moves or closes the terminal). `setup_patch` \
 requires approval, and so do the three tools whose whole effect is rail \
 membership: `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`.
 

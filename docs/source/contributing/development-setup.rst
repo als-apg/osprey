@@ -303,12 +303,10 @@ the exemplars below have worked examples):
 
 - Vitest unit, factory-with-injected-callbacks pattern:
   ``tests/interfaces/artifacts/preview.test.mjs``,
-  ``tests/interfaces/lattice_dashboard/render.test.mjs``,
   ``tests/interfaces/web_terminal/scaffold/detail.test.mjs``.
 - Interaction pin, proving a multi-module split still wires up end to end:
   ``tests/interfaces/artifacts/test_gallery_interactions.py``,
   ``tests/interfaces/web_terminal/test_scaffold_detail.py``,
-  ``tests/interfaces/lattice_dashboard/test_settings_form.py``,
   ``tests/interfaces/web_terminal/test_session_page.py``.
 - Contract + dual-mode chrome: ``tests/interfaces/web_terminal/test_contract_params.py``.
 - Visual baselines: ``tests/interfaces/design_system/test_visual.py``.

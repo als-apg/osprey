@@ -60,7 +60,6 @@ from tests.interfaces._launchers import (
     launch_ariel,
     launch_artifacts,
     launch_channel_finder,
-    launch_lattice_dashboard,
     launch_okf_panel,
     launch_web_terminal,
 )
@@ -399,14 +398,6 @@ _CHROME_CONTRACT_PANELS = [
         launch_channel_finder,
         "",
         ".app-logo",
-        "osprey-display-menu",
-        _toggle_via_display_menu,
-    ),
-    (
-        "lattice_dashboard",
-        launch_lattice_dashboard,
-        "",
-        ".topbar-logo",
         "osprey-display-menu",
         _toggle_via_display_menu,
     ),

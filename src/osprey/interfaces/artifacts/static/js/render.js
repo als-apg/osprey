@@ -13,8 +13,7 @@
  * Rendering needs two effects this module doesn't own — setting agent focus
  * and (re)rendering the preview pane / entering fullscreen, owned by
  * preview.js's preview renderer and wired through gallery.js — so
- * `createSidebarRenderer(callbacks)` injects them, mirroring
- * lattice_dashboard/render.js's createRenderer(callbacks) pattern.
+ * `createSidebarRenderer(callbacks)` injects them.
  *
  * @module render
  */

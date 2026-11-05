@@ -71,7 +71,6 @@ _ARTIFACTS = "osprey.interfaces.artifacts.app"
 _ARIEL_ROUTES = "osprey.interfaces.ariel.api.routes"
 _ARIEL_DRAFTS = "osprey.interfaces.ariel.api.drafts"
 _CF_REVIEW = "osprey.interfaces.channel_finder.pending_review_api"
-_LATTICE = "osprey.interfaces.lattice_dashboard.app"
 _TERMINAL_PANELS = "osprey.interfaces.web_terminal.routes.panels"
 _TERMINAL_PROXY = "osprey.interfaces.web_terminal.routes.proxy"
 _JUPYTER_FILES = "jupyter_server.files.handlers"
@@ -99,10 +98,7 @@ AGENT_CONTENT_ROUTES: tuple[AgentContentRoute, ...] = (
     AgentContentRoute(
         kind="event-stream",
         panel_id="artifacts",
-        routes=(
-            RouteRef(_ARTIFACTS, "/api/events"),
-            RouteRef(_LATTICE, "/api/events"),
-        ),
+        routes=(RouteRef(_ARTIFACTS, "/api/events"),),
         sample_path="/panel/artifacts/api/events",
         sandboxed_by=("artifact_sandbox", "panel_sandbox"),
     ),
@@ -157,7 +153,6 @@ SCANNED_PACKAGES: tuple[str, ...] = (
     "osprey.interfaces.artifacts",
     "osprey.interfaces.ariel",
     "osprey.interfaces.channel_finder",
-    "osprey.interfaces.lattice_dashboard",
     "osprey.interfaces.okf_panel",
     "osprey.interfaces.health",
 )

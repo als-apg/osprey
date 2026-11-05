@@ -104,18 +104,10 @@ def _make_error_response(error_type, message, suggestions=None):
             id="safety",
         ),
         pytest.param(
-            "mcp__osprey_workspace__lattice_load",
-            {"path": "broken.lat"},
-            "lattice_error",
-            "Lattice load failed: element MQUAD1 missing required field",
-            "Execution",
-            id="lattice",
-        ),
-        pytest.param(
-            "mcp__osprey_workspace__lattice_load",
-            {"path": "ring.lat"},
+            "mcp__osprey_workspace__create_static_plot",
+            {"title": "orbit"},
             "service_unavailable",
-            "pyAT service not reachable",
+            "artifact gallery not reachable",
             "Connection",
             id="service-unavailable",
         ),
@@ -471,8 +463,6 @@ EXPECTED_ERROR_CLASSES = {
     "manager_not_idle": "Validation",
     "queue_request_rejected": "Validation",
     "invalid_item": "Validation",
-    "figure_not_current": "Validation",
-    "figure_unavailable": "Validation",
     "review_blocked": "Validation",
     "stale_base": "Validation",
     "terminal_in_layout": "Validation",
@@ -494,7 +484,6 @@ EXPECTED_ERROR_CLASSES = {
     "nothing_answered": "Unanswered",
     # Execution
     "execution_error": "Execution",
-    "lattice_error": "Execution",
     "compilation_error": "Execution",
     # Safety
     "safety_error": "Safety",

@@ -65,7 +65,7 @@ from tests.deployment.web_terminals._nginx import (
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
 #: proxy_pass target asserted further down follows a slot that moves.
-_BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel", "lattice")}
+_BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel")}
 _NGINX_IMAGE = "nginx:1.31-alpine"
 
 #: The `tls.port` a rootless deployment names: above 1024, so an unprivileged

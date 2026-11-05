@@ -96,7 +96,6 @@ const PANEL_SYNONYMS = {
   ariel: 'logbook elog',
   'channel-finder': 'pv channels',
   artifacts: 'gallery files',
-  lattice: 'optics',
   okf: 'knowledge docs',
   'system-health': 'status monitoring',
   canopy: 'screens gui operator',

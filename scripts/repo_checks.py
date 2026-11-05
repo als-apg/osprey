@@ -329,8 +329,6 @@ _MACOS_RUNS = (
     "tests/integration/test_watchdog_non_operator.py::TestWatchedPrompts::test_positive_control_without_the_skip_stamp_a_verdict_is_recorded",
     "tests/integration/test_watchdog_non_operator.py::test_the_settle_wait_sees_a_lingering_child",
     "tests/integrations/canopy/test_sidecar.py",
-    "tests/interfaces/lattice_dashboard/test_compute_manager.py::TestRealChildren::test_a_relaunch_leaves_no_figure_error_and_the_new_result_lands",
-    "tests/interfaces/lattice_dashboard/test_compute_manager.py::test_app_shutdown_reaps_every_worker",
     "tests/interfaces/test_watchdog_e2e.py::test_a_stop_a_running_command_outlives_keeps_the_dialog_until_continue",
     "tests/interfaces/web_terminal/test_pty_manager.py::TestPtyChildWaits",
     "tests/interfaces/web_terminal/test_pty_manager.py::TestPtyRegistry",

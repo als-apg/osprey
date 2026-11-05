@@ -23,7 +23,6 @@ CONTRACT = [
     ("artifacts/static/css/gallery.css", "body.embedded .header"),
     ("ariel/static/css/layout.css", "body.embedded .header"),
     ("channel_finder/static/css/channel-finder.css", "body.embedded .app-header"),
-    ("lattice_dashboard/static/dashboard.css", "body.embedded #topbar"),
     ("health/static/dashboard.css", "body.embedded .hdr"),
     ("bluesky_web/panels/bluesky/panel.css", "body.embedded .panel-chrome"),
     # Theme controls (hub owns theming) are absent by design: every panel

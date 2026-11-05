@@ -30,7 +30,6 @@ from tests.interfaces._launchers import (
     launch_ariel,
     launch_artifacts,
     launch_channel_finder,
-    launch_lattice_dashboard,
     launch_okf_panel,
     launch_web_terminal,
 )
@@ -61,7 +60,6 @@ _ALLOWLISTS: dict[str, object] = {
     "ariel": None,
     "channel_finder": None,
     "channel_finder_graph": None,
-    "lattice_dashboard": None,
     "okf_panel": None,
     "web_terminal_session": None,
 }
@@ -77,7 +75,6 @@ INTERFACE_LAUNCHERS = [
     # launcher (shared with the visual lane) writes the graph config and
     # points the app's store seam at the demo corpus -- no database is dialled.
     ("channel_finder_graph", launch_graph_channel_finder),
-    ("lattice_dashboard", launch_lattice_dashboard),
     ("okf_panel", launch_okf_panel),
 ]
 

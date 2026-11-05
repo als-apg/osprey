@@ -2158,7 +2158,7 @@ class HttpAuditMiddleware:
     because they are the whole static-asset path.
 
     **Landing in every interface app is the point.** The terminal, ARIEL,
-    channel finder, health, artifacts and the lattice dashboard all call
+    channel finder, health and artifacts all call
     ``configure_interface_app``, so a mutation route added to any of them is
     audited the day it is written, without its author knowing this exists.
 

@@ -54,7 +54,6 @@ _CLEAN_CONFIG = {
             "web_base_port": default_port("web", 0, base=_OVERRIDE_PORT_BASE),
             "artifact_base_port": default_port("artifact", 0, base=_OVERRIDE_PORT_BASE),
             "ariel_base_port": default_port("ariel", 0, base=_OVERRIDE_PORT_BASE),
-            "lattice_base_port": default_port("lattice", 0, base=_OVERRIDE_PORT_BASE),
             "users": ["alice", "bob"],
             "default_tier": "assistant",
             "renders": {
@@ -350,7 +349,7 @@ def test_lint_missing_base_port_is_not_an_error() -> None:
     and must keep linting clean."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    for field in ("web_base_port", "artifact_base_port", "ariel_base_port", "lattice_base_port"):
+    for field in ("web_base_port", "artifact_base_port", "ariel_base_port"):
         del config["modules"]["web_terminals"][field]
 
     # Act

@@ -151,11 +151,6 @@ ERROR_CLASS_MAP = {
     "invalid_item": "Validation",
     # A page offset outside an earlier answer: the message names the range.
     "bad_offset": "Validation",
-    # A lattice figure that is not computed for the inputs on screen: the
-    # message names its status and the suggestion the step that fixes it.
-    "figure_not_current": "Validation",
-    # A lattice figure the selected model cannot draw: pick another figure.
-    "figure_unavailable": "Validation",
     # Panel-tool refusals the agent fixes by changing the request: re-read the
     # layout and retry with its rev, leave the terminal out of a layout, open
     # as tabs or give an exact layout, or leave a panel in its own window alone.
@@ -186,7 +181,6 @@ ERROR_CLASS_MAP = {
     "nothing_answered": "Unanswered",
     # ---- Execution: the user's own code (or document source) is wrong.
     "execution_error": "Execution",
-    "lattice_error": "Execution",
     "compilation_error": "Execution",
     # ---- Safety: a gate said no. Explain the constraint; never work around
     # it, never touch its configuration. Falling through to Internal used to

@@ -260,11 +260,14 @@ def test_panel_presets_nested_layout_with_weights_validates(tmp_path: Path) -> N
         "split": "row",
         "items": [
             {"tabs": ["artifacts", "ariel"], "showing": "ariel", "size": 2},
-            {"split": "column", "items": [{"tabs": ["okf"]}, {"tabs": ["lattice"], "size": 3}]},
+            {
+                "split": "column",
+                "items": [{"tabs": ["okf"]}, {"tabs": ["system-health"], "size": 3}],
+            },
         ],
     }
     profile = _profile(
-        name="x", web_panels=["ariel", "okf", "lattice"], panel_presets={"L": layout}
+        name="x", web_panels=["ariel", "okf", "system-health"], panel_presets={"L": layout}
     )
     profile.validate(tmp_path)  # must not raise
 

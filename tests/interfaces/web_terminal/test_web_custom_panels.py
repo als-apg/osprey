@@ -250,14 +250,14 @@ class TestLoadPanelConfig:
                 "web": {
                     "panels": {
                         "ariel": {"enabled": True},
-                        "lattice": {"enabled": True},
+                        "okf": {"enabled": True},
                     }
                 }
             },
         ):
             enabled, custom, _default = _load_panel_config()
         assert "ariel" in enabled
-        assert "lattice" in enabled
+        assert "okf" in enabled
         assert "channel-finder" not in enabled
         # Universal panels are always present
         assert UNIVERSAL_PANELS <= enabled
@@ -270,14 +270,14 @@ class TestLoadPanelConfig:
                 "web": {
                     "panels": {
                         "ariel": {"enabled": False},
-                        "lattice": {"enabled": True},
+                        "okf": {"enabled": True},
                     }
                 }
             },
         ):
             enabled, custom, _default = _load_panel_config()
         assert "ariel" not in enabled
-        assert "lattice" in enabled
+        assert "okf" in enabled
 
     def test_domain_panel_bare_true(self):
         """A bare `true` value (not dict) enables the panel."""

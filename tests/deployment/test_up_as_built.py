@@ -1008,7 +1008,6 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
                     "web_base_port": 8100,
                     "artifact_base_port": 8200,
                     "ariel_base_port": 8300,
-                    "lattice_base_port": 8400,
                     "users": ["alice"],
                     "default_tier": "assistant",
                     "renders": {"assistant": tier_render("assistant", "ex-assistant")},
@@ -1602,7 +1601,6 @@ def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):
                     "web_base_port": 8100,
                     "artifact_base_port": 8200,
                     "ariel_base_port": 8300,
-                    "lattice_base_port": 8400,
                     # Auth on, so the sidecar renders and is covered too.
                     # allow_insecure_http because password auth otherwise
                     # refuses to render without TLS, which is not what this

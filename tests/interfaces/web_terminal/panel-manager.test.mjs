@@ -1179,7 +1179,6 @@ const CONFIG_ENDPOINT = {
   artifacts: '/api/artifact-server',
   ariel: '/api/ariel-server',
   'channel-finder': '/api/channel-finder-server',
-  lattice: '/api/lattice-server',
   'system-health': '/api/system-health-server',
 };
 
@@ -3111,7 +3110,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     /** @type {HTMLElement | null} */ (document.querySelector('.undo-notice-btn'));
   const visibilityBodies = (/** @type {{url: string, opts: any}[]} */ calls) =>
     calls.filter((c) => c.url === '/api/panel-visibility').map((c) => JSON.parse(c.opts.body));
-  const PANELS3 = ['artifacts', 'ariel', 'lattice'];
+  const PANELS3 = ['artifacts', 'ariel', 'channel-finder'];
 
   afterEach(() => {
     document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
@@ -3119,13 +3118,13 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
 
   test('"Remove from rail" offers Undo, which re-adds the panel at its old position', async () => {
     const { calls, emit } = await bootWorkspace({ panels: PANELS3 });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder']);
 
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
     await settled(() => expect(notice()?.textContent).toContain('Logbook removed from the rail'));
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'channel-finder']);
 
     /** @type {HTMLElement} */ (undoButton()).click();
     // The position counts panel rows only — the Agent row is not one of them.
@@ -3134,7 +3133,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     );
     expect(notice()).toBeNull();
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 1 });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder']);
   });
 
   /** Press Delete on a focused row, as an operator removing it from the keyboard.
@@ -3186,38 +3185,41 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     const { emit } = await bootWorkspace({ panels: PANELS3 });
 
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false, source: 'agent' });
-    emit({ type: 'panel_visibility', panel: 'lattice', visible: false });
+    emit({ type: 'panel_visibility', panel: 'channel-finder', visible: false });
 
     expect(railIds()).toEqual(['terminal', 'artifacts']);
     expect(notice()).toBeNull();
   });
 
   test('an indexed addition lands at that position on every client; a member keeps its place', async () => {
-    const { emit } = await bootWorkspace({ panels: PANELS3, visible: ['artifacts', 'lattice'] });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
+    const { emit } = await bootWorkspace({
+      panels: PANELS3,
+      visible: ['artifacts', 'channel-finder'],
+    });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'channel-finder']);
 
-    // Index 1 among the panel rows: after artifacts, before lattice.
+    // Index 1 among the panel rows: after artifacts, before channel-finder.
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 1 });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder']);
 
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 2 });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder']);
 
     // Past the end clamps to the foot of the row's group.
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 9 });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice', 'ariel']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'channel-finder', 'ariel']);
 
     // An index naming a row of an earlier group lands at the head of the
     // row's own group: a row moves within its group only.
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 0 });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder']);
 
     // A Workspace panel comes back to its own group whatever the index.
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 9 });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder']);
   });
 
   test('Undo also reopens the tile the removal closed, and only that', async () => {
@@ -3233,18 +3235,22 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     await settled(() => expect(dockedTiles(api)).toContain('artifacts'));
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 0 });
 
-    // lattice held no tile, so its Undo restores the rail entry alone.
-    pressDelete('lattice');
+    // channel-finder held no tile, so its Undo restores the rail entry alone.
+    pressDelete('channel-finder');
     await settled(() => expect(undoButton()).not.toBeNull());
-    emit({ type: 'panel_visibility', panel: 'lattice', visible: false });
+    emit({ type: 'panel_visibility', panel: 'channel-finder', visible: false });
     /** @type {HTMLElement} */ (undoButton()).click();
     await settled(() =>
-      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'lattice', visible: true, index: 2 })
+      expect(visibilityBodies(calls).at(-1)).toEqual({
+        panel: 'channel-finder',
+        visible: true,
+        index: 2,
+      })
     );
-    emit({ type: 'panel_visibility', panel: 'lattice', visible: true, index: 2 });
+    emit({ type: 'panel_visibility', panel: 'channel-finder', visible: true, index: 2 });
     await new Promise((resolve) => setTimeout(resolve, 0)); // the Undo's tail has run
-    expect(railIds()).toContain('lattice');
-    expect(dockedTiles(api)).not.toContain('lattice');
+    expect(railIds()).toContain('channel-finder');
+    expect(dockedTiles(api)).not.toContain('channel-finder');
   });
 
   test('"Close Agent pane" offers Undo, which reopens the pane', async () => {
