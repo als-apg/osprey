@@ -818,3 +818,527 @@ button.osprey-search {
     animation: none;
   }
 }
+
+/* ---- Panel chrome (2026-11) ----
+   The panel-chrome standard (DESIGN.md §12): the panel toolbar, the text
+   segmented control, the search field, the status chip, the panel sidebar,
+   the centred state, the info popover and the content strip. Their
+   behaviour is in js/panel-sidebar.js, js/panel-state.js,
+   js/info-popover.js and js/content-strip.js. This section keeps its own
+   `[hidden]` list and reduced-motion block at its end. */
+
+/* Panel root: the size container named `panel` that the narrow rules query.
+   Mark the panel's wrapper element with `data-panel-root`, not <body>: a
+   size container is also the containing block of its fixed-position
+   children, and the shared popovers and the tooltip layer live at <body>
+   level. */
+[data-panel-root] {
+  container: panel / inline-size;
+}
+
+/* Panel toolbar: the panel's one 40 px row at its top, below the tile bar.
+   `__start` holds the sidebar toggle (always first) and the view switcher,
+   breadcrumb or context; `__end` holds the status chip, the search field,
+   the secondary actions and at most one primary button, at the far right.
+   It never wraps: `__start` gives up width first, and `__text` truncates. */
+.osprey-panel-toolbar {
+  height: var(--wt-pane-head-height);
+  flex: none;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--surface-hairline);
+}
+
+.osprey-panel-toolbar > *,
+.osprey-panel-toolbar__start > *,
+.osprey-panel-toolbar__end > * {
+  min-width: 0;
+}
+
+.osprey-panel-toolbar__start,
+.osprey-panel-toolbar__end {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.osprey-panel-toolbar__start {
+  flex: 0 1 auto;
+}
+
+.osprey-panel-toolbar__end {
+  flex: none;
+  margin-left: auto;
+}
+
+/* Plain context or status text in the toolbar: one line, truncated. */
+.osprey-panel-toolbar__text {
+  overflow: hidden;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Text segmented control: a view switcher or a filter, 28 px. The pressed
+   button (`aria-pressed="true"`) is the active one: the selected wash and an
+   outline, so the high-contrast themes see it too. Not `.osprey-mini-seg`,
+   which groups 20 px icon minis. */
+.osprey-seg {
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-hover);
+}
+
+.osprey-seg > button {
+  height: 24px;
+  margin: 0;
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.osprey-seg > button:hover {
+  background: var(--surface-press);
+  color: var(--text-primary);
+}
+
+.osprey-seg > button[aria-pressed="true"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+.osprey-seg > button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.osprey-seg > button:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Search field: 28 px, an icon('search') and an input with a placeholder,
+   in a <label> so a press anywhere in it focuses the input. When the panel
+   is 560 px wide or less it folds to a 28 px search icon. Focus (a press on
+   the icon, or Tab), a typed value or `[data-expanded]` opens it again. */
+.osprey-search-field {
+  width: 220px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-well);
+  color: var(--text-muted);
+  cursor: text;
+  transition: width var(--duration-fast) var(--wt-ease-out), border-color var(--duration-fast),
+              box-shadow var(--duration-fast);
+}
+
+.osprey-search-field:hover {
+  border-color: var(--border-default);
+}
+
+.osprey-search-field:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--surface-focus);
+}
+
+.osprey-search-field input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.osprey-search-field input::placeholder {
+  color: var(--text-muted);
+}
+
+@container panel (max-width: 560px) {
+  .osprey-search-field:not([data-expanded], :focus-within, :has(input:not(:placeholder-shown))) {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+    border-color: transparent;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .osprey-search-field:not([data-expanded], :focus-within, :has(input:not(:placeholder-shown))):hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  /* Folded, the input stays in the tab order, so Tab opens the field. */
+  .osprey-search-field:not([data-expanded], :focus-within, :has(input:not(:placeholder-shown))) input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .osprey-search-field[data-expanded],
+  .osprey-search-field:focus-within,
+  .osprey-search-field:has(input:not(:placeholder-shown)) {
+    width: min(220px, 50cqi);
+  }
+}
+
+/* Status chip: 22 px, a dot and a short label. `--ok`, `--warn`, `--err`,
+   `--info` and `--connecting` colour it; `--connecting` has a hollow dot
+   that pulses. A chip that has detail is a <button class="osprey-chip">
+   that opens an info popover. Put a long label in `.osprey-chip-label` so
+   it truncates. */
+.osprey-chip {
+  height: 22px;
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.osprey-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.osprey-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.osprey-chip--ok {
+  color: var(--color-success);
+}
+
+.osprey-chip--warn {
+  color: var(--color-warning);
+}
+
+.osprey-chip--err {
+  color: var(--color-error);
+}
+
+.osprey-chip--info {
+  color: var(--color-accent);
+}
+
+.osprey-chip--connecting::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  animation: osprey-chip-pulse calc(var(--duration-slow) * 4) ease-in-out infinite;
+}
+
+@keyframes osprey-chip-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+button.osprey-chip {
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+
+button.osprey-chip:hover,
+button.osprey-chip[aria-expanded="true"] {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+button.osprey-chip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Panel sidebar: left of the content, below the toolbar. panel-sidebar.js
+   sizes it (180–480 px; 260 px by default, through
+   --osprey-panel-sidebar-width) and keeps `[data-open]` in step with its
+   toggle. Closed is gone: no width, no icon rail, and the handle (the
+   `.osprey-splitter` right after it) goes with it. On a narrow panel it is
+   an overlay over the content (`[data-overlay]`) above a scrim. Rows inside:
+   `.osprey-section-label`, `.osprey-list-row`, `.osprey-nav-row`. */
+.osprey-panel-sidebar {
+  --osprey-panel-sidebar-width: 260px;
+  width: var(--osprey-panel-sidebar-width);
+  min-width: 0;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--surface-hairline);
+}
+
+.osprey-panel-sidebar[data-open="false"],
+.osprey-panel-sidebar[data-open="false"] + .osprey-splitter,
+.osprey-panel-sidebar[data-overlay] + .osprey-splitter {
+  display: none;
+}
+
+/* !important: the splitter's inline max-width belongs to the side-by-side
+   layout; an overlay leaves a strip of the content in view. */
+.osprey-panel-sidebar[data-overlay] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-overlay);
+  max-width: calc(100% - var(--space-7)) !important;
+  box-shadow: var(--shadow-dropdown);
+}
+
+/* Before the sidebar in the markup, so the sidebar paints over it. */
+.osprey-panel-sidebar-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: var(--overlay-black-30);
+}
+
+/* Centred state: loading, connecting, empty, error and unreachable, built
+   by panel-state.js. An icon, one message, an optional second line and at
+   most one .osprey-btn. */
+.osprey-state {
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.osprey-state > .osprey-ic {
+  width: 28px;
+  height: 28px;
+  margin-bottom: var(--space-1);
+  color: var(--text-muted);
+}
+
+.osprey-state-message,
+.osprey-state-detail {
+  max-width: 48ch;
+  margin: 0;
+}
+
+.osprey-state-message {
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+}
+
+.osprey-state-detail {
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.osprey-state > .osprey-btn {
+  margin-top: var(--space-2);
+}
+
+/* Info popover: the details that stay off the page, built by
+   info-popover.js on the .osprey-popover surface. A title, a paragraph that
+   keeps its line breaks, and label/value rows; a copyable value is set in
+   the mono font beside an .osprey-mini Copy button. */
+.osprey-popover.osprey-info-popover {
+  width: 340px;
+  max-width: calc(100vw - 2 * var(--space-2));
+  padding: var(--space-3) var(--space-4);
+}
+
+.osprey-info-popover-title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.osprey-info-popover-text {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.osprey-info-popover-text:first-child {
+  margin-top: 0;
+}
+
+.osprey-info-popover-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--surface-hairline);
+  font-size: var(--text-md);
+}
+
+.osprey-info-popover-rows:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.osprey-info-popover-rows dt {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.osprey-info-popover-rows dd {
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--text-primary);
+}
+
+.osprey-info-popover-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.osprey-info-popover-copyable .osprey-info-popover-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.osprey-info-popover-copyable .osprey-mini {
+  margin-top: -2px;
+}
+
+/* Content strip: the controls that act on the shown content, in one strip
+   at its top-right corner, built by content-strip.js. Groups are split by a
+   hairline. It shows while the content is hovered or holds focus, during a
+   timed show (`[data-visible]`) and while a mode is pressed
+   (`[data-pinned]`). */
+.osprey-content-strip {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--wt-ease-out);
+}
+
+.osprey-content-strip[data-visible],
+.osprey-content-strip[data-pinned],
+.osprey-content-strip-host:hover > .osprey-content-strip,
+.osprey-content-strip-host:focus-within > .osprey-content-strip {
+  opacity: 1;
+}
+
+.osprey-content-strip-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.osprey-content-strip-group + .osprey-content-strip-group::before {
+  content: "";
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--surface-hairline);
+}
+
+.osprey-content-strip .osprey-icon-btn[aria-pressed="true"] {
+  background: var(--surface-selected);
+  color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--border-accent);
+}
+
+/* `hidden` wins over the display each panel-chrome primitive sets. */
+.osprey-panel-toolbar[hidden],
+.osprey-panel-toolbar__start[hidden],
+.osprey-panel-toolbar__end[hidden],
+.osprey-seg[hidden],
+.osprey-seg > button[hidden],
+.osprey-search-field[hidden],
+.osprey-chip[hidden],
+.osprey-panel-sidebar[hidden],
+.osprey-panel-sidebar-scrim[hidden],
+.osprey-state[hidden],
+.osprey-content-strip[hidden],
+.osprey-content-strip-group[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .osprey-seg > button,
+  .osprey-search-field,
+  button.osprey-chip,
+  .osprey-content-strip {
+    transition: none;
+  }
+
+  .osprey-chip--connecting::before {
+    animation: none;
+  }
+}
