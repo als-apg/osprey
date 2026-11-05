@@ -158,7 +158,7 @@ def _session_row(
     prompt = prompt if isinstance(prompt, str) and prompt.strip() else ""
     truncated = bool(record_row.get("truncated"))
     title, title_source = _title_of(meta, prompt)
-    pending = getattr(app.state, "session_naming_pending", set())
+    pending: set[str] = getattr(app.state, "session_naming_pending", set())
     naming = "pending" if transcript_id in pending else meta["naming"]
     message_count = record_row.get("message_count")
     return {

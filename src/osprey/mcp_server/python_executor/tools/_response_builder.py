@@ -92,7 +92,7 @@ def _error_message(error: ToolError) -> str:
     except ValueError:
         return text
     if isinstance(envelope, dict) and isinstance(envelope.get("error_message"), str):
-        return envelope["error_message"]
+        return str(envelope["error_message"])
     return text
 
 

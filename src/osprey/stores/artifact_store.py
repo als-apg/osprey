@@ -28,7 +28,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from osprey.stores.artifact_forms import (
     RUN_RECORD_KEY,
@@ -494,7 +494,7 @@ def run_role(entry: ArtifactEntry) -> RunRole:
     """
     part = entry.metadata.get("run_part")
     if part in RUN_ROLES:
-        return part  # type: ignore[return-value]
+        return cast(RunRole, part)
     if _is_legacy_result(entry):
         return "result"
     if entry.tool_source == "osprey_approval":
@@ -512,7 +512,7 @@ def _result_status(entry: ArtifactEntry) -> RunStatus:
     """A result head's status: its stored ``run_status``, else what its result says."""
     stored = entry.metadata.get("run_status")
     if stored in RUN_STATUSES:
-        return stored  # type: ignore[return-value]
+        return cast(RunStatus, stored)
     summary = entry.summary or {}
     if summary.get("has_errors") is True or summary.get("status") == "Failed":
         return "failed"

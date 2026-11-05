@@ -10,6 +10,7 @@ import json
 import logging
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from osprey.mcp_server.workspace.server import mcp
 
@@ -92,7 +93,7 @@ async def session_summary() -> str:
     # The shipped example is not session output; a report must never cite it.
     all_entries = store.list_entries(exclude_examples=True)
 
-    entries = []
+    entries: list[dict[str, Any]] = []
     total_bytes = 0
     for entry, (form, label) in zip(all_entries, entry_forms(store, all_entries), strict=True):
         size = entry.size_bytes or _safe_file_size(store.get_file_path(entry.id) or "")

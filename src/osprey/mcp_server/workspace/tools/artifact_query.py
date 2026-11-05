@@ -53,7 +53,7 @@ def group_of(entry: Any, groups: Mapping[str, Any], registry: Mapping[str, Any])
 
     listed = listed_form(entry, groups.get(entry.exec_id), registry)
     if listed is not None and listed != "runs" and entry.kind and entry.kind in registry:
-        return entry.kind
+        return str(entry.kind)
     return listed
 
 

@@ -2909,7 +2909,11 @@ def _settle_review(stamp, outcome: str) -> None:
         code = next(cell.source for cell in notebook.cells if cell.cell_type == "code")
         exec_mode = entry.metadata.get("exec_mode", "")
         group = store.run_group(entry.exec_id) if entry.exec_id else None
-        if group is not None and group.roles.get(group.head_id) == "result":
+        if (
+            group is not None
+            and group.run_status is not None
+            and group.roles.get(group.head_id) == "result"
+        ):
             outcome = _SETTLE_FOR_RUN_STATUS.get(group.run_status, outcome)
         state = _review_outcome_state(outcome, stamp)
         store.replace_file(

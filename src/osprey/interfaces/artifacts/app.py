@@ -1343,9 +1343,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 bucket = earlier
             else:
                 owned_total += 1
-                bucket = counts.get(owner)
-                if bucket is None:
+                owned = counts.get(owner)
+                if owned is None:
                     continue
+                bucket = owned
             bucket["total"] += 1
             bucket["by_form"][form] = bucket["by_form"].get(form, 0) + 1
         return {

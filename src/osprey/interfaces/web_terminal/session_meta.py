@@ -218,14 +218,15 @@ def load(app) -> dict[str, Any]:
 
 
 def _document(app) -> dict[str, Any]:
-    document = getattr(app.state, "session_meta", None)
+    document: dict[str, Any] | None = getattr(app.state, "session_meta", None)
     if document is None or getattr(app.state, "session_meta_provisional", False):
         return load(app)
     return document
 
 
 def _entry(document: dict[str, Any], tid: str) -> dict[str, Any]:
-    return document["sessions"].setdefault(
+    sessions: dict[str, dict[str, Any]] = document["sessions"]
+    return sessions.setdefault(
         tid,
         {
             "title": None,
@@ -281,7 +282,8 @@ def set_auto_title(app, tid: str, title: str | None, state: str) -> dict[str, An
         entry["title"] = entry["auto_title"]
         entry["title_source"] = "auto" if entry["auto_title"] else None
     _persist(app, document)
-    getattr(app.state, "session_naming_pending", set()).discard(tid)
+    pending: set[str] = getattr(app.state, "session_naming_pending", set())
+    pending.discard(tid)
     return dict(entry)
 
 
@@ -311,7 +313,7 @@ def set_last_active(app, key: str) -> dict[str, Any]:
 
 def naming_since(app) -> str:
     """The ISO time of the store's first creation."""
-    return _document(app)["naming_since"]
+    return str(_document(app)["naming_since"])
 
 
 # ---- the hub side of the ledger ------------------------------------------------

@@ -297,13 +297,14 @@ class BaseStore(Generic[T]):
         changed = 0
         with self._with_index_lock():
             for e in self._entries:
-                keys = updates.get(getattr(e, "id", None))
+                eid = getattr(e, "id", None)
+                keys = updates.get(eid) if isinstance(eid, str) else None
                 if not keys:
                     continue
                 metadata = getattr(e, "metadata", None)
                 if not isinstance(metadata, dict):
                     metadata = {}
-                    e.metadata = metadata
+                    e.metadata = metadata  # type: ignore[attr-defined]
                 if any(k not in metadata or metadata[k] != v for k, v in keys.items()):
                     metadata.update(keys)
                     changed += 1

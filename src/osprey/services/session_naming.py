@@ -254,7 +254,8 @@ class SessionNamer:
 
     @property
     def pending(self) -> set[str]:
-        return self._app.state.session_naming_pending
+        pending: set[str] = self._app.state.session_naming_pending
+        return pending
 
     def eligible(self, row: Mapping[str, Any], since: datetime | None) -> str:
         """The prompt to name *row* from, or ``""`` when it is not to be named.

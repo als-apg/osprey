@@ -134,7 +134,7 @@ def _registered_base_form(kind: str, registry: Any) -> str | None:
     else:
         base = getattr(declared, "base_form", None)
     if base in BASE_FORMS and base != "runs":
-        return base
+        return str(base)
     return None
 
 
