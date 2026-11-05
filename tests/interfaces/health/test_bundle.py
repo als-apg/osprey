@@ -56,10 +56,12 @@ def test_assert_valid_panel_does_not_raise_for_bundle() -> None:
 
 def test_bundle_entry_links_design_system_and_fonts() -> None:
     # Guard the references a reviewer relies on the entry HTML to carry: the
-    # pre-paint boot script, the token stylesheet, and the shared web font.
+    # pre-paint boot script, the token stylesheet, the primitives the panel
+    # toolbar and sidebar are built from, and the shared web font.
     entry_html = (_BUNDLE_DIR / "index.html").read_text(encoding="utf-8")
     assert "/design-system/js/theme-boot.js" in entry_html
     assert "/design-system/css/tokens.css" in entry_html
+    assert "/design-system/css/primitives.css" in entry_html
     assert "/static/fonts/fonts.css" in entry_html
 
 

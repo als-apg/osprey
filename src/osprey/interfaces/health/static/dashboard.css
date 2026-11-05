@@ -10,49 +10,45 @@
   light and dark with no raw color or scale literals. The panel declares no
   custom properties of its own.
 
+  The chrome is the design system's (primitives.css, "Panel chrome"): the
+  .osprey-panel-toolbar with its .osprey-seg status filter and Scan now icon,
+  and the .osprey-panel-sidebar of categories. This file lays them out and
+  styles the report: the summary card, the category cards and their rows.
+
   Status palette, as the rules below spell it:
 
       ok → --color-success (glow --success-tint-40)
       warning → --color-warning (glow --accent-secondary-tint-25)
       error → --color-error (glow --error-tint-30)
-      skip → --text-muted        beam → --color-accent-light
+      skip → --text-muted
 
   STATUS CLASSES (JS contract): the original dashboard set a few colors
-  inline from JS (badge dots, gauge segments, the beam, the gauge score, and
-  each card header's accent border). Inline hex is not allowed here, so the
-  JS port instead toggles a status-modifier class on those elements. The
-  mapping the JS must use is:
+  inline from JS (status dots, gauge segments, the gauge score, and each card
+  header's accent border). Inline hex is not allowed here, so the JS instead
+  toggles a status-modifier class on those elements. The mapping the JS must
+  use is:
 
       ok → s-ok    warning → s-wn    error → s-er    skip → s-sk
 
   Each modifier is defined per element below (it colors whichever property
-  that element needs: background / stroke / fill / color / border-color).
-  For the beam, s-ok resolves to the accent (beam) color.
+  that element needs: background / stroke / color / border-color).
 */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
-/* BODY IS THE SCROLL CONTAINER.
-
-   The shared design-system base.css sets `html, body { height: 100%;
-   overflow: hidden }` — an app-shell reset that assumes each interface manages
-   its own inner scroll regions. This dashboard does not: header / hero / grid /
-   footer flow directly on <body>, and a real facility easily reports 40+ checks
-   across a dozen categories, which is several screens tall. Without restoring
-   overflow-y here the surplus is silently clipped with no scrollbar — so this
-   declaration is load-bearing, not cosmetic. The `.sweep` and `.ftr` bars are
-   position:fixed and therefore stay pinned to the frame while this scrolls. */
+/* The body keeps base.css's `overflow: hidden`: the panel root fills it and
+   the report (.health-main) is the one scroll region, so the toolbar and the
+   sidebar stay in place while a long report scrolls. */
 body {
   font-family: var(--font-mono); font-size: var(--text-md);
   background: radial-gradient(ellipse at 50% 12%, var(--accent-tint-04) 0%, transparent 50%), var(--bg-primary);
-  color: var(--text-primary); min-height: 100vh;
-  overflow-y: auto; overflow-x: hidden; line-height: var(--leading-relaxed);
+  color: var(--text-primary); line-height: var(--leading-relaxed);
   display: flex; flex-direction: column;
 }
 
-/* ---- Sweep bar ---- */
+/* ---- Sweep bar: a scan is in flight ---- */
 .sweep { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 100; overflow: hidden; }
 .sweep.on::after {
   content: ''; position: absolute; top: 0; left: 0; width: 40%; height: 100%;
@@ -61,33 +57,46 @@ body {
 }
 @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
-/* ---- Header ----
-   Standalone identity only. Sticky: now that <body> scrolls, the title would
-   otherwise scroll away on a report several screens tall. Opaque background
-   (not the body's gradient) so rows cannot show through as they pass
-   underneath. */
-.hdr {
-  position: sticky; top: 0; z-index: 50;
-  display: flex; align-items: center;
-  padding: 16px 20px 10px; border-bottom: 1px solid var(--border-default);
-  background: var(--bg-primary);
+/* ---- Panel layout: toolbar, then sidebar | report ---- */
+.health { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.health-body { flex: 1; min-height: 0; display: flex; position: relative; }
+.health-main { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; }
+
+/* The filter's counts sit beside each label, muted. */
+.health-seg-count {
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  color: var(--text-muted); font-variant-numeric: tabular-nums;
 }
-.hdr-t { display: flex; align-items: baseline; gap: 10px; }
-.hdr-t h1 { font-family: var(--font-display); font-size: var(--text-3xl); font-weight: var(--weight-bold); letter-spacing: 1px; }
-.hdr-sub { font-size: var(--text-sm); letter-spacing: 3px; text-transform: uppercase; color: var(--text-muted); }
 
-/* Embedded in the web-terminal hub the host tile bar is this panel's only
- * header: it names the panel (SYSTEM), and the footer already carries the
- * freshness signal ("Next scan in Ns"), so the whole standalone header goes
- * and the panel contributes nothing of its own. */
-body.embedded .hdr { display: none; }
+/* ---- Categories sidebar ---- */
+.health-body > .osprey-panel-sidebar {
+  gap: 2px; padding: var(--space-2);
+  font-family: var(--font-display);
+}
+.health-cat-list { display: flex; flex-direction: column; gap: 2px; }
+.health-cat-count {
+  flex: none; font-family: var(--font-mono); font-size: var(--text-sm);
+  color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.dot { width: 8px; height: 8px; border-radius: var(--radius-full); flex-shrink: 0; }
+.dot.s-ok { background: var(--color-success); }
+.dot.s-wn { background: var(--color-warning); }
+.dot.s-er { background: var(--color-error); }
+.dot.s-sk { background: var(--text-muted); }
 
-/* ---- Hero: gauge + summary ---- */
-.hero { display: flex; flex-direction: column; align-items: center; padding: 24px 16px 16px; gap: 16px; }
-.gauge-w { position: relative; width: 180px; height: 180px; }
+/* ---- Centred states (panel-state.js): loading, warming, unreachable ---- */
+.health-state[hidden], .hero[hidden], .grid[hidden] { display: none; }
+.grid > .osprey-state { grid-column: 1 / -1; }
+
+/* ---- Summary card: a static gauge and the passed count ---- */
+.hero {
+  display: flex; align-items: center; gap: var(--space-4);
+  margin: 16px 16px 0; padding: var(--space-3) var(--space-4);
+  background: var(--bg-panel); border: 1px solid var(--border-default); border-radius: var(--radius-xl);
+}
+.gauge-w { position: relative; width: 72px; height: 72px; flex: none; }
 .gauge-svg { width: 100%; height: 100%; }
 .gauge-bg { fill: none; stroke: var(--border-default); stroke-width: 14; opacity: .3; }
-.gauge-orbit { fill: none; stroke: var(--color-accent-light); stroke-width: .5; opacity: .12; }
 .gauge-seg {
   fill: none; stroke-width: 14; stroke-linecap: butt;
   transition: stroke var(--duration-slow) ease, opacity var(--duration-slow) ease;
@@ -96,63 +105,30 @@ body.embedded .hdr { display: none; }
 .gauge-seg.s-wn { stroke: var(--color-warning); }
 .gauge-seg.s-er { stroke: var(--color-error); }
 .gauge-seg.s-sk { stroke: var(--text-muted); }
-.beam { fill: var(--color-accent-light); transition: fill var(--duration-slow) ease; }
-.beam.s-ok { fill: var(--color-accent-light); }
-.beam.s-wn { fill: var(--color-warning); }
-.beam.s-er { fill: var(--color-error); }
 .gauge-c {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; pointer-events: none;
 }
 .gauge-sc {
-  font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-4xl);
+  font-weight: var(--weight-bold); font-size: var(--text-xl);
   line-height: var(--leading-none); transition: color var(--duration-slow) ease;
 }
 .gauge-sc.s-ok { color: var(--color-success); }
 .gauge-sc.s-wn { color: var(--color-warning); }
 .gauge-sc.s-er { color: var(--color-error); }
 .gauge-sc.s-sk { color: var(--text-muted); }
-.gauge-sc .tot { font-size: var(--text-3xl); color: var(--text-muted); font-weight: var(--weight-regular); }
-.gauge-lb { font-size: var(--text-xs); letter-spacing: 2.5px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; }
-
-/* ---- Summary badges ---- */
-.summ { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
-.badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-md);
-  font-size: var(--text-base); cursor: pointer; transition: all var(--duration-base); user-select: none;
+.gauge-tot { font-size: var(--text-sm); color: var(--text-muted); }
+.hero-text { min-width: 0; }
+.hero-title {
+  font-family: var(--font-display); font-size: var(--text-lg); font-weight: var(--weight-medium);
+  color: var(--text-primary);
 }
-.badge:hover { border-color: var(--neutral-tint-20); background: var(--bg-elevated); }
-.badge.on { border-color: var(--color-accent-light); background: var(--accent-tint-08); }
-.dot { width: 6px; height: 6px; border-radius: var(--radius-full); flex-shrink: 0; }
-.dot.s-ok { background: var(--color-success); }
-.dot.s-wn { background: var(--color-warning); }
-.dot.s-er { background: var(--color-error); }
-.dot.s-sk { background: var(--text-muted); }
+.hero-detail { font-family: var(--font-display); font-size: var(--text-md); color: var(--text-muted); }
 
 /* ---- Grid ---- */
 .grid {
-  flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px; padding: 12px 16px 80px;
-}
-
-/* ---- Loading / Error / Warming ---- */
-.ld {
-  grid-column: 1 / -1; display: flex; align-items: center; justify-content: center;
-  gap: 12px; padding: 48px; color: var(--text-muted);
-}
-.ld-spin {
-  width: 16px; height: 16px; border: 2px solid var(--neutral-tint-20);
-  border-top-color: var(--color-accent-light); border-radius: var(--radius-full);
-  animation: spin 1s linear infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.err-s { grid-column: 1 / -1; text-align: center; padding: 48px 24px; color: var(--text-secondary); }
-.err-s .em { color: var(--color-error); margin-bottom: 16px; font-size: var(--text-lg); }
-.err-s button {
-  background: var(--bg-elevated); border: 1px solid var(--neutral-tint-20); color: var(--text-primary);
-  padding: 6px 16px; border-radius: var(--radius-lg); cursor: pointer;
-  font-family: var(--font-mono); font-size: var(--text-md);
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px; padding: 16px;
 }
 
 /* ---- Card ---- */
@@ -212,6 +188,8 @@ body.embedded .hdr { display: none; }
 }
 .ck-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ck-nm.sk { color: var(--text-muted); }
+/* The CLI command of an on-demand card: selectable, so it can be copied by hand. */
+.ck-nm.ck-cmd { color: var(--text-secondary); user-select: all; }
 .ck-val {
   font-weight: var(--weight-bold); white-space: nowrap; color: var(--text-secondary);
   max-width: 120px; overflow: hidden; text-overflow: ellipsis;
@@ -240,28 +218,8 @@ body.embedded .hdr { display: none; }
 .dt-box.s-er { border-left-color: var(--color-error); }
 .dt-box.show { display: block; }
 
-/* ---- Footer ---- */
-.ftr {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 8px 16px; font-size: var(--text-base); color: var(--text-muted);
-  background: linear-gradient(transparent, var(--bg-primary) 30%);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-}
-.ftr-d { opacity: .3; }
-
-/* ---- Responsive ----
-   The score keeps --text-4xl on a narrow frame: the 150px gauge still leaves
-   a ~110px hole inside the gauge, room for the score and its total. */
-@media (max-width: 640px) {
-  .hdr-t h1 { font-size: var(--text-2xl); }
-  .hdr-sub { font-size: var(--text-xs); letter-spacing: 2px; }
-  .gauge-w { width: 150px; height: 150px; }
-  .gauge-sc .tot { font-size: var(--text-2xl); }
-  .grid { grid-template-columns: 1fr; gap: 10px; padding: 10px 12px 80px; }
-}
-@media (max-width: 380px) {
-  .gauge-w { width: 130px; height: 130px; }
-  .hdr { padding: 12px 12px 6px; }
-  .hero { padding: 16px 12px 12px; }
+/* ---- Narrow panel ---- */
+@container panel (max-width: 640px) {
+  .grid { grid-template-columns: 1fr; gap: 10px; padding: 12px; }
+  .hero { margin: 12px 12px 0; }
 }
