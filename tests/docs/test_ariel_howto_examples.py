@@ -19,9 +19,12 @@ snippet-coverage scanner:
 * ``how-to/ariel/index.rst`` and ``how-to/ariel/picture-search.rst`` -- the
   ``ollama pull`` tag is the caption model the preset ships.
 
-Executing a snippet is sandboxed: a fresh namespace, an ``__import__`` that
-admits ``osprey`` and the stand-ins the test hands it and refuses anything
-else, no network and no file writes.
+A snippet runs in a fresh namespace whose ``__import__`` admits ``osprey`` and
+the stand-ins the test hands it and refuses anything else, and whose builtins
+lack ``open``, ``exec``, ``eval`` and ``compile``. That is an import allowlist
+that catches undeclared dependencies, not a security boundary (an admitted
+``osprey`` module exposes its own imports); the snippets are repo-reviewed
+text.
 
 A page that says something other than the code is recorded in ``_STALE`` with
 the page, the code location and the PR that fixes it, so the gap is visible
@@ -59,6 +62,7 @@ from osprey.services.ariel_search.enhancement.text_embedding.migration import (
 from osprey.services.ariel_search.entry_fields import (
     EntryFieldDeclarationError,
     check_declarations,
+    fetch_entry_field_options,
 )
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.metadata_attachment import _sidecar_names
@@ -80,9 +84,10 @@ _PICTURE_SEARCH = "how-to/ariel/picture-search.rst"
 
 #: Blocks whose text differs from the code, as ``(page, what, page says)`` ->
 #: ``(code location and its value, PR that fixes the page)``. A test that
-#: compares such a block accepts the recorded page value; the stale-entry guard
-#: fails once the page no longer says it, unless the fixing PR is still open
-#: (its number is given), in which case the post-merge tidy drops the entry.
+#: compares such a block accepts the recorded page value. The stale-entry guard
+#: fails once the page no longer says it when no fixing PR is recorded; it skips
+#: while ``fixed_by`` is recorded and the page shows the fixed text. Drop the
+#: entry after that PR merges.
 _STALE: dict[tuple[str, str, str], tuple[str, int | None]] = {
     (_WEB_INTERFACE, "uvicorn.run host", "0.0.0.0"): (
         "registry/web.py resolve_web_server_bind('ariel', ...) binds 127.0.0.1 by default",
@@ -129,9 +134,8 @@ def _exec_snippet(
     """Run *source* in a fresh namespace holding *names*; return the namespace.
 
     Imports of ``osprey`` modules go to the real package; a module named in
-    *stubs* is the stand-in given; any other import is refused, so a snippet
-    cannot reach the network or the disk through a library the test did not
-    vet.
+    *stubs* is the stand-in given; any other import is refused. This catches
+    a dependency the snippet does not declare; it is not a security boundary.
     """
     stand_ins = dict(stubs or {})
     real_import = builtins.__import__
@@ -143,7 +147,11 @@ def _exec_snippet(
             return real_import(name, globals, locals, fromlist, level)
         raise ImportError(f"{page}: the snippet imports {name!r}, which this test does not admit")
 
-    sandbox_builtins = dict(vars(builtins))
+    sandbox_builtins = {
+        name: value
+        for name, value in vars(builtins).items()
+        if name not in ("open", "exec", "eval", "compile")
+    }
     sandbox_builtins["__import__"] = guarded_import
     namespace: dict[str, Any] = {"__builtins__": sandbox_builtins, "__name__": "docs_snippet"}
     namespace.update(names or {})
@@ -220,8 +228,9 @@ async def test_entry_fields_snippet_declares_fields_the_service_accepts() -> Non
     assert by_name["scan"].to_dict()["depends_on"] == ["day"]
     # The check every form and write path reads the declarations through.
     assert check_declarations(descriptors, adapter=adapter.source_system_name) == descriptors
-    assert await adapter.get_entry_field_options("book", {}) == []
-    assert await adapter.get_entry_field_options("scan", {"day": "2026-10-04"}) == [
+    # Through the service's own call, with its timeout wrapper.
+    assert await fetch_entry_field_options(adapter, "book", {}) == []
+    assert await fetch_entry_field_options(adapter, "scan", {"day": "2026-10-04"}) == [
         {"value": "2026-10-04-1", "label": "Morning scan"}
     ]
 
