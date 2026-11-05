@@ -461,8 +461,9 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
 
          **SearchResponse:**
 
-         Every field is present, at its default when the search left it empty. A search
-         runs one mode, so ``search_modes_used`` names one.
+         Every field is present, at its default when the search left it empty.
+         ``search_modes_used`` names the one mode the search ran; it is empty when the
+         search timed out or the requested mode is unavailable.
 
          .. literalinclude:: examples/ariel-search-response.json
             :language: json

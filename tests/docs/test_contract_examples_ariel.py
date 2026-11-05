@@ -142,7 +142,7 @@ def test_search_response_round_trips() -> None:
 
     example = _example("ariel-search-response.json")
     assert _round_trips(SearchResponse, example)
-    assert len(example["search_modes_used"]) == 1, "a search runs one mode"
+    assert len(example["search_modes_used"]) == 1, "a completed search names the one mode it ran"
     assert example["total_results"] == len(example["entries"])
 
 
@@ -217,7 +217,9 @@ def test_capabilities_is_what_get_capabilities_returns(
 
     example = _example("ariel-capabilities.json")
     assert example == get_capabilities(ARIELConfig.from_dict(_CAPABILITIES_ARIEL)), (
-        "regenerate examples/ariel-capabilities.json from get_capabilities()"
+        "regenerate examples/ariel-capabilities.json: print "
+        "json.dumps(get_capabilities(ARIELConfig.from_dict(_CAPABILITIES_ARIEL)), indent=2) "
+        "after get_registry(config_path=<a config.yml holding {'ariel': _CAPABILITIES_ARIEL}>)"
     )
     assert [p["name"] for p in example["shared_parameters"]] == [p.name for p in SHARED_PARAMETERS]
     assert not example["vocabulary"]["enabled"], "the page says the example has no vocabulary"
