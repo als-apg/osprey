@@ -40,8 +40,7 @@ line where it needs one, only once it is merged on main (WPF #2123, RLF
 - Final fold (after APP #2109, H1, TAB #2345 and ARS): fragments from FU2A
   #2369, the ARIEL mail client #2391, the optimizer stream (#2353, #2398,
   #2399, #2403), #2222 (bar-key-ignored) and #2026
-  (artifacts-gallery-markdown, security), plus the follow-up PR that labels
-  the 2026.11.3 write-authorization API provisional.
+  (artifacts-gallery-markdown, security).
 -->
 
 First stable release after the 2026.9.0b3 public beta, and the first to run
@@ -189,10 +188,7 @@ osprey-connectors:
   `osprey-connectors>=2026.11.3` (raised in #2353), because the web terminal's
   approvals, `osprey write-authorization` and the optimizer's writes use the
   write authorization; `osprey-optimizer` and `pyaml-cs-osprey` state the same
-  floor. The write-authorization API (`osprey_connectors.write_authorization`, the
-  `ConnectorHostPool` `owner=` and `authorization=` keys) and its on-disk
-  schemas are provisional until their first holder, the optimizer, has run on
-  them in a deployment, and may change shape then.
+  floor.
   Migration: a deployment that pins versions pins two streams now, the
     framework and `osprey-connectors`, and upgrades them together. A checkout
     that builds the package needs the `osprey-connectors-v*` tags fetched; a
