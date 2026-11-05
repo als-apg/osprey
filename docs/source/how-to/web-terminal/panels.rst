@@ -26,9 +26,8 @@ Panels that need a section as well as a tick
 For most panels that line is the whole gesture. Two of them need a second
 one, a config section of their own. Each is a tab onto a service that has to
 be configured before there is anything to show, and OSPREY will not guess at
-its address. Listing the panel
-without its section leaves the tab **dark** — no error, one line in the log
-saying the panel is unavailable.
+its address. Listing the panel without its section leaves the tab **dark** —
+no error, one line in the log saying the panel is unavailable.
 
 .. list-table::
    :header-rows: 1
@@ -87,11 +86,11 @@ Panels with a health check are polled every 10 seconds. One that has answered
 and then misses two polls in a row dims its sidebar row, which stays clickable
 and reads "not answering since <time>" in its tooltip. Its open tile shows a
 warning strip with the same time across the top. The tile greys the page below
-the strip, so the out-of-date view is not mistaken for a live one. The page underneath is
-left exactly as it was, stays readable, and can still be scrolled and clicked,
-because a slow backend often still serves what is loaded. Both clear on the
-next answer. A panel that has not answered since the page loaded keeps its
-greyed-out entry and does not open.
+the strip, so the out-of-date view is not mistaken for a live one. The page
+underneath is left exactly as it was, stays readable, and can still be
+scrolled and clicked, because a slow backend often still serves what is
+loaded. Both clear on the next answer. A panel that has not answered since
+the page loaded keeps its greyed-out entry and does not open.
 
 This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
 URL-backed panel whose entry names a ``health_endpoint``.
@@ -123,21 +122,21 @@ the entries for you):
 The key you write the entry under (``events`` here) is the panel's id. The
 terminal serves the tab under that id, so the id has to be spellable in a URL.
 It may hold letters, digits, ``.``, ``_`` and ``-``, and must begin with a
-letter or a digit. An
-id outside that is refused when the terminal starts, and ``osprey validate``
-names it in the profile first.
+letter or a digit. An id outside that is refused when the terminal starts,
+and ``osprey validate`` names it in the profile first.
 
 The hub shows the service as a tab and proxies requests to it from the same
 origin, so the browser never needs direct access to the backing port. The tab
 is the named path. The backing service may also be reachable at an address of
-its own. Where it is, a login there names nobody, and what it does is governed
-by nobody's chip; see :ref:`service door, not a terminal <web-terminal-service-door>`.
+its own. Where it is, a login there names nobody, and what it does is
+governed by nobody's chip; see
+:ref:`service door, not a terminal <web-terminal-service-door>`.
 
 A service hosted under a sub-path of its own writes its asset and API
 references root-absolute. In the tab, those references would resolve against
-the terminal's address rather than the service's. The proxy rewrites them into the
-tab instead. The ``path`` you configured is rewritten for you; name any further
-prefix the service serves with ``rewrite_prefixes``:
+the terminal's address rather than the service's. The proxy rewrites them
+into the tab instead. The ``path`` you configured is rewritten for you; name
+any further prefix the service serves with ``rewrite_prefixes``:
 
 .. code-block:: yaml
 
@@ -208,7 +207,7 @@ a panel can load OSPREY's design tokens with a plain root-absolute reference:
 The proxy rewrites that to the terminal's own copy of the design system. So
 the colors a panel paints with are the ones the terminal is running, not
 whichever ones the service's own build happened to ship. Every OSPREY color is
-a CSS variable there, and all eight themes are defined in that one file. A
+a CSS variable there. All eight themes are defined in that one file, so a
 service that restates its colors in terms of those variables gets the whole
 theme switch for free.
 
@@ -394,9 +393,8 @@ panel declares. Panels OSPREY ships, and URL-backed panels declared under
 - **It uses relative URLs for its own files.** The terminal frames the panel at
   a capability address bound to the operator's login. Only URLs relative to
   the entry page (``./app.js``, ``data.json``) are sure to stay under that
-  address. A
-  root-absolute reference to the panel's own files can leave that address, and
-  is refused there.
+  address. A root-absolute reference to the panel's own files can leave that
+  address, and is refused there.
 - **The terminal's own assets still load.** ``/design-system/…`` and
   ``/static/fonts/…`` are served to an opaque panel. So it imports the theme
   module and links the tokens exactly as above, and the theme still follows the
@@ -517,8 +515,8 @@ server's tools.
          :ref:`web-terminal-panels-opaque-origin`. Discovery is
          **fail-closed**: only a fully valid panel is ever served. The
          ``allow_runtime_panels`` switch is deliberately off by default because
-         it is also what lets the agent register panels at runtime. Turning it on
-         is your explicit decision to trust the panels the terminal makes
+         it is also what lets the agent register panels at runtime. Turning it
+         on is your explicit decision to trust the panels the terminal makes
          available.
 
       .. tab-item:: Embedding contract
