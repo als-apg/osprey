@@ -62,6 +62,12 @@ async (name) => {
 }
 """
 
+#: The toolbar's model switcher: one segment button per model.
+_MODEL_BUTTONS = "#model-switch button[data-model]"
+
+#: The segment of the selected model.
+_PRESSED_MODEL = '#model-switch button[aria-pressed="true"]'
+
 _OPTICS_POINTS = """
 () => {
   const el = document.getElementById('plot-optics');
@@ -101,7 +107,7 @@ def test_selected_sr_draws_its_optics_and_tunes(
     with _serve(built_control_assistant.build_dir, tmp_path / "ws") as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="load")
-        expect(page.locator("#model-select option")).not_to_have_count(0, timeout=10_000)
+        expect(page.locator(_MODEL_BUTTONS)).not_to_have_count(0, timeout=10_000)
 
         selected = page.evaluate(_SELECT, "SR")
         assert selected["status"] == 200, selected
@@ -123,11 +129,11 @@ def test_the_demo_lists_its_served_models_with_the_first_selected(
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="load")
 
-        options = page.locator("#model-select option")
-        expect(options).to_have_count(len(DEMO_MODELS), timeout=10_000)
-        assert options.evaluate_all("els => els.map(e => e.value)") == DEMO_MODELS
-        assert options.all_text_contents() == DEMO_MODELS
-        expect(page.locator("#model-select")).to_have_value(DEMO_MODELS[0])
+        buttons = page.locator(_MODEL_BUTTONS)
+        expect(buttons).to_have_count(len(DEMO_MODELS), timeout=10_000)
+        assert buttons.evaluate_all("els => els.map(e => e.dataset.model)") == DEMO_MODELS
+        assert buttons.all_text_contents() == DEMO_MODELS
+        expect(page.locator(_PRESSED_MODEL)).to_have_text(DEMO_MODELS[0])
         expect(page.locator("#model-notice")).to_be_hidden()
 
         page.close()
@@ -141,20 +147,22 @@ def test_line_draws_its_optics_and_names_the_figures_it_cannot_draw(
     with _serve(built_control_assistant.build_dir, tmp_path / "ws") as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="load")
-        expect(page.locator("#model-select option")).not_to_have_count(0, timeout=10_000)
+        expect(page.locator(_MODEL_BUTTONS)).not_to_have_count(0, timeout=10_000)
 
         selected = page.evaluate(_SELECT, "LINE")
         assert selected["status"] == 200, selected
         assert selected["body"]["model"] == "LINE"
-        expect(page.locator("#model-select")).to_have_value("LINE", timeout=10_000)
+        expect(page.locator(_PRESSED_MODEL)).to_have_text("LINE", timeout=10_000)
 
         page.wait_for_function(f"({_OPTICS_POINTS})() > 0", timeout=FIGURE_TIMEOUT_MS)
         expect(page.locator("#plot-optics .main-svg").first).to_be_visible()
         for name in SINGLE_PASS_HIDDEN:
-            expect(page.locator(f"#plot-{name} .figure-unavailable")).to_have_text(
-                SINGLE_PASS_UNAVAILABLE, timeout=FIGURE_TIMEOUT_MS
-            )
+            expect(
+                page.locator(f"#plot-{name} .figure-unavailable .osprey-state-message")
+            ).to_have_text(SINGLE_PASS_UNAVAILABLE, timeout=FIGURE_TIMEOUT_MS)
         expect(page.locator(".figure-unavailable")).to_have_count(len(SINGLE_PASS_HIDDEN))
+        # The Resonance panel offers the periodic model the demo serves.
+        expect(page.locator("#plot-resonance .osprey-state button")).to_have_text("Switch to SR")
         # A model with no tune leaves the tune chips empty.
         for chip in ("#stat-nux", "#stat-nuy"):
             expect(page.locator(f"{chip} .stat-value")).to_have_text("—")
@@ -186,10 +194,10 @@ def test_texture_only_lists_every_deck_model_unserved(
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="load")
 
-        options = page.locator("#model-select option")
-        expect(options).to_have_count(len(DEMO_MODELS), timeout=10_000)
-        assert options.evaluate_all("els => els.map(e => e.value)") == DEMO_MODELS
-        assert options.all_text_contents() == [f"{name} (not served)" for name in DEMO_MODELS]
+        buttons = page.locator(_MODEL_BUTTONS)
+        expect(buttons).to_have_count(len(DEMO_MODELS), timeout=10_000)
+        assert buttons.evaluate_all("els => els.map(e => e.dataset.model)") == DEMO_MODELS
+        assert buttons.all_text_contents() == [f"{name} (not served)" for name in DEMO_MODELS]
 
         notice = page.locator("#model-notice")
         expect(notice).to_be_visible()

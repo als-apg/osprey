@@ -1,28 +1,22 @@
 /**
- * Unit tests for the Lattice Dashboard's model handling: the header model
- * selector fed by GET /api/models and the POST /api/models/select round trip.
+ * Unit tests for the Lattice Dashboard's model handling: the toolbar's model
+ * switcher fed by GET /api/models, the POST /api/models/select round trip,
+ * and the panels a selected model cannot draw.
  *
  * happy-dom environment (configured globally), fetch stubbed with the
- * server's response bodies. header-contrib.js is mocked as in
- * header.test.mjs, so the tile-bar contribution's shape can be asserted:
+ * server's response bodies:
  *   npx vitest run tests/interfaces/lattice_dashboard/models.test.mjs
  */
 
 import { test, expect, vi, describe, beforeEach, afterEach } from 'vitest';
 
-import { byId } from '../_support/dom.mjs';
+import { byId, qs } from '../_support/dom.mjs';
 
-vi.mock('/design-system/js/header-contrib.js', () => ({
-  contributeHeader: vi.fn(),
-  onHeaderAction: vi.fn(),
-}));
-
-import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
-import { createHeader } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/header.js';
 import { createNetClient } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/net.js';
 import {
-  bindModelSelect,
-  renderModelSelect,
+  bindModelSwitch,
+  MAX_SEGMENT_MODELS,
+  renderModelSwitch,
   renderNotice,
   selectionNotice,
   showFigureUnavailable,
@@ -94,13 +88,15 @@ function panelText(name) {
 
 function mountFixture() {
   document.body.innerHTML = `
+    <div id="model-switch" hidden></div>
     <div id="model-notice" role="status" style="display:none"></div>
     ${figureCells()}
-    <select id="model-select" style="display:none"></select>
-    <button id="btn-refresh"></button>
-    <button id="btn-verify"></button>
-    <button id="btn-baseline"><span class="baseline-label">Baseline</span></button>
   `;
+}
+
+/** The switcher's segment buttons. @returns {HTMLButtonElement[]} */
+function segments() {
+  return Array.from(document.querySelectorAll('#model-switch .osprey-seg > button'));
 }
 
 /** @param {any} body @param {number} [status] */
@@ -138,86 +134,76 @@ function makeNetCallbacks() {
   };
 }
 
-function makeHeaderCallbacks() {
-  return {
-    onRefresh: vi.fn(),
-    onVerify: vi.fn(),
-    onBaseline: vi.fn(),
-    onSelectModel: vi.fn(),
-  };
-}
-
-/** The items of the most recent contribution. @returns {any[]} */
-function lastContribution() {
-  const calls = vi.mocked(contributeHeader).mock.calls;
-  return calls[calls.length - 1][0];
-}
+/** The single-pass selection of MODELS: `transfer` is selected. */
+const SINGLE_PASS_MODELS = MODELS.map((model) => ({
+  ...model,
+  selected: model.name === 'transfer',
+}));
 
 beforeEach(() => {
   mountFixture();
-  vi.mocked(contributeHeader).mockClear();
-  vi.mocked(onHeaderAction).mockClear();
+  // The module keeps the last list and handler; start each test from none.
+  renderModelSwitch([]);
+  bindModelSwitch(vi.fn());
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('model selector', () => {
-  test('the standalone selector lists the models served first and marks the unserved one', () => {
-    renderModelSelect(MODELS);
+describe('model switcher', () => {
+  test('one segment per model, served first, the selected one pressed', () => {
+    renderModelSwitch(MODELS);
 
-    const select = /** @type {HTMLSelectElement} */ (byId('model-select'));
-    expect(select.style.display).toBe('');
-    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+    expect(byId('model-switch').hidden).toBe(false);
+    expect(segments().map((b) => b.textContent)).toEqual([
       'main',
       'transfer',
       'spare (not served)',
     ]);
-    expect(select.value).toBe('main');
-  });
-
-  test('picking a model in the standalone selector reports its name', () => {
-    const onSelect = vi.fn();
-    renderModelSelect(MODELS);
-    bindModelSelect(onSelect);
-
-    const select = /** @type {HTMLSelectElement} */ (byId('model-select'));
-    select.value = 'spare';
-    select.dispatchEvent(new Event('change'));
-
-    expect(onSelect).toHaveBeenCalledWith('spare');
-  });
-
-  test('the tile bar carries the same choice as a menu, checked on the selected model', () => {
-    const header = createHeader(makeHeaderCallbacks());
-    header.init();
-    header.syncModels(MODELS);
-
-    const menu = lastContribution().find((/** @type {any} */ i) => i.id === 'model');
-    expect(menu).toMatchObject({ kind: 'menu', label: 'main' });
-    expect(menu.items).toEqual([
-      { id: 'main', label: 'main', checked: true },
-      { id: 'transfer', label: 'transfer', checked: false },
-      { id: 'spare', label: 'spare (not served)', checked: false },
+    expect(segments().map((b) => b.getAttribute('aria-pressed'))).toEqual([
+      'true',
+      'false',
+      'false',
     ]);
   });
 
-  test('no model menu is contributed while the build lists no model', () => {
-    const header = createHeader(makeHeaderCallbacks());
-    header.init();
-    header.syncModels([]);
-
-    expect(lastContribution().map((/** @type {any} */ i) => i.id)).not.toContain('model');
+  test('the switcher is hidden while the build lists no model', () => {
+    renderModelSwitch([]);
+    expect(byId('model-switch').hidden).toBe(true);
   });
 
-  test('a tile-bar menu pick reaches the model-select handler with the entry id', () => {
-    const cb = makeHeaderCallbacks();
-    createHeader(cb).init();
+  test('pressing another model reports its name; the pressed one does nothing', () => {
+    const onSelect = vi.fn();
+    renderModelSwitch(MODELS);
+    bindModelSwitch(onSelect);
 
-    vi.mocked(onHeaderAction).mock.calls[0][0]('model', 'transfer');
+    segments()[0].click();
+    segments()[2].click();
 
-    expect(cb.onSelectModel).toHaveBeenCalledWith('transfer');
+    expect(onSelect.mock.calls).toEqual([['spare']]);
+  });
+
+  test(`more than ${MAX_SEGMENT_MODELS} models become a select`, () => {
+    const many = Array.from({ length: MAX_SEGMENT_MODELS + 1 }, (_, i) => ({
+      name: `M${i}`,
+      served: true,
+      solve: 'periodic',
+      selected: i === 2,
+      error: null,
+    }));
+    const onSelect = vi.fn();
+    renderModelSwitch(many);
+    bindModelSwitch(onSelect);
+
+    expect(segments()).toHaveLength(0);
+    const select = qs(document, '#model-switch select', HTMLSelectElement);
+    expect(select.options).toHaveLength(MAX_SEGMENT_MODELS + 1);
+    expect(select.value).toBe('M2');
+
+    select.value = 'M4';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onSelect).toHaveBeenCalledWith('M4');
   });
 
   test('selecting a model posts its name, then re-reads the state and the model list', async () => {
@@ -364,6 +350,59 @@ describe('figures the selected model cannot draw', () => {
       expect(panelText(name)).toBe('Waiting for lattice...');
       expect(byId(`cell-${name}`).dataset.available).toBeUndefined();
     }
+  });
+
+  test('a hidden panel shows the refusal in the centred state, with no action', () => {
+    renderModelSwitch(SINGLE_PASS_MODELS);
+    showFigureUnavailable('chromaticity', 'not available for a single-pass model');
+
+    const state = qs(byId('plot-chromaticity'), '.figure-unavailable .osprey-state');
+    expect(qs(state, '.osprey-state-message').textContent).toBe(
+      'not available for a single-pass model'
+    );
+    expect(state.querySelector('svg')).not.toBeNull();
+    expect(state.querySelector('button')).toBeNull();
+  });
+
+  test('the Resonance panel offers a switch to a periodic model, and it selects it', () => {
+    const onSelect = vi.fn();
+    bindModelSwitch(onSelect);
+    renderModelSwitch(SINGLE_PASS_MODELS);
+
+    showFigureUnavailable('resonance', 'not available for a single-pass model');
+
+    const action = qs(byId('plot-resonance'), '.osprey-state button', HTMLButtonElement);
+    expect(action.textContent).toBe('Switch to main');
+    action.click();
+    expect(onSelect).toHaveBeenCalledWith('main');
+  });
+
+  test('the switch prefers a model named SR', () => {
+    renderModelSwitch([
+      ...SINGLE_PASS_MODELS,
+      { name: 'SR', served: true, solve: 'periodic', selected: false, error: null },
+    ]);
+
+    showFigureUnavailable('resonance', 'not available for a single-pass model');
+
+    expect(qs(byId('plot-resonance'), '.osprey-state button').textContent).toBe('Switch to SR');
+  });
+
+  test('with no periodic model to switch to, the Resonance panel has no action', () => {
+    renderModelSwitch(SINGLE_PASS_MODELS.filter((model) => model.solve === 'single_pass'));
+
+    showFigureUnavailable('resonance', 'not available for a single-pass model');
+
+    expect(byId('plot-resonance').querySelector('button')).toBeNull();
+  });
+
+  test('a model list that arrives after the refusal adds the switch', () => {
+    showFigureUnavailable('resonance', 'not available for a single-pass model');
+    expect(byId('plot-resonance').querySelector('button')).toBeNull();
+
+    renderModelSwitch(SINGLE_PASS_MODELS);
+
+    expect(qs(byId('plot-resonance'), '.osprey-state button').textContent).toBe('Switch to main');
   });
 });
 

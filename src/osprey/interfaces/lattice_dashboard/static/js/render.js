@@ -325,15 +325,6 @@ function applyThemedMarkers(data, fgColor) {
  */
 
 /**
- * @param {string} id
- * @param {boolean} disabled
- */
-function setButtonDisabled(id, disabled) {
-  const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById(id));
-  if (btn) btn.disabled = disabled;
-}
-
-/**
  * Create a renderer bound to the dashboard's figure catalog and a set of
  * network-effect callbacks. Also wires the live re-theme subscription
  * (fires on every theme apply, including the hub's initial broadcast and
@@ -350,14 +341,7 @@ export function createRenderer(figureNames, callbacks) {
   function renderState(state) {
     if (!state) return;
 
-    const selection = state.selection || {};
-    const ready = selection.status === 'ready';
-
-    // The selected model's name
-    const latticeNameEl = document.getElementById('lattice-name');
-    if (latticeNameEl) {
-      latticeNameEl.textContent = selection.model || 'No lattice loaded';
-    }
+    // The model name and the toolbar buttons follow the state in header.js.
 
     // Summary stats
     updateSummaryStats(state.summary || {});
@@ -374,11 +358,6 @@ export function createRenderer(figureNames, callbacks) {
         }
       }
     }
-
-    // Enable/disable buttons
-    setButtonDisabled('btn-refresh', !ready);
-    setButtonDisabled('btn-verify', !ready || !selection.capabilities?.verify);
-    setButtonDisabled('btn-baseline', !ready);
   }
 
   /** @param {Record<string, any>} families */

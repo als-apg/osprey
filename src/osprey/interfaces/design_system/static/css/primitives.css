@@ -67,20 +67,22 @@ button.osprey-search {
   transition: background var(--duration-fast), color var(--duration-fast);
 }
 
-.osprey-icon-btn:hover {
+.osprey-icon-btn:hover:not(:disabled) {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
 
-.osprey-icon-btn:active,
+.osprey-icon-btn:active:not(:disabled),
 .osprey-icon-btn[aria-expanded="true"] {
   background: var(--surface-press);
   color: var(--text-primary);
 }
 
+/* A disabled control stays hoverable: its tooltip says why it is disabled
+   (the panel-chrome standard, DESIGN.md §12). No pointer-events: none. */
 .osprey-icon-btn:disabled {
   opacity: 0.35;
-  pointer-events: none;
+  cursor: not-allowed;
 }
 
 /* Text button: 28 px, display font. `.primary` fills with the accent. Put
@@ -104,7 +106,7 @@ button.osprey-search {
               filter var(--duration-fast);
 }
 
-.osprey-btn:hover {
+.osprey-btn:hover:not(:disabled) {
   background: var(--surface-hover);
   border-color: var(--border-default);
 }
@@ -115,13 +117,13 @@ button.osprey-search {
   color: var(--color-on-accent);
 }
 
-.osprey-btn.primary:hover {
+.osprey-btn.primary:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 
 .osprey-btn:disabled {
   opacity: 0.35;
-  pointer-events: none;
+  cursor: not-allowed;
 }
 
 .osprey-btn-label {
@@ -942,7 +944,7 @@ button.osprey-search {
 
 .osprey-seg > button:disabled {
   opacity: 0.35;
-  pointer-events: none;
+  cursor: not-allowed;
 }
 
 /* Search field: 28 px, an icon('search') and an input with a placeholder,

@@ -24,8 +24,8 @@ import {
 import { createUI } from './ui.js';
 import { createHeader } from './header.js';
 import {
-  bindModelSelect,
-  renderModelSelect,
+  bindModelSwitch,
+  renderModelSwitch,
   renderNotice,
   selectionNotice,
   showFigureUnavailable,
@@ -77,10 +77,7 @@ const net = createNetClient({
     header.syncState(state);
     loadSettings();
   },
-  onModels: (models) => {
-    renderModelSelect(models);
-    header.syncModels(models);
-  },
+  onModels: renderModelSwitch,
   onParamSet: (result) => updateFigureStatuses(result.figures),
   onFigureData: (name, figData) => renderPlotly(name, figData),
   onFigureUnavailable: showFigureUnavailable,
@@ -106,13 +103,16 @@ const net = createNetClient({
 
 const ui = createUI(ALL_FIGURES);
 
-// ── Header Actions (standalone top bar + embedded tile bar) ──
+// ── Toolbar Actions (panel toolbar + embedded tile bar) ──
 
 const header = createHeader({
   onRefresh: () => net.refresh(),
   onVerify: runVerification,
   onBaseline: net.setBaseline,
-  onSelectModel: net.selectModel,
+  onLayout: (mode) => {
+    ui.applyLayout(mode);
+    header.syncLayout(ui.currentLayout());
+  },
 });
 
 // ── Initialization ──────────────────────────────────────
@@ -121,24 +121,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check embedded query param
   applyEmbedded();
 
-  // Refresh/Verify/Baseline. Must follow applyEmbedded(): the tile-bar
-  // contribution it publishes is a no-op until the body class is set.
+  // Refresh/Verify/Baseline and the tile-bar menu. Must follow
+  // applyEmbedded(): the tile-bar contribution it publishes is a no-op until
+  // the body class is set.
   header.init();
-  bindModelSelect(net.selectModel);
+  bindModelSwitch(net.selectModel);
+  header.syncLayout(ui.initLayout());
 
-  // Layout toggle (guarded — btn may not exist in cached HTML)
-  const layoutBtn = document.getElementById('btn-layout');
-  if (layoutBtn) {
-    layoutBtn.addEventListener('click', ui.toggleLayout);
-    ui.initLayout();
-  }
-
-  // Sidebar collapse toggle
-  const sidebarBtn = document.getElementById('btn-sidebar-toggle');
-  if (sidebarBtn) {
-    sidebarBtn.addEventListener('click', ui.toggleSidebar);
-    ui.initSidebar();
-  }
+  ui.initSidebar();
   ui.initSidebarTabs();
   ui.restorePanelOrder();
   ui.setupDragAndDrop();

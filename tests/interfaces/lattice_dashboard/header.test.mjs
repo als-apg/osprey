@@ -1,7 +1,8 @@
 /**
- * Unit tests for the Lattice Dashboard header-action controller (header.js):
- * the two-step Baseline arming state machine and the tile-bar contribution
- * it publishes when embedded.
+ * Unit tests for the Lattice Dashboard toolbar-action controller (header.js):
+ * the panel toolbar's Refresh / Baseline / Verify, the two-step Baseline
+ * arming, and the tile-bar contribution it publishes when embedded (the
+ * model name and the layout menu).
  *
  * happy-dom environment (configured globally). header-contrib.js is mocked
  * via vi.mock — in this environment window.parent === window, so the real
@@ -20,22 +21,30 @@ vi.mock('/design-system/js/header-contrib.js', () => ({
 }));
 
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
-import { createHeader } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/header.js';
+import { readTitle } from '/design-system/js/tooltip.js';
+import {
+  createHeader,
+  LAYOUT_MENU_ID,
+} from '../../../src/osprey/interfaces/lattice_dashboard/static/js/header.js';
 
-/** Minimal DOM fixture matching the top bar in lattice_dashboard's index.html. */
+/** Minimal DOM fixture matching the panel toolbar in lattice_dashboard's index.html. */
 function mountFixture() {
   document.body.innerHTML = `
-    <button id="btn-refresh"></button>
-    <button id="btn-verify"></button>
-    <button id="btn-baseline" class="action-btn action-btn--baseline">
-      <span class="baseline-label">Baseline</span>
+    <button id="btn-refresh" class="osprey-icon-btn" disabled></button>
+    <button id="btn-baseline" class="osprey-btn baseline-btn" disabled>
+      <span class="baseline-label">
+        <span class="baseline-label-rest">Baseline</span>
+        <span class="baseline-label-armed">Confirm?</span>
+      </span>
     </button>
+    <button id="btn-verify" class="osprey-btn primary" disabled>Verify</button>
+    <button id="btn-panel-menu" class="osprey-icon-btn" aria-haspopup="menu" hidden></button>
   `;
 }
 
-/** @returns {{onRefresh: any, onVerify: any, onBaseline: any}} */
+/** @returns {{onRefresh: any, onVerify: any, onBaseline: any, onLayout: any}} */
 function makeCallbacks() {
-  return { onRefresh: vi.fn(), onVerify: vi.fn(), onBaseline: vi.fn() };
+  return { onRefresh: vi.fn(), onVerify: vi.fn(), onBaseline: vi.fn(), onLayout: vi.fn() };
 }
 
 /** The items of the most recent contribution. @returns {any[]} */
@@ -49,10 +58,25 @@ function contributedItem(id) {
   return lastContribution().find((/** @type {any} */ item) => item.id === id);
 }
 
-/** Fire the hub's action round-trip for a contributed item. @param {string} id */
-function headerAction(id) {
-  vi.mocked(onHeaderAction).mock.calls[0][0](id);
+/** Fire the hub's action round-trip. @param {string} id @param {string} [value] */
+function headerAction(id, value) {
+  vi.mocked(onHeaderAction).mock.calls[0][0](id, value);
 }
+
+/** @param {string} id @returns {HTMLButtonElement} */
+function btn(id) {
+  return /** @type {HTMLButtonElement} */ (byId(id));
+}
+
+const isArmed = () => btn('btn-baseline').hasAttribute('data-armed');
+
+/** A /api/state body whose periodic SR selection is ready. */
+const READY = { selection: { model: 'SR', status: 'ready', capabilities: { verify: true } } };
+
+/** A /api/state body whose single-pass selection is ready. */
+const SINGLE_PASS = {
+  selection: { model: 'LINE', status: 'ready', capabilities: { verify: false } },
+};
 
 beforeEach(() => {
   mountFixture();
@@ -64,154 +88,111 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('plain actions', () => {
-  test('the standalone buttons and the tile bar reach the same handlers', () => {
+describe('toolbar actions', () => {
+  test('Refresh is an icon button and reaches its handler', () => {
     const cb = makeCallbacks();
-    createHeader(cb).init();
+    const header = createHeader(cb);
+    header.init();
+    header.syncState(READY);
 
-    byId('btn-refresh').click();
-    byId('btn-verify').click();
+    expect(btn('btn-refresh').querySelector('svg')).not.toBeNull();
+    btn('btn-refresh').click();
+    btn('btn-verify').click();
     expect(cb.onRefresh).toHaveBeenCalledTimes(1);
     expect(cb.onVerify).toHaveBeenCalledTimes(1);
-
-    headerAction('refresh');
-    headerAction('verify');
-    expect(cb.onRefresh).toHaveBeenCalledTimes(2);
-    expect(cb.onVerify).toHaveBeenCalledTimes(2);
   });
 
-  test('an unknown action id is ignored', () => {
-    const cb = makeCallbacks();
-    createHeader(cb).init();
+  test('every action is disabled until a lattice loads, and Verify says why', () => {
+    createHeader(makeCallbacks()).init();
 
-    headerAction('bogus');
+    expect(btn('btn-refresh').disabled).toBe(true);
+    expect(btn('btn-baseline').disabled).toBe(true);
+    expect(btn('btn-verify').disabled).toBe(true);
+    expect(readTitle(btn('btn-verify'))).toBe('Verify needs a lattice');
+  });
 
-    expect(cb.onRefresh).not.toHaveBeenCalled();
-    expect(cb.onBaseline).not.toHaveBeenCalled();
+  test('a ready periodic model enables all three', () => {
+    const header = createHeader(makeCallbacks());
+    header.init();
+    header.syncState(READY);
+
+    expect(btn('btn-refresh').disabled).toBe(false);
+    expect(btn('btn-baseline').disabled).toBe(false);
+    expect(btn('btn-verify').disabled).toBe(false);
+    expect(readTitle(btn('btn-verify'))).toBe('Run DA + LMA verification');
+  });
+
+  test('Verify stays disabled for a single-pass model, with the reason as its tooltip', () => {
+    const header = createHeader(makeCallbacks());
+    header.init();
+    header.syncState(SINGLE_PASS);
+
+    expect(btn('btn-verify').disabled).toBe(true);
+    expect(readTitle(btn('btn-verify'))).toMatch(/single-pass model/);
+    expect(btn('btn-refresh').disabled).toBe(false);
   });
 });
 
 describe('baseline arming', () => {
   test('the first click arms instead of overwriting the baseline', () => {
     const cb = makeCallbacks();
-    createHeader(cb).init();
+    const header = createHeader(cb);
+    header.init();
+    header.syncState(READY);
 
-    byId('btn-baseline').click();
+    btn('btn-baseline').click();
 
     expect(cb.onBaseline).not.toHaveBeenCalled();
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm?');
-    expect(byId('btn-baseline').classList.contains('action-btn--armed')).toBe(true);
+    expect(isArmed()).toBe(true);
+    expect(readTitle(btn('btn-baseline'))).toBe('Click again to overwrite the baseline');
   });
 
   test('a second click inside the window runs it and disarms', () => {
     const cb = makeCallbacks();
-    createHeader(cb).init();
+    const header = createHeader(cb);
+    header.init();
+    header.syncState(READY);
 
-    byId('btn-baseline').click();
-    byId('btn-baseline').click();
+    btn('btn-baseline').click();
+    btn('btn-baseline').click();
 
     expect(cb.onBaseline).toHaveBeenCalledTimes(1);
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Baseline');
-    expect(byId('btn-baseline').classList.contains('action-btn--armed')).toBe(false);
+    expect(isArmed()).toBe(false);
   });
 
   test('arming lapses on its own, so the next click re-arms', () => {
     vi.useFakeTimers();
     const cb = makeCallbacks();
-    createHeader(cb).init();
+    const header = createHeader(cb);
+    header.init();
+    header.syncState(READY);
 
-    byId('btn-baseline').click();
+    btn('btn-baseline').click();
     vi.advanceTimersByTime(4000);
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Baseline');
+    expect(isArmed()).toBe(false);
 
-    byId('btn-baseline').click();
+    btn('btn-baseline').click();
     expect(cb.onBaseline).not.toHaveBeenCalled();
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm?');
+    expect(isArmed()).toBe(true);
   });
 
-  test('one state machine drives both renderings', () => {
-    const cb = makeCallbacks();
-    createHeader(cb).init();
-
-    // Armed from the tile bar, confirmed from the standalone button
-    headerAction('baseline');
-    expect(contributedItem('baseline').label).toBe('Confirm?');
-    expect(contributedItem('baseline').tone).toBe('accent');
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Confirm?');
-
-    byId('btn-baseline').click();
-    expect(cb.onBaseline).toHaveBeenCalledTimes(1);
-    expect(contributedItem('baseline').label).toBe('Baseline');
-    expect(contributedItem('baseline').tone).toBe('default');
-  });
-});
-
-/** A /api/state body whose periodic SR selection is ready. */
-const READY = { selection: { model: 'SR', status: 'ready', capabilities: { verify: true } } };
-
-describe('contribution', () => {
-  test('publishes the name and the three actions, disabled until a lattice loads', () => {
-    createHeader(makeCallbacks()).init();
-
-    expect(lastContribution().map((/** @type {any} */ i) => i.id)).toEqual([
-      'lattice-name',
-      'refresh',
-      'verify',
-      'baseline',
-    ]);
-    expect(contributedItem('lattice-name').text).toBe('No lattice loaded');
-    expect(contributedItem('refresh').disabled).toBe(true);
-    expect(contributedItem('verify').disabled).toBe(true);
-    expect(contributedItem('baseline').disabled).toBe(true);
-  });
-
-  test('header names the model', () => {
-    const header = createHeader(makeCallbacks());
-    header.init();
-
-    header.syncState(READY);
-
-    expect(contributedItem('lattice-name').text).toBe('SR');
-    expect(contributedItem('refresh').disabled).toBe(false);
-    expect(contributedItem('verify').disabled).toBe(false);
-    expect(contributedItem('baseline').disabled).toBe(false);
-  });
-
-  test('Verify disabled for a single-pass selection', () => {
-    const header = createHeader(makeCallbacks());
-    header.init();
-
-    header.syncState({
-      selection: { model: 'LINE', status: 'ready', capabilities: { verify: false } },
-    });
-
-    expect(contributedItem('lattice-name').text).toBe('LINE');
-    expect(contributedItem('verify').disabled).toBe(true);
-    expect(contributedItem('refresh').disabled).toBe(false);
-  });
-
-  test('the armed label matches the resting one in length, so neighbours hold still', () => {
-    // Baseline is not the last item in either rendering: the standalone topbar
-    // puts the theme switcher after it, and Refresh/Verify sit before it in
-    // both. A label that grows on arming therefore shoves a persistent control
-    // sideways on the very click that arms this one — exactly the class of
-    // jump the two-step confirm is supposed to protect against, reintroduced
-    // by the confirm itself.
-    //
-    // Equal CHARACTER count is exact in the topbar (.action-btn is monospace)
-    // and near-exact in the tile bar (--font-display is proportional), which
-    // is the best a contributed item can do: the hub owns that button's box
-    // and a panel has no way to ask it for a width.
+  test('both labels stay in the button, so arming never changes its width', () => {
+    // Verify and the theme switcher sit right of Baseline; a label that grew
+    // on arming would shove them on the very click that arms. The two labels
+    // share one grid cell (dashboard.css) and arming only flips which shows.
     const header = createHeader(makeCallbacks());
     header.init();
     header.syncState(READY);
+    const labels = () =>
+      Array.from(btn('btn-baseline').querySelectorAll('.baseline-label > span')).map(
+        (span) => span.textContent
+      );
 
-    const resting = contributedItem('baseline').label;
-    byId('btn-baseline').click();
-    const armed = contributedItem('baseline').label;
-
-    expect(armed).not.toBe(resting);
-    expect(armed.length).toBe(resting.length);
+    expect(labels()).toEqual(['Baseline', 'Confirm?']);
+    btn('btn-baseline').click();
+    expect(isArmed()).toBe(true);
+    expect(labels()).toEqual(['Baseline', 'Confirm?']);
+    expect(qs(btn('btn-baseline'), '.baseline-label').childElementCount).toBe(2);
   });
 
   test('unloading the lattice cancels a pending confirm', () => {
@@ -220,13 +201,106 @@ describe('contribution', () => {
     header.init();
     header.syncState(READY);
 
-    byId('btn-baseline').click();
+    btn('btn-baseline').click();
     header.syncState({ selection: { model: null, status: 'none', capabilities: {} } });
 
-    expect(contributedItem('baseline').label).toBe('Baseline');
-    expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Baseline');
+    expect(isArmed()).toBe(false);
+    header.syncState(READY);
     // The next click arms afresh rather than firing the stale confirm
-    byId('btn-baseline').click();
+    btn('btn-baseline').click();
     expect(cb.onBaseline).not.toHaveBeenCalled();
+  });
+});
+
+describe('the standalone ⋯', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+    document.querySelector('.osprey-context-menu')?.remove();
+  });
+
+  test('standalone shows it, and an entry runs the same handler as the hub ⋯', () => {
+    window.history.replaceState(null, '', '/');
+    const cb = makeCallbacks();
+    const header = createHeader(cb);
+    header.init();
+    header.syncLayout('stacked');
+
+    const menuBtn = btn('btn-panel-menu');
+    expect(menuBtn.hidden).toBe(false);
+    menuBtn.click();
+
+    const rows = Array.from(document.querySelectorAll('.osprey-context-menu [role^="menuitem"]'));
+    expect(rows.map((row) => row.textContent?.replace('✓', '').trim())).toEqual([
+      'Layout: Stacked',
+      'Layout: Grid',
+    ]);
+    expect(rows.map((row) => row.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    /** @type {HTMLElement} */ (rows[1]).click();
+    expect(cb.onLayout).toHaveBeenCalledWith('grid');
+  });
+
+  test('embedded it does not exist: the hub ⋯ is the one per tile', () => {
+    window.history.replaceState(null, '', '/?embedded=true');
+    createHeader(makeCallbacks()).init();
+
+    expect(document.getElementById('btn-panel-menu')).toBeNull();
+  });
+});
+
+describe('contribution', () => {
+  test('the tile bar gets the model name and the layout menu, nothing else', () => {
+    const header = createHeader(makeCallbacks());
+    header.init();
+    header.syncState(READY);
+
+    expect(lastContribution().map((/** @type {any} */ i) => [i.kind, i.id])).toEqual([
+      ['text', 'lattice-name'],
+      ['menu', LAYOUT_MENU_ID],
+    ]);
+    expect(contributedItem('lattice-name').text).toBe('SR');
+  });
+
+  test('with no model there is no subtitle, only the menu', () => {
+    createHeader(makeCallbacks()).init();
+
+    expect(lastContribution().map((/** @type {any} */ i) => i.kind)).toEqual(['menu']);
+  });
+
+  test('the layout menu checks the layout shown', () => {
+    const header = createHeader(makeCallbacks());
+    header.init();
+
+    header.syncLayout('stacked');
+    expect(contributedItem(LAYOUT_MENU_ID).items).toEqual([
+      { id: 'stacked', label: 'Layout: Stacked', checked: true },
+      { id: 'grid', label: 'Layout: Grid', checked: false },
+    ]);
+
+    header.syncLayout('grid');
+    expect(contributedItem(LAYOUT_MENU_ID).items.map((/** @type {any} */ e) => e.checked)).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  test('a layout pick in ⋯ reaches the layout handler with the entry id', () => {
+    const cb = makeCallbacks();
+    createHeader(cb).init();
+
+    headerAction(LAYOUT_MENU_ID, 'grid');
+    expect(cb.onLayout).toHaveBeenCalledWith('grid');
+  });
+
+  test('an unknown action or entry is ignored', () => {
+    const cb = makeCallbacks();
+    createHeader(cb).init();
+
+    headerAction('refresh');
+    headerAction('baseline');
+    headerAction(LAYOUT_MENU_ID, 'bogus');
+
+    expect(cb.onRefresh).not.toHaveBeenCalled();
+    expect(cb.onBaseline).not.toHaveBeenCalled();
+    expect(cb.onLayout).not.toHaveBeenCalled();
   });
 });

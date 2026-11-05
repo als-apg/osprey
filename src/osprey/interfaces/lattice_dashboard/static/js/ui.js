@@ -1,10 +1,11 @@
 // @ts-check
 /* OSPREY Lattice Dashboard — UI Chrome Layer
  *
- * Sidebar collapse, stacked/grid layout toggle, sidebar tab switching, and
- * figure-panel drag-and-drop rearrangement — the dashboard's persistent UI
- * chrome. Each preference is held in one of the four `lattice-*`
- * localStorage keys below, resolved per person through scopedStorageKey().
+ * The control sidebar (the shared panel sidebar), the stacked/grid layout,
+ * the sidebar's Magnets | Settings switch, and figure-panel drag-and-drop
+ * rearrangement — the dashboard's persistent UI chrome. Each preference is
+ * held in one of the four `lattice-*` localStorage keys below, resolved per
+ * person through scopedStorageKey().
  *
  * The full drag-and-drop feature (`setupDragAndDrop`, `savePanelOrder`,
  * `restorePanelOrder`) lives together in one Drag-and-Drop section below.
@@ -14,25 +15,18 @@
  * figure catalog passed to createUI().
  */
 
-import { initSplitter } from '/design-system/js/splitter.js';
+import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 const SIDEBAR_TAB_KEY = 'lattice-sidebar-tab';
 const PANEL_ORDER_KEY = 'lattice-panel-order';
 const LAYOUT_KEY = 'lattice-layout-mode';
+// The key's name predates the panel sidebar; it keeps it, so an operator's
+// stored width and open state carry over.
 const SIDEBAR_KEY = 'lattice-sidebar-collapsed';
 
-/**
- * Look up a required descendant and assert it as HTMLElement (for `.style`/
- * `.textContent` access). Purely a type-checking aid — if `selector` isn't
- * found this throws at the access site exactly as the un-cast lookup would.
- * @param {Element} scope
- * @param {string} selector
- * @returns {HTMLElement}
- */
-function _requireEl(scope, selector) {
-  return /** @type {HTMLElement} */ (scope.querySelector(selector));
-}
+/** How long the figure pane must hold its width before the figures reflow. */
+const REFLOW_DELAY_MS = 150;
 
 /**
  * Create the dashboard's sidebar/layout/tabs/drag-and-drop controller,
@@ -50,136 +44,86 @@ export function createUI(figureNames) {
     });
   }
 
-  // ── Sidebar: collapse + resize ──────────────────────────
+  // ── Sidebar: the shared panel sidebar ───────────────────
+
+  /** @type {import('/design-system/js/panel-sidebar.js').PanelSidebarApi | null} */
+  let sidebarApi = null;
 
   /**
-   * The shared splitter, which owns both the sidebar's width and its collapsed
-   * state. Three call sites used to write `.sidebar-collapsed` and the storage
-   * key independently — the chevron, the boot path, and the tab strip's
-   * expand-on-click — and nothing kept them agreeing. They all route here now.
-   */
-  /** @type {import('/design-system/js/splitter.js').SplitterApi|null} */
-  let sidebarSplitter = null;
-
-  /**
-   * Idempotent, and safe to call from any entry point. `createUI()` hands back
-   * independent functions that a caller may invoke in any order, so the
-   * chevron and the tab strip both ensure the splitter exists rather than
-   * assuming boot already made it — otherwise whichever runs first silently
-   * no-ops.
+   * Wire the control sidebar: open on wide tiles (the sliders are the main
+   * control), an overlay on narrow ones, toggled from the toolbar. Plotly
+   * does not re-measure when its pane changes width without a window
+   * resize, so the figures reflow once the pane settles.
+   * @returns {import('/design-system/js/panel-sidebar.js').PanelSidebarApi | null}
    */
   function initSidebar() {
-    if (sidebarSplitter) return;
+    if (sidebarApi) return sidebarApi;
     const sidebar = document.getElementById('sidebar');
-    if (!sidebar) return;
-    sidebarSplitter = initSplitter({
+    if (!sidebar) return null;
+    sidebarApi = initPanelSidebar({
+      sidebar,
       handle: document.getElementById('sidebar-resizer'),
-      pane: sidebar,
-      storageKey: scopedStorageKey(SIDEBAR_KEY),
-      axis: 'x',
-      anchor: 'start',
-      // #sidebar is a plain flex child sized by `width`, and its
-      // `.sidebar-collapsed` rule is a non-important `width: 36px` — an inline
-      // flex-basis would outrank it and the collapse would stop working.
-      sizing: 'box',
-      min: 160,
-      max: 480,
-      collapsedSize: 36,
-      // The pre-splitter read was `getItem(key) !== 'false'`, so an absent key
-      // means COLLAPSED here — the inverse of every other host. Without this,
-      // every operator who never touched the chevron silently gets an expanded
-      // sidebar on first load after the upgrade.
-      defaultCollapsed: true,
-      // Plotly does not re-measure on its own; a width change that skips this
-      // leaves every figure rendered at the old width.
-      onCommit: () => {
-        sidebar.classList.toggle('sidebar-collapsed', !!sidebarSplitter?.isCollapsed());
-        setTimeout(_reflowFigures, 250);
-      },
+      toggle: document.getElementById('btn-sidebar'),
+      storageKey: SIDEBAR_KEY,
+      defaultOpen: true,
     });
-    sidebarSplitter.restoreSize();
-    sidebar.classList.toggle('sidebar-collapsed', sidebarSplitter.isCollapsed());
-  }
-
-  function toggleSidebar() {
-    initSidebar();
-    sidebarSplitter?.toggleCollapse();
-  }
-
-  /** Expand the sidebar if it is collapsed; a no-op otherwise. */
-  function expandSidebar() {
-    initSidebar();
-    if (sidebarSplitter?.isCollapsed()) sidebarSplitter.expand();
+    const pane = document.getElementById('figure-pane');
+    if (pane && typeof ResizeObserver === 'function') {
+      /** @type {ReturnType<typeof setTimeout> | undefined} */
+      let timer;
+      new ResizeObserver(() => {
+        clearTimeout(timer);
+        timer = setTimeout(_reflowFigures, REFLOW_DELAY_MS);
+      }).observe(pane);
+    }
+    return sidebarApi;
   }
 
   // ── Layout Mode ─────────────────────────────────────────
 
+  /** The layout the figures show: `stacked` or `grid`. */
+  function currentLayout() {
+    return document.getElementById('figure-area')?.classList.contains('layout-stacked')
+      ? 'stacked'
+      : 'grid';
+  }
+
+  /** @returns {string} the stored layout, now applied */
   function initLayout() {
     const mode = localStorage.getItem(scopedStorageKey(LAYOUT_KEY)) || 'stacked';
     applyLayout(mode);
-  }
-
-  function toggleLayout() {
-    const figArea = /** @type {HTMLElement} */ (document.getElementById('figure-area'));
-    const isStacked = figArea.classList.contains('layout-stacked');
-    applyLayout(isStacked ? 'grid' : 'stacked');
+    return currentLayout();
   }
 
   /** @param {string} mode */
   function applyLayout(mode) {
     const figArea = document.getElementById('figure-area');
     if (!figArea) return;
-    const btn = document.getElementById('btn-layout');
-
-    if (mode === 'stacked') {
-      figArea.classList.add('layout-stacked');
-      if (btn) {
-        _requireEl(btn, '.layout-label').textContent = 'Grid';
-        _requireEl(btn, '.icon-grid').style.display = '';
-        _requireEl(btn, '.icon-stack').style.display = 'none';
-      }
-    } else {
-      figArea.classList.remove('layout-stacked');
-      if (btn) {
-        _requireEl(btn, '.layout-label').textContent = 'Stack';
-        _requireEl(btn, '.icon-grid').style.display = 'none';
-        _requireEl(btn, '.icon-stack').style.display = '';
-      }
-    }
-
-    localStorage.setItem(scopedStorageKey(LAYOUT_KEY), mode);
+    figArea.classList.toggle('layout-stacked', mode === 'stacked');
+    localStorage.setItem(scopedStorageKey(LAYOUT_KEY), currentLayout());
     _reflowFigures();
   }
 
   // ── Sidebar Tabs ────────────────────────────────────────
 
+  /** Bind the Magnets | Settings switch and restore the last one shown. */
   function initSidebarTabs() {
-    const tabs = document.querySelectorAll('.sidebar-tab');
-    tabs.forEach((tab) => {
+    document.querySelectorAll('.sidebar-tab').forEach((tab) => {
       tab.addEventListener('click', () => {
-        const tabName = /** @type {HTMLElement} */ (tab).dataset.tab;
-        // Picking a tab implies wanting to see it. Routed through the splitter
-        // so the class, the persisted state and the Plotly reflow stay in step.
-        expandSidebar();
-        switchTab(/** @type {string} */ (tabName));
+        switchTab(/** @type {string} */ (/** @type {HTMLElement} */ (tab).dataset.tab));
       });
     });
 
-    // Restore last active tab
     const savedTab = localStorage.getItem(scopedStorageKey(SIDEBAR_TAB_KEY));
     if (savedTab) switchTab(savedTab);
   }
 
   /** @param {string} tabName */
   function switchTab(tabName) {
-    // Update tab buttons
     document.querySelectorAll('.sidebar-tab').forEach((t) => {
-      t.classList.toggle(
-        'sidebar-tab--active',
-        /** @type {HTMLElement} */ (t).dataset.tab === tabName
-      );
+      const shown = /** @type {HTMLElement} */ (t).dataset.tab === tabName;
+      t.setAttribute('aria-pressed', String(shown));
     });
-    // Update tab content
     document.querySelectorAll('.sidebar-tab-content').forEach((panel) => {
       panel.classList.toggle('sidebar-tab-content--active', panel.id === `tab-${tabName}`);
     });
@@ -342,9 +286,9 @@ export function createUI(figureNames) {
 
   return {
     initSidebar,
-    toggleSidebar,
     initLayout,
-    toggleLayout,
+    applyLayout,
+    currentLayout,
     initSidebarTabs,
     setupDragAndDrop,
     restorePanelOrder,

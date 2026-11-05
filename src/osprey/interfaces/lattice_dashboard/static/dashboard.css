@@ -33,52 +33,67 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Column flow rather than a viewport calc: the top bar is absent when
-   embedded, and #main-layout must take whatever is left either way. */
+/* Column flow rather than a viewport calc: the panel root holds the toolbar
+   over #main-layout, which takes whatever is left. */
 body {
   display: flex;
   flex-direction: column;
 }
 
-/* ── Top Bar ───────────────────────────────────────────── */
-
-#topbar {
+#panel-root {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  height: 42px;
-  padding: 0 12px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
-.topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
+/* ── Panel Toolbar ─────────────────────────────────────────
+ *
+ * The shared .osprey-panel-toolbar (primitives.css), the same standalone
+ * and embedded. The rules below only fit the dashboard's own controls in. */
 
-.topbar-logo {
-  font-family: var(--font-mono);
-  font-weight: var(--weight-semibold);
-  font-size: var(--text-base);
-  letter-spacing: 2px;
-  color: var(--color-accent);
-  padding: 3px 6px;
-  border: 1px solid var(--border-accent);
-  border-radius: var(--radius-md);
-}
-
-.topbar-lattice {
-  font-family: var(--font-mono);
+/* Beyond MAX_SEGMENT_MODELS (js/models.js) the switcher is a select. */
+.model-select {
+  height: 28px;
+  max-width: 220px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-well);
+  color: var(--text-primary);
+  font-family: var(--font-display);
   font-size: var(--text-md);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
+  cursor: pointer;
+}
+
+.model-select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Baseline's two labels share one grid cell, so the button is as wide as
+   the longer one and arming never shoves Verify or the theme switcher. */
+.baseline-label {
+  display: inline-grid;
+}
+
+.baseline-label > span {
+  grid-area: 1 / 1;
+  text-align: center;
+}
+
+.baseline-btn:not([data-armed]) .baseline-label-armed,
+.baseline-btn[data-armed] .baseline-label-rest {
+  visibility: hidden;
+}
+
+/* Armed: overwriting the baseline is one more click away. Held for the
+   arming window by js/header.js. */
+.baseline-btn[data-armed],
+.baseline-btn[data-armed]:hover {
+  border-color: var(--baseline-accent);
+  color: var(--baseline-accent);
+  background: color-mix(in srgb, var(--baseline-accent) 18%, transparent);
 }
 
 /* ── Summary Strip ─────────────────────────────────────────
@@ -131,72 +146,6 @@ body {
   font-size: var(--text-sm);
 }
 
-.topbar-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-  transition: all var(--duration-fast);
-}
-
-.action-btn:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: var(--accent-tint-12);
-}
-
-.action-btn:active {
-  transform: scale(0.97);
-}
-
-.action-btn--verify:hover {
-  border-color: var(--verify-accent);
-  color: var(--verify-accent);
-  background: color-mix(in srgb, var(--verify-accent) 10%, transparent);
-}
-
-.action-btn--baseline:hover {
-  border-color: var(--baseline-accent);
-  color: var(--baseline-accent);
-  background: color-mix(in srgb, var(--baseline-accent) 10%, transparent);
-}
-
-/* Armed: overwriting the baseline is one more click away. Held for the
-   arming window by js/header.js, which also swaps the label. */
-.action-btn--armed,
-.action-btn--armed:hover {
-  border-color: var(--baseline-accent);
-  color: var(--baseline-accent);
-  background: color-mix(in srgb, var(--baseline-accent) 18%, transparent);
-}
-
-.action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* Embedded in web terminal: the host tile bar is the panel's one header. It
- * shows the panel name, owns theming, and carries this bar's actions via the
- * header contribution js/header.js publishes. The inner rules stay as the
- * identity contract's belt and braces. */
-body.embedded #topbar { display: none; }
-body.embedded .topbar-logo { display: none; }
-
 /* ── Main Layout ───────────────────────────────────────── */
 
 #main-layout {
@@ -215,79 +164,19 @@ body.embedded .topbar-logo { display: none; }
   overflow: hidden;
 }
 
-/* ── Sidebar ───────────────────────────────────────────── */
+/* ── Sidebar ───────────────────────────────────────────────
+ *
+ * The shared .osprey-panel-sidebar (primitives.css) sizes and hides it;
+ * js/ui.js wires it. Each tab's content scrolls on its own. */
 
 #sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  background: var(--bg-panel);
-  border-right: 1px solid var(--border-default);
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
-  transition: width var(--duration-base) ease;
 }
 
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px 8px;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 1.5px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border-default);
-}
-
-.sidebar-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
+.sidebar-head {
   flex-shrink: 0;
-  transition: color var(--duration-fast), background var(--duration-fast);
-}
-
-.sidebar-toggle:hover {
-  color: var(--color-accent);
-  background: var(--accent-tint-12);
-}
-
-.sidebar-toggle .chevron-path {
-  transition: transform var(--duration-base);
-  transform-origin: center;
-}
-
-/* Collapsed sidebar */
-#sidebar.sidebar-collapsed {
-  width: 36px;
-}
-
-#sidebar.sidebar-collapsed .sidebar-header {
-  justify-content: center;
-  padding: 10px 0 8px;
-}
-
-#sidebar.sidebar-collapsed .sidebar-header-label,
-#sidebar.sidebar-collapsed .sidebar-tab-label,
-#sidebar.sidebar-collapsed #sidebar-content {
-  display: none;
-}
-
-#sidebar.sidebar-collapsed .sidebar-toggle .chevron-path {
-  transform: rotate(0deg);
-}
-
-#sidebar:not(.sidebar-collapsed) .sidebar-toggle .chevron-path {
-  transform: rotate(180deg);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--surface-hairline);
 }
 
 #slider-container {
@@ -386,97 +275,15 @@ body.embedded .topbar-logo { display: none; }
 
 /* ── Sidebar Tabs ─────────────────────────────────────── */
 
+/* The Magnets | Settings switch: an .osprey-seg across the sidebar. */
 .sidebar-tabs {
   display: flex;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
 }
 
-.sidebar-tab {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 1px;
-  cursor: pointer;
-  transition: color var(--duration-fast), background var(--duration-fast);
-  white-space: nowrap;
-}
-
-.sidebar-tab:hover {
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-}
-
-.sidebar-tab--active {
-  color: var(--color-accent);
-  background: var(--accent-tint-12);
-}
-
-.sidebar-tab-icon {
-  flex-shrink: 0;
-}
-
-.sidebar-tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Collapsed sidebar: stack tabs vertically, icons only */
-#sidebar.sidebar-collapsed .sidebar-tabs {
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-}
-
-#sidebar.sidebar-collapsed .sidebar-tab {
-  padding: 4px;
-  justify-content: center;
-}
-
-#sidebar.sidebar-collapsed .sidebar-header {
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 4px 6px;
-}
-
-#sidebar.sidebar-collapsed .sidebar-toggle {
-  margin: 0 auto;
-}
-
-/* ── Sidebar Footer (view controls) ───────────────────── */
-
-.sidebar-footer {
-  display: flex;
-  padding: 8px;
-  border-top: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.sidebar-view-btn {
+.sidebar-tabs > button {
   flex: 1;
   justify-content: center;
-  min-width: 0;
-}
-
-#sidebar.sidebar-collapsed .sidebar-footer {
-  padding: 8px 4px;
-}
-
-#sidebar.sidebar-collapsed .sidebar-view-btn {
-  padding: 4px;
-}
-
-#sidebar.sidebar-collapsed .layout-label {
-  display: none;
 }
 
 /* Tab content panels */
@@ -784,6 +591,12 @@ body.drag-active .figure-plot {
   font-size: var(--text-base);
 }
 
+/* A panel the selected model cannot draw holds the shared centred state
+   (js/models.js), in its own type, not the placeholder's mono. */
+.figure-unavailable {
+  font-family: var(--font-display);
+}
+
 .figure-placeholder strong {
   color: var(--verify-accent);
   font-weight: var(--weight-medium);
@@ -888,18 +701,4 @@ body.drag-active .figure-plot {
 
 #figure-area.layout-stacked .verification-row .figure-cell {
   min-height: 420px;
-}
-
-/* ── Responsive: hide sidebar on narrow viewports ──────── */
-
-@media (max-width: 700px) {
-  #sidebar {
-    width: 36px !important;
-  }
-  #sidebar .sidebar-header-label,
-  #sidebar .sidebar-tab-label,
-  #sidebar .layout-label,
-  #sidebar #sidebar-content {
-    display: none !important;
-  }
 }

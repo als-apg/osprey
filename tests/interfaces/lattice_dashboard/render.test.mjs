@@ -33,10 +33,6 @@ const FIGURE_NAMES = ['optics', 'da'];
 /** Minimal DOM fixture matching lattice_dashboard/static/index.html's structure. */
 function mountFixture() {
   document.body.innerHTML = `
-    <span id="lattice-name"></span>
-    <button id="btn-refresh"></button>
-    <button id="btn-verify"></button>
-    <button id="btn-baseline"></button>
     <div class="stat-chip" id="stat-energy"><span class="stat-value"></span></div>
     <div class="stat-chip" id="stat-circumference"><span class="stat-value"></span></div>
     <div class="stat-chip" id="stat-nux"><span class="stat-value"></span></div>
@@ -407,20 +403,6 @@ describe('createRenderer / updateSliders debounce', () => {
     });
     expect(callbacks.onFigureReady).toHaveBeenCalledTimes(1);
     expect(callbacks.onFigureReady).toHaveBeenCalledWith('optics');
-  });
-
-  test('renderState names the selected model and follows its capabilities', () => {
-    const renderer = createRenderer(FIGURE_NAMES, callbacks);
-    renderer.renderState({
-      selection: { model: 'LINE', status: 'ready', capabilities: { verify: false } },
-      summary: {},
-      families: {},
-      figures: {},
-    });
-
-    expect(byId('lattice-name').textContent).toBe('LINE');
-    expect(/** @type {HTMLButtonElement} */ (byId('btn-verify')).disabled).toBe(true);
-    expect(/** @type {HTMLButtonElement} */ (byId('btn-refresh')).disabled).toBe(false);
   });
 
   test('renderState is a no-op on a null/undefined state', () => {

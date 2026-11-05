@@ -1,21 +1,34 @@
 /**
- * Unit tests for the Lattice Dashboard UI-chrome layer (ui.js: sidebar
- * collapse, layout-mode toggle, sidebar tabs, and the unified
- * drag-and-drop panel rearrangement).
+ * Unit tests for the Lattice Dashboard UI-chrome layer (ui.js: the control
+ * sidebar through the shared panel sidebar, the layout mode, the Magnets |
+ * Settings switch, and the unified drag-and-drop panel rearrangement).
  *
  * happy-dom environment (configured globally) with its built-in
  * window.localStorage standing in as the mocked localStorage,
  * cleared per test for isolation -- same convention as
  * theme-settheme.test.mjs. Plotly mocked via vi.stubGlobal (the ambient
  * `Plotly` global normally comes from the vendored classic script -- see
- * vendor-globals.d.ts):
+ * vendor-globals.d.ts). panel-sidebar.js is the real module behind a spy, so
+ * the call and its effect are both asserted:
  *   npx vitest run tests/interfaces/lattice_dashboard/ui.test.mjs
  */
+
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { test, expect, vi, describe, afterEach, beforeEach } from 'vitest';
 
 import { qs, byId } from '../_support/dom.mjs';
 
+vi.mock('/design-system/js/panel-sidebar.js', async (importOriginal) => {
+  const real = /** @type {typeof import('/design-system/js/panel-sidebar.js')} */ (
+    await importOriginal()
+  );
+  return { ...real, initPanelSidebar: vi.fn(real.initPanelSidebar) };
+});
+
+import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
 import { createUI } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/ui.js';
 
 const FIGURE_NAMES = ['optics', 'da'];
@@ -26,20 +39,20 @@ const FIGURE_NAMES = ['optics', 'da'];
 /** Minimal DOM fixture matching lattice_dashboard/static/index.html's structure. */
 function mountFixture() {
   document.body.innerHTML = `
-    <button id="btn-layout" class="action-btn">
-      <svg class="icon-grid"></svg>
-      <svg class="icon-stack" style="display:none"></svg>
-      <span class="layout-label">Grid</span>
-    </button>
-    <aside id="sidebar" class="sidebar-collapsed">
-      <div class="sidebar-tabs">
-        <button class="sidebar-tab sidebar-tab--active" data-tab="magnets"></button>
-        <button class="sidebar-tab" data-tab="settings"></button>
+    <div id="panel-root" data-panel-root>
+    <div class="osprey-panel-toolbar">
+      <button id="btn-sidebar" class="osprey-icon-btn" aria-controls="sidebar"></button>
+    </div>
+    <div id="main-layout">
+    <aside id="sidebar" class="osprey-panel-sidebar" data-open="false">
+      <div class="osprey-seg sidebar-tabs">
+        <button class="sidebar-tab" data-tab="magnets" aria-pressed="true"></button>
+        <button class="sidebar-tab" data-tab="settings" aria-pressed="false"></button>
       </div>
-      <button id="btn-sidebar-toggle"></button>
       <div id="tab-magnets" class="sidebar-tab-content sidebar-tab-content--active"></div>
       <div id="tab-settings" class="sidebar-tab-content"></div>
     </aside>
+    <div id="sidebar-resizer" class="osprey-splitter" tabindex="0"></div>
     <main id="figure-area">
       <div class="figure-grid">
         <div class="figure-cell" id="cell-optics" data-figure="optics">
@@ -54,8 +67,19 @@ function mountFixture() {
         </div>
       </div>
     </main>
+    </div>
+    </div>
   `;
 }
+
+/** The stored sidebar record's collapsed flag. @param {string} [key] */
+function storedCollapsed(key = 'lattice-sidebar-collapsed') {
+  return JSON.parse(String(window.localStorage.getItem(key))).collapsed;
+}
+
+/** @param {string} tab */
+const pressed = (tab) =>
+  qs(document, `.sidebar-tab[data-tab="${tab}"]`).getAttribute('aria-pressed');
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -66,74 +90,82 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  vi.mocked(initPanelSidebar).mockClear();
 });
 
-describe('sidebar collapse', () => {
-  test('initSidebar defaults to collapsed with no stored preference', () => {
-    const ui = createUI(FIGURE_NAMES);
-    byId('sidebar').classList.remove('sidebar-collapsed');
-    ui.initSidebar();
-    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
+describe('control sidebar', () => {
+  test('is the shared panel sidebar, open by default, toggled from the toolbar', () => {
+    const api = createUI(FIGURE_NAMES).initSidebar();
+
+    expect(initPanelSidebar).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(initPanelSidebar).mock.calls[0][0]).toMatchObject({
+      sidebar: byId('sidebar'),
+      handle: byId('sidebar-resizer'),
+      toggle: byId('btn-sidebar'),
+      storageKey: 'lattice-sidebar-collapsed',
+      defaultOpen: true,
+    });
+    expect(api?.isOpen()).toBe(true);
+    expect(byId('sidebar').dataset.open).toBe('true');
+    expect(byId('btn-sidebar').getAttribute('aria-expanded')).toBe('true');
   });
 
-  test('initSidebar honors a stored "expanded" preference', () => {
-    window.localStorage.setItem('lattice-sidebar-collapsed', 'false');
+  test('initSidebar is idempotent', () => {
     const ui = createUI(FIGURE_NAMES);
-    ui.initSidebar();
-    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
+    expect(ui.initSidebar()).toBe(ui.initSidebar());
+    expect(initPanelSidebar).toHaveBeenCalledTimes(1);
   });
 
-  test('toggleSidebar flips the class and persists the new state', () => {
-    // The shared splitter persists a {size, collapsed} record under the same
-    // key; the legacy 'true'/'false' strings are still read on the way in, so
-    // an operator's stored preference survives the upgrade.
-    const collapsedFlag = () =>
-      JSON.parse(String(window.localStorage.getItem('lattice-sidebar-collapsed'))).collapsed;
+  test("the operator's toggle closes it and is stored", () => {
+    createUI(FIGURE_NAMES).initSidebar();
 
-    const ui = createUI(FIGURE_NAMES);
-    ui.toggleSidebar();
-    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
-    expect(collapsedFlag()).toBe(false);
+    byId('btn-sidebar').click();
+    expect(byId('sidebar').dataset.open).toBe('false');
+    expect(storedCollapsed()).toBe(true);
 
-    ui.toggleSidebar();
-    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
-    expect(collapsedFlag()).toBe(true);
+    byId('btn-sidebar').click();
+    expect(byId('sidebar').dataset.open).toBe('true');
+    expect(storedCollapsed()).toBe(false);
+  });
+
+  test('a stored close carries over from the old sidebar', () => {
+    window.localStorage.setItem(
+      'lattice-sidebar-collapsed',
+      JSON.stringify({ size: 300, collapsed: true })
+    );
+    createUI(FIGURE_NAMES).initSidebar();
+    expect(byId('sidebar').dataset.open).toBe('false');
   });
 });
 
-describe('layout-mode toggle', () => {
-  test('initLayout defaults to stacked and applies the stacked class + button labels', () => {
+describe('layout mode', () => {
+  test('initLayout defaults to stacked and reports it', () => {
     const ui = createUI(FIGURE_NAMES);
-    ui.initLayout();
 
-    const figArea = byId('figure-area');
-    expect(figArea.classList.contains('layout-stacked')).toBe(true);
-    expect(qs(document, '.layout-label').textContent).toBe('Grid');
-    expect(qs(document, '.icon-grid').style.display).toBe('');
-    expect(qs(document, '.icon-stack').style.display).toBe('none');
+    expect(ui.initLayout()).toBe('stacked');
+    expect(byId('figure-area').classList.contains('layout-stacked')).toBe(true);
     expect(window.localStorage.getItem('lattice-layout-mode')).toBe('stacked');
   });
 
   test('initLayout honors a stored "grid" preference', () => {
     window.localStorage.setItem('lattice-layout-mode', 'grid');
     const ui = createUI(FIGURE_NAMES);
-    ui.initLayout();
 
-    const figArea = byId('figure-area');
-    expect(figArea.classList.contains('layout-stacked')).toBe(false);
-    expect(qs(document, '.layout-label').textContent).toBe('Stack');
+    expect(ui.initLayout()).toBe('grid');
+    expect(byId('figure-area').classList.contains('layout-stacked')).toBe(false);
   });
 
-  test('toggleLayout flips stacked <-> grid and persists each mode', () => {
+  test('applyLayout switches stacked <-> grid and persists each mode', () => {
     const ui = createUI(FIGURE_NAMES);
     const figArea = byId('figure-area');
 
-    ui.initLayout(); // stacked (default)
-    ui.toggleLayout();
+    ui.initLayout();
+    ui.applyLayout('grid');
     expect(figArea.classList.contains('layout-stacked')).toBe(false);
+    expect(ui.currentLayout()).toBe('grid');
     expect(window.localStorage.getItem('lattice-layout-mode')).toBe('grid');
 
-    ui.toggleLayout();
+    ui.applyLayout('stacked');
     expect(figArea.classList.contains('layout-stacked')).toBe(true);
     expect(window.localStorage.getItem('lattice-layout-mode')).toBe('stacked');
   });
@@ -150,43 +182,27 @@ describe('layout-mode toggle', () => {
   });
 });
 
-describe('sidebar tabs', () => {
-  test('clicking a tab switches active button and content, and persists the choice', () => {
+describe('Magnets | Settings switch', () => {
+  test('a press shows that list, presses its button, and persists the choice', () => {
     const ui = createUI(FIGURE_NAMES);
     ui.initSidebarTabs();
 
     qs(document, '.sidebar-tab[data-tab="settings"]', HTMLElement).click();
 
-    expect(
-      qs(document, '.sidebar-tab[data-tab="settings"]').classList.contains('sidebar-tab--active')
-    ).toBe(true);
-    expect(
-      qs(document, '.sidebar-tab[data-tab="magnets"]').classList.contains('sidebar-tab--active')
-    ).toBe(false);
+    expect(pressed('settings')).toBe('true');
+    expect(pressed('magnets')).toBe('false');
     expect(byId('tab-settings').classList.contains('sidebar-tab-content--active')).toBe(true);
     expect(byId('tab-magnets').classList.contains('sidebar-tab-content--active')).toBe(false);
     expect(window.localStorage.getItem('lattice-sidebar-tab')).toBe('settings');
   });
 
-  test('initSidebarTabs restores the last active tab from localStorage', () => {
+  test('initSidebarTabs restores the last list shown', () => {
     window.localStorage.setItem('lattice-sidebar-tab', 'settings');
     const ui = createUI(FIGURE_NAMES);
     ui.initSidebarTabs();
 
     expect(byId('tab-settings').classList.contains('sidebar-tab-content--active')).toBe(true);
-  });
-
-  test('clicking a tab while the sidebar is collapsed expands it', () => {
-    const ui = createUI(FIGURE_NAMES);
-    byId('sidebar').classList.add('sidebar-collapsed');
-    ui.initSidebarTabs();
-
-    qs(document, '.sidebar-tab[data-tab="settings"]', HTMLElement).click();
-
-    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
-    expect(
-      JSON.parse(String(window.localStorage.getItem('lattice-sidebar-collapsed'))).collapsed
-    ).toBe(false);
+    expect(pressed('settings')).toBe('true');
   });
 });
 
@@ -411,16 +427,40 @@ describe('on a multi-user mount (storage scope)', () => {
     expect(figureOrder()).toEqual(['optics', 'da']);
   });
 
-  test('the sidebar collapse is persisted under the scope', () => {
-    window.localStorage.setItem('lattice-sidebar-collapsed', 'false');
-    const ui = createUI(FIGURE_NAMES);
-    ui.initSidebar();
-    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
+  test('the sidebar state is persisted under the scope', () => {
+    window.localStorage.setItem('lattice-sidebar-collapsed', 'true');
+    createUI(FIGURE_NAMES).initSidebar();
+    expect(byId('sidebar').dataset.open).toBe('true');
 
-    ui.toggleSidebar();
-    expect(
-      JSON.parse(String(window.localStorage.getItem('lattice-sidebar-collapsed--bob'))).collapsed
-    ).toBe(false);
-    expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('false');
+    byId('btn-sidebar').click();
+    expect(storedCollapsed('lattice-sidebar-collapsed--bob')).toBe(true);
+    expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('true');
+  });
+});
+
+describe('the page markup', () => {
+  const html = readFileSync(
+    resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../src/osprey/interfaces/lattice_dashboard/static/index.html'
+    ),
+    'utf8'
+  );
+  // A template parses the body inert: no stylesheet or script loads.
+  const template = document.createElement('template');
+  template.innerHTML = html.slice(html.indexOf('<body'), html.indexOf('</body>'));
+  const page = template.content;
+
+  test('the sidebar toggle is the first control of the panel toolbar', () => {
+    const start = page.querySelector('.osprey-panel-toolbar__start');
+    expect(start?.firstElementChild?.id).toBe('btn-sidebar');
+    expect(page.getElementById('btn-sidebar')?.getAttribute('aria-controls')).toBe('sidebar');
+  });
+
+  test('the sidebar has no collapse control or footer of its own', () => {
+    const sidebar = page.getElementById('sidebar');
+    expect(sidebar?.classList.contains('osprey-panel-sidebar')).toBe(true);
+    expect(sidebar?.querySelectorAll('button:not(.sidebar-tab)')).toHaveLength(0);
+    expect(sidebar?.querySelector('.osprey-seg')?.querySelectorAll('button')).toHaveLength(2);
   });
 });
