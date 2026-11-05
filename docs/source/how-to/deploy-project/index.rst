@@ -556,7 +556,7 @@ Your dev source is baked into the images at build time. Nothing changes inside
 an already-running container.
 
 - ``osprey up --dev`` on a build rendered without ``--dev`` refuses, rather
-  than silently start the published release.
+  than silently starting the published release.
 - A plain ``osprey up`` of a dev build warns that the images carry your local
   checkout.
 
