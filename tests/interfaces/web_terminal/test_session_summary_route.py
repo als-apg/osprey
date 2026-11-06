@@ -17,11 +17,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.artifacts.app import create_app
-from osprey.interfaces.artifacts.example_artifact import seed_example_artifact
 from osprey.interfaces.web_terminal.routes.session import router
 from osprey.stores import session_ledger
 from osprey.stores.artifact_forms import RUN_RECORD_KEY
-from osprey.stores.artifact_store import ArtifactStore
+from osprey.stores.artifact_store import EXAMPLE_ORIGIN, ArtifactStore
 from osprey_connectors import posture_store
 
 KEY = "11111111-1111-4111-8111-111111111111"
@@ -190,7 +189,7 @@ class TestOwnedRows:
 
     def test_the_example_never_appears(self, store, page, state_dir):
         _ledger(state_dir, (KEY, KEY, _at(0)))
-        assert seed_example_artifact(store) is not None
+        _save(store, "Example", key="", minute=1, origin=EXAMPLE_ORIGIN)  # seeded by a past release
         mine = _save(store, "Mine", key=KEY, minute=5)
 
         body = page.get(ROUTE, params={"session_id": KEY}).json()

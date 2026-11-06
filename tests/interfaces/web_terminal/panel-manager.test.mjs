@@ -4346,7 +4346,7 @@ describe('relayTranscriptMove — a /clear on the shown key reaches every panel 
     const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
     const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
     open.mockRestore();
     popup.postMessage.mockClear();
     const terminal = await import(TERMINAL_PATH);
