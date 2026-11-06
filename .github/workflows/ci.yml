@@ -1549,6 +1549,7 @@ jobs:
     # timing-sensitive cases run beside other files, never beside each other.
     - name: Run behavioral theming suite
       run: |
+        (while true; do echo "RES $(date +%T) mem=$(free -m|awk 'NR==2{print $3"/"$2}') swap=$(free -m|awk 'NR==3{print $3}') load=$(cut -d' ' -f1-3 /proc/loadavg) procs=$(ps -e --no-headers|wc -l) chrome=$(pgrep -c -f chrom) inotify=$(find /proc/*/fd -lname 'anon_inode:inotify' 2>/dev/null|wc -l) maxinst=$(cat /proc/sys/fs/inotify/max_user_instances) filenr=$(cat /proc/sys/fs/file-nr|tr '\t' ' ')"; sleep 15; done) &
         uv run pytest -n 4 --dist loadfile \
           tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/design_system/test_theme_lab.py \
