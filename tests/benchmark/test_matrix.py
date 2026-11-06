@@ -454,3 +454,21 @@ def test_drive_writes_markers_and_resumes(tmp_path, monkeypatch):
         cfg, results_dir=results, parallel=2, only=None, providers={"als-apg"}, extra_env={}
     )
     assert calls == []
+
+
+@pytest.mark.usefixtures("keys")
+def test_run_cell_tells_the_worker_where_the_results_go(tmp_path, monkeypatch):
+    """The worker writes its summary where drive() looks for it on resume."""
+    seen: dict[str, str] = {}
+
+    def fake_call(_argv, *, env, **_kwargs):
+        seen.update(env)
+        return 0
+
+    monkeypatch.setattr(matrix.subprocess, "call", fake_call)
+    cell = matrix.build_cell(_cfg(), {"id": "gpt-oss-20b", "provider": "cborg"}, 1)
+    results = tmp_path / "smoke"
+    results.mkdir()
+
+    matrix.run_cell(cell, results, results / "matrix.log", {})
+    assert seen["OSPREY_BENCH_RESULTS_DIR"] == str(results.resolve())

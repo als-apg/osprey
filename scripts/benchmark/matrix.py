@@ -376,6 +376,7 @@ def run_cell(cell: Cell, results_dir: Path, log_path: Path, extra_env: dict[str,
     env = os.environ.copy()
     env.update(extra_env)
     env.update(cell_env(cell))
+    env["OSPREY_BENCH_RESULTS_DIR"] = str(results_dir.resolve())
     run_log = results_dir / f"{cell.safe}__seed{cell.seed}.run.log"
     _log(log_path, start_marker(cell, time.strftime("%H:%M:%S")))
     with open(run_log, "w") as out:

@@ -21,8 +21,9 @@
 #   ALS_APG_API_KEY / ALS_APG_BASE_URL / OSPREY_E2E_JUDGE_MODEL   LLM judge wiring
 #   ANTHROPIC_API_KEY           collection-gate shim (real routing overridden)
 #   OSPREY_E2E_BUDGET_SCALE     per-query max_budget_usd multiplier (default 1)
+#   OSPREY_BENCH_RESULTS_DIR    where the outputs below go (matrix.py --results-dir)
 #
-# Outputs (under results/, relative to repo root):
+# Outputs (under $OSPREY_BENCH_RESULTS_DIR, default results/ in the repo root):
 #   results/<safe_model>__seed<seed>.xml    JUnit XML (per-test outcomes)
 #   results/<safe_model>__seed<seed>.json   summary {model,seed,passed,failed,...}
 #   results/<safe_model>__seed<seed>.live.jsonl  one JSON line per test as it ends
@@ -52,20 +53,22 @@ export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-1}"
 echo ">> budget_scale=$OSPREY_E2E_BUDGET_SCALE" >&2
 
 SAFE="${MODEL//\//__}"
-mkdir -p "$REPO/results"
-XML="$REPO/results/${SAFE}__seed${SEED}.xml"
-JSON="$REPO/results/${SAFE}__seed${SEED}.json"
+# The launcher names the results dir (matrix.py --results-dir); default results/.
+RESULTS="${OSPREY_BENCH_RESULTS_DIR:-$REPO/results}"
+mkdir -p "$RESULTS"
+XML="$RESULTS/${SAFE}__seed${SEED}.xml"
+JSON="$RESULTS/${SAFE}__seed${SEED}.json"
 # live per-test stream (conftest appends one JSON line per test as it finishes),
 # so the dashboard fills in mid-run. Fresh file per run.
-export OSPREY_E2E_LIVE="$REPO/results/${SAFE}__seed${SEED}.live.jsonl"
+export OSPREY_E2E_LIVE="$RESULTS/${SAFE}__seed${SEED}.live.jsonl"
 : > "$OSPREY_E2E_LIVE"
 # benchmark-lane manifest (conftest writes nodeid -> agentic/harness at collection
 # time). The dashboard joins outcomes against it to score the capability lane
 # (agentic_benchmark) separately from the harness-integrity lane.
-export OSPREY_E2E_LANES="$REPO/results/${SAFE}__seed${SEED}.lanes.json"
+export OSPREY_E2E_LANES="$RESULTS/${SAFE}__seed${SEED}.lanes.json"
 # per-query timing (wall time, time waiting on the model, turns, tokens); the
 # dashboard's latency columns read it.
-export OSPREY_E2E_QUERY_LOG="$REPO/results/${SAFE}__seed${SEED}.queries.jsonl"
+export OSPREY_E2E_QUERY_LOG="$RESULTS/${SAFE}__seed${SEED}.queries.jsonl"
 : > "$OSPREY_E2E_QUERY_LOG"
 
 echo ">> model=$MODEL seed=$SEED provider=$OSPREY_E2E_FORCE_PROVIDER route=$ROUTE" >&2
@@ -84,6 +87,12 @@ echo ">> junit=$XML" >&2
 #
 # Disable with OSPREY_BENCH_SHARED_DB=1 (falls back to the legacy shared DB).
 PG_BIN="${OSPREY_BENCH_PG_BIN:-$HOME/bin/pg16-edb/pgsql/bin}"
+# A host without that layout uses the psql on PATH.
+if [ ! -x "$PG_BIN/psql" ] && command -v psql >/dev/null 2>&1; then
+  PG_BIN="$(dirname "$(command -v psql)")"
+fi
+# psql authenticates as the per-cell URI below does, unless the shell says otherwise.
+export PGPASSWORD="${PGPASSWORD:-ariel}"
 PROV_DIR=""
 if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
   # Postgres unquoted identifiers fold to lowercase and forbid '-'/'/'; sanitize.
