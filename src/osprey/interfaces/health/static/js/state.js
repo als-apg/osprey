@@ -76,6 +76,8 @@ export const store = {
   /** Signature of the open drawer's data, to skip no-op re-renders on poll. */
   drawerSig: '',
   polling: false,
+  /** The rows come from the `?demo` fixture, not a deployment. */
+  demo: false,
   /** An MCP deep-link path waiting for the introspection. */
   pendingMcpPath: /** @type {string[] | null} */ (null),
   pollTimer: /** @type {ReturnType<typeof setTimeout> | undefined} */ (undefined),

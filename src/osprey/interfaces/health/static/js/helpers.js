@@ -205,6 +205,19 @@ export function tagOf(tool) {
 }
 
 /**
+ * The page title: the configured title, marked when the rows are the `?demo`
+ * fixture so fabricated rows can never be read as the deployment's own.
+ *
+ * @param {string} title
+ * @param {boolean} demo
+ * @returns {string}
+ */
+export function pageTitle(title, demo) {
+  const t = title || 'System Health';
+  return demo ? t + ' — demo data' : t;
+}
+
+/**
  * Age of a probe as one short phrase.
  *
  * @param {number} seconds Elapsed seconds (negative clamps to zero).

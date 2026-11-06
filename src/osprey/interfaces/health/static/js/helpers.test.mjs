@@ -207,6 +207,7 @@ import {
   worstSev,
   commonMethod,
   tagOf,
+  pageTitle,
   fmtAge,
   fmtClock,
   fmtDur,
@@ -253,6 +254,14 @@ describe('commonMethod', () => {
     expect(commonMethod(['dir stat'])).toBeNull();
     expect(commonMethod(['a b c d', 'a x y z'])).toBeNull();
     expect(commonMethod(['', ''])).toBeNull();
+  });
+});
+
+describe('pageTitle', () => {
+  test('demo data says so in the title; live data does not', () => {
+    expect(pageTitle('System Health', false)).toBe('System Health');
+    expect(pageTitle('System Health', true)).toBe('System Health — demo data');
+    expect(pageTitle('', true)).toBe('System Health — demo data');
   });
 });
 
