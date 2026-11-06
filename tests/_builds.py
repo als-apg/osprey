@@ -14,6 +14,10 @@ install: the environment additions under which that install reads uv's cache
 and needs no index. It shows once per run that the cache holds what a build
 installs, filling it if it does not, and each test passes the additions to its
 own build call.
+
+:class:`Restorable` is for the tests that start from a build and then edit or
+rebuild it: the tree is made once and put back pristine, at the path it was
+made at, for each test.
 """
 
 from __future__ import annotations
@@ -219,6 +223,81 @@ def build_control_assistant(parent: Path) -> BuiltProject:
     assert result.exit_code == 0, result.output
     built.output = result.output
     return built
+
+
+def _remove_tree(root: Path) -> None:
+    """Remove *root*, write-protected entries included; a missing *root* is fine."""
+
+    def writable_then_retry(function: Callable[[str], object], path: str, *_: object) -> None:
+        os.chmod(path, 0o700)
+        parent = os.path.dirname(path)
+        os.chmod(parent, os.stat(parent).st_mode | 0o700)
+        function(path)
+
+    if root.exists():
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(root, onexc=writable_then_retry)
+        else:
+            shutil.rmtree(root, onerror=writable_then_retry)
+
+
+class Restorable:
+    """A tree made once, then put back pristine at the path it was made at, per test.
+
+    For a test that starts from a real ``osprey build`` and then edits or
+    rebuilds the result: :meth:`restore` hands it the tree as the one build
+    left it, without running that build again. The first call makes the tree
+    and keeps a copy of it aside; every later call wipes the tree and copies
+    that one back.
+
+    The same path, never a moved copy, because a build at another path is not
+    the moved bytes: a render records its repo's absolute path, and derives
+    more from it than the path itself (the manifests' digests of the files
+    that name it, the compose ``com.osprey.repo-id`` label). So every user
+    shares the one path, and the trees they are handed are what a build
+    there makes. That is also why it is for function-scoped users only: two
+    holders alive at once would be handed the one directory.
+
+    The first call runs *make* inside the first user's test, with that test's
+    fixtures in force, as each user's own build ran before the tree was
+    shared.
+
+    Attributes:
+        made: What *make* returned besides the tree, once made: a
+            ``click.testing.Result`` for a build, so a test can read what the
+            build printed.
+    """
+
+    def __init__(self, home: Path, make: Callable[[Path], tuple[Path, Any]]) -> None:
+        """Hold *make* until the first :meth:`restore`.
+
+        Args:
+            home: An empty directory that lives as long as this object: the
+                tree is made under ``home / "live"`` and its copy kept in
+                ``home / "pristine"``. Made by the owning fixture's setup, so
+                the scoped-temp plugin removes it when that fixture ends.
+            make: Makes the tree in the directory it is handed and returns
+                its root (inside that directory) and anything else to keep.
+        """
+        self._home = home
+        self._make = make
+        self._root: Path | None = None
+        self._pristine = home / "pristine"
+        self.made: Any = None
+
+    def restore(self) -> Path:
+        """The tree as *make* left it, at the path it was made at."""
+        if self._root is None:
+            live = self._home / "live"
+            _remove_tree(live)  # what a failed make left
+            live.mkdir()
+            root, self.made = self._make(live)
+            shutil.copytree(root, self._pristine, symlinks=True)
+            self._root = root
+            return root
+        _remove_tree(self._root)
+        shutil.copytree(self._pristine, self._root, symlinks=True)
+        return self._root
 
 
 def _built_once(
