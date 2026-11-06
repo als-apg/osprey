@@ -49,7 +49,6 @@ from tests.e2e.sdk_helpers import (
 )
 
 pytestmark = [
-    pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available"),
@@ -80,6 +79,12 @@ def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowRe
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.agentic(
+    tier=1,
+    title="PSS reset procedure",
+    asks="A PSS fault is blocking injection. Walk me through the reset.",
+    passes_if="the steps come from the facility knowledge and match the procedure",
+)
 @pytest.mark.asyncio
 @pytest.mark.flaky(reruns=2)
 async def test_facility_knowledge_pss_reset(tmp_path: Path) -> None:
@@ -121,6 +126,15 @@ async def test_facility_knowledge_pss_reset(tmp_path: Path) -> None:
     assert result_eval.passed, result_eval.reasoning
 
 
+@pytest.mark.agentic(
+    tier=1,
+    title="Vacuum recovery procedure",
+    asks=(
+        "How do we recover the vacuum after a pressure excursion, and how long does each stage "
+        "take?"
+    ),
+    passes_if="the stages and their durations match the facility knowledge",
+)
 @pytest.mark.asyncio
 @pytest.mark.flaky(reruns=2)
 async def test_facility_knowledge_vacuum_recovery(tmp_path: Path) -> None:
@@ -159,6 +173,15 @@ async def test_facility_knowledge_vacuum_recovery(tmp_path: Path) -> None:
     assert result_eval.passed, result_eval.reasoning
 
 
+@pytest.mark.agentic(
+    tier=1,
+    title="BPM status flags",
+    asks=(
+        "Which status flags does a BPM carry, and which must be set before its data is used for "
+        "orbit correction?"
+    ),
+    passes_if="the answer comes through the knowledge subagent and matches the facility knowledge",
+)
 @pytest.mark.asyncio
 @pytest.mark.flaky(reruns=2)
 async def test_facility_knowledge_delegation(tmp_path: Path) -> None:

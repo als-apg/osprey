@@ -92,7 +92,12 @@ def _expected() -> list[str]:
 
 
 @pytest.mark.slow
-@pytest.mark.agentic_benchmark
+@pytest.mark.agentic(
+    tier=1,
+    title="List a sector's BPMs",
+    asks="Which BPMs sit in sector 1 of the storage ring, in beam order, and where?",
+    passes_if="all six BPMs, in beam order",
+)
 @pytest.mark.requires_als_apg
 @pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed")
 @pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")

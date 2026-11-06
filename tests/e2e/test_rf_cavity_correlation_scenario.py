@@ -82,7 +82,6 @@ from tests.e2e.test_preset_agentic import (
 # and a runner without it must fail this test loudly, not skip it the way a
 # ``claude --version`` gate (is_claude_code_available()) would.
 pytestmark = [
-    pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     # Skipped on CI: needs a running ARIEL logbook postgres (seeded
@@ -95,6 +94,15 @@ pytestmark = [
 ]
 
 
+@pytest.mark.agentic(
+    tier=2,
+    title="Diagnose a beam dump",
+    asks=(
+        "The beam dumped in the early hours four days ago. Figure out what happened and plot the "
+        "data."
+    ),
+    passes_if="commits to RF cavity 1 and names the mechanism, with the data plotted",
+)
 @pytest.mark.flaky(reruns=2)  # multi-step agentic; absorb rare LLM stochastic misses
 @pytest.mark.asyncio
 async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:

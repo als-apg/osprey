@@ -86,7 +86,6 @@ from tests.e2e.sdk_helpers import (
 )
 
 pytestmark = [
-    pytest.mark.agentic_benchmark,
     pytest.mark.requires_e2e_provider,
     pytest.mark.slow,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
@@ -492,6 +491,15 @@ def _workflow_result(result: Any, final: str) -> WorkflowResult:
     )
 
 
+@pytest.mark.agentic(
+    tier=2,
+    title="Compare with a logged chart",
+    asks=(
+        "The beam current dipped in the last hour. Is there a similar loss in the logbook, and how "
+        "do the two compare?"
+    ),
+    passes_if="both sizes within tolerance and the comparison the right way round",
+)
 @pytest.mark.asyncio
 async def test_agent_reads_a_loss_off_a_logbook_chart(
     deployed_world: DeployedWorld, tmp_path: Path

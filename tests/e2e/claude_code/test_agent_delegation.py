@@ -66,7 +66,6 @@ def _is_ariel_db_available() -> bool:
 # ---------------------------------------------------------------------------
 
 pytestmark = [
-    pytest.mark.agentic_benchmark,
     pytest.mark.e2e_services,
     pytest.mark.slow,
     pytest.mark.requires_api,
@@ -124,6 +123,14 @@ class TestAgentDelegation:
     # Test 1 — Logbook search delegation
     # -------------------------------------------------------------------
 
+    @pytest.mark.agentic(
+        tier=1,
+        title="Search the logbook",
+        asks="Search the logbook for beam-loss or injection entries and summarize them.",
+        passes_if=(
+            "the logbook subagent runs the search; the main agent does not query the logbook itself"
+        ),
+    )
     @pytest.mark.asyncio
     @pytest.mark.flaky(reruns=2)
     async def test_logbook_search_delegation(self, delegation_project):
@@ -211,6 +218,12 @@ class TestAgentDelegation:
     # Test 2 — Channel-finder delegation
     # -------------------------------------------------------------------
 
+    @pytest.mark.agentic(
+        tier=1,
+        title="Look up BPM addresses",
+        asks="What are the PV addresses of the horizontal BPMs in the storage ring?",
+        passes_if="the channel-finder subagent looks them up; no invented addresses",
+    )
     @pytest.mark.asyncio
     @pytest.mark.flaky(reruns=2)
     async def test_channel_finder_delegation(self, delegation_project):
@@ -286,6 +299,14 @@ class TestAgentDelegation:
     # Test 3 — Data visualizer delegation
     # -------------------------------------------------------------------
 
+    @pytest.mark.agentic(
+        tier=1,
+        title="Make a static plot",
+        asks="Plot y = sin(x) over one period, labelled, and save it as an artifact.",
+        passes_if=(
+            "the data-visualizer subagent makes the plot; the main agent does not plot it itself"
+        ),
+    )
     @pytest.mark.asyncio
     @pytest.mark.flaky(reruns=2)
     async def test_data_visualizer_delegation(self, delegation_project):

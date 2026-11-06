@@ -494,7 +494,12 @@ def _print_run(result: Any, prose: str, prompt: str) -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.agentic_benchmark
+@pytest.mark.agentic(
+    tier=1,
+    title="Find the channel to write",
+    asks="Which channel do I write to trim this magnet, and what do I read back to confirm it?",
+    passes_if="the channel finder returns real addresses from the graph; none invented",
+)
 @pytest.mark.requires_als_apg
 @pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed")
 @pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")
