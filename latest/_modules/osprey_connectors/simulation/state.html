@@ -442,9 +442,11 @@
 <span class="sd">one target would apply in an order-dependent way, so such a set is refused as</span>
 <span class="sd">an :class:`Overlap` naming the target. A scenario&#39;s ``still`` meets only the</span>
 <span class="sd">motion other scenarios set: it overlaps the ``noise`` or ``couple`` of the</span>
-<span class="sd">readings it stills, never another target and never another ``still``. A process that serves without a</span>
-<span class="sd">scenario because of an overlap logs one :func:`overlap_record`, and readers</span>
-<span class="sd">print it with :func:`format_overlap_record`.</span>
+<span class="sd">readings it stills, never another target and never another ``still``. An</span>
+<span class="sd">``archiver`` entry writes no target: events several scenarios script on one</span>
+<span class="sd">channel compose in set order in the archive, so they never refuse a set. A</span>
+<span class="sd">process that serves without a scenario because of an overlap logs one</span>
+<span class="sd">:func:`overlap_record`, and readers print it with :func:`format_overlap_record`.</span>
 
 <span class="sd">The module imports neither numpy nor lume.</span>
 <span class="sd">&quot;&quot;&quot;</span>
@@ -667,9 +669,10 @@
 
 <span class="sd">    Returns:</span>
 <span class="sd">        The keys of its ``overrides``, the keys of every fault&#39;s ``writes``,</span>
-<span class="sd">        the keys of its ``channel_faults``, each ``archiver`` entry&#39;s channel,</span>
-<span class="sd">        and the keys of ``couple`` and ``noise``; a block the scenario does not</span>
-<span class="sd">        state contributes nothing.</span>
+<span class="sd">        the keys of its ``channel_faults``, and the keys of ``couple`` and</span>
+<span class="sd">        ``noise``; a block the scenario does not state contributes nothing.</span>
+<span class="sd">        ``archiver`` entries are not targets: the archive merges the events</span>
+<span class="sd">        of every active scenario on a channel in set order.</span>
 <span class="sd">        The ``couple`` and ``noise`` keys and the ``still`` readings are also</span>
 <span class="sd">        targets of the motion namespace, which :func:`validate_composition`</span>
 <span class="sd">        reads apart.</span>
@@ -678,8 +681,6 @@
     <span class="k">for</span> <span class="n">fault</span> <span class="ow">in</span> <span class="p">(</span><span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;faults&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
         <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">fault</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;writes&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span>
     <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;channel_faults&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span>
-    <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]:</span>
-        <span class="n">targets</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;channel&quot;</span><span class="p">]))</span>
     <span class="n">moved</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">slot</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;couple&quot;</span><span class="p">,</span> <span class="s2">&quot;noise&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">slot</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}}</span>
     <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">moved</span><span class="p">)</span>
     <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_SETS_MOTION</span> <span class="o">+</span> <span class="n">address</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">moved</span><span class="p">)</span>
