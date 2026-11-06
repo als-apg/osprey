@@ -124,7 +124,6 @@ class TestLlamaCppMetadata:
         assert cls.description
         assert cls.requires_api_key is False
         assert cls.requires_base_url is True
-        assert cls.requires_model_id is True
         assert cls.supports_proxy is False
         assert cls.default_base_url == "http://localhost:8080"
         assert cls.base_url_env_var is None

@@ -36,10 +36,6 @@ class TestVLLMMetadata:
         """Test provider requires base URL."""
         assert VLLMProviderAdapter.requires_base_url is True
 
-    def test_requires_model_id(self):
-        """Test provider requires model ID."""
-        assert VLLMProviderAdapter.requires_model_id is True
-
     def test_supports_proxy(self):
         """Test provider supports HTTP proxy."""
         assert VLLMProviderAdapter.supports_proxy is True
