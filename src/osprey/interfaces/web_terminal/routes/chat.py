@@ -149,6 +149,37 @@ def clip_input(value: Any, depth: int = 0) -> Any:
     return value
 
 
+#: The fields the chat client receives, per frame type the wire reduces: what
+#: the chat renders and nothing else. ``seq`` rides every frame (the follower
+#: notices a gap by it). A ``system`` frame keeps what ``chat-system.js`` reads,
+#: so the child's conversation id (``session_id`` on init) reaches the chat on
+#: no frame; the browser learns it only from the hand-off door. Cost and turn
+#: counts on ``result``, and the breakdowns of a ``context`` reading, are never
+#: sent.
+_CHAT_FRAME_FIELDS: dict[str, frozenset[str]] = {
+    "result": frozenset({"type", "seq", "is_error", "duration_ms"}),
+    "context": frozenset({"type", "seq", "used_tokens", "window_tokens", "percent"}),
+    "system": frozenset(
+        {
+            "type",
+            "seq",
+            "subtype",
+            # agent_done
+            "tool_use_id",
+            "status",
+            "summary",
+            # compact_boundary
+            "trigger",
+            "pre_tokens",
+            # api_retry
+            "attempt",
+            "max_retries",
+            "error_status",
+        }
+    ),
+}
+
+
 def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
     """Return a wire-hygiene copy of *event* for the chat API client.
 
@@ -157,14 +188,10 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
 
     - ``tool_use`` / ``permission_request``  ``input`` with long strings clipped.
     - ``tool_result``  only the clipped ``preview`` the stream already carries.
-    - ``result``  reduce to ``{"type", "is_error"}`` plus ``duration_ms`` and
-                  ``seq`` when the frame carries them — cost and turn counts
-                  never reach the chat client.
-    - ``context``  reduce to the window's occupancy: ``used_tokens``,
-                   ``window_tokens`` and ``percent``.
-    - every other type (``text``, ``thinking``, ``system``, ``error``,
-      ``session_reset``, the ``watchdog_*`` change notices, …) passes through
-      unchanged.
+    - ``result`` / ``context`` / ``system``  reduced to the fields
+      ``_CHAT_FRAME_FIELDS`` declares for the type.
+    - every other type (``text``, ``thinking``, ``error``, ``session_reset``,
+      the ``watchdog_*`` change notices, …) passes through unchanged.
 
     The input event is never mutated; a new dict is returned whenever a change
     applies (and the same object may be returned for pass-through types).
@@ -175,20 +202,9 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
         return {**event, "input": clip_input(event["input"])}
     if etype == "tool_result":
         return {k: v for k, v in event.items() if k != "content"}
-    if etype == "result":
-        return {
-            "type": "result",
-            "is_error": event.get("is_error"),
-            **{k: event[k] for k in ("duration_ms", "seq") if k in event},
-        }
-    if etype == "context":
-        return {
-            "type": "context",
-            "used_tokens": event.get("used_tokens"),
-            "window_tokens": event.get("window_tokens"),
-            "percent": event.get("percent"),
-            "seq": event.get("seq"),
-        }
+    allowed = _CHAT_FRAME_FIELDS.get(etype) if isinstance(etype, str) else None
+    if allowed is not None:
+        return {k: v for k, v in event.items() if k in allowed}
 
     return event
 
@@ -499,6 +515,20 @@ async def _stream_events(
             on_turn_end()
 
 
+def _error_text(event: dict[str, Any]) -> str | None:
+    """The reason a terminal ``error`` frame gives, or ``None`` when it gives none.
+
+    The frame's own message when it has one, else the error's type (an exception
+    raised with no text still names its class). Never a placeholder: a reason the
+    frame does not carry is left out, and the response says only that it failed.
+    """
+    for key in ("message", "error_type"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 def _timeout_event() -> dict[str, Any]:
     """The error event emitted when the SDK goes silent past the turn timeout."""
     return {
@@ -550,7 +580,7 @@ async def _buffered_response(
             elif etype == "result":
                 is_error = bool(event.get("is_error"))
             elif etype == "error" and is_terminal_event(event):
-                is_error, error_msg, status_code = True, event.get("message", "Unknown error"), 500
+                is_error, error_msg, status_code = True, _error_text(event), 500
     except TurnSilenceTimeout:
         is_error, error_msg, status_code = True, "Timeout waiting for response", 504
     except asyncio.CancelledError:
