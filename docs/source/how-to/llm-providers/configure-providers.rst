@@ -663,6 +663,5 @@ The framework automatically:
 The same registry can remove a built-in provider:
 ``extend_framework_registry(exclude_providers=["openai"])`` takes ``openai`` out
 of the provider registry, so a config or tool call that names it fails with
-``Unknown provider`` and ``osprey registry`` no longer lists it. A
-``ProviderRegistration`` under the same name is kept, which is how an
-application replaces a built-in with its own class.
+``Unknown provider``. A ``ProviderRegistration`` under the same name is kept,
+which is how an application replaces a built-in with its own class.
