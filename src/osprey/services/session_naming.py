@@ -136,7 +136,7 @@ async def name_session(
             ),
             timeout,
         )
-        title = trim_title(reply)
+        title = trim_title(reply if isinstance(reply, str) else None)
         if title is None:
             logger.warning("Session naming returned no usable title")
         return title

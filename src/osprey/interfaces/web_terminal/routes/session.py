@@ -566,7 +566,8 @@ def _delete_session(
     rather than half-there. The agent record is not touched.
     """
     session_meta.mark_deleted(app, tid)
-    getattr(app.state, "session_naming_pending", set()).discard(tid)
+    pending: set[str] = getattr(app.state, "session_naming_pending", set())
+    pending.discard(tid)
     artifacts = _delete_artifacts(app, tid, ledger)
     state_dir = session_meta.ledger_state_dir()
     session_ledger.remove_transcript(state_dir, tid)
