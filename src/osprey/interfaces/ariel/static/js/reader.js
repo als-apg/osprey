@@ -30,6 +30,17 @@ import {
 import { renderEntryTextHtml, renderFacilityReferencesList } from './reader-facility.js';
 import { seam, place, renderActionButtons, renderTabStrip } from './reader-seam.js';
 
+/**
+ * The web terminal session key from the host's last `osprey-session-change`;
+ * `null` until one arrives (always, in a standalone ARIEL).
+ * @type {string|null}
+ */
+let sessionKey = null;
+window.addEventListener('message', ({ origin, data }) => {
+  if (origin !== window.location.origin || data?.type !== 'osprey-session-change') return;
+  if (data.session_id) sessionKey = String(data.session_id);
+});
+
 export {
   registerReaderSection,
   registerReaderTab,
@@ -655,9 +666,11 @@ export function showImageLightbox(
     workspaceButton.disabled = true;
     if (workspaceStatus) workspaceStatus.textContent = 'Copying…';
     try {
-      const response = await fetch(apiUrl(`/attachments/${encodeURIComponent(id)}/artifact`), {
-        method: 'POST',
-      });
+      // The held key files the picture under the operator's session; without
+      // one (no web terminal host) it is saved untagged.
+      const key = sessionKey ? `?session_key=${encodeURIComponent(sessionKey)}` : '';
+      const url = apiUrl(`/attachments/${encodeURIComponent(id)}/artifact${key}`);
+      const response = await fetch(url, { method: 'POST' });
       if (!response.ok) throw new Error(`Workspace copy failed (${response.status})`);
       if (workspaceStatus) workspaceStatus.textContent = 'Copied to Workspace';
       // This is deliberately a local browser action. The host verifies that

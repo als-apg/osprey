@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 from osprey.audit.call import call_scope
+from osprey.stores.artifact_scope import resolve_scope
 from osprey.stores.artifact_store import (
     CATEGORY_DEPRECATION,
     WATCHDOG_ORIGIN,
@@ -100,6 +101,7 @@ class TestEntryFields:
                         "exec_id": "e",
                         "kind": "k",
                     },
+                    scope=resolve_scope(key=None, ledger=None, ledger_ok=True),
                 ),
                 id="sha256",
             ),
@@ -151,9 +153,14 @@ class TestFirstTs:
             "title": "T",
             "metadata": {"sha256": "h"},
         }
-        first = store.save_or_touch_by_sha256("h", origin="upload", save_kwargs=kwargs)
+        keyless = resolve_scope(key=None, ledger=None, ledger_ok=True)
+        first = store.save_or_touch_by_sha256(
+            "h", origin="upload", save_kwargs=kwargs, scope=keyless
+        )
         stamped = first.metadata["first_ts"]
-        touched = store.save_or_touch_by_sha256("h", origin="upload", save_kwargs=kwargs)
+        touched = store.save_or_touch_by_sha256(
+            "h", origin="upload", save_kwargs=kwargs, scope=keyless
+        )
         assert touched.id == first.id
         assert touched.metadata["first_ts"] == stamped
         assert touched.timestamp >= stamped

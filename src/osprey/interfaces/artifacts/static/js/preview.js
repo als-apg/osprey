@@ -47,6 +47,8 @@ import {
   setSelectedArtifact,
   getFocusedArtifact,
   setFocusedArtifact,
+  getCurrentSessionId,
+  getShowAllSessions,
 } from './state.js';
 import {
   formBadge,
@@ -144,6 +146,20 @@ function headerHtml(a) {
  * @typedef {object} PreviewRenderOptions
  * @property {boolean} [header] - render the header row (default true). The embedded viewer passes false: the hub renders that pane's header, and its actions arrive as messages.
  */
+
+/**
+ * Name the session a pin or focus was set in: the gallery's current key in
+ * the session-filtered view, nothing in the all-sessions view or with no
+ * session — such a pin or focus reaches no session's prompt.
+ *
+ * @param {Record<string, any>} body
+ * @returns {Record<string, any>}
+ */
+function withSetInSession(body) {
+  const key = getCurrentSessionId();
+  if (key && !getShowAllSessions()) return { ...body, session_key: key };
+  return body;
+}
 
 /**
  * Create the gallery's preview renderer: the preview pane (`renderPreview`),
@@ -305,7 +321,7 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
       const resp = await fetch(`/api/artifacts/${artifact.id}/pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pinned }),
+        body: JSON.stringify(withSetInSession({ pinned })),
       });
       if (resp.ok) {
         artifact.pinned = pinned;
@@ -409,7 +425,7 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
       const resp = await fetch('/api/focus', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artifact_id: artifact.id }),
+        body: JSON.stringify(withSetInSession({ artifact_id: artifact.id })),
       });
       if (resp.ok) {
         setFocusedArtifact(artifact);

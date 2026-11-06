@@ -56,7 +56,6 @@ def create_server() -> FastMCP:
             provenance_locator,
             screen_capture,
             session_log,
-            session_summary,
             setup,
             submit_response,
         )

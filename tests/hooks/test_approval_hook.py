@@ -2838,3 +2838,175 @@ def test_plan_mode_without_the_sibling_rule_asks(
     assert exit_info.value.code == 0
     result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert _decision(result) == "ask"
+
+
+# ============================================================================
+# The automatic review-notebook focus names the session it belongs to
+# ============================================================================
+
+#: A canonical session UUID, as the harness sends ``session_id``.
+_FOCUS_SESSION = "33333333-3333-4333-8333-333333333333"
+
+#: Every variable the focus sender's session gate reads.
+_FOCUS_GATE_ENV = ("OSPREY_DISPATCH_RUN_ID", "OSPREY_DISPATCH_RUN", "OSPREY_TERMINAL_SESSION")
+
+
+@pytest.fixture
+def focus_posts(monkeypatch):
+    """The JSON bodies the hook POSTs to the gallery; nothing leaves the process."""
+    import urllib.request
+
+    for name in _FOCUS_GATE_ENV:
+        monkeypatch.delenv(name, raising=False)
+    bodies: list[dict] = []
+
+    def _urlopen(req, timeout=None):  # noqa: ARG001
+        assert req.full_url.endswith("/api/focus")
+        bodies.append(json.loads(req.data.decode()))
+
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
+    return bodies
+
+
+def test_approval_focus_carries_the_payload_session(approval, focus_posts):
+    approval._focus_artifact("http://127.0.0.1:1", "art-1", _FOCUS_SESSION)
+
+    assert focus_posts == [
+        {"artifact_id": "art-1", "automatic": True, "transcript_id": _FOCUS_SESSION}
+    ]
+
+
+@pytest.mark.parametrize(
+    "session_id",
+    [
+        pytest.param(None, id="none"),
+        pytest.param("", id="empty"),
+        pytest.param("not-a-session", id="non-canonical"),
+        pytest.param("ABCDEF01-ABCD-4ABC-8ABC-ABCDEF012345", id="uppercase"),
+        pytest.param(f"kernel:{_FOCUS_SESSION}", id="prefixed"),
+        pytest.param(f"{_FOCUS_SESSION}\n", id="trailing-newline"),
+        pytest.param(12345, id="not-a-string"),
+    ],
+)
+def test_approval_focus_without_a_canonical_session_is_unscoped(approval, focus_posts, session_id):
+    approval._focus_artifact("http://127.0.0.1:1", "art-1", session_id)
+
+    assert focus_posts == [{"artifact_id": "art-1", "automatic": True}]
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OSPREY_DISPATCH_RUN_ID", "run-1"),
+        ("OSPREY_DISPATCH_RUN", "1"),
+        ("OSPREY_TERMINAL_SESSION", "watchdog-0123456789abcdef0123456789abcdef"),
+    ],
+    ids=["dispatch-run-id", "dispatch-run", "watchdog"],
+)
+def test_approval_focus_in_a_dispatch_or_watchdog_run_is_unscoped(
+    approval, focus_posts, monkeypatch, name, value
+):
+    monkeypatch.setenv(name, value)
+
+    approval._focus_artifact("http://127.0.0.1:1", "art-1", _FOCUS_SESSION)
+
+    assert focus_posts == [{"artifact_id": "art-1", "automatic": True}]
+
+
+def test_approval_focus_in_a_host_terminal_keeps_the_session(approval, focus_posts, monkeypatch):
+    """Only the watchdog prefix withholds the session; a chat terminal keeps it."""
+    monkeypatch.setenv("OSPREY_TERMINAL_SESSION", "chat-ffffffff-ffff-4fff-8fff-ffffffffffff")
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "0")
+
+    approval._focus_artifact("http://127.0.0.1:1", "art-1", _FOCUS_SESSION)
+
+    assert focus_posts[0]["transcript_id"] == _FOCUS_SESSION
+
+
+def test_approval_focus_swallows_a_failing_gallery(approval, monkeypatch):
+    import urllib.request
+
+    def _refuse(req, timeout=None):  # noqa: ARG001
+        raise OSError("refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _refuse)
+
+    assert approval._focus_artifact("http://127.0.0.1:1", "art-1", _FOCUS_SESSION) is None
+
+
+def test_review_notebook_focus_carries_the_session(tmp_path, approval, focus_posts, monkeypatch):
+    """The notebook the prompt saves is focused in the session that asked."""
+    import osprey.infrastructure.server_launcher as launcher
+    from osprey_connectors.workspace import reset_config_cache
+
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+    monkeypatch.setenv("CONFIG_FILE", str(config_path))
+    reset_config_cache()
+    monkeypatch.setattr(launcher, "ensure_web_server", lambda key: None)
+    monkeypatch.setattr(approval, "_gallery_base_url", lambda config: "http://127.0.0.1:1")
+
+    link, artifact_id = approval._create_pre_execution_notebook(
+        "epics.caput('PV', 1.0)", "readonly", {}, session_id=_FOCUS_SESSION
+    )
+
+    assert link == "http://127.0.0.1:1#focus"
+    assert focus_posts == [
+        {"artifact_id": artifact_id, "automatic": True, "transcript_id": _FOCUS_SESSION}
+    ]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(GUARDED_ALWAYS_CONFIG, id="ask-path"),
+        pytest.param(GUARDED_SELECTIVE_CONFIG, id="selective-path"),
+    ],
+)
+def test_both_execute_prompts_thread_the_payload_session(
+    tmp_path, approval, make_config, monkeypatch, capsys, config
+):
+    """Each execute prompt that saves a review notebook hands it the payload's session."""
+    import io
+
+    for name in _FOCUS_GATE_ENV:
+        monkeypatch.delenv(name, raising=False)
+    hook_config = tmp_path / "focus_hook_config.json"
+    hook_config.write_text(json.dumps(DEFAULT_APPROVAL_CONFIG))
+    monkeypatch.setenv("OSPREY_HOOK_CONFIG", str(hook_config))
+    config_path = make_config(config)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+    monkeypatch.setenv("CONFIG_FILE", str(config_path))
+    monkeypatch.setattr(sys, "argv", ["osprey_approval.py"])
+
+    calls: list[dict] = []
+
+    def _notebook(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        return None, None
+
+    monkeypatch.setattr(approval, "_create_pre_execution_notebook", _notebook)
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "mcp__python__execute",
+        "tool_input": {"code": "write_channel('PV', 1.0)", "execution_mode": "readwrite"},
+        "session_id": _FOCUS_SESSION,
+        "cwd": str(tmp_path),
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    with pytest.raises(SystemExit) as exit_info:
+        approval.main()
+
+    assert exit_info.value.code == 0
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert _decision(result) == "ask"
+    assert len(calls) == 1
+    passed = calls[0]
+    session = passed["kwargs"].get(
+        "session_id", passed["args"][5] if len(passed["args"]) > 5 else None
+    )
+    assert session == _FOCUS_SESSION

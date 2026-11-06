@@ -358,7 +358,10 @@ export async function renderArtifacts({ apiFetch, showToast, cache }) {
     return;
   }
   if (!data || !data.entries.length) {
-    el.innerHTML = emptyState('NO ARTIFACTS', 'No data or artifacts saved yet');
+    // The server names why a session owns nothing it could list (no key, no
+    // transcript yet, ledger unreadable); an owned-but-empty session has none.
+    const reason = data && typeof data.reason === 'string' && data.reason;
+    el.innerHTML = emptyState('NO ARTIFACTS', reason || 'No data or artifacts saved yet');
     cache.artifacts = null;
     return;
   }

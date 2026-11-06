@@ -211,3 +211,76 @@ def test_registered_gated_and_offered_to_the_main_agent():
     assert "attachment_to_artifact" not in FRAMEWORK_SERVERS["ariel"].permissions_ask
     assert "attachment_to_artifact" in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
     assert "attachment_to_artifact" not in _ariel_read_tools({})
+
+
+# ---- the save's scope --------------------------------------------------------
+
+KEY_A, KEY_B = "key-a", "key-b"
+T_A, T_B = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+_PICTURE = (
+    {"rendition_bytes": b"\x89PNG-scoped", "rendition_mime": "image/png"},
+    {"entry_id": "e-scope"},
+    {"attachment_id": "att-scope", "filename": "scoped.png"},
+)
+
+
+def _ledger():
+    from osprey.stores.session_ledger import EPOCH, Ledger, LedgerRow
+
+    return Ledger(rows=(LedgerRow(KEY_A, T_A, EPOCH), LedgerRow(KEY_B, T_B, EPOCH)))
+
+
+def _save(scope, session_id):
+    from osprey.services.ariel_search.attachments.artifacts import (
+        save_viewable_picture_as_artifact,
+    )
+
+    return save_viewable_picture_as_artifact(*_PICTURE, scope=scope, session_id=session_id)
+
+
+def test_another_transcripts_picture_is_not_reused(store):
+    from osprey.stores.artifact_scope import resolve_scope
+    from osprey.stores.artifact_store import owner_of
+
+    ledger = _ledger()
+    theirs = _save(resolve_scope(key=KEY_B, ledger=ledger, ledger_ok=True), KEY_B)
+    mine = _save(resolve_scope(key=KEY_A, ledger=ledger, ledger_ok=True), KEY_A)
+    again = _save(resolve_scope(key=KEY_A, ledger=ledger, ledger_ok=True), KEY_A)
+
+    assert mine["artifact_id"] != theirs["artifact_id"]
+    assert mine["created"] is True
+    assert owner_of(store.get_entry(mine["artifact_id"]), ledger) == T_A
+    assert owner_of(store.get_entry(theirs["artifact_id"]), ledger) == T_B
+    assert again["artifact_id"] == mine["artifact_id"]
+    assert again["created"] is False
+    assert len(store.list_entries()) == 2
+
+
+def test_a_dispatch_save_never_reuses(store):  # noqa: ARG001
+    from osprey.stores.artifact_scope import SessionScope, resolve_scope
+
+    earlier = _save(SessionScope("none", None, None), "")
+    dispatch = resolve_scope(key=None, ledger=None, ledger_ok=True, dispatch=True)
+    first = _save(dispatch, "")
+    second = _save(dispatch, "")
+
+    assert len({earlier["artifact_id"], first["artifact_id"], second["artifact_id"]}) == 3
+    assert first["created"] is True
+    assert second["created"] is True
+
+
+async def test_the_tool_saves_under_the_process_scope(keyset_harness, store, gallery, monkeypatch):  # noqa: ARG001
+    from osprey.stores import artifact_scope
+
+    monkeypatch.setenv("OSPREY_SESSION_ID", KEY_A)
+    monkeypatch.delenv("OSPREY_DISPATCH_RUN_ID", raising=False)
+    monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
+    monkeypatch.setattr(artifact_scope, "read_ledger", lambda: (_ledger(), True))
+
+    first = await _keep()
+    second = await _keep()
+
+    entry = store.get_entry(first["artifact_id"])
+    assert entry.session_id == KEY_A
+    assert second["artifact_id"] == first["artifact_id"]
+    assert second["created"] is False

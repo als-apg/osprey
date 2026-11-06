@@ -45,6 +45,7 @@ vi.mock(
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar.js', () => sidebar);
 
 const menus = await import(`${JS}/sidebar-artifact-menus.js`);
+const pointer = await import(`${JS}/session-pointer.js`);
 
 const RUN = {
   id: 'run1',
@@ -387,12 +388,27 @@ describe('an artifact row', () => {
   });
 
   test('Pin posts the flipped state', async () => {
+    pointer.clearPointer();
     await rightClick($('[data-id="a1"]'));
     menuRow('Pin').click();
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
     const [url, init] = /** @type {any} */ (globalThis.fetch).mock.calls[0];
     expect(url).toBe('/panel/artifacts/api/artifacts/a1/pin');
     expect(JSON.parse(init.body)).toEqual({ pinned: true });
+  });
+
+  test("Pin names the operator's current session, not the row's", async () => {
+    // The row's session is k1; the operator is on another key.
+    pointer.setPointer('k-current');
+    try {
+      await rightClick($('[data-id="a1"]'));
+      menuRow('Pin').click();
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+      const [, init] = /** @type {any} */ (globalThis.fetch).mock.calls[0];
+      expect(JSON.parse(init.body)).toEqual({ pinned: true, session_key: 'k-current' });
+    } finally {
+      pointer.clearPointer();
+    }
   });
 
   test('a row outside the tree is left to the browser', () => {

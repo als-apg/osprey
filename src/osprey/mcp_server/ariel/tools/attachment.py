@@ -248,16 +248,21 @@ async def attachment_view(attachment_id: str) -> ToolResult:
         )
 
 
-def _focus_in_gallery(artifact_id: str) -> bool:
-    """Select the artifact in the gallery; whether the gallery accepted it."""
+def _focus_in_gallery(artifact_id: str, transcript: str | None = None) -> bool:
+    """Select the artifact in the gallery; whether the gallery accepted it.
+
+    *transcript* is the session the focus belongs to, sent as ``transcript_id``
+    only when resolved; without one the focus goes unscoped.
+    """
     import urllib.error
 
     from osprey.mcp_server.http import _post_json_with_response, gallery_url
 
+    payload = {"artifact_id": artifact_id}
+    if transcript is not None:
+        payload["transcript_id"] = transcript
     try:
-        status, _ = _post_json_with_response(
-            f"{gallery_url()}/api/focus", {"artifact_id": artifact_id}
-        )
+        status, _ = _post_json_with_response(f"{gallery_url()}/api/focus", payload)
     except (urllib.error.URLError, OSError) as exc:
         logger.info("the artifact gallery could not be focused: %s", exc)
         return False
@@ -293,8 +298,15 @@ async def attachment_to_artifact(attachment_id: str) -> str:
 
     try:
         row, entry, summary = await _viewable_picture(attachment_id)
-        response = save_viewable_picture_as_artifact(row, entry, summary)
-        response["focused"] = _focus_in_gallery(response["artifact_id"])
+        from osprey.stores.artifact_scope import current_scope
+
+        # The agent's own session; ``None`` lets the store tag it from the
+        # environment the same way.
+        scope = current_scope()
+        response = save_viewable_picture_as_artifact(
+            row, entry, summary, scope=scope, session_id=None
+        )
+        response["focused"] = _focus_in_gallery(response["artifact_id"], scope.transcript)
         return json.dumps(response, default=str)
 
     except ToolError:

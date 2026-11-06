@@ -492,7 +492,31 @@ def build_allow_output() -> dict:
     }
 
 
-def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
+# Canonical lowercase session UUID — must equal the grammar of
+# ``osprey.interfaces.web_terminal.session_key._SESSION_KEY_RE`` (the hub 422s
+# any other ``transcript_id``); mirrored here because the hook adds no import.
+_FOCUS_TRANSCRIPT_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# Must equal ``WATCHDOG_SESSION_PREFIX`` in ``osprey.interfaces.web_terminal``.
+_WATCHDOG_SESSION_PREFIX = "watchdog-"
+
+
+def _focus_transcript(session_id) -> str | None:
+    """The session an automatic focus belongs to, or ``None`` for an unscoped focus.
+
+    Only a canonical session UUID qualifies, and never inside a dispatch run
+    (``OSPREY_DISPATCH_RUN_ID`` set, or ``OSPREY_DISPATCH_RUN == "1"``) or a
+    watchdog-prefixed terminal session: those runs belong to no operator session.
+    """
+    if not isinstance(session_id, str) or _FOCUS_TRANSCRIPT_ID.fullmatch(session_id) is None:
+        return None
+    if os.environ.get("OSPREY_DISPATCH_RUN_ID") or os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        return None
+    if (os.environ.get("OSPREY_TERMINAL_SESSION") or "").startswith(_WATCHDOG_SESSION_PREFIX):
+        return None
+    return session_id
+
+
+def _focus_artifact(gallery_base_url: str, artifact_id: str, session_id=None) -> None:
     """Fire-and-forget POST to bring an artifact into focus in the gallery.
 
     Carries ``Authorization: Bearer <OSPREY_PANEL_TOKEN>`` whenever that
@@ -507,6 +531,10 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     already shows the call another way (the chat's approval card) may
     leave its own selection alone.
 
+    *session_id* is the hook payload's ``session_id``: it is sent as
+    ``transcript_id`` when :func:`_focus_transcript` accepts it, so the focus
+    lands in that session only; otherwise the focus goes unscoped.
+
     Non-fatal: silently swallows errors so focus failures never block approval.
     A gallery that refuses the call — 401 included — is a focus failure like any
     other and is swallowed the same way.
@@ -514,7 +542,11 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     try:
         import urllib.request
 
-        data = json.dumps({"artifact_id": artifact_id, "automatic": True}).encode()
+        body = {"artifact_id": artifact_id, "automatic": True}
+        transcript = _focus_transcript(session_id)
+        if transcript is not None:
+            body["transcript_id"] = transcript
+        data = json.dumps(body).encode()
         headers = {"Content-Type": "application/json"}
         token = (os.environ.get("OSPREY_PANEL_TOKEN") or "").strip()
         if token:
@@ -2839,7 +2871,7 @@ def _review_outcome_state(outcome: str, stamp) -> str:
 
 
 def _create_pre_execution_notebook(
-    code: str, exec_mode: str, config: dict, review=None, tool_use_id=None
+    code: str, exec_mode: str, config: dict, review=None, tool_use_id=None, session_id=None
 ) -> tuple[str | None, str | None]:
     """Save the review notebook for *code* as ``(gallery URL, artifact id)``.
 
@@ -2851,6 +2883,7 @@ def _create_pre_execution_notebook(
     entry's metadata so that settling the notebook can write it out again.
     *tool_use_id* is the asked call's id: a valid one files the notebook as
     that run's ``preview`` part (``exec_id``); anything else leaves it standing alone.
+    *session_id* is the hook payload's session, passed on to the gallery focus.
     """
     artifact_id = None
     try:
@@ -2886,7 +2919,7 @@ def _create_pre_execution_notebook(
             return None, artifact_id
 
         # Fire-and-forget POST to switch gallery focus to this notebook
-        _focus_artifact(base_url, artifact_id)
+        _focus_artifact(base_url, artifact_id, session_id)
 
         return f"{base_url}#focus", artifact_id
     except Exception:
@@ -3833,7 +3866,12 @@ def _describe_ask(hook_input, tool_name, short_name, tool_input, config, read_re
         exec_mode = tool_input.get("execution_mode", "")
         if isinstance(code, str) and code.strip():
             gallery_link, review_id = _create_pre_execution_notebook(
-                code, exec_mode, config, review_text, hook_input.get("tool_use_id")
+                code,
+                exec_mode,
+                config,
+                review_text,
+                hook_input.get("tool_use_id"),
+                hook_input.get("session_id"),
             )
             if gallery_link:
                 lines.append(f"\nApproval preview: {gallery_link}")
@@ -4129,7 +4167,12 @@ def main():
                 review_id = None
                 if code.strip():
                     gallery_link, review_id = _create_pre_execution_notebook(
-                        code, exec_mode, config, review_text, hook_input.get("tool_use_id")
+                        code,
+                        exec_mode,
+                        config,
+                        review_text,
+                        hook_input.get("tool_use_id"),
+                        hook_input.get("session_id"),
                     )
                     if gallery_link:
                         reason_parts.append(f"\nApproval preview: {gallery_link}")

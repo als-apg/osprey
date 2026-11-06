@@ -430,9 +430,11 @@ def chat(
     # Who this session is, to the ledger: the one name the build recorded.
     from osprey.agent_record.credentials import export_built_host_identity
     from osprey.build.claude_code_telemetry import export_host_terminal_session
+    from osprey.stores.artifact_scope import export_cli_launch
 
     export_built_host_identity(os.environ, repo_root)
     export_host_terminal_session(os.environ)
+    export_cli_launch(os.environ)
 
     config_path = build_dir / "config.yml"
     try:
