@@ -341,7 +341,10 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/focus-validate",
             template_path="claude/hooks/osprey_focus_validate.py",
             output_path=".claude/hooks/osprey_focus_validate.py",
-            description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
+            description=(
+                "UserPromptSubmit hook that injects the prompting session's gallery focus"
+                " and pins, dropping stale artifact IDs"
+            ),
             requires=("hooks/hook-log",),
         ),
         BuildArtifact(
@@ -376,7 +379,8 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/turn-state",
             template_path="claude/hooks/osprey_turn_state.py",
             output_path=".claude/hooks/osprey_turn_state.py",
-            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns",
+            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns, and keeps a CLI launch's transcript pointer current",
+            requires=("hooks/hook-log", "hooks/safety-file"),
         ),
         BuildArtifact(
             canonical_name="hooks/watchdog-trigger",
