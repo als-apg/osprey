@@ -745,6 +745,13 @@ def test_a_name_arrives_live_and_rename_reverts_and_the_switcher_switches(hub, p
     expect(row).not_to_contain_text("naming…")
     hub.naming.delay_s = 0.0
 
+    # An automatic name has nothing to revert, and a click already opens the session.
+    row.click(button="right")
+    expect(page.get_by_role("menuitem", name="Rename…")).to_be_visible()
+    expect(page.get_by_role("menuitem", name="Use automatic name")).to_have_count(0)
+    expect(page.get_by_role("menuitem", name="Open in Agent")).to_have_count(0)
+    page.keyboard.press("Escape")
+
     _menu(page, row, "Rename…")
     rename = page.locator("input.osprey-tree-rename")
     rename.fill("Beam check")
@@ -764,6 +771,14 @@ def test_a_name_arrives_live_and_rename_reverts_and_the_switcher_switches(hub, p
     page.locator("span.op-session-label").click()
     menu.locator(".session-switcher-new").click()
     expect(_active(page)).to_have_attribute("data-session-id", _re(r"^key:"), timeout=_TIMEOUT_MS)
+
+    # Only the active session's title is bold; past ones sit at the regular weight.
+    weight = "el => getComputedStyle(el).fontWeight"
+    assert _active(page).locator(".osprey-tree-title").evaluate(weight) == "600"
+    past = page.locator(f"{_TREE} .osprey-tree-session:not(.active) .osprey-tree-title")
+    assert past.count() >= 1
+    for i in range(past.count()):
+        assert past.nth(i).evaluate(weight) == "400"
 
 
 def _many_sessions(project_dir: Path, session_dir: Path) -> None:  # noqa: ARG001

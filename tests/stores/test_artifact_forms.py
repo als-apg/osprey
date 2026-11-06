@@ -79,6 +79,35 @@ class TestBaseForms:
     def test_unknown_label_is_derived(self):
         assert form_label("beam_logs") == "Beam Logs"
 
+    def test_registered_kind_label_comes_from_registry(self):
+        registry = {"beam_logs": SimpleNamespace(base_form="documents", label="Beam logbook")}
+        assert form_label("beam_logs", registry) == "Beam logbook"
+
+    def test_registered_kind_label_from_mapping(self):
+        registry = {"beam_logs": {"base_form": "documents", "label": "Beam logbook"}}
+        assert form_label("beam_logs", registry) == "Beam logbook"
+
+    def test_get_only_registry_label(self):
+        class GetOnly:
+            def get(self, key):
+                if key == "beam_logs":
+                    return SimpleNamespace(base_form="documents", label="Beam logbook")
+                return None
+
+        assert form_label("beam_logs", GetOnly()) == "Beam logbook"
+
+    @pytest.mark.parametrize("base_form", ["runs", "widgets"])
+    def test_ineligible_kind_label_is_derived(self, base_form):
+        registry = {"beam_logs": SimpleNamespace(base_form=base_form, label="Beam logbook")}
+        assert form_label("beam_logs", registry) == "Beam Logs"
+
+    def test_base_form_label_ignores_registry(self):
+        registry = {"plots": SimpleNamespace(base_form="plots", label="Pictures")}
+        assert form_label("plots", registry) == "Plots"
+
+    def test_registry_defaults_to_none_for_label(self):
+        assert form_label("beam_logs", None) == "Beam Logs"
+
 
 class TestEveryArtifactType:
     def test_expectations_cover_registry(self):

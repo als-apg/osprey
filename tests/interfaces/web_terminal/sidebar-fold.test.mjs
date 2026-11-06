@@ -22,7 +22,6 @@ const HTML = `
     <div class="sidebar-group" data-group="workspace">
       <div class="osprey-section-label sidebar-group-head">
         <span class="sidebar-group-name" id="n1">Workspace</span>
-        <button type="button" data-group-menu>m</button>
         <input type="text" id="field">
       </div>
       <div class="sidebar-row"><button id="sidebar-agent-row">Agent</button></div>
@@ -30,7 +29,6 @@ const HTML = `
     <div class="sidebar-group" data-group="tools">
       <div class="osprey-section-label sidebar-group-head">
         <span class="sidebar-group-name" id="n2">Tools</span>
-        <button type="button" data-group-menu>m</button>
       </div>
     </div>
   </div>`;
@@ -86,10 +84,19 @@ describe('folding a group', () => {
   });
 
   test('the folded state is restored on the next boot', async () => {
+    localStorage.setItem(FOLDED, JSON.stringify(['tools']));
+    await boot();
+    expect(group('tools').hasAttribute('data-folded')).toBe(true);
+    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+  });
+
+  test('the headless Sessions group never folds, whatever is stored', async () => {
     localStorage.setItem(FOLDED, JSON.stringify(['workspace']));
     await boot();
-    expect(group('workspace').hasAttribute('data-folded')).toBe(true);
-    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+    dbl(head('workspace'));
+    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+    expect(stored(FOLDED)).toEqual(['workspace']);
   });
 
   test('headings carry no chevron, and a stale one is removed', async () => {
@@ -165,9 +172,8 @@ describe('folding a group', () => {
     expect(group('tools').hasAttribute('data-folded')).toBe(false);
   });
 
-  test('the ⋯ button and a rename field do not fold', async () => {
+  test('a rename field does not fold', async () => {
     await boot();
-    dbl(qs(head('workspace'), '[data-group-menu]'));
     dbl(byId('field'));
     expect(group('workspace').hasAttribute('data-folded')).toBe(false);
     expect(localStorage.getItem(FOLDED)).toBeNull();

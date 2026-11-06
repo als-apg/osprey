@@ -394,7 +394,7 @@ class TestBackfill:
         _jsonl(hub.sessions_dir, ART_KEY, "2026-10-02T00:00:00Z")
         _save_artifact(hub.store_root, ART_KEY)
         _save_artifact(hub.store_root, ART_KEY)  # distinct keys only
-        _save_artifact(hub.store_root, GONE_KEY)  # no transcript on disk: Earlier
+        _save_artifact(hub.store_root, GONE_KEY)  # no transcript on disk: no row
         assert session_meta.backfill_ledger(hub.app) == 1
         assert _rows() == [(ART_KEY, ART_KEY, session_ledger.EPOCH)]
 

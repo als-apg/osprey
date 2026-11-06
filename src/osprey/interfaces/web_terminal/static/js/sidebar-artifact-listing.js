@@ -19,6 +19,7 @@
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { withPrefix } from './api.js';
+import { getPointer } from './session-pointer.js';
 
 /** The artifacts panel's mount on the hub. */
 export const ARTIFACTS_BASE = '/panel/artifacts';
@@ -93,12 +94,15 @@ export async function fetchArtifact(id) {
 }
 
 /**
- * The id of the artifact the agent focused, or null (none, or unreadable).
+ * The id of the artifact the agent focused in the operator's current session,
+ * or null (none, or unreadable). With no session the read is unscoped.
  * @returns {Promise<string | null>}
  */
 export async function fetchFocusedId() {
+  const sessionKey = getPointer();
+  const query = sessionKey ? `?session_key=${encodeURIComponent(sessionKey)}` : '';
   try {
-    const data = await requestJSON(`${ARTIFACTS_BASE}/api/focus`);
+    const data = await requestJSON(`${ARTIFACTS_BASE}/api/focus${query}`);
     const id = data?.focused === true ? data.artifact?.id : null;
     return typeof id === 'string' ? id : null;
   } catch {

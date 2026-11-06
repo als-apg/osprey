@@ -123,7 +123,6 @@ function defaultServer() {
     },
     summary: {
       counts: { [T1]: { total: 2, by_form: { documents: 1, plots: 1 } } },
-      earlier: { total: 0, by_form: {} },
       owned_total: 2,
       ledger: 'ok',
     },
@@ -143,7 +142,7 @@ const reply = (body, status = 200) =>
 
 /** @param {any} body */
 function listKey(body) {
-  const scope = body.session ? `session:${body.session}` : body.key ? `key:${body.key}` : 'earlier';
+  const scope = body.session ? `session:${body.session}` : body.key ? `key:${body.key}` : 'other';
   return `${scope}|${body.form ?? ''}|${body.cursor ?? ''}`;
 }
 

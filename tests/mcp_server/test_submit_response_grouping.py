@@ -1,8 +1,8 @@
 """Tests that submit_response groups results by source_agent in the ArtifactStore.
 
 When source_agent is provided, artifact entries should carry the agent name in
-the ``source_agent`` field so that ``list_entries(source_agent_filter=...)``
-groups them by agent rather than lumping everything together.
+the ``source_agent`` field, so results stay attributed to the delegating agent
+rather than lumped together.
 
 The ``tool_source`` field is always ``"submit_response"`` (the actual MCP tool),
 while ``source_agent`` carries the delegating agent name.
@@ -113,26 +113,6 @@ class TestSubmitResponseGrouping:
         assert "logbook-search" in agents
         assert "logbook-deep-research" in agents
         assert "channel-finder" in agents
-
-    @pytest.mark.asyncio
-    @pytest.mark.usefixtures("workspace")
-    async def test_source_agent_filter_works(self):
-        """Should be able to filter by source_agent_filter=agent_name."""
-        await _fn(
-            title="Logbook Result",
-            content="Logbook findings.",
-            source_agent="logbook-search",
-        )
-        await _fn(
-            title="Deep Research Result",
-            content="Deep research findings.",
-            source_agent="logbook-deep-research",
-        )
-
-        store = get_artifact_store()
-        logbook_entries = store.list_entries(source_agent_filter="logbook-search")
-        assert len(logbook_entries) == 1
-        assert logbook_entries[0].title == "Logbook Result"
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")

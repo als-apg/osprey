@@ -8,10 +8,14 @@ description: How to create, save, and reuse artifacts in the OSPREY gallery
 ## Reuse First
 
 When the user references previous work or wants to act on it (log it, share it,
-re-analyze it), call `artifact_list()` BEFORE creating anything new.
-Use `tool=` or `form=` (Runs, Plots, Trends, Tables, Documents, Dashboards,
-Images, Data — or a registered extension type's key) to narrow results. Reuse existing artifact IDs
-rather than recreating content.
+re-analyze it), call `artifact_list()` BEFORE creating anything new. It lists
+this conversation's artifacts only; if none match, say so — pass `scope="all"`
+only when the user asks about earlier work. Use `tool=` or `form=` (Runs, Plots,
+Trends, Tables, Documents, Dashboards, Images, Data — or a registered extension
+type's key) to narrow results. Reuse existing artifact IDs rather than
+recreating content. A dispatched run lists nothing: read the artifacts it was
+given by their ids with `artifact_read`. `artifact_delete_all` reaches this
+conversation's artifacts only; delete another's with `artifact_delete` by id.
 
 ## Creating Artifacts
 
@@ -83,8 +87,8 @@ immediately. The gallery scrolls to the artifact and shows its preview. A
 subagent does not focus: it files its answer and hands back the id (see
 "Subagent Hand-Backs").
 
-The user's current gallery selection is automatically included in your context
-via the `UserPromptSubmit` hook (reads `focus_state.txt`). Use this to
+The `[Gallery Focus]` block in your context carries this conversation's
+gallery selection and the artifacts pinned in it (`artifact_pin`). Use it to
 understand what the user is looking at.
 
 ## Subagent Hand-Backs

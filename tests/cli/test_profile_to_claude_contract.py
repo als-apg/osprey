@@ -373,7 +373,6 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
             "mcp__osprey_workspace__create_interactive_plot",
             "mcp__osprey_workspace__create_dashboard",
             "mcp__osprey_workspace__create_document",
-            "mcp__osprey_workspace__artifact_get",
             "mcp__osprey_workspace__artifact_list",
             "mcp__osprey_workspace__artifact_read",
             "mcp__osprey_workspace__facility_description",
@@ -1988,3 +1987,73 @@ def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     granted = [entry for entry in settings["permissions"]["allow"] if "data/textbooks" in entry]
     assert granted == [], f"a directory name granted a Read permission: {granted}"
+
+
+def _registered_workspace_tools() -> set[str]:
+    """Names the workspace server registers, importing the modules its factory imports."""
+    import ast
+    import asyncio
+    import importlib
+
+    import osprey.mcp_server.workspace.server as server_module
+
+    tree = ast.parse(Path(server_module.__file__).read_text(encoding="utf-8"))
+    modules = [
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "osprey.mcp_server.workspace.tools"
+        for alias in node.names
+    ]
+    assert modules, "server.py no longer imports its tool modules from the tools package"
+    for name in modules:
+        importlib.import_module(f"osprey.mcp_server.workspace.tools.{name}")
+    return {t.name for t in asyncio.run(server_module.mcp.list_tools())}
+
+
+_WORKSPACE_TOOL_REF = re.compile(r"mcp__osprey_workspace__([a-z_]+)")
+_BACKTICKED_CALL = re.compile(r"`([a-z_]+)\(")
+
+
+def test_rendered_prompts_name_only_registered_workspace_tools(built_control_assistant_project):
+    """Every workspace tool an agent, rule, skill or CLAUDE.md names is one the server serves."""
+    project = built_control_assistant_project
+    texts = [project / "CLAUDE.md"]
+    for pattern in ("agents/*.md", "rules/*.md", "skills/**/SKILL.md"):
+        texts.extend((project / ".claude").glob(pattern))
+    registered = _registered_workspace_tools()
+    named: dict[str, set[str]] = {}
+    for path in texts:
+        for tool in _WORKSPACE_TOOL_REF.findall(path.read_text(encoding="utf-8")):
+            named.setdefault(tool, set()).add(path.name)
+    assert named, "no rendered prompt names a workspace tool; the scan found nothing"
+    unknown = {tool: sorted(files) for tool, files in named.items() if tool not in registered}
+    assert not unknown, f"rendered prompts name unregistered workspace tools: {unknown}"
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "CLAUDE.md.j2",
+        "claude/rules/artifacts.md",
+        "claude/agents/data-visualizer.md.j2",
+        "claude/skills/session-report/SKILL.md",
+        "claude/skills/diagnose/SKILL.md",
+    ],
+)
+def test_artifact_prompts_call_only_registered_workspace_tools(template):
+    """Bare backticked artifact calls in the prompt templates are registered tools.
+
+    The ariel-gated CLAUDE.md lines do not render on the preset, so the
+    template source is scanned directly.
+    """
+    root = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code"
+    text = (root / template).read_text(encoding="utf-8")
+    calls = {name for name in _BACKTICKED_CALL.findall(text) if name.startswith("artifact_")}
+    # Bare backticked names too, minus the id parameters (`artifact_id`, `artifact_ids`).
+    calls |= {
+        m.group(1)
+        for m in re.finditer(r"`(artifact_[a-z_]+)`", text)
+        if not m.group(1).endswith(("_id", "_ids"))
+    }
+    registered = _registered_workspace_tools()
+    assert not calls - registered, f"{template}: {sorted(calls - registered)}"

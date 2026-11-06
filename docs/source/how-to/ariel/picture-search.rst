@@ -44,7 +44,7 @@ Agent tools for pictures
 - ``attachment_to_artifact`` keeps one picture: it copies the picture's stored
   display rendition into the artifact gallery, with the entry id, attachment
   id, filename and caption recorded, and selects it there. Saving the same
-  picture twice gives the same artifact. Like ``attachment_view`` it is offered
+  picture twice in one session gives the same artifact. Like ``attachment_view`` it is offered
   only while ``ariel.attachments.view.enabled`` is on and only for a
   ``viewable`` picture. The agent is told to use it rather than redraw a
   logbook plot from its caption.

@@ -93,8 +93,7 @@ def _companion() -> FastAPI:
         return {"results": [{"status": "ok"}], "interval_s": 5}
 
     @app.post("/api/artifacts/session-list")
-    async def session_list(request: Request):
-        scope = await request.json()
+    async def session_list():
         entry = {
             "id": "a1",
             "artifact_type": "markdown",
@@ -104,8 +103,8 @@ def _companion() -> FastAPI:
             "filename": "a1.md",
             "owner": None,
         }
-        # The active session's listing holds it; Earlier holds nothing.
-        listed = [] if scope.get("earlier") else [entry]
+        # The active session's listing holds it.
+        listed = [entry]
         return {"artifacts": listed, "total": len(listed), "next_cursor": None}
 
     @app.get("/api/focus")
