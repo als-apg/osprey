@@ -1429,6 +1429,14 @@ jobs:
     # runs; the WebKit one is there because the graph finder suite runs in
     # both engines. The watchdog and visual-regression suites run beside it in
     # `visual-theming-agent`, so neither waits for this suite to finish.
+    # OSPREY_OFFLINE=1: the pages load their vendor libraries (xterm, dockview,
+    # marked, DOMPurify, KaTeX, highlight.js) from the trees `osprey vendor
+    # fetch` writes below, not from cdn.jsdelivr.net. Online, every page of
+    # every test fetched them from the CDN, and a fetch it refused or dropped
+    # left a page with no terminal, rail or chat; four workers fetching at once
+    # made that failure likely enough to fail the lane.
+    env:
+      OSPREY_OFFLINE: "1"
 
     steps:
     - name: Checkout repository
@@ -1618,6 +1626,9 @@ jobs:
     # the whole ci.yml workflow).
     permissions:
       contents: write
+    # Vendor libraries from the fetched trees, as in `visual-theming`.
+    env:
+      OSPREY_OFFLINE: "1"
 
     steps:
     - name: Checkout repository
