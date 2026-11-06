@@ -273,7 +273,7 @@ def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:
 def test_preset_name_normalization(
     built_demo: BuiltProject, runner: CliRunner, tmp_path: Path
 ) -> None:
-    """demo and demo must both resolve to the same preset.
+    """``demo`` and its former spelling ``control_assistant`` resolve to one preset.
 
     The spelling is an ``osprey init`` input only: ``osprey build`` re-reads the
     repo's own source zone and never sees it. So the claim is pinned where the
@@ -291,7 +291,7 @@ def test_preset_name_normalization(
             if path.is_file()
         }
 
-    hyphen, under = source_zone("demo"), source_zone("demo")
+    hyphen, under = source_zone("demo"), source_zone("control_assistant")
     assert sorted(under) == sorted(hyphen)
     differing = [name for name in under if hyphen[name] != under[name]]
     assert differing == [], f"the two spellings materialized different files: {differing}"
