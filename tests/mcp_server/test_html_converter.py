@@ -11,6 +11,7 @@ import pytest
 from osprey.mcp_server.export import converter as converter_mod
 from osprey.mcp_server.export.converter import (
     PlaywrightNotInstalledError,
+    PlotNotDrawnError,
     convert_html_to_image,
 )
 
@@ -366,29 +367,30 @@ class TestPlotlyInjection:
         assert html_file.read_text() == original
         assert sorted(p.name for p in output_file.parent.iterdir()) == []
 
-    async def test_plot_wait_timeout_warns_and_screenshots(self, tmp_path, caplog):
+    async def test_plot_wait_timeout_raises_and_writes_no_image(self, tmp_path):
+        """A plot that did not draw is not exported: a typed error, no screenshot."""
         mock_mod, mock_page, _ = _make_playwright_mock()
         mock_page.wait_for_function.side_effect = FakePlaywrightTimeoutError("timed out")
 
-        with caplog.at_level("WARNING", logger="osprey.mcp_server.export.converter"):
-            _, _, _, seen = await self._run(tmp_path, mock_page, mock_mod=mock_mod)
+        with pytest.raises(PlotNotDrawnError, match=r"did not draw within 10000 ms") as info:
+            await self._run(tmp_path, mock_page, mock_mod=mock_mod)
 
-        mock_page.screenshot.assert_called_once()
-        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert len(warnings) == 1
-        assert not seen["path"].exists()
+        assert info.value.budget_ms == 10_000
+        assert info.value.source.name in str(info.value)
+        assert isinstance(info.value.__cause__, FakePlaywrightTimeoutError)
+        mock_page.screenshot.assert_not_called()
+        # No temp copy and no image left behind.
+        assert list((tmp_path / "out").iterdir()) == []
 
-    async def test_goto_timeout_warns_and_screenshots(self, tmp_path, caplog):
+    async def test_goto_timeout_raises_and_writes_no_image(self, tmp_path):
         mock_mod, mock_page, _ = _make_playwright_mock()
         mock_page.goto.side_effect = FakePlaywrightTimeoutError("load timed out")
 
-        with caplog.at_level("WARNING", logger="osprey.mcp_server.export.converter"):
-            _, output_file, _, _ = await self._run(tmp_path, mock_page, mock_mod=mock_mod)
+        with pytest.raises(PlotNotDrawnError):
+            await self._run(tmp_path, mock_page, mock_mod=mock_mod)
 
-        mock_page.screenshot.assert_called_once()
-        assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
-        # No temp copy left behind even though the load timed out.
-        assert list(output_file.parent.glob("*.html")) == []
+        mock_page.screenshot.assert_not_called()
+        assert list((tmp_path / "out").iterdir()) == []
 
     async def test_non_timeout_error_still_removes_copy(self, tmp_path):
         mock_mod, mock_page, _ = _make_playwright_mock()
