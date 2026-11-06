@@ -120,40 +120,57 @@ describe('folding a group', () => {
 
   test('the spacer is the exact scroll shortfall, recomputed and never accumulated', async () => {
     await boot();
-    // Layout is stubbed: 500px viewport, content 900px open / 700px with Tools folded.
-    let top = 400;
-    const spacer = () =>
-      /** @type {HTMLElement | null} */ (rail().querySelector('.sidebar-fold-spacer'));
-    const px = () => parseFloat(spacer()?.style.height || '0');
-    Object.defineProperty(rail(), 'clientHeight', { configurable: true, get: () => 500 });
+    // Layout is stubbed: clientHeight 531, content 664 open / 464 with Tools folded.
+    // scrollHeight never reads below clientHeight, as in a browser.
+    let top = 133;
+    const spacer = () => rail().querySelector('.sidebar-fold-spacer');
+    const px = () => parseFloat(/** @type {HTMLElement | null} */ (spacer())?.style.height || '0');
+    const content = () => (group('tools').hasAttribute('data-folded') ? 464 : 664);
+    Object.defineProperty(rail(), 'clientHeight', { configurable: true, get: () => 531 });
     Object.defineProperty(rail(), 'scrollHeight', {
       configurable: true,
-      get: () => (group('tools').hasAttribute('data-folded') ? 700 : 900) + px(),
+      get: () => Math.max(content() + px(), 531),
     });
     Object.defineProperty(rail(), 'scrollTop', {
       configurable: true,
       get: () => top,
       // The browser clamps to the scroll range.
       set: (v) => {
-        top = Math.min(v, rail().scrollHeight - 500);
+        top = Math.min(v, rail().scrollHeight - 531);
       },
     });
-    // Invariant: scrollTop is held and spacer == max(0, scrollTop + clientHeight - content).
-    for (let cycle = 0; cycle < 3; cycle++) {
-      dbl(head('tools')); // fold
-      expect(top).toBe(400);
-      expect(px()).toBe(200);
-      dbl(head('tools')); // unfold
-      expect(top).toBe(400);
-      expect(px()).toBe(0);
+    // The spacer sits at the content end (its own height is not part of it).
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+      /** @this {Element} */ function () {
+        const el = this;
+        const t = el === rail() ? 0 : el === spacer() ? content() - top : 0;
+        return /** @type {DOMRect} */ ({ top: t });
+      }
+    );
+    try {
+      // Invariant: scrollTop is held and spacer == max(0, held + clientHeight - content).
+      for (let cycle = 0; cycle < 3; cycle++) {
+        dbl(head('tools')); // fold
+        expect(top).toBe(133);
+        expect(px()).toBe(200);
+        rail().dispatchEvent(new Event('scroll')); // the follow-up scroll event keeps it
+        expect(px()).toBe(200);
+        dbl(head('tools')); // unfold
+        expect(top).toBe(133);
+        expect(px()).toBe(0);
+      }
+      dbl(head('tools'));
+      // Scrolling up shrinks it to the new shortfall; at the top it only fills the
+      // viewport (464 + 67 = 531), so there is nothing left to scroll.
+      top = 233;
+      rail().dispatchEvent(new Event('scroll'));
+      expect(px()).toBe(300);
+      top = 0;
+      rail().dispatchEvent(new Event('scroll'));
+      expect(px()).toBe(67);
+    } finally {
+      rect.mockRestore();
     }
-    dbl(head('tools'));
-    top = 250; // scrolling up releases the blank space
-    rail().dispatchEvent(new Event('scroll'));
-    expect(px()).toBe(50);
-    top = 150;
-    rail().dispatchEvent(new Event('scroll'));
-    expect(px()).toBe(0);
   });
 
   test('Enter and Space on the name toggle', async () => {
