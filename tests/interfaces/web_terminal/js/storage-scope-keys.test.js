@@ -143,9 +143,7 @@ describe('sidebar.js open lists', () => {
     document.body.innerHTML = `
       <nav id="sidebar">
         <div class="sidebar-row" id="sidebar-agent-wrap">
-          <button class="osprey-nav-row parent" id="sidebar-agent-row" type="button">
-            <svg data-disc></svg>
-          </button>
+          <button class="osprey-nav-row parent" id="sidebar-agent-row" type="button"></button>
           <div class="sidebar-kids" id="sidebar-session-tree" data-session-tree></div>
         </div>
       </nav>`;
@@ -159,11 +157,12 @@ describe('sidebar.js open lists', () => {
     return !tree.hidden;
   }
 
-  /** Toggle the tree with the Agent row's chevron. */
+  /** Toggle the tree from the Agent row's keyboard: ArrowLeft closes it, ArrowRight opens it. */
   function toggleTree() {
+    const key = isOpen() ? 'ArrowLeft' : 'ArrowRight';
     document
-      .querySelector('#sidebar-agent-row [data-disc]')
-      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      .querySelector('#sidebar-agent-row')
+      ?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   }
 
   test('the key is the one this block pins', () => {

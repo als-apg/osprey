@@ -56,6 +56,7 @@ import {
 } from './watchdog-alert.js';
 import { isSafetySwitchFrame, refreshSafetySwitches } from './safety-switches.js';
 import { refreshCodeReviewTab } from './code-review-tab.js';
+import { queryAllDocuments } from './attached-window.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -103,7 +104,7 @@ function ctx() {
  * @returns {HTMLIFrameElement | null}
  */
 function mountedIframe(panelId) {
-  for (const el of document.querySelectorAll('iframe.panel-iframe')) {
+  for (const el of queryAllDocuments('iframe.panel-iframe')) {
     const frame = /** @type {HTMLIFrameElement} */ (el);
     if (frame.dataset.panelId === panelId) return frame;
   }

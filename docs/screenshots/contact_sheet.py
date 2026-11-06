@@ -983,7 +983,7 @@ def hermetic_hub(
                 # The demo artifacts carry DEMO_SESSION_ID, but nothing here gives
                 # the ledger a row for it (a deployment gets one from the spawn, a
                 # turn end or the startup backfill; the capture runs none of them),
-                # so they would file under Earlier. Append the row a resumed
+                # so no session would list them. Append the row a resumed
                 # pre-feature session has: (key, key, epoch).
                 from osprey.interfaces.web_terminal import session_meta
                 from osprey.stores import session_ledger
@@ -1286,15 +1286,14 @@ _PLOT_ROW_SELECTOR = f'#sidebar-session-tree .osprey-list-row[data-id="{DEMO_PLO
 
 #: One poll of :func:`open_tree_to_row`: true once the artifact's row is in
 #: the tree, else one closed node opened (a form group, then a session's
-#: disclosure, then Earlier). A row exists only under an open session and an
+#: disclosure). A row exists only under an open session and an
 #: open form group, and both start closed.
 OPEN_TREE_TO_ROW_JS = """(id) => {
   const tree = document.querySelector('#sidebar-session-tree');
   if (!tree) return false;
   if (tree.querySelector(`.osprey-list-row[data-id="${CSS.escape(id)}"]`)) return true;
   const closed = tree.querySelector('[data-group-head][aria-expanded="false"]')
-    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]')
-    ?? tree.querySelector('.osprey-tree-earlier[aria-expanded="false"]');
+    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]');
   closed?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   return false;
 }"""

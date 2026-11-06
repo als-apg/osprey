@@ -6,6 +6,7 @@ import { clearPointer, getPointer, setPointer } from './session-pointer.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { hideHandoffOverlay, showHandoffPending, showHandoffRefused } from './terminal-handoff.js';
 import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
+import { queryAllDocuments } from './attached-window.js';
 
 /** @type {any} */
 let term = null;
@@ -742,7 +743,7 @@ export function stopTerminal() {
 function setConnectionIndicator(connected) {
   const led = document.getElementById('session-led');
   if (led) led.classList.toggle('active', connected);
-  const body = document.querySelector('.terminal-body');
+  const body = queryAllDocuments('.terminal-body')[0];
   if (body) body.classList.toggle('active', connected);
 }
 
@@ -855,7 +856,7 @@ export function onSessionChange(fn) {
  * @param {string} sessionId - The new session UUID.
  */
 export function notifySessionChange(sessionId) {
-  document.querySelectorAll('.panel-iframe').forEach((iframe) => {
+  queryAllDocuments('.panel-iframe').forEach((iframe) => {
     try {
       /** @type {Window} */ (/** @type {HTMLIFrameElement} */ (iframe).contentWindow).postMessage(
         { type: 'osprey-session-change', session_id: sessionId },

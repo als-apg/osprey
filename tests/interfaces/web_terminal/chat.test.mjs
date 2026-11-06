@@ -1510,19 +1510,13 @@ describe('renderChatBootFailure', () => {
 });
 
 describe('the Agent bar', () => {
-  test('reads dot, the session switcher, New conversation, bell, Export — no ⋯', async () => {
+  test('reads dot, the session switcher, New conversation, bell — no Export, no ⋯', async () => {
     await mountChat();
     const bar = /** @type {HTMLElement} */ (one('.op-session-bar'));
     const parts = [...bar.children].map(
       (el) => el.getAttribute('aria-label') ?? el.textContent ?? ''
     );
-    expect(parts).toEqual([
-      '',
-      'Switch session',
-      'New conversation',
-      'Desktop notifications',
-      'Export',
-    ]);
+    expect(parts).toEqual(['', 'Switch session', 'New conversation', 'Desktop notifications']);
     expect(bar.querySelector('.op-session-more')).toBeNull();
     expect(document.getElementById('agent-conversations-menu')).toBeNull();
   });

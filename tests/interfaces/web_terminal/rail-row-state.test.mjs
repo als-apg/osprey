@@ -465,7 +465,7 @@ describe('setEntryStatus', () => {
     expect(entry.title).toBe(MESSAGE);
     expect(entry.getAttribute('aria-description')).toBe(MESSAGE);
     entry.click();
-    expect(onActivate).toHaveBeenCalledWith('jupyter');
+    expect(onActivate).toHaveBeenCalledWith('jupyter', expect.any(MouseEvent));
   });
 
   test('clearing the status restores the base tooltip', () => {

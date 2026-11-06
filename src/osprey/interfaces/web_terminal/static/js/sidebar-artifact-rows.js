@@ -7,9 +7,8 @@
  * with the server's counts, run rows (a status dot for succeeded, failed and
  * not run, none while in flight; the output count; the parts underneath) and
  * artifact rows (marked "run" or "interactive"). After the sessions come the
- * "More sessions" row, the Earlier row and the notice rows. Activity mode bands
- * a session's rows by the facility day: Today, Yesterday, Older ("Earlier"
- * names only the top-level row). Indents follow a 4/16/28/40 px ladder
+ * "More sessions" row and the notice rows. Activity mode bands a session's
+ * rows by the facility day: Today, Yesterday, Older. Indents follow a 4/16/28/40 px ladder
  * (.osprey-tree-d0 … d3, sidebar-artifacts.css).
  *
  * Artifact rows are the shared list primitives of primitives.css
@@ -24,6 +23,7 @@
 
 import { icon } from '/design-system/js/icons.js';
 import { facilityDayKey, formatFacilityTime } from '/design-system/js/facility-time.js';
+import { isMacPlatform } from '/design-system/js/platform.js';
 
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
 
@@ -226,9 +226,20 @@ export function agentDisclosure(open) {
 }
 
 /**
- * One session row: a disclosure (the active row only: no other session can be
- * opened without switching to it), the live dot, the title (or "naming…"), the
- * artifact count from the session summary (`data-count` once it is summarized).
+ * The modifier click that expands or collapses every session, as this
+ * platform names it.
+ * @returns {string}
+ */
+export function allSessionsClick() {
+  return isMacPlatform() ? '⌥-click' : 'Alt+click';
+}
+
+/**
+ * One session row: a disclosure (on the active row, and on any row the
+ * operator opened with expand-all; no other session opens without switching
+ * to it), the live dot, the title (or "naming…"), the artifact count from the
+ * session summary (`data-count` once it is summarized). The title's tooltip
+ * says what a click does and names the expand-all click.
  * @param {SessionRow} session
  * @param {{active: boolean, open: boolean, count: number, summarized?: boolean}} options
  * @returns {HTMLElement}
@@ -241,25 +252,14 @@ export function sessionRow(session, { active, open, count, summarized = false })
   );
   if (pending) title.classList.add('pending');
   title.title = title.textContent ?? '';
+  title.dataset.tipDetail = `${active ? 'Click to fold or unfold' : 'Click to switch to it'} · ${allSessionsClick()} to expand or collapse all`;
   const dot = document.createElement('span');
   dot.className = `osprey-dot ${session.state === 'live' ? 'ok' : 'hollow'}`;
-  const row = topRow('osprey-tree-session', open, [dot, title], active);
+  const row = topRow('osprey-tree-session', open, [dot, title], active || open);
   row.dataset.sessionId = session.transcript_id;
   if (active) row.classList.add('active');
   if (summarized) row.dataset.count = String(count);
   if (pending && session.title) row.append(treeSpan('osprey-tree-naming', 'naming…'));
-  row.append(treeSpan('osprey-tree-n', String(count)));
-  return row;
-}
-
-/**
- * The Earlier row: the operator's artifacts no session owns, at session level.
- * @param {{count: number, open: boolean}} options
- * @returns {HTMLElement}
- */
-export function earlierRow({ count, open }) {
-  const row = topRow('osprey-tree-earlier', open, [treeSpan('osprey-tree-title', 'Earlier')]);
-  row.dataset.treeEarlier = '';
   row.append(treeSpan('osprey-tree-n', String(count)));
   return row;
 }
@@ -299,7 +299,7 @@ export function noticeRow(kind) {
 /**
  * A session's rows inside its own scroll box, or the line an empty session
  * shows.
- * @param {string} sessionId  the transcript id, or '' for Earlier
+ * @param {string} sessionId  the tree id: a transcript id, or `key:<K>`
  * @param {Node[]} children
  * @returns {HTMLElement}
  */
@@ -520,7 +520,7 @@ function treeRow(entry, iconName, shownId, depth) {
 }
 
 /**
- * A session-level row (a session or Earlier): disclosure first, then `kids`.
+ * A session-level row: disclosure first, then `kids`.
  * Without `foldable` an empty slot of the disclosure's width keeps the titles
  * aligned.
  * @param {string} className

@@ -38,10 +38,8 @@
   border-left: 1px solid var(--border-default);
 }
 
-/* A session (or Earlier): medium weight, the active one tinted with an
- * accent bar. */
-.osprey-tree-session,
-.osprey-tree-earlier {
+/* A session: medium weight, the active one tinted with an accent bar. */
+.osprey-tree-session {
   position: relative;
   display: flex;
   align-items: center;
@@ -56,8 +54,7 @@
   cursor: pointer;
 }
 
-.osprey-tree-session:hover,
-.osprey-tree-earlier:hover {
+.osprey-tree-session:hover {
   background: var(--surface-hover);
 }
 

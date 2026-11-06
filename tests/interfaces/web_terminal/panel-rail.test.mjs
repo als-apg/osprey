@@ -169,7 +169,9 @@ beforeEach(() => {
         { id: 'tools', label: 'Tools' },
         { id: 'system', label: 'System' },
       ],
-      placement: { events: 'workspace' },
+      // System holds a panel, so this reads as the operator's own arrangement and
+      // Events in Workspace as their choice, not as a stale default.
+      placement: { events: 'workspace', 'system-health': 'system' },
     })
   );
 });
@@ -463,7 +465,8 @@ describe('page-owned rows', () => {
     agentRow.click();
 
     expect(first).not.toHaveBeenCalled();
-    expect(second.mock.calls).toEqual([['terminal']]);
+    // The click rides along, so the policy can read its modifier keys.
+    expect(second.mock.calls).toEqual([['terminal', expect.any(MouseEvent)]]);
   });
 
   test('a page-owned row whose panel is absent is parked hidden and counts as absent', () => {
@@ -508,13 +511,14 @@ describe('page-owned rows', () => {
     expect(group(rail, 'workspace').contains(getEntry(rail, 'events'))).toBe(true);
   });
 
-  test('the attention dot sits before the disclosure chevron of the Agent row', () => {
+  test('the attention dot sits last on the Agent row, which has no chevron', () => {
     createRail(rail, ALL);
     setEntryAttention(rail, 'terminal', true);
     const dot = /** @type {HTMLElement} */ (
       agentRow.querySelector(':scope > [data-attention-badge]')
     );
-    expect(dot.nextElementSibling?.classList.contains('osprey-nav-disc')).toBe(true);
+    expect(agentRow.querySelector(':scope > .osprey-nav-disc')).toBeNull();
+    expect(dot.nextElementSibling).toBeNull();
   });
 
   test('setActive marks a page-owned row current', () => {

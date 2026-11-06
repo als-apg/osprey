@@ -129,8 +129,10 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
 
 /* The tree is a column that gives way to its boxes, so a box scrolls once the
    room runs out (the dragged group, or the rail in automatic sizing) and
-   otherwise takes its content's height. */
-.sidebar-group > .sidebar-row > [data-session-tree] {
+   otherwise takes its content's height. Only while shown: the display would
+   outrank the user-agent [hidden] rule, and a folded Agent row would leave
+   its tree on screen. */
+.sidebar-group > .sidebar-row > [data-session-tree]:not([hidden]) {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
@@ -727,7 +729,6 @@ html[data-sidebar="collapsed"] #sidebar-toggle .osprey-ic {
 html[data-sidebar="collapsed"] :is(
   .sidebar-brand-word,
   .sidebar .osprey-nav-label,
-  .sidebar .osprey-nav-disc,
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,
@@ -1954,6 +1955,32 @@ html[data-sidebar-resizing] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---- Attached pop-out stand-in ----
+   What a tile shows while its content is in an attached window
+   (attached-popout.js): a centred line and the way back. In the dock overlay
+   it takes the iframe's place, so dock-iframe.js draws it with the iframe's
+   geometry; in the Agent tile it fills the tile body. */
+.attached-standin {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  padding: var(--space-3);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  text-align: center;
+}
+.dock-iframe-overlay > .attached-standin {
+  position: absolute;
+  pointer-events: auto;
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+.attached-standin-text { margin: 0; }
 
 /* ---- Terminal panel ---- */
 

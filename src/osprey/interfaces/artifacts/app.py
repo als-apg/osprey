@@ -401,22 +401,6 @@ def _stamp_data_theme(html: str, theme_id: str | None) -> str:
     return _HTML_TAG_WITHOUT_THEME_RE.sub(f'<html data-theme="{theme_id}"', html, count=1)
 
 
-def _example_artifact_enabled() -> bool:
-    """Whether ``artifact_server.example_artifact`` is on in the primed config.
-
-    Off when no config is primed (standalone gallery, tests) or the key is
-    absent: seeding is something a deployment opts into, and a gallery that
-    cannot read its config must not invent an artifact.
-    """
-    try:
-        from osprey_connectors.config import get_config_value
-
-        return bool(get_config_value("artifact_server.example_artifact", False))
-    except Exception:
-        logger.debug("No config available for artifact_server.example_artifact", exc_info=True)
-        return False
-
-
 def _resolve_pinned_web_theme() -> str | None:
     """The concrete theme id ``web.theme`` pins, or ``None`` if it names a family.
 
@@ -553,18 +537,16 @@ MAX_BATCHED_SESSIONS = 5
 
 
 class SessionListRequest(BaseModel):
-    """``POST /api/artifacts/session-list``: exactly one of the four targets.
+    """``POST /api/artifacts/session-list``: exactly one of the three targets.
 
     ``session`` names a transcript; ``key`` a session key, listed through the
     ledger's current transcript for it; ``sessions`` up to
-    :data:`MAX_BATCHED_SESSIONS` transcripts paged together; ``earlier`` the
-    visible artifacts no transcript owns.
+    :data:`MAX_BATCHED_SESSIONS` transcripts paged together.
     """
 
     session: str | None = None
     key: str | None = None
     sessions: list[str] | None = Field(None, min_length=1, max_length=MAX_BATCHED_SESSIONS)
-    earlier: bool | None = None
     form: str | None = None
     runs: Literal["grouped"] | None = None
     cursor: str | None = None
@@ -572,15 +554,9 @@ class SessionListRequest(BaseModel):
 
     @model_validator(mode="after")
     def _one_target(self) -> SessionListRequest:
-        if self.earlier is False:
-            raise ValueError("earlier, when given, must be true")
-        given = [
-            name
-            for name in ("session", "key", "sessions", "earlier")
-            if getattr(self, name) is not None
-        ]
+        given = [name for name in ("session", "key", "sessions") if getattr(self, name) is not None]
         if len(given) != 1:
-            raise ValueError("give exactly one of session, key, sessions or earlier")
+            raise ValueError("give exactly one of session, key or sessions")
         return self
 
 
@@ -615,7 +591,7 @@ class _LedgerCache:
     an unreadable file as an empty ledger, which here would silently re-own
     every artifact, so the document is checked first and a failure is
     reported as unavailable: every answer then says ``ledger: unavailable``
-    and tagged artifacts list under Earlier. A missing file is an empty,
+    and only stamped artifacts have an owner. A missing file is an empty,
     available ledger (no session has been recorded yet).
     """
 
@@ -709,7 +685,7 @@ def _payload(entry: Any, view: _ListingView) -> dict[str, Any]:
     the server's verdicts, so no client re-derives a rule: ``form`` (the listed
     form, ``None`` for a run's preview or notebook) and its ``form_label``;
     ``run_part`` and the group's ``run_status``; ``owner`` (the transcript that
-    owns it, ``None`` for Earlier); ``operator_visible``; ``interactive``; and
+    owns it, else ``None``); ``operator_visible``; ``interactive``; and
     the legacy ``run_record`` verdict. A run's head also
     lists its ``run_parts``.
     """
@@ -1052,18 +1028,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # defined.
     page_size = _page_size()
 
-    # Also after config priming: the one gallery process each workspace has
-    # (single-user `osprey web` and every render container alike) seeds the
-    # shipped example here, so the Artifacts panel is not empty on a first visit.
-    # Idempotent and sentinel-aware — see example_artifact.py.
-    if _example_artifact_enabled():
-        try:
-            from osprey.interfaces.artifacts.example_artifact import seed_example_artifact
-
-            seed_example_artifact(store)
-        except Exception:
-            logger.warning("Could not seed the example artifact", exc_info=True)
-
     broadcaster = _SSEBroadcaster()
 
     ledger_cache = _LedgerCache()
@@ -1276,9 +1240,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         hub's ledger and visibility
         :func:`~osprey.stores.artifact_store.operator_visible`. ``{key}`` lists
         the key's current transcript; ``{sessions}`` answers ``{pages: {id:
-        page}}``; ``{earlier: true}`` lists the visible artifacts no
-        transcript owns (untagged, or tagged with a key the ledger never saw).
-        Every answer says whether the ledger could be read.
+        page}}``. An artifact no transcript owns lists under none. Every answer
+        says whether the ledger could be read.
         """
         view = _view()
         ledger = view.owner_ledger
@@ -1299,9 +1262,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             if body.sessions is not None:
                 pages = {tid: transcript_page(tid) for tid in dict.fromkeys(body.sessions)}
                 return {"pages": pages, "ledger": status}
-            if body.earlier:
-                answer = transcript_page(None)
-            elif body.key is not None:
+            if body.key is not None:
                 current = ledger.current(body.key) if ledger is not None else None
                 answer = transcript_page(current) if current else nothing()
             else:
@@ -1314,7 +1275,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.post("/api/artifacts/session-summary")
     async def session_summary(body: SessionSummaryRequest):
-        """Counts for one page of sessions, Earlier and every transcript together.
+        """Counts for one page of sessions, and every owned artifact together.
 
         One pass over the index, under the same rules as ``session-list``:
         visibility is :func:`~osprey.stores.artifact_store.operator_visible`,
@@ -1324,13 +1285,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         counts once (its head) whatever its status. ``by_form`` names only the
         forms that occur. ``owned_total`` counts every owned entry, requested or
         not: the client's "More sessions" is ``owned_total`` minus its loaded
-        totals, and loaded + More + Earlier is the visible total.
+        totals. An entry no transcript owns counts nowhere.
         """
         view = _view()
         ledger = view.owner_ledger
         requested = dict.fromkeys(body.sessions)
         counts: dict[str, dict[str, Any]] = {tid: {"total": 0, "by_form": {}} for tid in requested}
-        earlier: dict[str, Any] = {"total": 0, "by_form": {}}
         owned_total = 0
         for entry in store.list_entries():
             if not operator_visible(entry):
@@ -1340,18 +1300,15 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 continue
             owner = owner_of(entry, ledger)
             if owner is None:
-                bucket = earlier
-            else:
-                owned_total += 1
-                owned = counts.get(owner)
-                if owned is None:
-                    continue
-                bucket = owned
+                continue
+            owned_total += 1
+            bucket = counts.get(owner)
+            if bucket is None:
+                continue
             bucket["total"] += 1
             bucket["by_form"][form] = bucket["by_form"].get(form, 0) + 1
         return {
             "counts": counts,
-            "earlier": earlier,
             "owned_total": owned_total,
             "ledger": "ok" if view.ledger_ok else "unavailable",
         }
