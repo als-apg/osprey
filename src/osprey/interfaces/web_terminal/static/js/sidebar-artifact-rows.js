@@ -297,8 +297,8 @@ export function noticeRow(kind) {
 }
 
 /**
- * A session's rows inside its own scroll box (~280 px), or the line an empty
- * session shows.
+ * A session's rows inside its own scroll box, or the line an empty session
+ * shows.
  * @param {string} sessionId  the transcript id, or '' for Earlier
  * @param {Node[]} children
  * @returns {HTMLElement}

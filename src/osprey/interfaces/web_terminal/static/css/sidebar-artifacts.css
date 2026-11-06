@@ -128,9 +128,11 @@
   color: var(--text-muted);
 }
 
-/* A session's rows scroll in their own box, fading at the bottom edge. */
+/* A session's rows scroll in their own box, fading at the bottom edge. No
+   height cap: the box shrinks to the room its tree is given. */
 .osprey-tree-box {
-  max-height: 280px;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   margin: 0 0 2px;

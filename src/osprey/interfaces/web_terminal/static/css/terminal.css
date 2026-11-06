@@ -127,7 +127,13 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
   min-height: 0;
 }
 
+/* The tree is a column that gives way to its boxes, so a box scrolls once the
+   room runs out (the dragged group, or the rail in automatic sizing) and
+   otherwise takes its content's height. */
 .sidebar-group > .sidebar-row > [data-session-tree] {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
   min-height: 52px;
 }
 
@@ -530,6 +536,8 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
 }
 
 .sidebar-flyout [data-session-tree] {
+  display: flex;
+  flex-direction: column;
   max-height: calc(12 * 26px);
   overflow-y: auto;
   overscroll-behavior: contain;

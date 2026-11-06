@@ -14,8 +14,8 @@
  * {@link initSidebarArtifacts} / {@link teardownSidebarArtifacts} under
  * `whilePanelServed`): one `session-summary` per loaded page of sessions, and
  * each open session's artifacts through `session-list` (`runs=grouped`, paged
- * by the cursor in the ~280 px box; in Kind mode each open group pages on its
- * own).
+ * by the cursor in the box, at whatever height; in Kind mode each open
+ * group pages on its own).
  *
  * CLICKS. Only the session in use can show its artifacts; every other
  * session stays folded and has no disclosure. A click on another session's
@@ -63,6 +63,7 @@ import { setServiceMenuExtras } from './panel-menu-policy.js';
 import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
 import * as store from './sidebar-artifact-listing.js';
 import * as rows from './sidebar-artifact-rows.js';
+import { createBoxPager } from './sidebar-artifact-paging.js';
 import { headerItems, menuItems, openArtifact, saveArtifact } from './artifacts-pane-header.js';
 import * as model from './session-model.js';
 
@@ -80,9 +81,6 @@ const EVENTS_PATH = `${store.ARTIFACTS_BASE}/api/events`;
 
 /** The tree's containers: the sidebar's and the collapsed sidebar's flyout. */
 const TREE_SELECTOR = '[data-session-tree]';
-
-/** How close to the end of a box (two rows) a scroll asks for the next page. */
-const NEAR_END_PX = 52;
 
 /** @typedef {'kind' | 'activity'} TreeView */
 
@@ -113,6 +111,12 @@ const data = store.createTreeData({ onChange: () => render() });
 /** @type {import('./sidebar-artifact-rows.js').TreeForm[]} */
 let forms = rows.treeForms(null);
 let served = false;
+
+const pager = createBoxPager({
+  isServed: () => served,
+  loadMore: (treeId) => data.loadMoreOf(treeId, state.view, openGroupsOf(treeId)),
+  boxes: () => document.querySelectorAll(`${TREE_SELECTOR} [data-session-box]`),
+});
 let treeStarted = false;
 let abort = new AbortController();
 /** The tree's own document listeners (removed only by a test reset). */
@@ -158,9 +162,10 @@ function initSessionTree() {
   state.view = store.readTreeView();
   const signal = treeAbort.signal;
   document.addEventListener('click', onClick, { signal });
-  document.addEventListener('scroll', onScroll, { capture: true, passive: true, signal });
+  document.addEventListener('scroll', pager.onScroll, { capture: true, passive: true, signal });
   document.addEventListener('osprey-sidebar-rendered', render, { signal });
   document.addEventListener('osprey-artifact-opened', onArtifactOpened, { signal });
+  pager.watch(document.querySelectorAll(TREE_SELECTOR), signal);
   model.subscribe(onModelChange);
   onSurfaceChange(() => render());
   void model.initSessionModel();
@@ -530,6 +535,7 @@ function render() {
       rows.rowIn(/** @type {HTMLElement} */ (tree), focusedId)?.focus({ preventScroll: true });
   }
   if (!served) return;
+  pager.fill();
   const current = activeListing();
   if (current) data.ensureLoaded(current);
   const header = headerItems(shown, pagerPosition(shown));
@@ -689,16 +695,6 @@ function pickArtifact(id) {
   model.recordLastArtifact(held(id));
   render();
   showArtifactsPanel();
-}
-
-/** A scroll near the end of a box loads its next page. @param {Event} event */
-function onScroll(event) {
-  const box =
-    event.target instanceof HTMLElement ? event.target.closest('[data-session-box]') : null;
-  if (!(box instanceof HTMLElement) || !served) return;
-  if (box.scrollHeight - box.scrollTop - box.clientHeight > NEAR_END_PX) return;
-  const treeId = box.dataset.sessionBox ?? '';
-  data.loadMoreOf(treeId, state.view, openGroupsOf(treeId));
 }
 
 /** @returns {TreeView} the tree mode in force */
