@@ -26,6 +26,7 @@ import pathlib
 import re
 import shlex
 import subprocess
+import sys
 
 import pytest
 
@@ -206,6 +207,115 @@ def test_containerfile_member_failure_fails_the_layer(tmp_path):
     assert not any(".[virtual-accelerator]" in argv for _, argv in calls), (
         "the framework installed after a member build failed"
     )
+
+
+# ── docker/virtual-accelerator/Containerfile: the dependency layer ──────────
+#
+# The third-party closure installs in a layer keyed on a requirements file the
+# `dependency-set` stage derives from the manifests alone, so a source change
+# leaves that layer cached. These pin the two halves of that: the layer comes
+# before any source, and the derived set is the manifests' third-party set.
+
+
+def _stages(text: str) -> dict[str, list[tuple[str, str]]]:
+    """``{stage name: [(KEYWORD, args), ...]}``; the unnamed final stage is ``""``."""
+    stages: dict[str, list[tuple[str, str]]] = {}
+    current: list[tuple[str, str]] | None = None
+    pending = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            pending += line[:-1] + " "
+            continue
+        keyword, _, args = (pending + line).partition(" ")
+        pending = ""
+        if keyword.upper() == "FROM":
+            name = re.search(r"\sAS\s+(\S+)\s*$", args, re.I)
+            current = stages.setdefault(name.group(1) if name else "", [])
+        assert current is not None, f"instruction before the first FROM: {line}"
+        current.append((keyword.upper(), args.strip()))
+    return stages
+
+
+def _dependency_set_body() -> str:
+    bodies = [b for b in _run_bodies(CONTAINERFILE.read_text()) if "requirements.txt" in b]
+    bodies = [b for b in bodies if "tomllib" in b]
+    assert len(bodies) == 1, f"expected one dependency-set RUN, got {len(bodies)}"
+    return bodies[0]
+
+
+def test_dependency_set_stage_reads_only_the_manifests():
+    """Anything else COPYed into that stage would key the dependency layer on it."""
+    copies = [
+        args for kw, args in _stages(CONTAINERFILE.read_text())["dependency-set"] if kw == "COPY"
+    ]
+    assert copies == ["pyproject.toml /spec/", "packages/ /spec/packages/"], copies
+
+
+def test_dependency_layer_installs_before_any_source():
+    """The closure installs from the derived file before src/ or packages/ land,
+    so a source change cannot invalidate it."""
+    final = _stages(CONTAINERFILE.read_text())[""]
+    install = next(
+        i for i, (kw, args) in enumerate(final) if kw == "RUN" and "-r /opt/osprey-deps/" in args
+    )
+    before = [args for kw, args in final[:install] if kw == "COPY"]
+    assert before == [
+        "--from=dependency-set /spec/requirements.txt /opt/osprey-deps/requirements.txt"
+    ], before
+    assert "--only-binary pcaspy" in final[install][1]
+    assert '"accelerator-toolbox[plot]==0.8.0"' in final[install][1]
+    sources = [i for i, (kw, args) in enumerate(final) if kw == "COPY" and "src/" in args]
+    assert sources and min(sources) > install
+
+
+def test_dependency_set_is_the_manifests_third_party_closure(tmp_path):
+    """Run the stage's RUN on the real manifests: every third-party requirement
+    of the framework (core plus the `virtual-accelerator` extra) and of each
+    member appears verbatim, and no workspace distribution does -- those build
+    from source, and pip would fetch them from PyPI here."""
+    import tomllib
+
+    (tmp_path / "pyproject.toml").write_bytes((REPO_ROOT / "pyproject.toml").read_bytes())
+    for manifest in (REPO_ROOT / "packages").glob("*/pyproject.toml"):
+        (tmp_path / "packages" / manifest.parent.name).mkdir(parents=True)
+        (tmp_path / "packages" / manifest.parent.name / "pyproject.toml").write_bytes(
+            manifest.read_bytes()
+        )
+    body = _dependency_set_body().replace("/spec/requirements.txt", "requirements.txt")
+    result = subprocess.run(
+        ["sh", "-c", body.replace("python -c", f"{shlex.quote(sys.executable)} -c", 1)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    derived = set((tmp_path / "requirements.txt").read_text().splitlines())
+
+    def name(spec: str) -> str:
+        return re.sub(r"[-_.]+", "-", re.match(r"[A-Za-z0-9._-]+", spec).group(0)).lower()
+
+    projects = [
+        tomllib.loads(path.read_text())["project"]
+        for path in [
+            REPO_ROOT / "pyproject.toml",
+            *(REPO_ROOT / "packages").glob("*/pyproject.toml"),
+        ]
+    ]
+    local = {"osprey-framework", *WORKSPACE_MEMBERS}
+    assert {name(p["name"]) for p in projects} == local
+    expected = {
+        spec
+        for project in projects
+        for spec in project.get("dependencies", [])
+        if name(spec) not in local
+    }
+    expected |= set(projects[0]["optional-dependencies"]["virtual-accelerator"])
+    assert derived == expected
+    assert not {name(spec) for spec in derived} & local
 
 
 # ── service Dockerfile wheel layers ─────────────────────────────────────────

@@ -24,6 +24,32 @@
 # stack's CA server extension alongside the aioca client has been measured
 # to work (scripts/va/live_ca/ is that measurement).
 # The accepted cost: on an Apple Silicon host the image runs emulated.
+# The third-party dependency set, computed in a stage of its own from the
+# project manifests alone -- the root pyproject.toml (core dependencies plus the
+# `virtual-accelerator` extra) and every packages/*/pyproject.toml -- with the
+# workspace's own distributions left out, since those install from source below.
+# Only the resulting requirements file reaches the image, and the layer that
+# installs it is cached on that file's content: a change to src/ or to a
+# member's code leaves it byte-identical, so the expensive download-and-install
+# layer restores from cache and only the from-source builds rerun. Without this
+# split the one pip layer sat after `COPY src/` and every source change
+# re-downloaded and re-installed the whole closure. The final install below
+# still resolves with dependencies, so a requirement this stage missed would be
+# installed there (slower), never silently absent.
+FROM --platform=linux/amd64 python:3.11-slim AS dependency-set
+WORKDIR /spec
+COPY pyproject.toml /spec/
+COPY packages/ /spec/packages/
+RUN python -c "import glob, re, tomllib; \
+projects = [tomllib.load(open(path, 'rb'))['project'] for path in ['pyproject.toml', *sorted(glob.glob('packages/*/pyproject.toml'))]]; \
+key = lambda spec: re.sub(r'[-_.]+', '-', re.match(r'[A-Za-z0-9._-]+', spec).group(0)).lower(); \
+local = {key(project['name']) for project in projects}; \
+specs = [spec for project in projects for spec in project.get('dependencies', [])]; \
+specs += projects[0].get('optional-dependencies', {}).get('virtual-accelerator', []); \
+print(chr(10).join(sorted({spec for spec in specs if key(spec) not in local})))" \
+    > /spec/requirements.txt \
+    && test -s /spec/requirements.txt
+
 FROM --platform=linux/amd64 python:3.11-slim
 
 # Refuse to build anywhere but amd64. The pin above should make this
@@ -40,6 +66,28 @@ FROM --platform=linux/amd64 python:3.11-slim
 # reported success. Fail here instead, where the message can say why.
 RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
     || { echo "ERROR: the virtual accelerator image is linux/amd64 only (this build is $arch). No pcaspy wheel exists for linux/aarch64 at any interpreter, so an aarch64 image would carry no Channel Access server." >&2; exit 1; }
+
+# Third-party dependencies, from the dependency-set stage above (see there for
+# why this layer comes before any source).
+#
+# --only-binary pcaspy is a guard, not an optimisation. pcaspy's sdist needs a
+# full EPICS base + epics-modules/pcas build -- minutes, not seconds -- and on
+# amd64 a wheel always exists, so if pip ever reaches for that sdist here
+# something is wrong and the build should say so rather than stall.
+#
+# PyAT is the exception, and the pin is not redundant. pyproject.toml declares
+# `accelerator-toolbox[plot]>=0.8.0` and uv.lock resolves that to 0.8.0 --
+# which is what the dev venv and every unit test run against -- but this image
+# installs with pip, and pip does not read uv.lock. Without the pin the image
+# silently takes the newest release satisfying the floor, so the physics
+# library the container serves from would drift away from the one the lattice
+# code is tested against, with no signal. This line is what keeps the two in
+# step, and it must be bumped together with uv.lock. A lockfile-driven install
+# would make it unnecessary, but that is a change to how the whole image
+# resolves, not a change to this pin.
+COPY --from=dependency-set /spec/requirements.txt /opt/osprey-deps/requirements.txt
+RUN pip install --no-cache-dir --only-binary pcaspy \
+        -r /opt/osprey-deps/requirements.txt "accelerator-toolbox[plot]==0.8.0"
 
 # osprey itself -- manifest/lattice/serving/entrypoint live under
 # src/osprey/services/virtual_accelerator/ and install as part of the
@@ -89,26 +137,12 @@ ARG OSPREY_CONNECTORS_VERSION=
 # p4p for PVAccess -- the two transports the runner serves. None of the three
 # is declared here as an install target or version constraint, deliberately,
 # so this image cannot pin a serving dependency pyproject.toml disagrees with;
-# the --only-binary guard below names pcaspy but pins nothing. lume-base and
+# the --only-binary guard names pcaspy but pins nothing. lume-base and
 # lume-pyat need no mention
 # either -- they are exact-pinned core dependencies of osprey, so the resolve
 # can only produce one answer for them.
 #
-# --only-binary pcaspy is a guard, not an optimisation. pcaspy's sdist needs a
-# full EPICS base + epics-modules/pcas build -- minutes, not seconds -- and on
-# amd64 a wheel always exists, so if pip ever reaches for that sdist here
-# something is wrong and the build should say so rather than stall.
-#
-# PyAT is the exception, and the pin is not redundant. pyproject.toml declares
-# `accelerator-toolbox[plot]>=0.8.0` and uv.lock resolves that to 0.8.0 --
-# which is what the dev venv and every unit test run against -- but this image
-# installs with pip, and pip does not read uv.lock. Without the pin the image
-# silently takes the newest release satisfying the floor, so the physics
-# library the container serves from would drift away from the one the lattice
-# code is tested against, with no signal. This line is what keeps the two in
-# step, and it must be bumped together with uv.lock. A lockfile-driven install
-# would make it unnecessary, but that is a change to how the whole image
-# resolves, not a change to this pin.
+# --only-binary pcaspy is repeated here for the same reason as above.
 #
 # The members install one by one ahead of the framework, looping over packages/
 # rather than naming them so a new member is picked up the day it lands; none of
@@ -121,8 +155,7 @@ ARG OSPREY_CONNECTORS_VERSION=
 # The install ends by asserting that the `pyaml` import package has exactly one
 # owning distribution (osprey.deployment.pyaml_owner): every pyAML distribution
 # writes the same `pyaml/` files, and pip does not notice two of them together.
-RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.8.0" \
-    && for member in ./packages/*/; do \
+RUN for member in ./packages/*/; do \
            version="${OSPREY_VERSION}"; \
            case "$member" in \
                */osprey-connectors/) version="${OSPREY_CONNECTORS_VERSION:-${OSPREY_VERSION}}" ;; \
