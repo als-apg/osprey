@@ -4,13 +4,14 @@
 Run and write scenarios
 =======================
 
-A scenario is one way the simulated machine departs from its baseline: values
-written into its models, faults in a physics model, the history its archive
-shows, and the logbook entries that narrate it. Scenarios are authored under
-``data/facility/scenarios/``, one YAML file each, and ``osprey build`` serves
-them from the simulator view under ``build/data/simulator/``. The
-``osprey sim`` commands list, apply and report on them; their options are in
-:ref:`cli-osprey-sim`.
+A scenario is one way the simulated machine departs from its baseline. It can
+set values in the machine's models, write faults into a physics model, shape
+the history the archive shows, and add logbook entries that narrate it.
+
+You write each scenario as one YAML file under ``data/facility/scenarios/``.
+``osprey build`` serves the scenarios from the simulator view under
+``build/data/simulator/``. The ``osprey sim`` commands list, apply and report
+on them; :ref:`cli-osprey-sim` has their options.
 
 The scenarios the demo ships
 ============================
@@ -29,16 +30,17 @@ The control-assistant preset ships six scenarios in
        the weeks before the demo and is always in the active set.
    * - ``rf-thermal``
      - Three thermal excursions on cavity 1 in the week before an
-       investigation, each a temperature rise, a reflected-power spike and a
-       forward-power trip, the last one a beam dump. The archive shows the
-       excursions, the logbook narrates the dump, the investigation and the
-       cooling repair, and cavity 1 reads 26.5 degC live. Cavity 2 shows one
-       minor excursion for contrast.
+       investigation. Each is a temperature rise, a reflected-power spike and
+       a forward-power trip; the last one is a beam dump. The archive shows
+       the excursions. The logbook narrates the dump, the investigation and
+       the cooling repair. Cavity 1 reads 26.5 degC live, and cavity 2 shows
+       one minor excursion for contrast.
    * - ``rf-thermal-live``
-     - Live thermal wander on cavity 1: one slow shared driver moves its
-       temperature, tuner, reflected and forward power together, each with
-       its own noise, for correlation plots. It adds no archived history and
-       does not compose with ``rf-thermal``, which writes the same channels.
+     - Live thermal wander on cavity 1, for correlation plots. One slow
+       shared driver moves its temperature, tuner, reflected and forward
+       power together, each with its own noise. It adds no archived history.
+       It does not compose with ``rf-thermal``, which writes the same
+       channels.
    * - ``vacuum-burst``
      - A vacuum burst in one sector with a correlated beam-current drop at
        14:32:08 local time, recurring daily in the archive.
@@ -50,12 +52,27 @@ The control-assistant preset ships six scenarios in
      - The BPM 17 inversion and corrector HCM01 at half its nominal gain at
        once, both visible only through an orbit-response measurement.
 
-The preset starts a fresh deployment in ``rf-thermal``, as the profile key
-``simulation.default_scenarios`` names (see
+A fresh deployment of the preset starts in ``rf-thermal``. The profile key
+``simulation.default_scenarios`` names it (see
 :doc:`/reference/configuration/config`).
 
 Apply a scenario
 ================
+
+Applying a scenario makes it part of the *active set*: the scenarios the
+simulated machine shows now. ``nominal`` is always in the active set.
+
+.. warning::
+
+   ``osprey sim apply`` deletes every entry in the ARIEL logbook and reseeds
+   the logbook from the active scenarios. It also rewrites windows of the
+   stored archive. On a virtual-accelerator deployment, those windows can
+   hold samples recorded from the running machine. The command asks before
+   each of these, unless you pass ``--yes``. To leave both stores untouched,
+   pass ``--no-seed``.
+
+To switch the simulated machine to the ``vacuum-burst`` scenario, run these
+commands in order:
 
 .. code-block:: bash
 
@@ -63,26 +80,39 @@ Apply a scenario
    osprey sim apply vacuum-burst
    osprey sim status
 
-``osprey sim list`` marks the active set with ``*`` and says which scenarios
-carry a logbook narrative. ``osprey sim apply`` replaces the active set with
-the names it is given, plus ``nominal``, then purges and reseeds the ARIEL
-logbook and rewrites the affected windows of the stored archive, so live
-values, history and narrative tell one story. It asks before the purge and
-the rewrite; ``--yes`` skips the prompts and ``--no-seed`` leaves both stores
-untouched.
+#. List the scenarios with ``osprey sim list``. The list marks the active set
+   with ``*`` and says which scenarios carry a logbook narrative.
+#. Apply the scenario with ``osprey sim apply vacuum-burst``. The command
+   replaces the active set with the names you give it, plus ``nominal``. It
+   then purges and reseeds the logbook and rewrites the affected windows of
+   the archive. Live values, history and narrative now tell one story.
+#. Check the simulator with ``osprey sim status``. It shows each served
+   physics model's status and the log it writes.
 
-Several scenarios apply together only when no two of them write one target,
-a channel or a model's fault. A set that breaks the rule is refused before
-anything is written, and the refusal names the target.
+Several scenarios apply together only when no two of them write the same
+target, a channel or a model's fault. A set that breaks this rule is refused
+before anything is written, and the refusal names the target.
 
-Every facility has a scenario named ``still`` that stills every float reading:
-``osprey sim apply still``, or ``simulation.default_scenarios: [still]`` for a
-deployment that should start still. A file may define its own ``still``,
-which replaces the built-in one. ``still`` composes with overrides and faults,
-and is refused beside a scenario that sets the same reading's ``noise`` or
-``couple``. It holds in both venues of the simulator.
+Hold readings still
+-------------------
 
-Any scenario can still a family of readings by selecting it over the facility
+Every facility has a scenario named ``still`` that stills every float
+reading: the reading serves without drift, couplings or noise. Run
+``osprey sim apply still``. For a deployment that should start still, set
+``simulation.default_scenarios: [still]``.
+
+A scenario file may define its own ``still``, which replaces the built-in one.
+``still`` composes with overrides and faults. It is refused beside a scenario
+that sets the same reading's ``noise`` or ``couple``.
+
+``still`` holds in both *venues* of the simulator. A venue is where the
+simulator runs: in its own container, or inside the process that asks (see
+:ref:`va-two-venues`).
+
+Select readings to still
+------------------------
+
+Any scenario can still a family of readings by selecting it from the facility
 file's own records. Each selection names a model or a place, and the build
 resolves it to plain addresses:
 
@@ -102,15 +132,26 @@ resolves it to plain addresses:
   ``readback``, ``monitor`` or ``output``), not the channel's own ``role``.
 - ``plane``: channels whose wiring record has that plane.
 
-The keys of one selection all apply. The build stops on a selection that names
-neither a model nor a place, and on one that matches no float channel; a
-matched channel that is not a float is left out.
+A channel must match every key of a selection. The build stops on a
+selection that names neither a model nor a place. It also stops on a
+selection that matches no float channel. A matched channel that is not a
+float is left out.
 
 Write a scenario
 ================
 
-Add ``data/facility/scenarios/<name>.yaml``; the file name is the scenario
-name. Every key is optional:
+To add a scenario to your facility:
+
+#. Create ``data/facility/scenarios/<name>.yaml``. The file name is the
+   scenario name.
+#. Add the keys the scenario needs, from the table below. Every key is
+   optional.
+#. If a logbook entry has attachments, put the files in the folder
+   ``data/facility/scenarios/<name>/`` beside the scenario file.
+#. Check the sources with ``osprey facility validate``, which writes nothing.
+   An address, model or key the facility does not have stops the check, and
+   the error names the file.
+#. Run ``osprey build``. The new scenario appears in ``osprey sim list``.
 
 .. list-table::
    :header-rows: 1
@@ -125,40 +166,64 @@ name. Every key is optional:
        scenario is active.
    * - ``faults``
      - ``{<model>: {<address or engine variable>: <value>}}``, faults written
-       into a physics model; a value is a scalar or a map
+       into a physics model. A value is a scalar or a map
        ``{<fault field>: <value>}`` such as ``{polarity: -1}``.
    * - ``channel_faults``
      - ``{<address>: stuck | frozen | disconnected}``, faults of the channel
-       itself, on any simulated channel, wired to a model or not; the table
-       below says what each does.
+       itself. They work on any simulated channel, wired to a model or not.
+       `Channel faults`_ says what each does.
    * - ``archiver``
      - ``[{channel, events}]``, the history each channel's archive shows.
-       Each event has a ``shape``, ``step`` (``to``), ``ramp`` (``to``) or
-       ``spike`` (``amplitude`` and ``width``, a Gaussian sigma in seconds),
-       and one position: ``at_offset`` (seconds from the apply-time anchor; a
-       ramp ends at ``until_offset``), ``at_time`` (a daily ``HH:MM:SS`` in the
-       facility time zone) or ``at_when`` (``{days_ago, time}``), which places
-       an event at the instant a logbook entry's ``when`` names. ``at_time``
-       and ``at_when`` take ``step`` and ``spike`` only. A ``step`` on a float
-       channel may end with ``until``, ``until_offset`` or ``until_when``,
-       matching its position and later than it; after the end the channel
-       returns to its baseline. A daily ``at_time`` step does not end.
+       `Archive events`_ describes the events.
    * - ``logbook``
      - The entries the scenario narrates, each with ``entry_id``, ``when``
        (``{days_ago, time}``), ``author``, ``title`` and ``text``, and
        optionally ``tags``, ``categories``, ``loto_tag``, ``extra`` and
-       ``attachments``.
+       ``attachments``. ``attachments`` lists the entry's pictures, each
+       ``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative
+       to the folder ``data/facility/scenarios/<name>/``.
    * - ``drivers``, ``couple``
      - Slow shared signals, and the channels that follow them.
    * - ``noise``
-     - Per-channel noise while the scenario is active, replacing the seed's:
-       ``{<address>: {absolute: <sigma>}}`` with the sigma in the channel's
-       unit, or ``{<address>: {relative: <fraction>}}`` with the sigma a
-       fraction of the reading.
+     - Per-channel noise while the scenario is active, replacing the seed's.
+       Write ``{<address>: {absolute: <sigma>}}`` for a sigma in the
+       channel's unit. Write ``{<address>: {relative: <fraction>}}`` for a
+       sigma that is a fraction of the reading.
    * - ``still``
-     - ``all``, or a list of addresses and selections (see `Apply a scenario`_):
-       while the scenario is active, those readings serve without drift,
-       couplings or noise; readout faults still apply.
+     - ``all``, or a list of addresses and selections (see
+       `Select readings to still`_). While the scenario is active, those
+       readings serve without drift, couplings or noise; readout faults
+       still apply.
+
+Archive events
+--------------
+
+Each entry under ``archiver`` names a channel and its ``events``. Each event
+has a shape and one position.
+
+The ``shape`` is one of these:
+
+- ``step``, with ``to``.
+- ``ramp``, with ``to``.
+- ``spike``, with ``amplitude`` and ``width``, a Gaussian sigma in seconds.
+
+The position is one of these:
+
+- ``at_offset``: seconds from the apply-time anchor. A ramp ends at
+  ``until_offset``.
+- ``at_time``: a daily ``HH:MM:SS`` in the facility time zone.
+- ``at_when``: ``{days_ago, time}``. It places the event at the instant a
+  logbook entry's ``when`` names.
+
+``at_time`` and ``at_when`` take ``step`` and ``spike`` only.
+
+A ``step`` on a float channel may end with ``until``, ``until_offset`` or
+``until_when``. The end must match the step's position and come later than it.
+After the end, the channel returns to its baseline. A daily ``at_time`` step
+does not end.
+
+Channel faults
+--------------
 
 .. list-table::
    :header-rows: 1
@@ -191,14 +256,8 @@ name. Every key is optional:
        became active
      - ``udf`` on the disconnected reading
 
-A disconnected setpoint's readback is the disconnected reading; a setpoint
-that is its own readback reads its demand and reports ``udf`` itself. A
-channel fault holds in both venues of the simulator; ``offline``, a read that
-never answers, is not one of them.
+A disconnected setpoint's readback is the disconnected reading. A setpoint
+that is its own readback reads its demand and reports ``udf`` itself.
 
-An entry's ``attachments`` lists its pictures, each ``{path: <picture file>}``
-or ``{plot: <plot spec .json>}``, relative to the folder
-``data/facility/scenarios/<name>/`` beside the file. Run ``osprey build``, or
-``osprey facility validate`` to check the sources without writing anything;
-an address, model or key the facility does not have stops the build and names
-the file. The new scenario then appears in ``osprey sim list``.
+A channel fault holds in both venues of the simulator. ``offline``, a read
+that never answers, is not one of these faults.
