@@ -113,6 +113,7 @@ import {
 import { focusAttached, isAttached } from './attached-popout.js';
 import { subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { onSessionChange } from './terminal.js';
+import { relayTranscriptMove as relayToPanels } from './panel-transcript-relay.js';
 
 // ---- Types ----
 
@@ -644,12 +645,16 @@ export function getPopoutPanels() {
   );
 }
 
+/**
+ * Relay a transcript move on `key` to every panel (panel-transcript-relay.js).
+ * @param {string} key - The session key whose transcript moved.
+ */
+export const relayTranscriptMove = (key) => relayToPanels(key, Object.values(panelState));
+
 /** The catalog label for a panel id (falls back to the id itself).
  *  Exported for the activity strip, which words panel actions with labels.
  *  @param {string} id @returns {string} */
-export function labelOf(id) {
-  return PANELS.find((p) => p.id === id)?.label ?? id;
-}
+export const labelOf = (id) => PANELS.find((p) => p.id === id)?.label ?? id;
 
 /**
  * Set the locally-tracked surfaced panel — activeTabId, the rail accent, and

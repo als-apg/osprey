@@ -859,64 +859,72 @@ async def session_log(request: Request):
         return {"events": [], "total_events": 0, "showing": 0, **_unavailable(str(exc))}
 
 
+def _inventory(rows: list[tuple[Any, str, str]]) -> dict[str, Any]:
+    """``{entries, totals}`` for listed ``(entry, form, label)`` rows; empty rows give zeros."""
+    from osprey.stores.artifact_inventory import entry_channels, form_totals
+
+    tools_used: set[str] = set()
+    artifact_types: dict[str, int] = {}
+    entry_dicts = []
+    for entry, form, label in rows:
+        if entry.tool_source:
+            tools_used.add(entry.tool_source)
+        artifact_types[entry.artifact_type] = artifact_types.get(entry.artifact_type, 0) + 1
+        d = entry.to_dict()
+        d["channels"] = entry_channels(entry)
+        d["form"] = form
+        d["form_label"] = label
+        entry_dicts.append(d)
+    return {
+        "entries": entry_dicts,
+        "totals": {
+            "entry_count": len(rows),
+            "total_bytes": sum(entry.size_bytes for entry, _f, _l in rows),
+            "forms": form_totals((form, label) for _e, form, label in rows),
+            "tools_used": sorted(tools_used),
+            "artifact_types": artifact_types,
+        },
+    }
+
+
 @router.get("/api/session-summary")
-async def session_summary(request: Request):
-    """Return artifact inventory with channel extraction for the current session."""
-    try:
-        from osprey.mcp_server.workspace.tools.session_summary import (
-            _extract_channels,
-            entry_forms,
-            form_totals,
-        )
-        from osprey.stores.artifact_store import ArtifactStore
+async def session_artifacts(request: Request):
+    """The artifacts the ``session_id`` key's current transcript owns, one row per run.
 
-        store = ArtifactStore(request.app.state.workspace_dir)
-        session_id = request.query_params.get("session_id")
-        entries = store.list_entries(
-            session_filter=session_id or None,
-            # Session material, not a shipped example.
-            exclude_examples=True,
-        )
+    The same rows the gallery sidebar lists under that transcript: ownership is
+    :func:`~osprey.stores.artifact_scope.owned_by` over the hub's session
+    ledger. No key, a key the ledger has no transcript for, or an unreadable
+    ledger owns nothing: the answer is empty and ``reason`` says why. It never
+    falls back to the newest transcript.
+    """
+    from osprey.stores.artifact_scope import owned_by, read_ledger, resolve_scope
 
-        total_bytes = 0
-        forms = entry_forms(store, entries)
-        tools_used: set[str] = set()
-        artifact_types: dict[str, int] = {}
-        entry_dicts = []
+    ledger, ledger_ok = read_ledger()
+    scope = resolve_scope(
+        key=request.query_params.get("session_id") or None, ledger=ledger, ledger_ok=ledger_ok
+    )
+    answer: dict[str, Any] = {
+        "session": scope.transcript,
+        "reason": scope.reason,
+        "ledger": "ok" if scope.ledger_ok else "unavailable",
+    }
+    rows: list[tuple[Any, str, str]] = []
+    if scope.transcript is not None:
+        try:
+            from osprey.stores.artifact_inventory import listed_rows
+            from osprey.stores.artifact_store import ArtifactStore
 
-        for entry, (form, label) in zip(entries, forms, strict=True):
-            total_bytes += entry.size_bytes
-            if entry.tool_source:
-                tools_used.add(entry.tool_source)
-            artifact_types[entry.artifact_type] = artifact_types.get(entry.artifact_type, 0) + 1
-            d = entry.to_dict()
-            d["channels"] = _extract_channels(entry)
-            d["form"] = form
-            d["form_label"] = label
-            entry_dicts.append(d)
-
-        return {
-            "entries": entry_dicts,
-            "totals": {
-                "entry_count": len(entries),
-                "total_bytes": total_bytes,
-                "forms": form_totals(forms),
-                "tools_used": sorted(tools_used),
-                "artifact_types": artifact_types,
-            },
-        }
-    except Exception:
-        logger.debug("session-summary: no artifacts available", exc_info=True)
-        return {
-            "entries": [],
-            "totals": {
-                "entry_count": 0,
-                "total_bytes": 0,
-                "forms": [],
-                "tools_used": [],
-                "artifact_types": {},
-            },
-        }
+            store = ArtifactStore(request.app.state.workspace_dir)
+            owned = [
+                e
+                for e in store.list_entries(exclude_examples=True)  # session work, not the example
+                if owned_by(e, scope)
+            ]
+            rows = listed_rows(store, owned)
+        except Exception:
+            logger.debug("session-summary: no artifacts available", exc_info=True)
+            answer["reason"] = "the artifact store could not be read"
+    return {**_inventory(rows), **answer}
 
 
 #: Values of the ``full`` flag that lift the per-message cap. The browser sends

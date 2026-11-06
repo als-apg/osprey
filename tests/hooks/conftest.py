@@ -401,6 +401,26 @@ def _no_session_posture(session_posture_leak_guard, monkeypatch):  # noqa: ARG00
     yield
 
 
+@pytest.fixture(autouse=True)
+def _no_cli_transcript_pointer(tmp_path, monkeypatch):
+    """Keep every hook test from writing a real CLI transcript pointer.
+
+    The turn-state hook writes ``<agent-data root>/cli-transcripts/<launch>``
+    whenever ``OSPREY_TERMINAL_SESSION`` carries the host prefix and
+    ``OSPREY_CLI_LAUNCH`` is set — exactly the environment of a suite run from
+    an ``osprey chat`` shell. Both are deleted here, and the in-process hook's
+    pointer root is aimed at this test's ``tmp_path``, so a test that sets them
+    again still writes nowhere but there. Neither variable is on the
+    ``_HOOK_VARS`` allowlist, so a subprocess hook run never inherits them.
+    """
+    import osprey.templates.claude_code.claude.hooks.osprey_turn_state as turn_state
+
+    monkeypatch.delenv("OSPREY_TERMINAL_SESSION", raising=False)
+    monkeypatch.delenv("OSPREY_CLI_LAUNCH", raising=False)
+    monkeypatch.setattr(turn_state, "_pointer_root", lambda _payload=None: str(tmp_path))
+    yield
+
+
 @pytest.fixture
 def _throwaway_repo(tmp_path_factory):
     """A deployment repo a hook run can resolve to that is not this checkout.

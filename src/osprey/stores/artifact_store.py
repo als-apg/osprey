@@ -28,16 +28,20 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from osprey.stores.artifact_forms import (
     RUN_RECORD_KEY,
+    extension_key,
     form_of,
     is_run_record,
 )
 from osprey.stores.base_store import BaseStore, _sanitize_for_json
 from osprey.stores.session_ledger import aware_time
 from osprey_connectors.safety_file import atomic_replace
+
+if TYPE_CHECKING:
+    from osprey.stores.artifact_scope import SessionScope
 
 logger = logging.getLogger("osprey.stores.artifact_store")
 
@@ -555,14 +559,18 @@ def run_parts(
     """The parts a run head lists: ``[{id, role, title, form}]``, oldest first.
 
     Every one of the group's *members* but the head; ``form`` is the part's
-    intrinsic form.
+    intrinsic form, except that an output takes the form it lists under on its
+    own row (:func:`listed_form`), so an extension ``kind`` keeps its key.
     """
     return [
         {
             "id": e.id,
             "role": run_group.roles[e.id],
             "title": e.title,
-            "form": form_of(e, registry),
+            "form": (
+                listed_form(e, run_group, registry) if run_group.roles[e.id] == "output" else None
+            )
+            or form_of(e, registry),
         }
         for e in sorted(members, key=_page_key)
         if e.id != run_group.head_id
@@ -578,7 +586,21 @@ def listed_form(
     part (``None``); an output → its intrinsic form (it is also a part of its
     run). Outside a group (``exec_id == ""``): a result record → ``runs``, a
     legacy preview or notebook → ``documents``, anything else its intrinsic form.
+
+    An entry whose ``kind`` is an extension key in *registry* (it declares an
+    eligible base form) lists under that ``kind`` instead — unless it is a run
+    head (``runs``) or a run part (``None``), which stay as they are.
     """
+    listed = _listed_base_form(entry, run_group, registry)
+    if listed is None or listed == "runs":
+        return listed
+    return extension_key(entry, registry) or listed
+
+
+def _listed_base_form(
+    entry: ArtifactEntry, run_group: RunGroup | None, registry: Any
+) -> str | None:
+    """:func:`listed_form` before an extension ``kind`` is applied."""
     role = run_role(entry)
     if not entry.exec_id or run_group is None or entry.id not in run_group.roles:
         if role == "result":
@@ -600,6 +622,25 @@ def operator_visible(entry: ArtifactEntry) -> bool:
     (``origin == "watchdog"``) do not; the palette search still finds them.
     """
     return not entry.run_id and entry.origin != WATCHDOG_ORIGIN
+
+
+def _reuse_rule(scope: SessionScope) -> Callable[[ArtifactEntry], bool]:
+    """Which existing entries a sha256 save under *scope* may reuse (contract C4)."""
+    if scope.kind in ("web", "cli"):
+        from osprey.stores.artifact_scope import owned_by
+
+        return lambda entry: owned_by(entry, scope)
+    if scope.kind == "none":
+        return untagged
+    return lambda entry: False
+
+
+def untagged(entry: ArtifactEntry) -> bool:
+    """Whether *entry* is operator-visible and names no session: no ``session_id``
+    and no stamped ``transcript_id``, so no ledger can give it an owner."""
+    return (
+        operator_visible(entry) and not entry.session_id and not entry.metadata.get("transcript_id")
+    )
 
 
 # ---- ownership -------------------------------------------------------------
@@ -734,6 +775,16 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
         return entry.to_dict()
 
+    def _session_tag(self) -> str:
+        """The default ``session_id`` of a save from this process (C2 ``session_tag``).
+
+        Reads the environment and the CLI pointer under this store's workspace
+        root, never the ledger, so it is safe under the index lock.
+        """
+        from osprey.stores.artifact_scope import session_tag
+
+        return session_tag(root=self._workspace)
+
     def _make_id(self) -> str:
         return uuid.uuid4().hex[:12]
 
@@ -776,8 +827,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         dispatched agent's own tools tag their output). A caller that writes on
         behalf of a run whose id is not in its environment — e.g. the worker
         ingesting input files before the agent starts — passes it explicitly.
-        ``session_id`` likewise defaults to ``OSPREY_SESSION_ID``; pass ``""``
-        for an entry that belongs to no session (the shipped example).
+        ``session_id`` defaults to :func:`~osprey.stores.artifact_scope.session_tag`
+        (the web key, ``cli:<transcript>``, else ``""``); pass ``""`` for an
+        entry that belongs to no session (the shipped example).
         ``origin`` tags the entry's provenance within the run (``"input"`` for
         an ingested caller file, :data:`EXAMPLE_ORIGIN` for the shipped
         example; empty for produced output). An empty ``origin`` takes
@@ -850,9 +902,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             timestamp=(now := datetime.now(UTC).isoformat()),
             tool_source=tool_source,
             metadata=_stamped_metadata(metadata, now),
-            session_id=(
-                session_id if session_id is not None else os.environ.get("OSPREY_SESSION_ID", "")
-            ),
+            session_id=(session_id if session_id is not None else self._session_tag()),
             run_id=(run_id if run_id is not None else os.environ.get("OSPREY_DISPATCH_RUN_ID", "")),
             origin=_resolved_origin(origin),
             exec_id=exec_id,
@@ -868,22 +918,29 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         origin: str,
         save_kwargs: dict[str, Any],
+        scope: SessionScope,
     ) -> ArtifactEntry:
-        """The entry of *origin* holding bytes with this *sha256*, saved once.
+        """The entry of *origin* holding bytes with this *sha256*, saved once per scope.
 
-        Under one index lock: an existing entry with this ``origin`` and
-        ``metadata["sha256"]`` gets a fresh timestamp (so retention keeps it as
-        long as it is still being seen) and nothing else — ``metadata.first_ts``
-        keeps the first save's time, which ownership reads; otherwise ``save_kwargs`` (the
+        A match is an entry with this ``origin`` and ``metadata["sha256"]``.
+        Under one index lock, the newest match that qualifies for *scope* gets a
+        fresh timestamp (so retention keeps it as long as it is still being
+        seen) and nothing else — ``metadata.first_ts`` keeps the first save's
+        time, which ownership reads. Otherwise ``save_kwargs`` (the
         :meth:`save_file` arguments) are saved as a new entry with *origin*.
-        Lookup and save share the lock, so two concurrent callers with the same
-        bytes produce one entry. Listeners fire for a new entry only.
+        A match qualifies for a ``web`` or ``cli`` scope when the scope owns
+        it; for a ``none`` scope when it is operator-visible and untagged (no
+        ``session_id``, no stamped ``transcript_id``); for a ``dispatch`` scope
+        never. Lookup and save share the lock, so two concurrent callers with
+        the same bytes and scope produce one entry. Listeners fire for a new
+        entry only.
         """
         kwargs = {k: v for k, v in save_kwargs.items() if k != "origin"}
         _warn_category(kwargs.pop("category", ""))
+        qualifies = _reuse_rule(scope)
         with self._with_index_lock():
-            for e in self._entries:
-                if e.origin == origin and e.metadata.get("sha256") == sha256:
+            for e in reversed(self._entries):
+                if e.origin == origin and e.metadata.get("sha256") == sha256 and qualifies(e):
                     e.timestamp = datetime.now(UTC).isoformat()
                     self._save_index()
                     return e
@@ -1026,7 +1083,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 access_details=access_details or {},
                 data_file=agent_path,
                 source_agent=source_agent,
-                session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                session_id=self._session_tag(),
                 run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
                 origin=_resolved_origin(origin),
                 exec_id=exec_id,
@@ -1147,7 +1204,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                     access_details=access_details or {},
                     data_file=agent_path,
                     source_agent=source_agent,
-                    session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                    session_id=self._session_tag(),
                     run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
                     origin=_resolved_origin(origin),
                     exec_id=exec_id,
@@ -1176,11 +1233,8 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         search: str | None = None,
         pinned: bool | None = None,
         tool_filter: str | None = None,
-        source_agent_filter: str | None = None,
-        session_filter: str | None = None,
         run_filter: str | None = None,
         run_record: bool | None = None,
-        last_n: int | None = None,
         exclude_examples: bool = False,
         *,
         form_filter: str | None = None,
@@ -1191,8 +1245,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         """Return artifact entries, optionally filtered.
 
         ``run_filter`` is the strict dispatch-run isolation boundary — see the
-        note on its clause below. ``session_filter`` is deliberately NOT such a
-        boundary (it also matches untagged artifacts).
+        note on its clause below.
 
         ``run_record`` keeps run records (``True``) or everything else
         (``False``) by :func:`is_run_record`; it has nothing to do with
@@ -1224,14 +1277,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             entries = [e for e in entries if e.artifact_type == type_filter]
         if tool_filter:
             entries = [e for e in entries if e.tool_source == tool_filter]
-        if source_agent_filter:
-            entries = [e for e in entries if e.source_agent == source_agent_filter]
-        if session_filter:
-            # NOT an isolation boundary: this OR-empty clause also matches
-            # untagged (empty session_id) artifacts. Dispatch callers needing
-            # strict per-run isolation must use ``run_filter`` / ``get_run_entry``
-            # instead, which never match empty tags.
-            entries = [e for e in entries if e.session_id == session_filter or not e.session_id]
         if run_filter is not None:
             # Strict created-by isolation: an artifact belongs to a run only if
             # it was tagged with that run's id at WRITE time. Deliberately does
@@ -1257,8 +1302,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 or q in e.description.lower()
                 or q in e.artifact_type.lower()
             ]
-        if last_n is not None:
-            entries = entries[-last_n:]
         return entries
 
     def page_entries(
@@ -1270,8 +1313,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         search: str | None = None,
         pinned: bool | None = None,
         tool_filter: str | None = None,
-        source_agent_filter: str | None = None,
-        session_filter: str | None = None,
         run_filter: str | None = None,
         run_record: bool | None = None,
         exclude_examples: bool = False,
@@ -1285,10 +1326,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         Filtering is exactly :meth:`list_entries`'s; ordering and the cursor are
         :func:`page_of`'s.
 
-        This does not reuse ``last_n``: ``last_n`` takes the tail in index
-        order, the store's chronology convention for a single reader, while a
-        page boundary has to be a value the next request can name.
-
         Raises:
             ValueError: ``cursor`` is not a token this method issued.
         """
@@ -1297,8 +1334,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             search=search,
             pinned=pinned,
             tool_filter=tool_filter,
-            source_agent_filter=source_agent_filter,
-            session_filter=session_filter,
             run_filter=run_filter,
             run_record=run_record,
             exclude_examples=exclude_examples,
@@ -1309,12 +1344,24 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         )
         return page_of(entries, limit, cursor)
 
-    def set_pinned(self, artifact_id: str, pinned: bool = True) -> ArtifactEntry | None:
-        """Toggle the pinned flag on an artifact. Returns the updated entry or None."""
+    def set_pinned(
+        self, artifact_id: str, pinned: bool = True, *, set_in: str | None = None
+    ) -> ArtifactEntry | None:
+        """Toggle the pinned flag on an artifact. Returns the updated entry or None.
+
+        A pin records the transcript it was set in as ``metadata["pinned_in"]``;
+        re-pinning moves that record, and a pin with ``set_in=None`` leaves none.
+        Unpinning clears both the flag and the record. The record lives in
+        ``metadata`` so an older reader of the index still loads the entry.
+        """
         with self._with_index_lock():
             for e in self._entries:
                 if e.id == artifact_id:
                     e.pinned = pinned
+                    metadata = {k: v for k, v in e.metadata.items() if k != "pinned_in"}
+                    if pinned and set_in is not None:
+                        metadata["pinned_in"] = set_in
+                    e.metadata = metadata
                     self._save_index()
                     return e
         return None
@@ -1512,8 +1559,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         # let ``keep`` pinned frames permanently starve the rolling window.
         #
         # Order is the index's insertion order, which is the store's house
-        # convention for chronology (``list_entries(last_n=...)`` takes the
-        # tail for the same reason): entries are only ever appended, so the
+        # convention for chronology: entries are only ever appended, so the
         # oldest reading for an address is the earliest surviving match.
         candidates = [
             e
@@ -1633,20 +1679,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             return []
         return self._delete_where(lambda e: e.id in wanted)
 
-    def delete_everything(self) -> list[ArtifactEntry]:
-        """Delete EVERY artifact in the store, across all categories.
-
-        Named for its blast radius. This is the whole-store clear, not a
-        scoped delete: it destroys archiver datasets, run results and data
-        files written by :meth:`save_data` alongside plots, documents and
-        screenshots, and the files are unlinked outright — there is no trash.
-        Callers that mean a single partition must use :meth:`delete_category`.
-
-        Returns:
-            Every removed entry.
-        """
-        return self._delete_where(lambda e: True)
-
     # ---- run groups and forms ----------------------------------------------
 
     def run_members(self, exec_id: str) -> list[ArtifactEntry]:
@@ -1691,30 +1723,43 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 return self._delete_where(lambda e: e.exec_id == exec_id)
         return self._delete_where(lambda e: e.id == artifact_id)
 
-    def delete_form(self, form: str, registry: Any = None) -> list[ArtifactEntry]:
-        """Delete every artifact listed under *form*.
+    def delete_owned(
+        self, scope: SessionScope, form: str | None = None, registry: Any = None
+    ) -> list[ArtifactEntry]:
+        """Delete what *scope* owns (:func:`~osprey.stores.artifact_scope.owned_by`).
 
-        ``runs`` deletes each run head with its whole group; any other form
-        deletes the entries listed under it (a run's outputs alone, never
-        their run). Runs are read under the delete's own index lock.
+        ``form=None`` deletes everything the scope owns, run parts included.
+        ``"runs"`` deletes each owned run head with the owned members of its
+        group. Any other form or extension key deletes the owned entries listed
+        under it. An entry another session owns is never touched, even inside a
+        run group split by a ``/clear``; a scope with no transcript deletes
+        nothing. Runs are classified over the whole index under the delete's own
+        lock; delete listeners fire after it.
 
         Returns:
-            The removed entries.
+            The removed entries, in index order.
         """
-        registry = registry_or_default(registry)
+        from osprey.stores.artifact_scope import owned_by
+
+        if scope.transcript is None:
+            return []
+        if form is not None:
+            registry = registry_or_default(registry)
         with self._with_index_lock():
-            groups = _groups_of(self._entries)
-            listed = {
-                e.id
-                for e in self._entries
-                if listed_form(e, groups.get(e.exec_id), registry) == form
-            }
-            heads = {exec_id for exec_id, group in groups.items() if group.head_id in listed}
-            doomed = [e for e in self._entries if e.id in listed or e.exec_id in heads]
+            owned = [e for e in self._entries if owned_by(e, scope)]
+            if form is None:
+                gone = {e.id for e in owned}
+            else:
+                groups = _groups_of(self._entries)
+                gone = {
+                    e.id for e in owned if listed_form(e, groups.get(e.exec_id), registry) == form
+                }
+                heads = {exec_id for exec_id, group in groups.items() if group.head_id in gone}
+                gone |= {e.id for e in owned if e.exec_id in heads}
+            doomed = [e for e in self._entries if e.id in gone]
             for e in doomed:
                 self._unlink_entry_files(e)
             if doomed:
-                gone = {e.id for e in doomed}
                 self._entries[:] = [e for e in self._entries if e.id not in gone]
                 self._save_index()
 

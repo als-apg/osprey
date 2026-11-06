@@ -17,9 +17,9 @@ those callers tag themselves via
 are dropped here — the frames are *agent* activity.
 
 **The caller is never blocked.** ``notify_agent_activity`` performs a blocking
-HTTP POST, and ``ArtifactStore.delete_everything`` fires the delete listener once per
-removed entry — a "clear the gallery" call would otherwise stall for one POST
-per artifact, on whatever thread (or event loop) invoked it. The listener
+HTTP POST, and ``ArtifactStore.delete_owned`` (behind ``artifact_delete_all``)
+fires the delete listener once per removed entry — a bulk delete would otherwise
+stall for one POST per artifact, on whatever thread (or event loop) invoked it. The listener
 callbacks therefore only enqueue onto a :class:`queue.Queue`; a single daemon
 worker thread drains the queue and does the POSTs.
 

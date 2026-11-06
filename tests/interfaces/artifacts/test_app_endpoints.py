@@ -238,41 +238,46 @@ class TestFocus:
         line to focus_state.txt; GET /api/focus clears the stale id and falls
         back to the newest remaining entry."""
         store = app_client.app.state.artifact_store
+        t_doomed = "44444444-4444-4444-8444-444444444444"
+        t_survivor = "55555555-5555-4555-8555-555555555555"
         doomed = _save_text_artifact(store, title="Doomed")
         app_client.post("/api/focus", json={"artifact_id": doomed.id})
         store.delete_entry(doomed.id)
         survivor = _save_text_artifact(store, title="Survivor")
-
-        # Rewriting the file while the stale id is still set omits the artifact line.
-        app_client.post(f"/api/artifacts/{survivor.id}/pin", json={"pinned": True})
-        text = (tmp_path / "focus_state.txt").read_text()
-        assert "artifact:" not in text
-        assert 'pinned:   "Survivor"' in text
 
         focus = app_client.get("/api/focus").json()
         assert focus["focused"] is False
         assert focus["artifact"]["id"] == survivor.id
         assert app_client.app.state.focused_artifact_id is None  # stale id was cleared
 
-    def test_focus_file_pin_unpin_and_dedupe(self, app_client, tmp_path):
-        """Pinning writes a pinned line; unpinning empties (not deletes) the
-        file; an artifact both focused and pinned appears only as the focused
-        line, not duplicated as a pinned line."""
+        # Rewriting the file while a stale id is still in its slot omits its line.
+        gone = _save_text_artifact(store, title="Gone")
+        app_client.post("/api/focus", json={"artifact_id": gone.id, "transcript_id": t_doomed})
+        store.delete_entry(gone.id)
+        app_client.post(
+            "/api/focus", json={"artifact_id": survivor.id, "transcript_id": t_survivor}
+        )
+        assert (tmp_path / "focus_state.txt").read_text() == (
+            f'[Gallery Focus]\n  artifact: "Survivor" (id={survivor.id}) (session={t_survivor})\n'
+        )
+
+    def test_focus_file_carries_no_pins(self, app_client, tmp_path):
+        """Pins leave the focus file (the hook reads them from the index): a
+        pin or unpin writes no line and leaves a focus line as it was."""
         entry = _save_text_artifact(app_client.app.state.artifact_store, title="Both")
         focus_file = tmp_path / "focus_state.txt"
+        transcript = "66666666-6666-4666-8666-666666666666"
 
         app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
-        assert 'pinned:   "Both"' in focus_file.read_text()
-
-        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": False})
-        # The file is emptied, not deleted -- the hook treats both as "no focus".
         assert focus_file.read_text() == ""
 
-        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
-        app_client.post("/api/focus", json={"artifact_id": entry.id})
+        app_client.post("/api/focus", json={"artifact_id": entry.id, "transcript_id": transcript})
         text = focus_file.read_text()
-        assert f'artifact: "Both" (id={entry.id})' in text
-        assert "pinned:" not in text
+        assert text == (
+            f'[Gallery Focus]\n  artifact: "Both" (id={entry.id}) (session={transcript})\n'
+        )
+        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": False})
+        assert focus_file.read_text() == text
 
     def test_delete_clears_focus_only_for_the_focused_artifact(self, tmp_path):
         """With the lifespan listeners registered, deleting another artifact
@@ -981,3 +986,141 @@ class TestArtifactMessageListener:
         body = app_client.get(f"/files/{entry.id}/{entry.filename}").text
         assert "osprey-artifact-ready" in body
         assert "osprey-artifact-print" in body
+
+
+def _save_listed(store, title, *, session_id="", run_id="", origin="", **kwargs):
+    """A text artifact with explicit provenance, independent of the test's env."""
+    return store.save_file(
+        file_content=title.encode(),
+        filename=f"{title}.txt",
+        artifact_type="text",
+        title=title,
+        mime_type="text/plain",
+        tool_source="test",
+        session_id=session_id,
+        run_id=run_id,
+        origin=origin,
+        **kwargs,
+    )
+
+
+class TestUnscopedListing:
+    """GET /api/artifacts is the unscoped listing: palette search and all sessions."""
+
+    def test_search_finds_watchdog_and_dispatch_artifacts(self, app_client):
+        from osprey.stores.artifact_store import WATCHDOG_ORIGIN
+
+        store = app_client.app.state.artifact_store
+        judge = _save_listed(
+            store, "Beam loss judge verdict", session_id="s-1", origin=WATCHDOG_ORIGIN
+        )
+        dispatched = _save_listed(store, "Beam loss dispatch report", run_id="run-7")
+        _save_listed(store, "Unrelated note", session_id="s-1")
+
+        body = app_client.get("/api/artifacts", params={"search": "beam loss"}).json()
+
+        assert {a["id"] for a in body["artifacts"]} == {judge.id, dispatched.id}
+        assert body["total"] == 2
+
+    def test_a_stray_session_id_narrows_nothing(self, app_client):
+        store = app_client.app.state.artifact_store
+        ids = {
+            _save_listed(store, "mine", session_id="s-a").id,
+            _save_listed(store, "theirs", session_id="s-b").id,
+            _save_listed(store, "untagged").id,
+        }
+
+        plain = app_client.get("/api/artifacts").json()
+        stray = app_client.get("/api/artifacts", params={"session_id": "s-a"}).json()
+
+        assert {a["id"] for a in plain["artifacts"]} == ids
+        assert {a["id"] for a in stray["artifacts"]} == ids
+        assert stray["total"] == plain["total"] == 3
+
+    def test_the_route_no_longer_declares_a_session_id_parameter(self, app_client):
+        schema = app_client.get("/openapi.json").json()
+        params = schema["paths"]["/api/artifacts"]["get"].get("parameters", [])
+        assert "session_id" not in {p["name"] for p in params}
+
+    def test_paging_walks_the_whole_listing_newest_first(self, app_client):
+        store = app_client.app.state.artifact_store
+        saved = [_save_listed(store, f"n{i}", session_id=f"s-{i % 2}").id for i in range(5)]
+
+        seen, cursor = [], None
+        while True:
+            params = {"limit": 2, **({"cursor": cursor} if cursor else {})}
+            body = app_client.get("/api/artifacts", params=params).json()
+            assert body["total"] == 5
+            assert len(body["artifacts"]) <= 2
+            seen.extend(a["id"] for a in body["artifacts"])
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+
+        assert sorted(seen) == sorted(saved)
+        assert len(seen) == len(set(seen)) == 5
+
+    def test_a_cursor_it_did_not_issue_is_rejected(self, app_client):
+        resp = app_client.get("/api/artifacts", params={"cursor": "not-a-cursor"})
+        assert resp.status_code == 400
+
+    def test_runs_grouped_drops_a_runs_preview_and_notebook(self, app_client):
+        from osprey.stores.artifact_forms import RUN_RECORD_KEY
+
+        store = app_client.app.state.artifact_store
+        exec_id = "exec-1"
+        store.save_file(
+            b"{}",
+            "review.ipynb",
+            "notebook",
+            "Review: fit",
+            mime_type="application/x-ipynb+json",
+            tool_source="osprey_approval",
+            metadata={"run_part": "preview", RUN_RECORD_KEY: True},
+            session_id="s-1",
+            run_id="",
+            exec_id=exec_id,
+        )
+        store.save_file(
+            b"{}",
+            "run.ipynb",
+            "notebook",
+            "Notebook: fit",
+            mime_type="application/x-ipynb+json",
+            tool_source="execute",
+            metadata={"run_part": "code", RUN_RECORD_KEY: True},
+            session_id="s-1",
+            run_id="",
+            exec_id=exec_id,
+        )
+        output = store.save_file(
+            b"png",
+            "fig.png",
+            "image",
+            "Figure",
+            mime_type="image/png",
+            tool_source="execute",
+            metadata={"run_part": "output", "figure": True},
+            session_id="s-2",
+            run_id="",
+            exec_id=exec_id,
+        )
+        head = store.save_file(
+            b"{}",
+            "result.json",
+            "json",
+            "fit",
+            mime_type="application/json",
+            tool_source="execute",
+            metadata={"run_part": "result", RUN_RECORD_KEY: True},
+            session_id="s-1",
+            run_id="",
+            exec_id=exec_id,
+        )
+
+        every = app_client.get("/api/artifacts").json()
+        grouped = app_client.get("/api/artifacts", params={"runs": "grouped"}).json()
+
+        assert every["total"] == 4
+        assert {a["id"] for a in grouped["artifacts"]} == {head.id, output.id}
+        assert grouped["total"] == 2

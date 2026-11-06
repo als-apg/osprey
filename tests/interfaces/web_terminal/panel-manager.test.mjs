@@ -4313,3 +4313,91 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     expect(capTarget('/panel/pp/x', '/panel/p', cap)).toBe('/panel/pp/x');
   });
 });
+
+describe('relayTranscriptMove — a /clear on the shown key reaches every panel (C11)', () => {
+  const SESSION_POINTER_PATH =
+    '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js';
+  const SHOWN = '11111111-1111-4111-8111-111111111111';
+  const OTHER = '22222222-2222-4222-8222-222222222222';
+  const entry = (/** @type {string} */ id) =>
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
+    );
+
+  /** Every panel iframe in the page, each with its postMessage spied. */
+  function spyFrames() {
+    const frames = /** @type {HTMLIFrameElement[]} */ ([
+      ...document.querySelectorAll('iframe.panel-iframe'),
+    ]);
+    return frames.map((el) => ({
+      id: el.dataset.panelId,
+      post: vi.spyOn(/** @type {Window} */ (el.contentWindow), 'postMessage'),
+    }));
+  }
+
+  /**
+   * Boot the hub on SHOWN with okf docked and ariel popped out, and a
+   * session-change listener spied, all on the module graph under test.
+   */
+  async function bootShown() {
+    const booted = await bootWorkspace();
+    const pointer = await import(SESSION_POINTER_PATH);
+    pointer.setPointer(SHOWN);
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
+    open.mockRestore();
+    popup.postMessage.mockClear();
+    const terminal = await import(TERMINAL_PATH);
+    const listener = vi.fn();
+    terminal.onSessionChange(listener);
+    return { ...booted, pointer, popup, listener };
+  }
+
+  afterEach(async () => {
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    (await import(SESSION_POINTER_PATH)).clearPointer();
+  });
+
+  test('a move on the shown key posts one same-key change to every iframe and pop-out, and fires no listener', async () => {
+    const { mod, popup, listener } = await bootShown();
+    const frames = spyFrames();
+    expect(frames.length).toBeGreaterThan(0);
+
+    mod.relayTranscriptMove(SHOWN);
+
+    const change = { type: 'osprey-session-change', session_id: SHOWN };
+    for (const { post } of frames) {
+      expect(post).toHaveBeenCalledTimes(1);
+      expect(post).toHaveBeenCalledWith(change, window.location.origin);
+    }
+    expect(popup.postMessage).toHaveBeenCalledTimes(1);
+    expect(popup.postMessage).toHaveBeenCalledWith(change, window.location.origin);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  test('a move on another key posts nothing', async () => {
+    const { mod, popup, listener } = await bootShown();
+    const frames = spyFrames();
+
+    mod.relayTranscriptMove(OTHER);
+    mod.relayTranscriptMove('');
+
+    for (const { post } of frames) expect(post).not.toHaveBeenCalled();
+    expect(popup.postMessage).not.toHaveBeenCalled();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  test('with no panels open a move on the shown key posts nothing', async () => {
+    const mod = await freshImport();
+    (await import(SESSION_POINTER_PATH)).setPointer(SHOWN);
+    // A frame that is not a panel's is never addressed.
+    document.body.innerHTML = '<iframe id="stray"></iframe>';
+    const stray = /** @type {HTMLIFrameElement} */ (document.getElementById('stray'));
+    const post = vi.spyOn(/** @type {Window} */ (stray.contentWindow), 'postMessage');
+
+    expect(() => mod.relayTranscriptMove(SHOWN)).not.toThrow();
+    expect(post).not.toHaveBeenCalled();
+  });
+});
