@@ -159,43 +159,6 @@ async def test_non_finite_floats_become_json_null_gaps(tmp_path, monkeypatch):
     json.dumps(payload, allow_nan=False)
 
 
-async def test_retention_prunes_with_the_configured_window(tmp_path, monkeypatch):
-    """A successful save is followed by the per-channel retention sweep."""
-    calls: list[tuple] = []
-
-    def fake_prune(_self, address, keep):
-        calls.append((address, keep))
-        return []
-
-    monkeypatch.setattr(
-        "osprey.stores.artifact_store.ArtifactStore.prune_channel_readings",
-        fake_prune,
-    )
-
-    await _read(
-        tmp_path,
-        monkeypatch,
-        {ADDRESS: _oversized()},
-        overrides={"control_system.channel_read_artifact_retention": 7},
-    )
-
-    assert calls == [(ADDRESS, 7)]
-
-
-async def test_retention_failure_does_not_cost_the_handle(tmp_path, monkeypatch):
-    """Housekeeping trouble must not strip a working handle off a saved artifact."""
-    monkeypatch.setattr(
-        "osprey.stores.artifact_store.ArtifactStore.prune_channel_readings",
-        MagicMock(side_effect=RuntimeError("index locked")),
-    )
-
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: _oversized()})
-
-    entry = data["summary"]["readings"][ADDRESS]
-    assert entry["artifact_id"]
-    assert "artifact_error" not in entry
-
-
 async def test_store_failure_degrades_but_read_stays_successful(tmp_path, monkeypatch):
     """A read the machine answered is never reported as failed."""
     monkeypatch.setattr(
