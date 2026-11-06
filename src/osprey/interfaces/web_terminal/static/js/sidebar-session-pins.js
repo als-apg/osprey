@@ -196,7 +196,7 @@ function buildGroup() {
   list.className = 'sidebar-kids osprey-tree sidebar-pinned-list';
   list.dataset.sessionTree = '';
   list.dataset.treeWhere = 'pinned';
-  list.setAttribute('role', 'tree');
+  list.setAttribute('role', 'group');
   list.setAttribute('aria-labelledby', 'sidebar-pinned-label');
   group.append(head, list);
   wireHead(head);

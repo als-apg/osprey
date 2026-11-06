@@ -221,6 +221,29 @@ def test_a_folded_session_peeks_at_its_artifacts_and_a_click_opens_one(hub, page
     expect(peek).to_be_hidden()
 
 
+def test_the_keyboard_reaches_the_pin_button_and_keeps_it_through_the_redraw(hub, page):
+    _boot(page, hub)
+    page.mouse.move(700, 450)
+    row = _session(page, _PROFILE.transcript_id)
+    button = row.locator("[data-tree-pin]")
+    count = row.locator(".osprey-tree-n")
+
+    # At rest it is out of sight, and the count shows.
+    expect(count).to_be_visible()
+    assert button.bounding_box()["width"] <= 1
+
+    # Focus brings it up in the count's place.
+    button.focus()
+    expect(button).to_be_focused()
+    expect(count).to_be_hidden()
+    assert button.bounding_box()["width"] == 20
+
+    # Enter pins, and the focus survives the redraw.
+    page.keyboard.press("Enter")
+    expect(button).to_have_attribute("aria-pressed", "true", timeout=_TIMEOUT_MS)
+    expect(row.locator("[data-tree-pin]")).to_be_focused()
+
+
 def test_the_sessions_row_tip_follows_the_agent_pane_and_session_rows_have_none(hub, page):
     _boot(page, hub)
     title = _active(page).locator(".osprey-tree-title")

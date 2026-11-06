@@ -286,11 +286,12 @@
 
 /* ---- Session pins (sidebar-session-pins.js) --------------------------------
  * The pin button takes the count's place while a session row is hovered or
- * holds focus; pressed (pinned) it is the accent, filled. A pinned row in the
- * session list shows a 12 px marker at rest. */
+ * holds focus; at rest it is clipped out of sight but stays in the tab order,
+ * so the keyboard reaches it. Pressed (pinned) it is the accent, filled. A
+ * pinned row in the session list shows a 12 px marker at rest. */
 
 .osprey-tree-pin {
-  display: none;
+  display: inline-grid;
   flex: none;
   place-items: center;
   width: 20px;
@@ -340,8 +341,12 @@
   margin-left: 0;
 }
 
-.osprey-tree-session:is(:hover, :focus-within) .osprey-tree-pin {
-  display: inline-grid;
+.osprey-tree-session:not(:hover, :focus-within) .osprey-tree-pin {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 .osprey-tree-session:is(:hover, :focus-within) :is(.osprey-tree-n, .osprey-tree-pin-mark) {

@@ -1251,6 +1251,58 @@ describe('session pins: the pinned group and the pin button', () => {
     expect(sessionRowEl(T2).dataset.pinned).toBeUndefined();
   });
 
+  test('the second click of a double-click on the pin button does nothing', async () => {
+    await boot();
+    const button = pinButton(sessionRowEl(T2));
+    click(button, 1);
+    click(button, 2);
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT')).toHaveLength(1);
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test("a pin click while that session's PUT is in flight is ignored", async () => {
+    /** @type {() => void} */
+    let answer = () => {};
+    const gate = new Promise((resolve) => (answer = () => resolve(undefined)));
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) => {
+      if (String(url).endsWith('/pin')) await gate;
+      return route(url, init);
+    });
+    await boot();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: true },
+    ]);
+    answer();
+    await settle();
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: true },
+      { pinned: false },
+    ]);
+  });
+
+  test('the focus stays on the pin button through the redraw a pin causes', async () => {
+    await boot();
+    pinButton(sessionRowEl(T2)).focus();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(document.activeElement).toBe(pinButton(sessionRowEl(T2)));
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('the pinned list is a labelled group, not a tree of rows that are no treeitems', async () => {
+    await boot();
+    expect(pinnedList().getAttribute('role')).toBe('group');
+    expect(pinnedList().getAttribute('aria-labelledby')).toBe('sidebar-pinned-label');
+  });
+
   test('neither copy of a pinned session carries a tooltip; only its pin button is labelled', async () => {
     pinT2OnHub();
     await boot();

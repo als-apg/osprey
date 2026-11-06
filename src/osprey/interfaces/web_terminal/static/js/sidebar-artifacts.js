@@ -492,8 +492,7 @@ function render() {
   panelWasOnView = served && panelOnView();
   pins.paintPinnedGroup(model.pinnedRows().length);
   for (const tree of document.querySelectorAll(TREE_SELECTOR)) {
-    const el = document.activeElement;
-    const focusedId = el instanceof HTMLElement && tree.contains(el) ? el.dataset.id : null;
+    const restoreFocus = rows.keepFocus(/** @type {HTMLElement} */ (tree));
     const scrolls = [...tree.querySelectorAll('[data-session-box]')].map((box) => [
       /** @type {HTMLElement} */ (box).dataset.sessionBox,
       box.scrollTop,
@@ -503,8 +502,7 @@ function render() {
       const box = tree.querySelector(`[data-session-box="${CSS.escape(String(id))}"]`);
       if (box) box.scrollTop = /** @type {number} */ (top);
     }
-    if (focusedId)
-      rows.rowIn(/** @type {HTMLElement} */ (tree), focusedId)?.focus({ preventScroll: true });
+    restoreFocus();
   }
   cues.refresh();
   if (!served) return;
@@ -594,16 +592,16 @@ function onClick(event) {
   if (!target || !tree) return;
   const session = target.closest('.osprey-tree-session[data-session-id]');
   const disc = target.closest('[data-tree-disc]');
-  if (session instanceof HTMLElement && target.closest('[data-tree-pin]')) {
-    void pins.setSessionPinned(session.dataset.sessionId ?? '', !session.dataset.pinned);
-    return;
-  }
   if (session instanceof HTMLElement) {
     // A double-click's second click is the same gesture: it never undoes the
-    // first (a fold, or the switch it started).
+    // first (a fold, a pin, or the switch it started).
     if (event.detail > 1) return;
-    if (event.altKey) return toggleAllSessions();
     const treeId = session.dataset.sessionId ?? '';
+    if (target.closest('[data-tree-pin]')) {
+      if (!model.pinPending(treeId)) void pins.setSessionPinned(treeId, !session.dataset.pinned);
+      return;
+    }
+    if (event.altKey) return toggleAllSessions();
     const where = session.dataset.where === 'pinned' ? 'pinned' : 'sessions';
     // The session in use folds or unfolds; another is entered, never browsed.
     // After expand-all, the click first returns to the session in use alone.

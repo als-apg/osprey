@@ -121,6 +121,24 @@ export function rowIn(list, id) {
   return null;
 }
 
+/**
+ * What holds the focus in a tree, as a function that gives it back after the
+ * tree's rows are redrawn: an artifact row or a session's pin button.
+ * @param {HTMLElement} tree
+ * @returns {() => void}
+ */
+export function keepFocus(tree) {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement) || !tree.contains(el)) return () => {};
+  const { id, treePin } = el.dataset;
+  return () => {
+    const next = treePin
+      ? tree.querySelector(`[data-tree-pin="${CSS.escape(treePin)}"]`)
+      : id && rowIn(tree, id);
+    if (next instanceof HTMLElement) next.focus({ preventScroll: true });
+  };
+}
+
 /* ------------------------------------------------------------------------ */
 /* The session tree                                                          */
 /* ------------------------------------------------------------------------ */
@@ -299,20 +317,22 @@ export function sessionRow(
     row.append(mark);
   }
   row.append(treeSpan('osprey-tree-n', String(count)));
-  if (session.transcript_id) row.append(pinButton(Boolean(pinned)));
+  if (session.transcript_id) row.append(pinButton(session.transcript_id, Boolean(pinned)));
   return row;
 }
 
 /**
  * A session row's pin button: pressed on a pinned row, where it unpins.
+ * `data-tree-pin` names the session, so a redraw can give the focus back.
+ * @param {string} transcriptId
  * @param {boolean} pinned
  * @returns {HTMLButtonElement}
  */
-function pinButton(pinned) {
+function pinButton(transcriptId, pinned) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'osprey-tree-pin';
-  button.dataset.treePin = '';
+  button.dataset.treePin = transcriptId;
   button.setAttribute('aria-pressed', String(pinned));
   const label = pinned ? 'Unpin' : 'Pin';
   button.setAttribute('aria-label', `${label} session`);
