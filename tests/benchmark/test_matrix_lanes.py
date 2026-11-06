@@ -1,18 +1,20 @@
-"""Benchmark-lane split tests (scripts/benchmark, tests/e2e lane markers).
+"""Benchmark-lane and run-set tests (scripts/benchmark, tests/e2e lane markers).
 
-The model matrix scores two lanes separately:
+Every in-scope e2e test declares one lane:
 
-  * ``agentic_benchmark`` — model-capability tests (the headline score);
-  * ``harness_benchmark`` — model-independent OSPREY safety/plumbing assertions.
+  * ``agentic`` — an agentic test, with its tier and plain-words description
+    (tests/e2e/agentic_tiers.py); the board runs these and only these;
+  * ``harness_benchmark`` — an agent may run, but the assertion is OSPREY's.
 
 Lane membership is declared by pytest markers on the e2e tests; each matrix
 cell re-derives a ``*.lanes.json`` manifest from live collection (conftest's
-``OSPREY_E2E_LANES`` hook), and the dashboard joins outcomes against it. Two
-invariants keep the split trustworthy:
+``OSPREY_E2E_LANES`` hook), and the dashboard joins outcomes against it. Three
+invariants keep the board trustworthy:
 
   1. every in-scope e2e test carries exactly one lane marker — gated by
      ``check_e2e_coverage.py --check-lanes`` (also run at matrix-cell startup);
-  2. the dashboard's lane join handles both test-id formats and never mistakes
+  2. a cell runs exactly the in-scope agentic tests, first attempt only;
+  3. the dashboard's tier join handles both test-id formats and never mistakes
      a lane manifest for a run summary.
 """
 
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -77,7 +80,7 @@ def test_every_in_scope_e2e_test_declares_a_benchmark_lane():
     )
     assert proc.returncode == 0, (
         "lane gate failed — an in-scope e2e test is missing (or double-carries) its "
-        "agentic_benchmark/harness_benchmark marker:\n" + proc.stderr
+        "agentic/harness_benchmark marker:\n" + proc.stderr
     )
 
 
@@ -101,7 +104,7 @@ class TestLaneGateReadsTheCollectorsVerdict:
 
         def _run(cmd, cwd=None, env=None, capture_output=False, text=False):  # noqa: ARG001 - subprocess.run is called with these by keyword
             Path(env["OSPREY_E2E_LANES"]).write_text(
-                json.dumps({self._NODEID: "agentic"}), encoding="utf-8"
+                json.dumps({self._NODEID: {"lane": "agentic", "tier": 1}}), encoding="utf-8"
             )
             return subprocess.CompletedProcess(cmd, returncode, "", stderr)
 
@@ -121,56 +124,100 @@ class TestLaneGateReadsTheCollectorsVerdict:
 
 
 # ---------------------------------------------------------------------------
-# 2. Dashboard lane join
+# 2. The board's run set: the agentic tests, first attempt only
+# ---------------------------------------------------------------------------
+
+
+def test_a_cell_selects_the_agentic_tests_with_reruns_off():
+    """The selection a cell hands pytest, beside the exclusions."""
+    gate = _load("check_e2e_coverage")
+    args = gate.run_args({"tests/e2e/test_x.py": "why"})
+    assert args == ["--ignore=tests/e2e/test_x.py", "-m", "agentic", "-p", "no:rerunfailures"]
+
+
+def test_the_cell_runner_takes_its_selection_from_the_gate_script():
+    """One source for the selection: the runner splices the script's output in."""
+    runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+    assert "--print-run-args" in runner
+    assert "$RUN_ARGS" in runner
+
+
+@pytest.mark.slow
+def test_the_board_collects_every_in_scope_agentic_test_and_nothing_else(tmp_path):
+    """Collected with the board's own arguments, the run set is the in-scope
+    tests whose manifest entry is agentic with a tier — no harness check, no
+    model-free floor — and every one of them is there."""
+    gate = _load("check_e2e_coverage")
+    excluded = {e["path"]: e["reason"] for e in json.loads(_CONFIG.read_text())["excluded_files"]}
+
+    def collect(manifest: Path, args: list[str]) -> dict:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "tests/e2e/", "--collect-only", "-q"]
+            + ["-p", "no:cacheprovider", "-o", "addopts=", "--assert=plain", *args],
+            cwd=_REPO,
+            env={**os.environ, "OSPREY_E2E_LANES": str(manifest)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert proc.returncode == 0, proc.stdout[-800:] + proc.stderr[-800:]
+        return json.loads(manifest.read_text())
+
+    in_scope = collect(tmp_path / "scope.json", [f"--ignore={p}" for p in excluded])
+    selected = collect(tmp_path / "board.json", gate.run_args(excluded))
+    agentic = {n for n, e in in_scope.items() if e["lane"] == "agentic"}
+    assert set(selected) == agentic
+    assert all(selected[n]["tier"] in (1, 2) for n in selected)
+
+
+# ---------------------------------------------------------------------------
+# 3. Dashboard tier join
 # ---------------------------------------------------------------------------
 
 _NODEID = "tests/e2e/claude_code/test_sdk_workflows.py::TestClaudeCodeSDKIntegration::test_a"
 _JUNIT = "tests.e2e.claude_code.test_sdk_workflows.TestClaudeCodeSDKIntegration::test_a"
+_META = {"lane": "agentic", "tier": 1, "title": "t", "asks": "a", "passes_if": "p"}
 
 
-def test_load_lanes_joins_manifest_nodeids_to_junit_names(tmp_path):
-    """A lane recorded under the pytest NODEID must be found for the same test
+def test_load_tiers_joins_manifest_nodeids_to_junit_names(tmp_path):
+    """A tier recorded under the pytest NODEID must be found for the same test
     named in JUnit dotted-classname form — the two formats the dashboard
     ingests (live stream vs completed summary)."""
-    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: "agentic"}))
-    lanes = dash.load_lanes(str(tmp_path))
-    assert lanes[dash.canon_name(_NODEID)] == "agentic"
-    assert lanes[dash.canon_name(_JUNIT)] == "agentic"
+    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: _META}))
+    tiers = dash.load_tiers(str(tmp_path))
+    assert tiers[dash.canon_name(_NODEID)]["tier"] == 1
+    assert tiers[dash.canon_name(_JUNIT)]["title"] == "t"
 
 
-def test_lane_conclusive_scores_only_the_requested_lane(tmp_path):
-    """Capability pass-rate must count agentic-lane outcomes only; harness and
-    manifest-absent tests must not pad (or dilute) it. Timeouts count against
+def test_a_result_takes_its_tier_from_the_manifest_or_its_own_record():
+    tiers = {dash.canon_name(_NODEID): _META}
+    assert dash.tier_of({"name": _JUNIT}, tiers) == 1
+    assert dash.tier_of({"name": "tests.e2e.test_y::test_y", "tier": 2}, tiers) == 2
+    assert dash.tier_of({"name": "tests.e2e.test_y::test_y"}, tiers) is None
+
+
+def test_conclusive_where_scores_only_the_selected_tests():
+    """A tier's pass count covers its own tests only. Timeouts count against
     the denominator, skips never do."""
-    harness_id = "tests/e2e/claude_code/test_safety_writes.py::test_h"
-    stale_id = "tests/e2e/test_gone.py::test_renamed_since"
-    (tmp_path / "m__seed1.lanes.json").write_text(
-        json.dumps({_NODEID: "agentic", harness_id: "harness"})
-    )
-    lanes = dash.load_lanes(str(tmp_path))
+    other = "tests/e2e/test_other.py::test_h"
     cell = {
         "tests": [
             {"name": _JUNIT, "outcome": "passed"},
             {"name": _NODEID.replace("test_a", "test_b"), "outcome": "timeout"},
-            {"name": harness_id, "outcome": "passed"},
-            {"name": stale_id, "outcome": "failed"},
+            {"name": other, "outcome": "passed"},
         ]
     }
-    (tmp_path / "x.lanes.json").write_text(
-        json.dumps({_NODEID.replace("test_a", "test_b"): "agentic"})
-    )
-    lanes = dash.load_lanes(str(tmp_path))
-    assert dash.lane_conclusive(cell, lanes, "agentic") == (1, 2)  # pass + timeout
-    assert dash.lane_conclusive(cell, lanes, "harness") == (1, 1)
+    keep = {dash.canon_name(_NODEID), dash.canon_name(_NODEID.replace("test_a", "test_b"))}
+    assert dash.conclusive_where(cell, keep.__contains__) == (1, 2)
     skipped_cell = {"tests": [{"name": _JUNIT, "outcome": "skipped"}]}
-    assert dash.lane_conclusive(skipped_cell, lanes, "agentic") == (0, 0)
+    assert dash.conclusive_where(skipped_cell, keep.__contains__) == (0, 0)
 
 
 def test_load_skips_lane_manifests_in_results_dir(tmp_path):
     """``load()`` globs ``*__seed*.json`` — a ``*__seed1.lanes.json`` manifest
     matches that glob and must be skipped, not parsed as a run summary (it has
     no 'model' key and used to crash the dashboard)."""
-    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: "agentic"}))
+    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: _META}))
     (tmp_path / "m__seed1.json").write_text(
         json.dumps(
             {
@@ -190,7 +237,9 @@ def test_load_skips_lane_manifests_in_results_dir(tmp_path):
     assert set(runs) == {("m", 1)}
 
 
-def test_load_lanes_empty_dir_falls_back(tmp_path):
-    """No manifest (results predate the lane split) → empty map, which the
-    dashboard renders as the legacy blended single score."""
-    assert dash.load_lanes(str(tmp_path)) == {}
+def test_load_tiers_ignores_manifests_from_before_the_tiers(tmp_path):
+    """A manifest of bare lane strings (results that predate the tiers) yields
+    no tiers, which the dashboard renders as one untiered section."""
+    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: "agentic"}))
+    assert dash.load_tiers(str(tmp_path)) == {}
+    assert dash.load_tiers(str(tmp_path / "missing")) == {}

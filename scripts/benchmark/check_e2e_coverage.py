@@ -12,17 +12,22 @@ and a ``WARNING:`` line when:
   * the number of files that WILL run drops below ``baseline_expected_run_min``
     (a silent-coverage-loss tripwire).
 
-With ``--print-ignore-args`` it prints the ``--ignore=<path>`` tokens to STDOUT
-so the bash runner can splice them straight into its pytest invocation —
-keeping the exclusion list single-sourced in the JSON config.
+With ``--print-run-args`` it prints the board's pytest selection to STDOUT, one
+token per line, so the bash runner can splice it straight into its pytest
+invocation: the ``--ignore=<path>`` tokens (the exclusion list, single-sourced
+in the JSON config), ``-m agentic`` (the board runs the tiered agentic tests
+only) and ``-p no:rerunfailures`` (the board scores each test's first attempt;
+the ``flaky`` reruns PR CI relies on are off).
 
 With ``--check-lanes`` it additionally collects the in-scope suite (subprocess
 ``pytest --collect-only`` with the exclusion ``--ignore``s, using the
 ``OSPREY_E2E_LANES`` manifest hook in tests/e2e/conftest.py) and verifies every
-collected test carries EXACTLY ONE benchmark-lane marker — ``agentic_benchmark``
-(model-capability score) or ``harness_benchmark`` (harness-integrity score).
-This closes the drift hole where a new e2e file silently joins the matrix scope
-without declaring what its pass/fail measures.
+collected test carries EXACTLY ONE benchmark-lane marker — ``agentic`` (an
+agentic test with its tier; ``tests/e2e/agentic_tiers.py``) or
+``harness_benchmark`` (an agent may run, but the assertion is OSPREY's). This
+closes the drift hole where a new e2e file silently joins the matrix scope
+without declaring what its pass/fail measures. An incomplete ``agentic`` marker
+fails the collection itself, which the gate reports.
 
 Exit code: 0 in the default/audit modes (warnings only, per design) — but
 ``--check-lanes`` IS a gate and exits 1 on unmarked or double-marked tests, so
@@ -38,6 +43,15 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+#: The board's selection beside the exclusions: the tiered agentic tests, first
+#: attempt only.
+BOARD_SELECTION = ("-m", "agentic", "-p", "no:rerunfailures")
+
+
+def run_args(excluded: dict[str, str]) -> list[str]:
+    """The pytest arguments a board cell runs ``tests/e2e/`` with."""
+    return [f"--ignore={p}" for p in excluded] + list(BOARD_SELECTION)
 
 
 def check_lanes(root: Path, excluded: dict[str, str]) -> list[str]:
@@ -76,16 +90,18 @@ def check_lanes(root: Path, excluded: dict[str, str]) -> list[str]:
             return [f"lane collection produced no manifest (rc={proc.returncode}): {tail}"]
         if proc.returncode != 0:
             return [f"lane collection failed (rc={proc.returncode}): {tail}"]
-        lanes = json.loads(lanes_path.read_text(encoding="utf-8"))
+        manifest = json.loads(lanes_path.read_text(encoding="utf-8"))
 
+    lanes = {n: entry["lane"] for n, entry in manifest.items()}
     violations = []
     unmarked = sorted(n for n, lane in lanes.items() if lane == "unmarked")
     double = sorted(n for n, lane in lanes.items() if lane == "both")
     if unmarked:
         violations.append(
             f"{len(unmarked)} in-scope test(s) carry NO benchmark-lane marker — add "
-            "@pytest.mark.agentic_benchmark or @pytest.mark.harness_benchmark (or add the "
-            "file to excluded_files in matrix_e2e_config.json):"
+            "@pytest.mark.agentic(tier=..., title=..., asks=..., passes_if=...) or "
+            "@pytest.mark.harness_benchmark (or add the file to excluded_files in "
+            "matrix_e2e_config.json):"
         )
         violations.extend(f"  {n}" for n in unmarked)
     if double:
@@ -105,15 +121,16 @@ def main() -> int:
         help="path to matrix_e2e_config.json (relative to --repo-root or absolute)",
     )
     ap.add_argument(
-        "--print-ignore-args",
+        "--print-run-args",
         action="store_true",
-        help="print `--ignore=<path>` tokens to stdout for the runner to consume",
+        help="print the board's pytest selection (exclusion --ignores, -m agentic, reruns "
+        "off) to stdout, one token per line, for the runner to consume",
     )
     ap.add_argument(
         "--check-lanes",
         action="store_true",
         help="collect the in-scope suite and GATE (exit 1) on tests missing a "
-        "benchmark-lane marker (agentic_benchmark/harness_benchmark)",
+        "benchmark-lane marker (agentic/harness_benchmark)",
     )
     args = ap.parse_args()
 
@@ -162,9 +179,9 @@ def main() -> int:
     if not warnings:
         print("[e2e-coverage] OK — full kit covered except explicit exclusions.", file=sys.stderr)
 
-    if args.print_ignore_args:
-        for path in excluded:
-            print(f"--ignore={path}")
+    if args.print_run_args:
+        for token in run_args(excluded):
+            print(token)
 
     if args.check_lanes:
         violations = check_lanes(root, excluded)

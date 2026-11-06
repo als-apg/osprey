@@ -79,27 +79,29 @@ set; nothing in them assumes a particular provider, key file, or machine.
 | `matrix.py [--config FILE] [--only SUBSTR] [--provider P] [--parallel N] [--dry-run]` | parse `matrix.yaml`, expand the seed-major grid, and run one isolated worker per not-yet-done cell. **Resumable** — cells whose summary json exists are skipped. Writes the `results/matrix.log` markers the live dashboard watches. |
 | `matrix.yaml` | the whole run, declaratively (providers, models, seeds, budgets, judges). |
 | `matrix_dashboard.py --results-dir DIR --out FILE` | render `results/*.json` → a self-contained `dashboard.html` (per-model summary + per-test heatmap). |
-| `check_e2e_coverage.py` | derive the pytest `--ignore` list from `matrix_e2e_config.json` and warn if the run stops covering the full e2e kit minus the explicit, documented exclusions. With `--check-lanes` it is a **gate** (run per cell by the worker): every in-scope test must carry exactly one benchmark-lane marker. |
+| `check_e2e_coverage.py` | derive a cell's pytest selection (`--print-run-args`: the `--ignore` list from `matrix_e2e_config.json`, `-m agentic`, reruns off) and warn if the run stops covering the full e2e kit minus the explicit, documented exclusions. With `--check-lanes` it is a **gate** (run per cell by the worker): every in-scope test must carry exactly one benchmark-lane marker. |
 | `matrix_e2e_config.json` | single source of truth for the excluded e2e files (each with a reason). |
 
-### Benchmark lanes
+### Tiers
 
-Every e2e test in matrix scope declares — via a pytest marker — what its
-pass/fail measures:
+A cell runs the e2e tests that carry an `agentic(tier=..., title=..., asks=...,
+passes_if=...)` marker, each once (`-p no:rerunfailures`), so every result is a
+first attempt. The dashboard groups them by tier:
 
-- `agentic_benchmark` — **capability lane**: genuine agentic tasks (multi-tool
-  reasoning, judged answers) where the model under test can fail. This is the
-  dashboard's headline pass rate.
-- `harness_benchmark` — **harness-integrity lane**: an agent runs, but the
-  assertion is model-independent OSPREY behavior (safety hooks block the write,
-  approval flow fires, plumbing works). Scored separately so its near-constant
-  passes never pad a model's capability number.
+- **Tier 1, basic** — the stack works, the model calls the right tools, a simple
+  workflow goes through. Headline: median time and output tokens per task, with
+  an all-green check.
+- **Tier 2, benchmark** — harder tasks a capable model may still miss. Each test
+  on its own, its first-attempt result per seed.
 
-Each cell writes a `results/<model>__seed<seed>.lanes.json` manifest at pytest
-collection time (`OSPREY_E2E_LANES`, see `tests/e2e/conftest.py`); the dashboard
-joins outcomes against it. Markers on the tests are the single source of truth —
-an unmarked in-scope test fails the `--check-lanes` gate at cell startup, so the
-scope can never silently drift.
+The other in-scope tests carry `harness_benchmark` (the assertion is OSPREY's,
+not the model's); they run in CI, not on the board. Each cell writes a
+`results/<model>__seed<seed>.lanes.json` manifest at pytest collection time
+(`OSPREY_E2E_LANES`, see `tests/e2e/conftest.py`) with every test's lane and an
+agentic test's tier and text, and records the tier with each result; the
+dashboard joins outcomes against it. Markers on the tests are the single source
+of truth — an unmarked in-scope test fails the `--check-lanes` gate at cell
+startup, so the scope can never silently drift.
 
 ## Layer B — operator/site glue (examples to copy & adapt)
 

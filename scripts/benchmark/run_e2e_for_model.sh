@@ -145,11 +145,14 @@ START=$(date +%s)
 # The exclusion list with per-file reasons is single-sourced in
 # matrix_e2e_config.json — do not enumerate it here (it drifts).
 # Still `pytest tests/e2e/` (path) for registry-safe collection; --ignore prunes.
-IGNORE_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
-  --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-ignore-args | tr '\n' ' ')"
+# The selection beside the exclusions is the board's own: the tiered agentic
+# tests only (-m agentic), each scored on its first attempt (-p no:rerunfailures
+# switches off the `flaky` reruns PR CI keeps). check_e2e_coverage.py holds both.
+RUN_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+  --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-run-args | tr '\n' ' ')"
 # Lane gate: refuse to run (and score) a suite where any in-scope test is
-# missing its agentic_benchmark/harness_benchmark marker — an unmarked test
-# would silently pollute the capability score the matrix exists to measure.
+# missing its agentic/harness_benchmark marker, or carries an incomplete tier
+# marker — an unmarked test would silently fall out of the board's run set.
 if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
     --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
     --check-lanes >/dev/null; then
@@ -160,9 +163,9 @@ fi
 # selects (a smoke run); unset, the cell runs the whole in-scope suite.
 SELECT_ARGS=()
 [ -n "${OSPREY_BENCH_SELECT:-}" ] && SELECT_ARGS=(-k "$OSPREY_BENCH_SELECT")
-# shellcheck disable=SC2086  # intentional word-split of space-free --ignore tokens
+# shellcheck disable=SC2086  # intentional word-split of space-free selection tokens
 "$PY" -m pytest tests/e2e/ \
-  $IGNORE_ARGS \
+  $RUN_ARGS \
   "${SELECT_ARGS[@]+"${SELECT_ARGS[@]}"}" \
   -p no:cacheprovider -q --no-header \
   -o addopts="" \
@@ -218,7 +221,13 @@ try:
                 outcome = "passed"
             summary[KEY[outcome]] += 1
             summary["total"] += 1
-            summary["tests"].append({"name": name, "outcome": outcome, "duration_s": dur})
+            entry = {"name": name, "outcome": outcome, "duration_s": dur}
+            # The tier the test's agentic marker carried when it ran
+            # (tests/e2e/conftest.py writes it into the report).
+            tier = tc.find("properties/property[@name='agentic_tier']")
+            if tier is not None:
+                entry["tier"] = int(tier.get("value"))
+            summary["tests"].append(entry)
 except FileNotFoundError:
     summary["error"] = "junit xml not produced (collection/import crash)"
 with open(jsonp, "w") as f:

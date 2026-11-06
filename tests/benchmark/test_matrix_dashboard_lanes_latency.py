@@ -1,10 +1,11 @@
-"""Lane labels, latency columns and model rows of the benchmark dashboard
-(scripts/benchmark/matrix_dashboard.py)."""
+"""Tier sections, time and token columns and model rows of the benchmark
+dashboard (scripts/benchmark/matrix_dashboard.py)."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -29,7 +30,17 @@ dash = _load_dashboard()
 
 _CAP = "tests/e2e/test_cap.py::test_task"
 _CAP2 = "tests/e2e/test_cap.py::test_other_task"
-_HARNESS = "tests/e2e/test_harness.py::test_hook_blocks"
+_HARD = "tests/e2e/test_hard.py::test_diagnosis"
+
+
+def _meta(tier: int, title: str) -> dict:
+    return {
+        "lane": "agentic",
+        "tier": tier,
+        "title": title,
+        "asks": f"{title}?",
+        "passes_if": f"{title} done",
+    }
 
 
 def _summary(model: str, seed: int, tests: list[dict]) -> dict:
@@ -51,17 +62,24 @@ def _summary(model: str, seed: int, tests: list[dict]) -> dict:
 def _write_results(results: Path) -> None:
     results.mkdir()
     (results / "m__seed1.lanes.json").write_text(
-        json.dumps({_CAP: "agentic", _CAP2: "agentic", _HARNESS: "harness"})
+        json.dumps(
+            {
+                _CAP: _meta(1, "Read one channel"),
+                _CAP2: _meta(1, "Find a BPM address"),
+                _HARD: _meta(2, "Diagnose a beam dump"),
+            }
+        )
     )
     tests = [
         {"name": _CAP, "outcome": "passed", "duration_s": 100.0},
         {"name": _CAP2, "outcome": "failed", "duration_s": 300.0},
-        {"name": _HARNESS, "outcome": "passed", "duration_s": 20.0},
+        {"name": _HARD, "outcome": "passed", "duration_s": 2000.0},
     ]
     (results / "m__seed1.json").write_text(json.dumps(_summary("m", 1, tests)))
     queries = [
         {"test": _CAP, "duration_ms": 100_000, "duration_api_ms": 90_000, "output_tokens": 900},
         {"test": _CAP2, "duration_ms": 300_000, "duration_api_ms": 210_000, "output_tokens": 2100},
+        {"test": _HARD, "duration_ms": 2_000_000, "duration_api_ms": 1_000_000, "output_tokens": 9},
     ]
     (results / "m__seed1.queries.jsonl").write_text("".join(json.dumps(q) + "\n" for q in queries))
 
@@ -70,13 +88,18 @@ def test_latency_stats_from_tests_and_query_log(tmp_path):
     results = tmp_path / "results"
     _write_results(results)
     runs = dash.load(str(results))
-    lanes = dash.load_lanes(str(results))
+    tiers = dash.load_tiers(str(results))
     queries = dash.load_query_timing(str(results))
 
-    stats = dash.latency_stats("m", runs, queries, lanes)
+    def tier1(key):
+        return tiers[key]["tier"] == 1
 
-    # median over the model's capability-lane tests only (100 s and 300 s), harness excluded
+    stats = dash.latency_stats("m", runs, queries, tier1)
+
+    # median over the model's Tier 1 tests only (100 s and 300 s), Tier 2 excluded
     assert stats["median_task_s"] == 200.0
+    # median output tokens per Tier 1 task (900 and 2100)
+    assert stats["tokens_per_task"] == 1500.0
     # 300 s of 400 s spent waiting on the model
     assert stats["model_share"] == 0.75
     # 3000 output tokens over 300 s of model time
@@ -88,10 +111,9 @@ def test_latency_stats_without_query_log_keeps_the_task_time(tmp_path):
     _write_results(results)
     (results / "m__seed1.queries.jsonl").unlink()
     runs = dash.load(str(results))
-    stats = dash.latency_stats(
-        "m", runs, dash.load_query_timing(str(results)), dash.load_lanes(str(results))
-    )
-    assert stats["median_task_s"] == 200.0
+    stats = dash.latency_stats("m", runs, dash.load_query_timing(str(results)))
+    assert stats["median_task_s"] == 300.0  # all three tests: 100, 300, 2000
+    assert stats["tokens_per_task"] is None
     assert stats["model_share"] is None
     assert stats["tokens_per_s"] is None
 
@@ -102,7 +124,7 @@ def test_query_log_is_not_read_as_a_run_summary(tmp_path):
     assert set(dash.load(str(results))) == {("m", 1)}
 
 
-def test_rendered_page_names_the_lanes_and_shows_only_models_with_data(tmp_path):
+def test_rendered_page_groups_by_tier_and_shows_only_models_with_data(tmp_path):
     results = tmp_path / "results"
     _write_results(results)
     out = tmp_path / "dash.html"
@@ -120,9 +142,16 @@ def test_rendered_page_names_the_lanes_and_shows_only_models_with_data(tmp_path)
         timeout=120,
     )
     page = out.read_text()
-    assert "Capability lane" in page and "Harness lane" in page
-    assert "Tier 0" not in page and "Tier 1" not in page
-    assert "median task" in page
+    assert page.index("Tier 1 · basic") < page.index("Tier 2 · benchmark")
+    assert "Tier 0" not in page and "Capability lane" not in page and "Harness lane" not in page
+    assert "median task" in page and "tokens / task" in page and "all green" in page
+    # a row is the plain title, expanding to the ask and the pass condition; the
+    # file name is the small grey line under it
+    assert "<summary>Diagnose a beam dump</summary>" in page
+    assert "<b>asks</b> Diagnose a beam dump?" in page
+    assert "<div class=file>test_hard.py::test_diagnosis</div>" in page
+    # Tier 2 counts each model's first-attempt passes
+    assert re.search(r"first-attempt passes</td>\s*<td>1/1</td>", page)
     # models from earlier runs with no results here get no empty row
     assert "gpt-oss-20b" not in page
     assert "CBORG open models" not in page
