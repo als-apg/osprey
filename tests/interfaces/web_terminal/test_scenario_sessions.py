@@ -21,7 +21,7 @@ from osprey.interfaces.web_terminal import scenario_sessions, session_meta, tran
 from osprey.simulation.apply import SCENARIO_SESSIONS_FILENAME
 from osprey.simulation.sessions import parse_sessions, resolve, to_dict
 from osprey.stores import session_ledger
-from osprey.stores.artifact_store import ArtifactStore
+from osprey.stores.artifact_store import ArtifactStore, operator_visible, owner_of
 from osprey_connectors import posture_store
 
 ANCHOR = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
@@ -174,6 +174,19 @@ def test_scenario_sessions_fresh_lay_down_fills_every_store_and_deletes_seed(hub
     assert entry.metadata["transcript_id"] == KEY_3_PART_2
     assert entry.metadata["scenario"] == SCENARIO
     assert entry.timestamp.startswith(str(_first_turn_at(1, 1).date()))
+
+
+def test_scenario_sessions_artifacts_belong_to_the_seeded_session_that_made_them(hub):
+    """The agent sees seeded artifacts by the ownership rule, as any session's:
+    each is the transcript's that laid it down, never hidden and never unowned."""
+    _write_seed(hub.seed)
+    scenario_sessions.lay_down_scenario_sessions(hub.app)
+
+    ledger = session_ledger.load(hub.state_dir)
+    entries = {e.id: e for e in _store(hub).list_entries()}
+    assert all(operator_visible(e) for e in entries.values())
+    assert owner_of(entries[ENTRY_1], ledger) == KEY_1
+    assert owner_of(entries[ENTRY_3], ledger) == KEY_3_PART_2
 
 
 def test_scenario_sessions_refuses_a_transcript_id_that_is_not_a_uuid(hub):
