@@ -454,3 +454,26 @@ async def test_rescan_runs_everything() -> None:
     await engine.reprobe()
 
     assert counts == {"a": 2, "b": 2}
+
+
+async def test_reprobe_of_an_on_demand_row_runs_it_and_the_poll_never_does() -> None:
+    from osprey.health.config import CategoryRecord, Cost
+
+    ran: list[str] = []
+
+    def costly() -> list[CheckResult]:
+        ran.append("costly")
+        return [CheckResult("costly.row", "costly", Status.OK, "answered")]
+
+    record = CategoryRecord(name="costly", cost=Cost.ON_DEMAND, timeout_s=5.0, func=costly)
+    loaded = _loaded(_settings())._replace(records=[record])
+    engine, _ = _engine(_FakeLoader(loaded))
+    engine.get_checks()
+    await _drain(engine)
+    await engine.reprobe()  # a rescan is a poll: never the costly tier
+    assert ran == []
+
+    env = await engine.reprobe(checks=["costly"])
+
+    assert ran == ["costly"]
+    assert [r["name"] for r in env["results"]] == ["costly.row"]

@@ -39,7 +39,8 @@ an operator's request — the categories behind some rows or one component, or
 everything (a rescan). It shares the single flight: while a refresh is in
 flight it waits for that one instead of starting a second, it is refused while
 the breaker suppresses refreshes, and it merges the re-run categories' rows
-into the cache. It never elevates cost class.
+into the cache. A named slice runs at full tier — the click is the consent an
+``on_demand`` row waits for; a rescan stays the poll.
 
 **The envelope** carries, beyond the report, each row's ``probed_at`` and the
 panel layout (:func:`osprey.health.layout.build_layers`), plus what the MCP

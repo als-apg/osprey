@@ -637,14 +637,14 @@ RULES: tuple[Rule, ...] = (
     Rule("service_capabilities", "okf.bundle_age", "knowledge-index", "bundle age", "file stat"),
     Rule("service_capabilities", "okf*", "knowledge-index", "OKF bundle", "file stat"),
     Rule(
-        "service_capabilities",
+        "ariel_modules",
         "ariel.enhancement.*",
         "embed-vision",
         "ARIEL {tail}",
         "module health_check()",
     ),
     Rule(
-        "service_capabilities",
+        "ariel_modules",
         "ariel.enhancement",
         "embed-vision",
         "ARIEL modules",

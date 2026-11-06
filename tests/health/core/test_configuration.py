@@ -43,6 +43,7 @@ _CANONICAL_NAMES = (
     "versions",
     "dispatch",
     "service_capabilities",
+    "ariel_modules",
 )
 
 
@@ -76,7 +77,7 @@ class TestCoreRegistry:
     def test_canonical_names_present_without_import(self):
         assert set(CORE_CATEGORY_NAMES) == set(_CANONICAL_NAMES)
         assert set(CORE_CATEGORIES) == set(_CANONICAL_NAMES)
-        assert len(CORE_CATEGORIES) == 24
+        assert len(CORE_CATEGORIES) == 25
 
     def test_contains(self):
         assert "configuration" in CORE_CATEGORIES
