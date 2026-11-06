@@ -12,7 +12,7 @@ and name pattern, to
 * a **label** — what was checked, in a few words (``bolt connection``);
 * a **method** — how it was measured (``bolt connect + RETURN 1``);
 * optionally a **group** inside the component (one per panel, one per
-  telemetry-store part).
+  agent-record part).
 
 The checks never name their tile, so a check can move between categories and
 a tile can be re-cut without touching a probe. A row no rule matches — a
@@ -242,7 +242,7 @@ COMPONENTS: dict[str, Component] = {
     "channel-db": Component("data", "channel database", _value_of("channel_finder_pipeline")),
     "ariel-db": Component("data", "ARIEL database", _value_of("ariel_entries")),
     "knowledge-index": Component("data", "knowledge index", _knowledge),
-    "telemetry-store": Component(
+    "agent-record": Component(
         "data", "telemetry store", _telemetry_backend, header=_telemetry_header
     ),
     "shared-services": Component("data", "shared services", _reachable),
@@ -661,7 +661,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record_backend",
-        "telemetry-store",
+        "agent-record",
         "backend",
         "http GET /health/sources",
         group="store",
@@ -669,7 +669,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record.retention",
-        "telemetry-store",
+        "agent-record",
         "retention",
         "config parse agent_record.retention_days",
         group="store",
@@ -677,7 +677,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record.disk",
-        "telemetry-store",
+        "agent-record",
         "disk used",
         "http GET /health/sources",
         group="store",
@@ -685,7 +685,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record.otlp*",
-        "telemetry-store",
+        "agent-record",
         "OTLP{tail}",
         "http GET /health/sources",
         group="OTLP receiver",
@@ -693,7 +693,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record.spool.backlog",
-        "telemetry-store",
+        "agent-record",
         "backlog",
         "http GET /health/sources",
         group="spool",
@@ -701,7 +701,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record.spool.oldest",
-        "telemetry-store",
+        "agent-record",
         "oldest uncommitted",
         "http GET /health/sources",
         group="spool",
@@ -709,7 +709,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record_source.*",
-        "telemetry-store",
+        "agent-record",
         "{tail}",
         "http GET /health/sources",
         group="spool",
@@ -717,7 +717,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record_transcripts.*",
-        "telemetry-store",
+        "agent-record",
         "{tail}",
         "dir stat transcript root",
         group="transcripts",
@@ -725,7 +725,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record_export",
-        "telemetry-store",
+        "agent-record",
         "daily export",
         "file stat export dir",
         group="export",
@@ -733,16 +733,16 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "agent_record",
         "agent_record.readers.*",
-        "telemetry-store",
+        "agent-record",
         "{tail}",
         "config parse agent_record.readers",
         group="readers",
     ),
-    Rule("agent_record", "*", "telemetry-store", "agent record", "http GET /health/sources"),
+    Rule("agent_record", "*", "agent-record", "agent record", "http GET /health/sources"),
     Rule(
         "archive",
         "*",
-        "telemetry-store",
+        "agent-record",
         "last archive pass",
         "file stat var/archive",
         group="archive",

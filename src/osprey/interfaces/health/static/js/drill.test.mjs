@@ -33,21 +33,21 @@ beforeEach(() => {
 
 describe('group columns', () => {
   test('the groups form a column; the selected group shows its rows with the fix', () => {
-    openTile('telemetry-store');
-    const items = [...document.querySelectorAll('#drill-telemetry-store .mcol .it')];
+    openTile('agent-record');
+    const items = [...document.querySelectorAll('#drill-agent-record .mcol .it')];
     expect(items.map((e) => e.querySelector('.nm')?.textContent)).toEqual(['store', 'transcripts']);
     expect(items[1].classList.contains('sel')).toBe(true);
     const detail = /** @type {HTMLElement} */ (
-      document.querySelector('#drill-telemetry-store .mcol.detail')
+      document.querySelector('#drill-agent-record .mcol.detail')
     );
     expect(detail.querySelector('.dhd .dn')?.textContent).toBe('transcripts');
     expect(detail.querySelector('.fix')).not.toBeNull();
   });
 
   test('ArrowUp moves the selection within the column', () => {
-    openTile('telemetry-store');
-    millKey(new KeyboardEvent('keydown', { key: 'ArrowUp' }), 'telemetry-store');
-    expect(ds('telemetry-store').path).toEqual(['telemetry-store/store']);
+    openTile('agent-record');
+    millKey(new KeyboardEvent('keydown', { key: 'ArrowUp' }), 'agent-record');
+    expect(ds('agent-record').path).toEqual(['agent-record/store']);
   });
 });
 

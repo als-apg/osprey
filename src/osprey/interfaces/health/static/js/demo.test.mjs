@@ -45,7 +45,7 @@ describe('demoEnvelope', () => {
     for (const r of env.results) expect(['ok', 'warning', 'error', 'skip']).toContain(r.status);
     const tel = env.layers
       .flatMap((/** @type {any} */ l) => l.components)
-      .find((/** @type {any} */ c) => c.id === 'telemetry-store');
+      .find((/** @type {any} */ c) => c.id === 'agent-record');
     expect(tel.status).toBe('warning');
     expect(tel.groups.find((/** @type {any} */ g) => g.id === 'transcripts').fix).toMatch(
       /^docker compose/

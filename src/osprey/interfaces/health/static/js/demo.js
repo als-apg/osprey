@@ -72,7 +72,7 @@ export function demoEnvelope() {
           rows: [15, 16],
           used_by: ['channel finder', 'graph MCP server', 'Channels panel'],
         }),
-        comp(rows, 'telemetry-store', 'telemetry store', 'clickhouse · 1 / 2 roots readable', {
+        comp(rows, 'agent-record', 'telemetry store', 'clickhouse · 1 / 2 roots readable', {
           issue: '1 / 2 transcript roots readable',
           header: 'agent record · clickhouse',
           groups: [

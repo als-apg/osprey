@@ -44,12 +44,12 @@ beforeEach(load);
 
 describe('indexModel', () => {
   test('indexes every component and builds drill nodes for grouped ones', () => {
-    expect(store.TILES['telemetry-store'].band).toBe('data');
-    expect(store.NODES['telemetry-store'].children.map((n) => n.name)).toEqual([
+    expect(store.TILES['agent-record'].band).toBe('data');
+    expect(store.NODES['agent-record'].children.map((n) => n.name)).toEqual([
       'store',
       'transcripts',
     ]);
-    expect(store.NODES['telemetry-store/transcripts'].sev).toBe('MINOR');
+    expect(store.NODES['agent-record/transcripts'].sev).toBe('MINOR');
     expect(store.NODES['disk']).toBeUndefined();
   });
 
@@ -65,9 +65,9 @@ describe('indexModel', () => {
 
 describe('tile facts', () => {
   test('a faulty tile shows its issue, a calm one its fact', () => {
-    expect(tileFact(store.TILES['telemetry-store'].comp)).toBe('1 / 2 transcript roots readable');
+    expect(tileFact(store.TILES['agent-record'].comp)).toBe('1 / 2 transcript roots readable');
     expect(tileFact(store.TILES['disk'].comp)).toBe('30 % used');
-    expect(compRows(store.TILES['telemetry-store'].comp).length).toBe(4);
+    expect(compRows(store.TILES['agent-record'].comp).length).toBe(4);
   });
 
   test('MCP tile reads the envelope until introspected, then the cache', () => {
@@ -86,7 +86,7 @@ describe('tile facts', () => {
 
 describe('drill lookups', () => {
   test('ds opens the first faulty group by default; MCP opens nothing', () => {
-    expect(ds('telemetry-store').path).toEqual(['telemetry-store/transcripts']);
+    expect(ds('agent-record').path).toEqual(['agent-record/transcripts']);
     mcp.data = DEMO_MCP;
     indexMcp();
     expect(ds(MCP_ID).path).toEqual([]);

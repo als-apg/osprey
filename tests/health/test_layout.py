@@ -52,7 +52,7 @@ def test_a_faulty_tile_carries_its_issue_text():
             fix="docker compose exec agent-record ls /data/transcripts",
         ),
     ]
-    tile = _components(build_layers(rows, {}))["telemetry-store"]
+    tile = _components(build_layers(rows, {}))["agent-record"]
 
     assert tile["status"] == "warning"
     assert tile["issue"] == "transcripts logbook: root unreadable (ENOENT)"
@@ -68,7 +68,7 @@ def test_many_faults_in_one_group_are_counted_once():
         _row(f"agent_record_transcripts.{n}", "agent_record", "warning", value="unreadable")
         for n in ("a", "b", "c")
     ] + [_row("agent_record_transcripts.d", "agent_record", value="readable")]
-    tile = _components(build_layers(rows, {}))["telemetry-store"]
+    tile = _components(build_layers(rows, {}))["agent-record"]
 
     assert tile["issue"] == "transcripts: 3 / 4 unreadable"
 

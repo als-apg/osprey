@@ -314,8 +314,8 @@ describe('hash', () => {
     expect(parseHash('')).toEqual([]);
     expect(formatHash(['a b', 'c'])).toBe('#a%20b/c');
     expect(formatHash([])).toBe('');
-    expect(parseHash(formatHash(['telemetry-store', 'not used/x']))).toEqual([
-      'telemetry-store',
+    expect(parseHash(formatHash(['agent-record', 'not used/x']))).toEqual([
+      'agent-record',
       'not used/x',
     ]);
   });

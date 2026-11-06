@@ -65,8 +65,8 @@ describe('open / close', () => {
   });
 
   test('a grouped tile carries its drill path in the hash', () => {
-    openTile('telemetry-store');
-    expect(location.hash).toBe('#telemetry-store/transcripts');
+    openTile('agent-record');
+    expect(location.hash).toBe('#agent-record/transcripts');
     expect(document.querySelector('#drawer-data .dh .sub')?.textContent).toBe(
       'agent record · clickhouse'
     );
@@ -86,9 +86,9 @@ describe('band drawer', () => {
 
 describe('deep links', () => {
   test('fromHash opens a tile at a group and a band by id', () => {
-    history.replaceState(null, '', '#telemetry-store/store');
+    history.replaceState(null, '', '#agent-record/store');
     fromHash();
-    expect(DS['telemetry-store'].path).toEqual(['telemetry-store/store']);
+    expect(DS['agent-record'].path).toEqual(['agent-record/store']);
     history.replaceState(null, '', '#band-host');
     fromHash();
     expect(S.key).toBe('band:host');

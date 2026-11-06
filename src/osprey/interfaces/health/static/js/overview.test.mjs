@@ -40,7 +40,7 @@ describe('bands', () => {
     renderBands();
     expect(document.querySelectorAll('.band').length).toBe(8);
     expect(document.querySelectorAll('.drawer').length).toBe(8);
-    const t = /** @type {HTMLElement} */ (document.getElementById('tile-telemetry-store'));
+    const t = /** @type {HTMLElement} */ (document.getElementById('tile-agent-record'));
     expect(t.className).toContain('s-MINOR');
     expect(t.querySelector('.f')?.textContent).toBe('1 / 2 transcript roots readable');
     expect(document.getElementById('tile-container-runtime')?.className).toContain('s-DISABLED');
@@ -63,7 +63,7 @@ describe('ring + headline', () => {
     expect(p.textContent).toBe(
       '1 MINOR · 0 MAJOR — telemetry store: 1 / 2 transcript roots readable'
     );
-    expect(p.querySelector('a')?.getAttribute('href')).toBe('#telemetry-store');
+    expect(p.querySelector('a')?.getAttribute('href')).toBe('#agent-record');
   });
 });
 

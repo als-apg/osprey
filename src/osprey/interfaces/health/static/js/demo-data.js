@@ -204,7 +204,7 @@ export function demoRows() {
     ),
     /* 17 */ row(
       'data',
-      'telemetry-store',
+      'agent-record',
       'agent_record_backend',
       'backend',
       'ok',
@@ -214,7 +214,7 @@ export function demoRows() {
     ),
     /* 18 */ row(
       'data',
-      'telemetry-store',
+      'agent-record',
       'agent_record.retention',
       'retention',
       'ok',
@@ -224,7 +224,7 @@ export function demoRows() {
     ),
     /* 19 */ row(
       'data',
-      'telemetry-store',
+      'agent-record',
       'agent_record_transcripts.alice',
       'alice',
       'ok',
@@ -234,7 +234,7 @@ export function demoRows() {
     ),
     /* 20 */ row(
       'data',
-      'telemetry-store',
+      'agent-record',
       'agent_record_transcripts.logbook',
       'logbook',
       'warning',
