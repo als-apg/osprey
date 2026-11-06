@@ -29,9 +29,9 @@
  * resize) in which nothing silently vanishes: text ellipsizes via CSS, then
  * a search field collapses to its magnifier (click/Enter re-expands it while
  * focused), then remaining controls fold lowest-priority-first into a
- * bar-owned ⋯ menu that keeps every folded control reachable. Text
- * (subtitle), the breadcrumb and separators never fold — text truncates —
- * and search never folds either: it collapses.
+ * bar-owned ⋯ menu that keeps every folded control reachable. The
+ * breadcrumb, separators and the hub's pager count never fold, and search
+ * never folds either: it collapses.
  *
  * Rendering is a keyed reconcile, not a rebuild. Items are matched on
  * `kind:id`; a survivor is patched in place and never detached, because a
@@ -82,7 +82,7 @@ export function initHeaderContrib() {
     if (!data || !CONTRIBUTION_TYPES.has(data.type)) return;
     const panelId = panelIdForSource(e.source);
     if (!panelId || localDispatch.has(panelId)) return;
-    contributions.set(panelId, sanitizeItems(data.items));
+    contributions.set(panelId, sanitizeItems(data.items, false));
     const host = hosts.get(panelId);
     if (host) render(panelId, host);
   });
@@ -120,10 +120,14 @@ function iframeForPanel(panelId) {
  * Validate/clamp an incoming contribution to the closed vocabulary. Unknown
  * kinds and malformed entries are dropped, strings are stringified and
  * length-capped; the result is safe to render verbatim via textContent.
+ * Nothing inert reaches the bar from a panel: the one text-only kind,
+ * `count`, is the hub's own pager count, so only a `local` contribution
+ * keeps it.
  * @param {unknown} raw
+ * @param {boolean} local  the hub contributes this header itself
  * @returns {HeaderItem[]}
  */
-function sanitizeItems(raw) {
+function sanitizeItems(raw, local) {
   if (!Array.isArray(raw)) return [];
   /** @type {HeaderItem[]} */
   const out = [];
@@ -138,8 +142,8 @@ function sanitizeItems(raw) {
     if (seen.has(key)) continue;
     seen.add(key);
     const base = { id: it.id, priority: typeof it.priority === 'number' ? it.priority : 0 };
-    if (it.kind === 'text' && typeof it.text === 'string') {
-      out.push({ ...base, kind: 'text', text: clip(it.text) });
+    if (it.kind === 'count' && local && typeof it.text === 'string') {
+      out.push({ ...base, kind: 'count', text: clip(it.text) });
     } else if (it.kind === 'search') {
       out.push({
         ...base,
@@ -232,7 +236,7 @@ function clip(s) {
  */
 export function contributeLocal(panelId, items, dispatch) {
   localDispatch.set(panelId, dispatch);
-  contributions.set(panelId, sanitizeItems(items));
+  contributions.set(panelId, sanitizeItems(items, true));
   const host = hosts.get(panelId);
   if (host) render(panelId, host);
 }
@@ -386,8 +390,8 @@ function dispatchAction(panelId, id, value) {
  *   2. remaining CONTROLS fold lowest-priority-first into a bar-owned
  *      ⋯ menu, so nothing becomes unreachable on a narrow tile.
  *
- * Text (subtitle), the breadcrumb and separators never fold — text
- * truncates via CSS — and search never folds past its magnifier. The ⋯
+ * The breadcrumb, separators and the pager count never fold, and search
+ * never folds past its magnifier. The ⋯
  * button is appended before the fold loop measures, so the space it
  * consumes is part of what the loop solves for.
  * @param {string} panelId
@@ -429,7 +433,7 @@ function applyOverflowLadder(panelId, host) {
     (c) =>
       c.dataset.contribKey &&
       !c.classList.contains('contrib-search') &&
-      !c.classList.contains('contrib-text') &&
+      !c.classList.contains('contrib-count') &&
       !c.classList.contains('osprey-crumb') &&
       !c.classList.contains('osprey-head-sep')
   );

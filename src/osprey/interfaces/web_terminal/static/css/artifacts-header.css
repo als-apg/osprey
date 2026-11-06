@@ -10,7 +10,7 @@
  * Values follow the layout F mockup's pane header.
  */
 
-/* The breadcrumb names the tile, so it sits left like a subtitle and the
+/* The breadcrumb names the tile, so it sits left, in the title's place, and the
  * tile's own title steps aside while one is shown. Its floor keeps the title
  * readable: a narrow bar folds Open full size and Save before it squeezes
  * the crumb to nothing. */
@@ -25,10 +25,9 @@
   display: none;
 }
 
-/* The pager count is a text item, but it belongs in the right-hand cluster
- * between previous and next, in the display face rather than the mono
- * subtitle face, with fixed-width digits so the arrows do not shift. */
-.tile-tab .tile-tab-contrib > .contrib-text[data-contrib-key="text:pager"] {
+/* The pager count sits between previous and next, with fixed-width digits so
+ * the arrows do not shift. */
+.tile-tab .tile-tab-contrib > .contrib-count {
   order: 2;
   flex: none;
   min-width: 52px;

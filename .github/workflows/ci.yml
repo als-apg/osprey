@@ -1610,6 +1610,7 @@ jobs:
           tests/interfaces/ariel/test_vocabulary_banner.py \
           tests/interfaces/ariel/test_shell.py \
           tests/interfaces/history/test_history_page_browser.py \
+          tests/interfaces/test_events_notice_browser.py \
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 

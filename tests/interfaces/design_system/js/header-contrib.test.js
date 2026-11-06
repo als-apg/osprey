@@ -48,7 +48,7 @@ describe('contributeHeader', () => {
   test('is a no-op when the page is not embedded', () => {
     const post = vi.spyOn(window, 'postMessage');
 
-    contributeHeader([{ kind: 'text', id: 't', text: 'hello' }]);
+    contributeHeader([{ kind: 'button', id: 'b', label: 'hello' }]);
 
     expect(post).not.toHaveBeenCalled();
   });
@@ -59,7 +59,7 @@ describe('contributeHeader', () => {
     document.body.classList.add('embedded');
     const post = vi.spyOn(window, 'postMessage');
 
-    contributeHeader([{ kind: 'text', id: 't', text: 'hello' }]);
+    contributeHeader([{ kind: 'button', id: 'b', label: 'hello' }]);
 
     expect(post).not.toHaveBeenCalled();
   });

@@ -11,13 +11,16 @@
  *
  * The hub adds to that vocabulary for headers it builds itself (the
  * Artifacts tile, through contributeLocal in tile-header-contrib.js); the
- * sanitizer accepts the additions on the message path too:
+ * sanitizer accepts these additions on the message path too, except `count`:
  *
  *   - `crumb` {root, leaf?}: the `root › leaf` breadcrumb of primitives.css
  *     (`.osprey-crumb`). It stands in for the tile's own name, so an empty
  *     leaf shows the root alone, and the leaf's full text is its tooltip
  *     because a long one ellipsizes.
  *   - `sep`: a `.osprey-head-sep` hairline between control groups.
+ *   - `count` {text}: the Artifacts pager's `N of M`, between its ‹ ›.
+ *     Hub-only: the sanitizer drops it from a panel's message, so no panel
+ *     can put inert text in the bar.
  *   - `icon` on a button: a name from ICON_NAMES in
  *     /design-system/js/icons.js. Icon-only, the button is an
  *     `.osprey-icon-btn` named by its `title`; with a label it is an
@@ -46,7 +49,8 @@ const SEARCH_DEBOUNCE_MS = 200;
 /**
  * @typedef {import('/design-system/js/header-contrib.js').HeaderItem} PanelHeaderItem
  * @typedef {Omit<PanelHeaderItem, 'kind'> & {
- *   kind: PanelHeaderItem['kind'] | 'crumb' | 'sep',
+ *   kind: PanelHeaderItem['kind'] | 'crumb' | 'sep' | 'count',
+ *   text?: string,
  *   icon?: string,
  *   root?: string,
  *   leaf?: string,
@@ -87,7 +91,7 @@ export function createItem(item, dispatch) {
  */
 export function patchItem(item, el) {
   itemState.set(el, item);
-  if (item.kind === 'text') {
+  if (item.kind === 'count') {
     setText(el, item.text ?? '');
   } else if (item.kind === 'button') {
     patchButton(item, /** @type {HTMLButtonElement} */ (el));
@@ -136,9 +140,9 @@ export function closeMenu() {
  * @returns {HTMLElement}
  */
 function build(item, dispatch) {
-  if (item.kind === 'text') {
+  if (item.kind === 'count') {
     const span = document.createElement('span');
-    span.className = 'contrib-text';
+    span.className = 'contrib-count';
     span.textContent = item.text ?? '';
     return span;
   }
