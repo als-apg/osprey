@@ -15,9 +15,9 @@
  *     leaves 56 px of the rail for the next group. The cap obeys the same
  *     maximum.
  *   - DRAG / KEYS. A pointer drag sets the height live; ArrowUp / ArrowDown
- *     step 16 px (64 with Shift). While dragging, a dashed tick marks the
- *     automatic height and the line snaps to it within 10 px; ending a drag
- *     on it, or a double-click, goes back to automatic sizing.
+ *     step 16 px (64 with Shift). Within 10 px of the automatic height the
+ *     drag snaps to it, silently; ending a drag on it, or a double-click, goes
+ *     back to automatic sizing.
  *   - STORAGE. The chosen height is kept per user under
  *     `scopedStorageKey('osprey-sidebar-workspace-height')` as a fraction of
  *     the rail's room (`0.4583`), so it holds when the window is resized;
@@ -140,15 +140,6 @@ export function initSidebarDivider(railOrNull) {
   divider.setAttribute('aria-orientation', 'horizontal');
   divider.setAttribute('aria-label', 'Workspace height');
   divider.setAttribute('tabindex', '0');
-  divider.dataset.tip = 'Resize workspace';
-  divider.dataset.tipDetail =
-    'Drag to set the Workspace height; drag onto the mark or double-click to reset it';
-  // The automatic height's mark, drawn while a drag runs.
-  const tick = document.createElement('div');
-  tick.className = 'sidebar-divider-default';
-  tick.setAttribute('aria-hidden', 'true');
-  tick.hidden = true;
-  divider.append(tick);
 
   /** @returns {HTMLElement | null} the group holding the Agent row */
   const workspace = () =>
@@ -315,8 +306,6 @@ export function initSidebarDivider(railOrNull) {
     const place = (px) => {
       dragHeight = px;
       paint();
-      tick.style.top = `${automatic - px}px`;
-      tick.hidden = false;
     };
     /** @param {PointerEvent} ev */
     const move = (ev) => {
@@ -330,7 +319,6 @@ export function initSidebarDivider(railOrNull) {
       divider.removeEventListener('pointercancel', end);
       divider.classList.remove('dragging');
       root.removeAttribute('data-sidebar-dividing');
-      tick.hidden = true;
       const px = dragHeight;
       dragHeight = null;
       // A press that never moved is half of a double-click: nothing to store.
