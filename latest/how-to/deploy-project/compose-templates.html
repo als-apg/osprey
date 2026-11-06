@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 06, 2026"/>
   </head>
   
   
@@ -563,21 +563,30 @@ is required to define the shared network (<code class="docutils literal notransl
 </div>
 <p>Per-service templates have access to the full configuration plus a few
 engine-injected values:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># services/postgresql/docker-compose.yml.j2</span>
-<span class="nt">services</span><span class="p">:</span>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">services/postgresql/docker-compose.yml.j2 (excerpt)</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">services.postgresql.container_name | default(&#39;osprey-postgres&#39;)</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="w"> </span><span class="nv">osprey_labels.project_name</span><span class="w"> </span><span class="p p-Indicator">}}</span><span class="l l-Scalar l-Scalar-Plain">-ariel-postgres</span>
 <span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">deployment.bind_address</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">default(&#39;127.0.0.1&#39;)</span><span class="nv"> </span><span class="s">}}:{{</span><span class="nv"> </span><span class="s">services.postgresql.port_host</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">default(osprey_ports.postgres,</span><span class="nv"> </span><span class="s">true)</span><span class="nv"> </span><span class="s">}}:5432&quot;</span>
 <span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">TZ</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">system.timezone</span><span class="p p-Indicator">}}</span>
+<span class="w">      </span><span class="nt">TZ</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="w"> </span><span class="nv">system.timezone</span><span class="w"> </span><span class="p p-Indicator">}}</span>
 <span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey-network</span>
+<span class="w">      </span><span class="nt">osprey-network</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">aliases</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel-postgres</span>
 </pre></div>
 </div>
+</div>
+<p>The container name starts with the project name because a container name is
+global on the host: a fixed name collides when two projects run on one host.
+Other containers reach the database through the stable network alias
+<code class="docutils literal notranslate"><span class="pre">ariel-postgres</span></code>.</p>
 <p>Common access patterns: <code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>,
 <code class="docutils literal notranslate"><span class="pre">{{file_paths.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{system.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{project_root}}</span></code>,
-<code class="docutils literal notranslate"><span class="pre">{{deployment.bind_address}}</span></code>, and <code class="docutils literal notranslate"><span class="pre">{{osprey_labels.project_name}}</span></code> /
+<code class="docutils literal notranslate"><span class="pre">{{deployment.bind_address}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{osprey_ports.&lt;slot&gt;}}</span></code> (the port layout
+for the deployment’s <code class="docutils literal notranslate"><span class="pre">port_base</span></code>), and <code class="docutils literal notranslate"><span class="pre">{{osprey_labels.project_name}}</span></code> /
 <code class="docutils literal notranslate"><span class="pre">project_root</span></code> (injected by the deploy engine).</p>
 <p>The build writes <code class="docutils literal notranslate"><span class="pre">build/osprey-labels.override.yml</span></code> and passes it to every
 compose invocation. It gives every service <code class="docutils literal notranslate"><span class="pre">osprey.project.name</span></code>,

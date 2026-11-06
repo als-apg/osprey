@@ -47,21 +47,20 @@ tile on the web dashboard, graded against the bands you choose:
 
 .. code-block:: yaml
 
-   health:
-     categories:
-       control_system:
-         checks:
-           - name: beam_current
-             type: channel_read
-             address: SR:DCCT
-             ok_range: [1.0, 500.0]     # mA — below 1 mA warns (no stored beam)
-           - name: rf_frequency
-             type: channel_read
-             address: SR:RF:FREQ
-           - name: archiver_data
-             type: archiver_freshness
-             channel: SR:DCCT
-             max_age_s: 300             # the archiver must have a sample < 5 min old
+   # profile.yml
+   config:
+     health.categories.control_system.checks:
+       - name: beam_current
+         type: channel_read
+         address: SR:DCCT
+         ok_range: [1.0, 500.0]     # mA — below 1 mA warns (no stored beam)
+       - name: rf_frequency
+         type: channel_read
+         address: SR:RF:FREQ
+       - name: archiver_data
+         type: archiver_freshness
+         channel: SR:DCCT
+         max_age_s: 300             # the archiver must have a sample < 5 min old
 
 Reads go through the same connector the agent itself uses (selected by
 ``control_system.type``), so a green canary also proves the connector
@@ -85,23 +84,22 @@ grades a channel:
 
 .. code-block:: yaml
 
-   health:
-     categories:
-       host:                     # any name that is not a built-in category
-         checks:
-           - name: host_ioc      # no bands: the row grades reachability
-             type: channel_read
-             address: HOST01:CPU_CNT
-           - name: cpu_load
-             type: channel_read
-             address: HOST01:SYS_CPU_LOAD
-             ok_range: [0, 70]        # over 70 % busy is a warning
-             warn_range: [0, 90]      # over 90 % busy is an error
-             requires: [host_ioc]
-           - name: memory_free
-             type: channel_read
-             address: HOST01:MEM_FREE
-             requires: [host_ioc]
+   # profile.yml
+   config:
+     health.categories.host.checks:   # any name that is not a built-in category
+       - name: host_ioc      # no bands: the row grades reachability
+         type: channel_read
+         address: HOST01:CPU_CNT
+       - name: cpu_load
+         type: channel_read
+         address: HOST01:SYS_CPU_LOAD
+         ok_range: [0, 70]        # over 70 % busy is a warning
+         warn_range: [0, 90]      # over 90 % busy is an error
+         requires: [host_ioc]
+       - name: memory_free
+         type: channel_read
+         address: HOST01:MEM_FREE
+         requires: [host_ioc]
 
 Record names differ between facilities, so substitute the ones your host IOC
 publishes. The first check is the recipe's one piece of structure: it names a
@@ -206,8 +204,9 @@ process that runs the suite, or a path to a ``.py`` file, which does not:
 
 .. code-block:: yaml
 
-   health:
-     plugins:
+   # profile.yml
+   config:
+     health.plugins:
        - ./health/facility_checks.py   # a file in your project
        - my_package.health_checks      # an installed module
 
@@ -234,12 +233,12 @@ Title, host, port, and auto-launch live under ``health.title`` and
 
 .. code-block:: yaml
 
-   health:
-     title: "Beamline Health"   # dashboard heading (default "System Health")
-     web:
-       host: 127.0.0.1          # default 127.0.0.1
-       port: 10700              # the port layout's slot for it
-       auto_launch: true        # default true
+   # profile.yml
+   config:
+     health.title: "Beamline Health"   # dashboard heading (default "System Health")
+     health.web.host: 127.0.0.1        # default 127.0.0.1
+     # health.web.port: 10700          # default: deployment.port_base + 700
+     health.web.auto_launch: true      # default true
 
 The sidecar re-reads ``config.yml`` and the project ``.env`` on each refresh,
 so most edits are picked up on the next poll without a restart. The exception

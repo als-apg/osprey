@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 06, 2026"/>
   </head>
   
   
@@ -655,21 +655,20 @@ osprey<span class="w"> </span>health<span class="w"> </span>--full<span class="w
 always live on a healthy machine — a beam-current or RF-frequency readback.
 Declare it once and it appears as its own category in the CLI report and as a
 tile on the web dashboard, graded against the bands you choose:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">categories</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">checks</span><span class="p">:</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">beam_current</span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
-<span class="w">          </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DCCT</span>
-<span class="w">          </span><span class="nt">ok_range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">500.0</span><span class="p p-Indicator">]</span><span class="w">     </span><span class="c1"># mA — below 1 mA warns (no stored beam)</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rf_frequency</span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
-<span class="w">          </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:RF:FREQ</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_data</span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_freshness</span>
-<span class="w">          </span><span class="nt">channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DCCT</span>
-<span class="w">          </span><span class="nt">max_age_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w">             </span><span class="c1"># the archiver must have a sample &lt; 5 min old</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">health.categories.control_system.checks</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">beam_current</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
+<span class="w">      </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DCCT</span>
+<span class="w">      </span><span class="nt">ok_range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">500.0</span><span class="p p-Indicator">]</span><span class="w">     </span><span class="c1"># mA — below 1 mA warns (no stored beam)</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rf_frequency</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
+<span class="w">      </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:RF:FREQ</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_data</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_freshness</span>
+<span class="w">      </span><span class="nt">channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DCCT</span>
+<span class="w">      </span><span class="nt">max_age_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w">             </span><span class="c1"># the archiver must have a sample &lt; 5 min old</span>
 </pre></div>
 </div>
 <p>Reads go through the same connector the agent itself uses (selected by
@@ -689,23 +688,22 @@ each host publishes CPU load, free memory and uptime as ordinary channels, and
 where the machine OSPREY runs on is one of them, nothing new has to be
 installed to see those readings here — they are channels, and <code class="docutils literal notranslate"><span class="pre">channel_read</span></code>
 grades a channel:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">categories</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w">                     </span><span class="c1"># any name that is not a built-in category</span>
-<span class="w">      </span><span class="nt">checks</span><span class="p">:</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_ioc</span><span class="w">      </span><span class="c1"># no bands: the row grades reachability</span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
-<span class="w">          </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:CPU_CNT</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cpu_load</span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
-<span class="w">          </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:SYS_CPU_LOAD</span>
-<span class="w">          </span><span class="nt">ok_range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">70</span><span class="p p-Indicator">]</span><span class="w">        </span><span class="c1"># over 70 % busy is a warning</span>
-<span class="w">          </span><span class="nt">warn_range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">90</span><span class="p p-Indicator">]</span><span class="w">      </span><span class="c1"># over 90 % busy is an error</span>
-<span class="w">          </span><span class="nt">requires</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">host_ioc</span><span class="p p-Indicator">]</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory_free</span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
-<span class="w">          </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:MEM_FREE</span>
-<span class="w">          </span><span class="nt">requires</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">host_ioc</span><span class="p p-Indicator">]</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">health.categories.host.checks</span><span class="p">:</span><span class="w">   </span><span class="c1"># any name that is not a built-in category</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_ioc</span><span class="w">      </span><span class="c1"># no bands: the row grades reachability</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
+<span class="w">      </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:CPU_CNT</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cpu_load</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
+<span class="w">      </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:SYS_CPU_LOAD</span>
+<span class="w">      </span><span class="nt">ok_range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">70</span><span class="p p-Indicator">]</span><span class="w">        </span><span class="c1"># over 70 % busy is a warning</span>
+<span class="w">      </span><span class="nt">warn_range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">90</span><span class="p p-Indicator">]</span><span class="w">      </span><span class="c1"># over 90 % busy is an error</span>
+<span class="w">      </span><span class="nt">requires</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">host_ioc</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory_free</span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
+<span class="w">      </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:MEM_FREE</span>
+<span class="w">      </span><span class="nt">requires</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">host_ioc</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <p>Record names differ between facilities, so substitute the ones your host IOC
@@ -797,8 +795,9 @@ each module’s checks as a category of its own — writing that module is a
 developer task, covered in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
 <p>An entry is either a dotted module path, which has to be importable by every
 process that runs the suite, or a path to a <code class="docutils literal notranslate"><span class="pre">.py</span></code> file, which does not:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">plugins</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">health.plugins</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./health/facility_checks.py</span><span class="w">   </span><span class="c1"># a file in your project</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_package.health_checks</span><span class="w">      </span><span class="c1"># an installed module</span>
 </pre></div>
@@ -821,12 +820,12 @@ list, and its LED reflects sidecar liveness only — the pass/warn/fail status
 lives inside the panel.</p>
 <p>Title, host, port, and auto-launch live under <code class="docutils literal notranslate"><span class="pre">health.title</span></code> and
 <code class="docutils literal notranslate"><span class="pre">health.web</span></code> (all optional):</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Beamline</span><span class="nv"> </span><span class="s">Health&quot;</span><span class="w">   </span><span class="c1"># dashboard heading (default &quot;System Health&quot;)</span>
-<span class="w">  </span><span class="nt">web</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span><span class="w">          </span><span class="c1"># default 127.0.0.1</span>
-<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10700</span><span class="w">              </span><span class="c1"># the port layout&#39;s slot for it</span>
-<span class="w">    </span><span class="nt">auto_launch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># default true</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">health.title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Beamline</span><span class="nv"> </span><span class="s">Health&quot;</span><span class="w">   </span><span class="c1"># dashboard heading (default &quot;System Health&quot;)</span>
+<span class="w">  </span><span class="nt">health.web.host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span><span class="w">        </span><span class="c1"># default 127.0.0.1</span>
+<span class="w">  </span><span class="c1"># health.web.port: 10700          # default: deployment.port_base + 700</span>
+<span class="w">  </span><span class="nt">health.web.auto_launch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">      </span><span class="c1"># default true</span>
 </pre></div>
 </div>
 <p>The sidecar re-reads <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> on each refresh,

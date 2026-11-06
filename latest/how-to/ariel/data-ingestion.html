@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 06, 2026"/>
   </head>
   
   
@@ -665,7 +665,7 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 <p><strong>Entry times.</strong> A time with a UTC offset, a <code class="docutils literal notranslate"><span class="pre">Z</span></code> or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (<code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time; it counts as failed in the run’s totals (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span></code>), and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">ingest</span></code> reports how many it skipped. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.</p>
 <p><strong>Entry text.</strong> The ALS eLog adapter stores entry text as plain text. It decodes HTML entities, turns the logbook’s markup into line breaks, paragraphs and list items, and writes a link as its text followed by its address in parentheses. It also undoes the backslash escaping the logbook adds: <code class="docutils literal notranslate"><span class="pre">\'</span></code>, <code class="docutils literal notranslate"><span class="pre">\&quot;</span></code> and an encoded <code class="docutils literal notranslate"><span class="pre">\&amp;quot;</span></code> become plain quotes, and a doubled backslash becomes one. A single backslash before any other character is kept. Text without markup keeps its line breaks and indentation. Entries stored before this behaviour are rewritten once by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span></code> runs as its first step. Their enhancements are cleared, so the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code>, or each later sync or watch pass, embeds and summarises the plain text again.</p>
 <p><strong>Using a custom adapter:</strong></p>
-<p>An adapter written and registered as described in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a> is selected the same way as a built-in one: set <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> to its registered name in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, or pass it as <code class="docutils literal notranslate"><span class="pre">--adapter</span></code> — both accept every registered name, the framework’s and your own.</p>
+<p>An adapter written and registered as described in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a> is selected the same way as a built-in one: set <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> to its registered name under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, or pass it as <code class="docutils literal notranslate"><span class="pre">--adapter</span></code> — both accept every registered name, the framework’s and your own.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
 <p>The adapters above reflect the logbook schemas we have had access to so far. If you implement an adapter for your facility and test it successfully, we encourage you to open a pull request to make it natively available in Osprey — this makes it easier for other sites running similar logbook systems to get started.</p>
@@ -1095,12 +1095,14 @@ ships a service that runs it in a container. Declare it in the build profile:</p
 </div>
 <p>The build copies the bundled compose template into the project and adds
 <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> to <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> then starts a container
-that runs <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span> <span class="pre">--watch</span></code>. That command syncs once on startup —
+that runs <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span> <span class="pre">--watch</span></code>. That command syncs once on startup:
 schema migration, an incremental ingest, and an enhancement pass over entries
-that are still missing derived fields — and then enters the polling loop. Every later poll runs the same enhancement pass after it stores
-what it fetched, so a larger backlog is worked down over successive polls. A
-failure in that pass is logged and does not count toward
-<code class="docutils literal notranslate"><span class="pre">max_consecutive_failures</span></code>.</p>
+that are still missing derived fields. It then enters the polling loop. Every
+later poll runs the same enhancement pass after it stores what it fetched, so a
+larger backlog is worked down over successive polls. A failure in that pass is
+logged and does not count toward <code class="docutils literal notranslate"><span class="pre">max_consecutive_failures</span></code>.</p>
+<p>The profile key <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> renders the compose service <code class="docutils literal notranslate"><span class="pre">ariel-sync</span></code>
+(container <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-ariel-sync</span></code>): two spellings of this one service.</p>
 <p>The deployed loop does not wait for a prior ingest. It overrides
 <code class="docutils literal notranslate"><span class="pre">require_initial_ingest</span></code>, so a container started against an empty database
 does the full first ingest itself.</p>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 06, 2026"/>
   </head>
   
   
@@ -627,10 +627,10 @@ failed.</p></li>
 <span class="w">  </span><span class="nt">ariel.attachments.view.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                     </span><span class="c1"># no picture tools</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span></code>, and the <code class="docutils literal notranslate"><span class="pre">ariel-sync</span></code> service that runs it, caption
-and embed pictures on every poll, so a deployment with the watcher needs no
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code> for them. Run by hand while the watcher is working on
-a module, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--module</span> <span class="pre">image_caption</span></code> prints
+<p>Both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span> <span class="pre">--watch</span></code> (the command the
+<code class="docutils literal notranslate"><span class="pre">ariel-sync</span></code> service runs) caption and embed pictures on every poll. A
+deployment with either needs no <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code> for them. Run by hand
+while the watcher is working on a module, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--module</span> <span class="pre">image_caption</span></code> prints
 <code class="docutils literal notranslate"><span class="pre">image_caption:</span> <span class="pre">skipped,</span> <span class="pre">another</span> <span class="pre">pass</span> <span class="pre">is</span> <span class="pre">running</span> <span class="pre">it</span> <span class="pre">(osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span> <span class="pre">runs</span> <span class="pre">the</span> <span class="pre">picture</span> <span class="pre">modules</span> <span class="pre">on</span> <span class="pre">every</span> <span class="pre">poll)</span></code>
 and does nothing for that module. The same holds for <code class="docutils literal notranslate"><span class="pre">--retry-failed</span></code> and
 <code class="docutils literal notranslate"><span class="pre">--refresh-stale</span></code>. Run it again once the watcher’s pass has ended.</p>

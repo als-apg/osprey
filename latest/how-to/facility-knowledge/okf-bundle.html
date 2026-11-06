@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 06, 2026"/>
   </head>
   
   
@@ -753,22 +753,21 @@ session, or directly via <code class="docutils literal notranslate"><span class=
 <input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-2">
 osprey knowledge CLI</label><div class="sd-tab-content docutils">
-<p id="knowledge-cli">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> command group provides four operations from the
-terminal — three that manage an OKF bundle and one that compiles the
-ontology table.  The graph store has no verb of its own: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
-seeds it from the build’s graph view (see <a class="reference internal" href="../deploy-project/index.html"><span class="doc">Container Deployment</span></a>).</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>--help
-<span class="go">Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...</span>
+<p id="knowledge-cli">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> command group provides three operations from the
+terminal, all of which manage an OKF bundle. The graph store has no verb
+of its own: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds it from the build’s graph view (see
+<a class="reference internal" href="../deploy-project/index.html"><span class="doc">Container Deployment</span></a>). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">--help</span></code> prints:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...
 
-<span class="go">  Manage OKF facility knowledge bundles.</span>
+  Manage OKF facility knowledge bundles.
 
-<span class="go">Options:</span>
-<span class="go">  --help  Show this message and exit.</span>
+Options:
+  --help  Show this message and exit.
 
-<span class="go">Commands:</span>
-<span class="go">  regen-index       Regenerate index.md files throughout an OKF bundle.</span>
-<span class="go">  seed-from-ttl     Seed OKF stub documents from the build&#39;s graph view.</span>
-<span class="go">  validate          Validate all OKF documents in a bundle.</span>
+Commands:
+  regen-index    Regenerate index.md files throughout an OKF bundle.
+  seed-from-ttl  Seed OKF stub documents from the build&#39;s graph view.
+  validate       Validate all OKF documents in a bundle.
 </pre></div>
 </div>
 <p><strong>regen-index</strong> — regenerates <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files throughout the bundle. Run

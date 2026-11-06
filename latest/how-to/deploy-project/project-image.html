@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 05, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 06, 2026"/>
   </head>
   
   
@@ -565,8 +565,8 @@ Kubernetes notes</p></li>
 </div>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>Every project built by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> includes a reference container
-recipe at the project root:</p>
+<p>Every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders a reference container recipe into <code class="docutils literal notranslate"><span class="pre">build/</span></code>
+(and its image-context copy under <code class="docutils literal notranslate"><span class="pre">build/.image/&lt;project&gt;/build/</span></code>):</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> — an image definition that installs the agent CLI and OSPREY,
 copies the project in, relocates its recorded paths, and serves the web
@@ -574,13 +574,11 @@ terminal.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — keeps secrets (<code class="docutils literal notranslate"><span class="pre">.env</span></code>) and host-specific state
 (<code class="docutils literal notranslate"><span class="pre">.venv</span></code>, <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code>) out of the image.</p></li>
 </ul>
-<p>Both files are <strong>generated, then yours to edit in place</strong>: change them freely,
-but keep <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — the build depends on it, and it is what keeps your
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> secrets out of the image. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> never touches either
-file.</p>
-<p>An edit made in <code class="docutils literal notranslate"><span class="pre">build/</span></code> lasts only until the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, which
-re-renders both from the framework. To make a customization durable, put your
-version in the source zone’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror instead:</p>
+<p>Both files are re-rendered from the framework on every build, so an edit made
+in <code class="docutils literal notranslate"><span class="pre">build/</span></code> lasts only until the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. To customize them, put
+your version in the source zone’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror instead. Keep <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+excluded in a <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> of your own; the build also strips every
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> file except <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> from the image context.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   project/
     Dockerfile          # copied verbatim onto the render, every build
@@ -864,7 +862,7 @@ before building:</p>
 </div>
 <p>(<code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-bundle.crt</span></code> is the RHEL-family spelling of the system
 bundle; Debian-family hosts use <code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-certificates.crt</span></code>.)
-These are the same three variables the image sets for its own inside —
+These are three of the four variables the image sets for its own inside —
 exported here, they cover the host-side build, which reads them from the
 shell rather than from the deployment’s env files.</p>
 </div>
