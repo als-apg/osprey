@@ -75,7 +75,7 @@ afterEach(() => {
 describe('the default model', () => {
   test('three built-in groups, and nothing placed', () => {
     expect(defaultModel()).toEqual({
-      version: 2,
+      version: 3,
       groups: [
         { id: 'workspace', label: 'Workspace' },
         { id: 'tools', label: 'Tools' },
@@ -132,7 +132,7 @@ describe('a value written under the current version', () => {
     ['system-health', 'tools'],
   ])('%s moved to %s survives a reload', (panel, group) => {
     expect(moveToGroup(panel, group)).toBe(true);
-    expect(stored().version).toBe(2);
+    expect(stored().version).toBe(3);
     expect(groupOf(panel)).toBe(group);
     // A reload reads the stored text again, with nothing held in memory.
     localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(stored(), null, 1));
@@ -140,7 +140,7 @@ describe('a value written under the current version', () => {
   });
 });
 
-describe('a value stored before System existed', () => {
+describe('a value of an older version', () => {
   const legacy = {
     version: 1,
     groups: [
@@ -149,6 +149,7 @@ describe('a value stored before System existed', () => {
     ],
     placement: { events: 'workspace', ariel: 'tools', 'system-health': 'tools' },
   };
+  const custom = { id: 'g-0a1b2c3d', label: "test'" };
 
   test('an untouched old default gains System holding Events and Health', () => {
     localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
@@ -158,36 +159,65 @@ describe('a value stored before System existed', () => {
     expect(groupOf('ariel')).toBe('tools');
   });
 
-  test('a deliberate move of Events away from the old default stays put', () => {
-    for (const to of ['tools', 'g-0a1b2c3d']) {
-      const groups = [...legacy.groups, ...(to === 'tools' ? [] : [{ id: to, label: 'Mine' }])];
-      localStorage.setItem(
-        GROUPS_STORAGE_KEY,
-        JSON.stringify({ ...legacy, groups, placement: { events: to } })
-      );
-      expect(groupOf('events')).toBe(to);
+  test.each([1, 2])(
+    'version %i: Events and Health go to System from whichever group held them',
+    (version) => {
+      for (const to of ['workspace', 'tools', custom.id]) {
+        localStorage.setItem(
+          GROUPS_STORAGE_KEY,
+          JSON.stringify({
+            version,
+            groups: [...legacy.groups, { id: 'system', label: 'System' }, custom],
+            placement: { events: to, 'system-health': to, bluesky: custom.id },
+          })
+        );
+        expect(groupOf('events')).toBe('system');
+        expect(groupOf('system-health')).toBe('system');
+      }
     }
-  });
+  );
 
-  test('an empty System saved by an intermediate build follows the default', () => {
-    const saved = {
-      ...legacy,
-      groups: [...legacy.groups, { id: 'system', label: 'System' }],
-    };
-    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(saved));
+  test("the owner's layout: Events in Tools, a custom group holding Bluesky", () => {
+    localStorage.setItem(
+      GROUPS_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        groups: [
+          { id: 'workspace', label: 'Workspace' },
+          { id: 'tools', label: 'Tools' },
+          custom,
+          { id: 'system', label: 'System' },
+        ],
+        placement: { events: 'tools', bluesky: custom.id },
+      })
+    );
     expect(groupOf('events')).toBe('system');
-    expect(groupOf('system-health')).toBe('system');
-    expect(groupOf('ariel')).toBe('tools');
+    expect(groupOf('bluesky')).toBe(custom.id);
+    expect(labelOf(custom.id)).toBe("test'");
+    expect(groupIds()).toEqual(['workspace', 'tools', custom.id, 'system']);
   });
 
-  test('a System that holds a panel keeps every placement', () => {
-    const saved = {
-      ...legacy,
-      groups: [...legacy.groups, { id: 'system', label: 'System' }],
-      placement: { events: 'workspace', 'system-health': 'system' },
-    };
-    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(saved));
-    expect(groupOf('events')).toBe('workspace');
+  test('custom groups and their other panels survive', () => {
+    localStorage.setItem(
+      GROUPS_STORAGE_KEY,
+      JSON.stringify({
+        ...legacy,
+        groups: [...legacy.groups, custom],
+        placement: { ...legacy.placement, ariel: custom.id },
+      })
+    );
+    expect(groupIds()).toEqual(['tools', 'workspace', custom.id, 'system']);
+    expect(groupOf('ariel')).toBe(custom.id);
+  });
+
+  test('the next change writes the current version, after which a move of Events sticks', () => {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify({ ...legacy, version: 2 }));
+    expect(groupOf('events')).toBe('system');
+    expect(moveToGroup('events', 'tools')).toBe(true);
+    expect(stored().version).toBe(3);
+    // A reload reads the stored text again, with nothing held in memory.
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(stored(), null, 1));
+    expect(groupOf('events')).toBe('tools');
   });
 
   test('moving a panel back to its default stores no placement', () => {
@@ -203,8 +233,6 @@ describe('a value stored before System existed', () => {
     expect(labelOf('tools')).toBe('Instruments');
     expect(labelOf('system')).toBe('System');
     expect(groupOf('ariel')).toBe('tools');
-    // A panel never placed follows the new default.
-    expect(groupOf('system-health')).toBe('system');
   });
 
   test('a stored default with no placements puts Events in System', () => {
@@ -332,7 +360,7 @@ describe('persistence', () => {
     moveToGroup('ariel', id);
 
     expect(stored()).toEqual({
-      version: 2,
+      version: 3,
       groups: [
         { id: 'workspace', label: 'Workspace' },
         { id, label: 'Beamline' },
@@ -374,7 +402,8 @@ describe('persistence', () => {
     ['not JSON', 'not json'],
     ['not an object', '[]'],
     ['null', 'null'],
-    ['another version', JSON.stringify({ ...valid, version: 2 })],
+    ['a later version', JSON.stringify({ ...valid, version: 4 })],
+    ['a version that is not a number', JSON.stringify({ ...valid, version: '3' })],
     ['groups that are not a list', JSON.stringify({ ...valid, groups: {} })],
     ['a built-in group missing', JSON.stringify({ ...valid, groups: [valid.groups[0]] })],
     [
