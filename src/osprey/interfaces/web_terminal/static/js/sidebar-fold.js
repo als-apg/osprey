@@ -108,7 +108,11 @@ function spacerOf(rail) {
 function holdScroll(rail, scrollTop) {
   const spacer = spacerOf(rail);
   spacer.style.height = '0px';
-  const need = scrollTop + rail.clientHeight - rail.scrollHeight;
+  // scrollHeight never reads below clientHeight, so the content's end is the
+  // spacer's own top (it is the last child, at height 0).
+  const contentEnd =
+    spacer.getBoundingClientRect().top - rail.getBoundingClientRect().top + rail.scrollTop;
+  const need = scrollTop + rail.clientHeight - contentEnd;
   spacer.style.height = `${Math.max(0, Math.ceil(need))}px`;
   if (need > 0) rail.scrollTop = scrollTop;
 }
