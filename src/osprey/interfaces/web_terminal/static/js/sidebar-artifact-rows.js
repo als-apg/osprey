@@ -16,7 +16,7 @@
  * (`.osprey-list-row`): a listbox option whose `aria-selected` marks the
  * artifact the viewer shows. Session rows, heads, bands and notices are
  * role="presentation", so the listbox owns only options. The builders keep no
- * state: what is open, shown or highlighted is passed in. All text goes in
+ * state: what is open and what is shown is passed in. All text goes in
  * through textContent.
  *
  * @module sidebar-artifact-rows
@@ -332,8 +332,7 @@ export function groupHead(form, { sessionId, count, open }) {
 
 /**
  * @typedef {object} TreeRowState
- * @property {string | null} shownId        the artifact the viewer shows
- * @property {string | null} [highlightId]  the artifact page load points at
+ * @property {string | null} shownId  the artifact the viewer shows, null while it is off view
  */
 
 /**
@@ -343,8 +342,8 @@ export function groupHead(form, { sessionId, count, open }) {
  * @param {TreeRowState & {iconName?: string, depth?: number}} options
  * @returns {HTMLButtonElement}
  */
-export function artifactRow(entry, { shownId, highlightId = null, iconName, depth = 2 }) {
-  const row = treeRow(entry, iconName ?? iconOfForm(entry.form), { shownId, highlightId }, depth);
+export function artifactRow(entry, { shownId, iconName, depth = 2 }) {
+  const row = treeRow(entry, iconName ?? iconOfForm(entry.form), shownId, depth);
   const markers = [];
   if (entry.interactive) markers.push('interactive');
   if (entry.run_part === 'output' && entry.exec_id) markers.push('run');
@@ -360,8 +359,8 @@ export function artifactRow(entry, { shownId, highlightId = null, iconName, dept
  * @param {TreeRowState & {open: boolean}} options
  * @returns {HTMLElement[]}
  */
-export function runTreeRows(head, { shownId, highlightId = null, open }) {
-  const row = treeRow(head, RUN_ICON, { shownId, highlightId }, 2);
+export function runTreeRows(head, { shownId, open }) {
+  const row = treeRow(head, RUN_ICON, shownId, 2);
   row.classList.add('osprey-tree-run');
   row.dataset.run = head.exec_id || head.id;
   const status = head.run_status ?? null;
@@ -387,18 +386,13 @@ export function runTreeRows(head, { shownId, highlightId = null, open }) {
   const others = Object.keys(PART_TITLES).flatMap((role) => parts.filter((p) => p.role === role));
   /** @type {HTMLElement[]} */
   const kids = outputs.map((part) =>
-    treeRow(
-      { id: part.id, title: part.title ?? part.id },
-      iconOfForm(part.form),
-      { shownId, highlightId },
-      3
-    )
+    treeRow({ id: part.id, title: part.title ?? part.id }, iconOfForm(part.form), shownId, 3)
   );
   for (const part of others) {
     const kid = treeRow(
       { id: part.id, title: PART_TITLES[/** @type {keyof typeof PART_TITLES} */ (part.role)] },
       'notebook',
-      { shownId, highlightId },
+      shownId,
       3
     );
     kid.classList.add('osprey-tree-part');
@@ -421,10 +415,7 @@ export function runTreeRows(head, { shownId, highlightId = null, open }) {
  * }} options
  * @returns {HTMLElement[]}
  */
-export function kindRows(
-  entries,
-  { forms, sessionId, counts, openGroups, openRuns, shownId, highlightId = null }
-) {
+export function kindRows(entries, { forms, sessionId, counts, openGroups, openRuns, shownId }) {
   /** @type {Map<string, TreeEntry[]>} */
   const byForm = new Map();
   for (const entry of entries) {
@@ -451,11 +442,9 @@ export function kindRows(
     if (!open) continue;
     for (const entry of mine) {
       if (form.key === 'runs') {
-        nodes.push(
-          ...runTreeRows(entry, { shownId, highlightId, open: openRuns.has(runKey(entry)) })
-        );
+        nodes.push(...runTreeRows(entry, { shownId, open: openRuns.has(runKey(entry)) }));
       } else {
-        nodes.push(artifactRow(entry, { shownId, highlightId, iconName: form.icon }));
+        nodes.push(artifactRow(entry, { shownId, iconName: form.icon }));
       }
     }
   }
@@ -470,7 +459,7 @@ export function kindRows(
  * @param {TreeRowState & {openRuns: Set<string>}} options
  * @returns {HTMLElement[]}
  */
-export function activityRows(entries, { shownId, highlightId = null, openRuns }) {
+export function activityRows(entries, { shownId, openRuns }) {
   const today = facilityDayKey(new Date());
   const yesterday = dayBefore(today);
   /** @type {HTMLElement[]} */
@@ -492,11 +481,9 @@ export function activityRows(entries, { shownId, highlightId = null, openRuns })
       nodes.push(plainRow('osprey-tree-day osprey-tree-d1', label));
     }
     if (isHead) {
-      nodes.push(
-        ...runTreeRows(entry, { shownId, highlightId, open: openRuns.has(runKey(entry)) })
-      );
+      nodes.push(...runTreeRows(entry, { shownId, open: openRuns.has(runKey(entry)) }));
     } else {
-      nodes.push(artifactRow(entry, { shownId, highlightId }));
+      nodes.push(artifactRow(entry, { shownId }));
     }
   }
   return nodes;
@@ -519,21 +506,16 @@ function iconOfForm(form) {
 }
 
 /**
- * A tree row: a list row at an indent, selected when shown, marked when
- * page load points at it.
+ * A tree row: a list row at an indent, selected when shown.
  * @param {ArtifactEntry} entry
  * @param {string} iconName
- * @param {{shownId: string | null, highlightId: string | null}} state
+ * @param {string | null} shownId
  * @param {number} depth
  * @returns {HTMLButtonElement}
  */
-function treeRow(entry, iconName, { shownId, highlightId }, depth) {
+function treeRow(entry, iconName, shownId, depth) {
   const row = listRow(entry, iconName, shownId);
   row.classList.add('osprey-tree-row', `osprey-tree-d${depth}`);
-  if (highlightId && entry.id === highlightId) {
-    row.classList.add('osprey-tree-highlight');
-    row.dataset.highlight = '';
-  }
   return row;
 }
 

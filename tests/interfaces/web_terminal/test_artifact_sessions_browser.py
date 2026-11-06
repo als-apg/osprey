@@ -539,12 +539,11 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
         other = fresh.new_page()
         _boot(other, hub)
         expect(_active(other)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
-        # Its last-open artifact comes back: shown when docked, else highlighted.
-        expect(
-            other.locator(
-                f'{_TREE} .osprey-list-row[data-id="{profile.id}"][aria-selected="true"]'
-            ).or_(other.locator(f'{_TREE} .osprey-tree-highlight[data-id="{profile.id}"]'))
-        ).to_have_count(1, timeout=_TIMEOUT_MS)
+        # Its last-open artifact comes back: shown (and selected) when docked,
+        # else revealed in the tree.
+        expect(other.locator(f'{_TREE} .osprey-list-row[data-id="{profile.id}"]')).to_have_count(
+            1, timeout=_TIMEOUT_MS
+        )
     finally:
         fresh.close()
 
@@ -570,7 +569,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     expect(_active(page)).to_have_attribute("data-session-id", f"key:{minted}", timeout=_TIMEOUT_MS)
 
 
-def test_without_a_docked_artifacts_panel_page_load_only_highlights(hub, page):
+def test_without_a_docked_artifacts_panel_page_load_only_reveals(hub, page):
     profile = next(e for e in _store(hub).list_entries() if e.kind == BEAM_PROFILE_KIND)
     sid = _PROFILE.transcript_id
     _boot(page, hub)
@@ -591,9 +590,9 @@ def test_without_a_docked_artifacts_panel_page_load_only_highlights(hub, page):
     # The layout is left as it was: the Artifacts tile is not docked again.
     page.wait_for_timeout(1000)
     expect(page.locator(_ARTIFACTS_TILE_CLOSE)).to_have_count(0)
-    expect(page.locator(f'{_TREE} .osprey-tree-highlight[data-id="{profile.id}"]')).to_have_count(
-        1, timeout=_TIMEOUT_MS
-    )
+    expect(_row(page, profile.id)).to_have_count(1, timeout=_TIMEOUT_MS)
+    # Nothing shows an artifact, so no row is highlighted.
+    expect(page.locator(f'{_TREE} [aria-selected="true"]')).to_have_count(0)
 
 
 def _remove_artifacts_from_rail(page: Page) -> None:

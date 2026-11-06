@@ -11,8 +11,9 @@
  *
  * Once the listing has the active row, the tree applies the page-load rule
  * (OR-3): with the Artifacts panel docked its last-open artifact is shown
- * there; otherwise the layout is left alone and the artifact is highlighted
- * in the tree. Page load never calls the open rule (`activateTab`).
+ * there; otherwise the layout is left alone and no row is highlighted (the
+ * tree highlights only what the panel shows). Page load never calls the open
+ * rule (`activateTab`).
  *
  * The real terminal.js, chat.js, session-pointer.js, session-model.js and
  * sidebar-artifacts.js are mounted in app.js's boot order; xterm and the
@@ -305,24 +306,21 @@ describe('the server wins', () => {
 });
 
 describe('OR-3 without a docked Artifacts panel', () => {
-  test('the artifact is highlighted in the tree and the layout is left as it is', async () => {
+  test('the artifact is revealed in the tree, nothing is highlighted, the layout is left as it is', async () => {
     mocks.hasDockedTile.mockImplementation(() => false);
 
     await loadPage();
 
-    const row = artifactRow('a2');
-    expect(row).not.toBeNull();
-    expect(row?.classList.contains('osprey-tree-highlight')).toBe(true);
-    expect(row?.hasAttribute('data-highlight')).toBe(true);
-    // Only the one artifact is highlighted.
-    expect(tree().querySelectorAll('[data-highlight]')).toHaveLength(1);
+    expect(artifactRow('a2')).not.toBeNull();
+    // No panel shows an artifact, so no row is highlighted.
+    expect(tree().querySelectorAll('[aria-selected="true"]')).toHaveLength(0);
     // The layout is untouched: no panel opened or activated.
     expect(mocks.activateTab).not.toHaveBeenCalled();
     // The pick is not taken: the panel (wherever it is) keeps its usual rule.
     expect(shown()).not.toBe('a2');
   });
 
-  test('an operator pick clears the load highlight', async () => {
+  test('an operator pick shows the artifact', async () => {
     mocks.hasDockedTile.mockImplementation(() => false);
     await loadPage();
 
@@ -331,7 +329,6 @@ describe('OR-3 without a docked Artifacts panel', () => {
     );
     await settle();
 
-    expect(tree().querySelectorAll('[data-highlight]')).toHaveLength(0);
     expect(shown()).toBe('a2');
   });
 });

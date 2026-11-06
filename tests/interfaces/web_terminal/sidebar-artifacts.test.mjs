@@ -843,3 +843,55 @@ describe('live updates', () => {
     );
   });
 });
+
+/* ---- the highlight ------------------------------------------------------ */
+
+describe('the highlight: at most one row, the one the Artifacts panel shows', () => {
+  const selected = () =>
+    [...document.querySelectorAll('[data-session-tree] [aria-selected="true"]')].map(
+      (el) => /** @type {HTMLElement} */ (el).dataset.id
+    );
+  const dockChanged = () => document.dispatchEvent(new CustomEvent('osprey-dock-view-changed'));
+
+  test("only one row is selected, and a switch clears the old session's", async () => {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    click(artifactRowEl('a2'));
+    await settle();
+    expect(selected()).toEqual(['a2']);
+
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+
+    expect(shown()).toBe('b1');
+    expect(selected()).toEqual(['b1']);
+    expect(tree().querySelector('[data-id="a2"]')).toBeNull();
+  });
+
+  test('closing the Artifacts panel clears the highlight; reopening it brings it back', async () => {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    click(artifactRowEl('a2'));
+    await settle();
+    expect(selected()).toEqual(['a2']);
+
+    mocks.hasDockedTile.mockReturnValue(false);
+    dockChanged();
+    expect(selected()).toEqual([]);
+
+    mocks.hasDockedTile.mockReturnValue(true);
+    dockChanged();
+    expect(selected()).toEqual(['a2']);
+  });
+
+  test('with the Artifacts panel off view no row is selected, whatever it would show', async () => {
+    mocks.hasDockedTile.mockReturnValue(false);
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    expect(shown()).toBeTruthy();
+    expect(selected()).toEqual([]);
+  });
+});

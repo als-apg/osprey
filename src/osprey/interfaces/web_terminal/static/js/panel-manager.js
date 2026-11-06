@@ -81,6 +81,7 @@ import {
 } from './dock-workspace.js';
 import { getLayoutHolder } from './dock-apply.js';
 import { serviceTileTarget } from './dock-open.js';
+import { deriveSurfaced, followDock } from './dock-view.js';
 import {
   initMenuPolicy,
   openTileContextMenu,
@@ -332,8 +333,10 @@ export async function initPanelManager(panelId) {
   // The landing must not claim the workspace slot while a stored layout may
   // still arrive (dock-workspace restores it after its own /api/panels round
   // trip): re-run it once the boot layout is final. Latched, so a layout that
-  // settled before this registration fires it at once.
+  // settled before this registration fires it at once. From then on the
+  // surfaced panel is re-derived on every settled dock change (dock-view.js).
   setLayoutRestoredHook(ensureActivePanel);
+  setLayoutRestoredHook(() => followDock(() => deriveSurfaced(isPanelKnown, markSurfaced)));
 
   // Hand panel-placement (the tile-geometry half of this module: open-beside,
   // agent switch, arrange rebuild) live access to the state it places panels
@@ -350,7 +353,7 @@ export async function initPanelManager(panelId) {
     activate: activateTab,
     reveal: showPanel,
     getActive: getActiveTabId,
-    clearActive: clearActivePanel,
+    clearActive: () => markSurfaced(null),
     renderEmpty: renderEmptyState,
     // An arranged tile is attributed on both surfaces (rail entry flash + tile
     // body glow, one gesture: flashAgentTile). Only the arrange path passes
@@ -608,15 +611,14 @@ export async function initPanelManager(panelId) {
     activate: activateTab,
     navigate: navigatePanel,
     getActive: getActiveTabId,
-    // Forget the surfaced panel WITHOUT clearing the rail accent: a tile closed
-    // with no fallback leaves the rail pointing at the panel that is one click
-    // away again (clearActivePanel is the human-close path, not this one).
+    // Forget the surfaced panel; the rail accent follows the dock once the
+    // close settles (dock-view.js).
     resetActive: () => {
       activeTabId = null;
     },
     // Forget the surfaced panel AND its rail accent: an op that took the
     // viewed panel away and could surface nothing in its place.
-    clearActive: clearActivePanel,
+    clearActive: () => markSurfaced(null),
     renderEmpty: renderEmptyState,
     // Closure, not the value: onAgentActivity is reassigned whenever the
     // activity strip registers (setActivityStripHandler), and the dispatcher
@@ -649,14 +651,19 @@ export function labelOf(id) {
 }
 
 /**
- * Clear the locally-tracked active panel (rail accent, container stamp,
- * activeTabId). Used when the active panel's tile goes away without a
- * successor — a human tile close.
+ * Set the locally-tracked surfaced panel — activeTabId, the rail accent, and
+ * the container stamp CSS shapes the workspace by (files.css
+ * [data-active-panel]) — or clear all three with null: the panel's tile went
+ * away without a successor. Derived from the dock after every whole-layout
+ * apply and every settled dock change (dock-view.js), so no accent outlives
+ * the tile it marked; fallback mode keeps activateTab's bookkeeping.
+ * @param {string | null} id
  */
-function clearActivePanel() {
-  activeTabId = null;
-  setActive(railEl, null);
-  if (containerEl) delete containerEl.dataset.activePanel;
+function markSurfaced(id) {
+  activeTabId = id;
+  setActive(railEl, id);
+  if (containerEl && id) containerEl.dataset.activePanel = id;
+  else if (containerEl) delete containerEl.dataset.activePanel;
 }
 
 /**
@@ -669,7 +676,7 @@ function clearActivePanel() {
  */
 function vacatePanel(panelId) {
   concealPanel(panelId);
-  if (activeTabId === panelId) clearActivePanel();
+  if (activeTabId === panelId) markSurfaced(null);
 }
 
 /**
@@ -684,7 +691,7 @@ function vacatePanel(panelId) {
  */
 function retireTile(panelId) {
   withEchoSuppressed(() => hidePanel(panelId));
-  clearActivePanel();
+  markSurfaced(null);
 }
 
 /**
@@ -698,7 +705,7 @@ function retireTile(panelId) {
  */
 function vacateForPopout(panelId) {
   withEchoSuppressed(() => hidePanel(panelId));
-  if (activeTabId === panelId) clearActivePanel();
+  if (activeTabId === panelId) markSurfaced(null);
 }
 
 /**
@@ -714,10 +721,10 @@ function vacateForPopout(panelId) {
  */
 function settleAppliedLayout({ asLeft = false } = {}) {
   hydrateRestoredTiles();
-  const holder = getLayoutHolder();
-  if (!holder || serviceTileTarget(holder.layout, holder.context())) return;
   const keep = asLeft ? null : activeTabId;
-  clearActivePanel();
+  // The accent follows the layout now on screen, never the one it replaced;
+  // a dock still showing a service tile (or no dock at all) is left as it is.
+  if (deriveSurfaced(isPanelKnown, markSurfaced) !== false) return;
   const kept = keep && visiblePanels.has(keep) && panelState[keep]?.healthy && !isPoppedOut(keep);
   if (kept) activateTab(/** @type {string} */ (keep));
   else if (!asLeft) ensureActivePanel();
@@ -837,15 +844,7 @@ export function activateTab(
   // that refused to surface at the guarded returns above keep theirs too.
   if (!landing) clearBadge(panelId);
 
-  activeTabId = panelId;
-
-  // Reflect the active entry on the rail
-  setActive(railEl, panelId);
-
-  // Stamp the active panel id on the content container so CSS can shape the
-  // workspace region per-panel — e.g. a panel that paints its own full-bleed
-  // canvas opts out of the hub's card chrome (see files.css [data-active-panel]).
-  if (containerEl) containerEl.dataset.activePanel = panelId;
+  markSurfaced(panelId);
 
   // Clear any stale empty-state placeholder before revealing a panel. isConnected
   // guards a cached ref that was detached by renderEmptyState's innerHTML wipe
