@@ -861,7 +861,7 @@ describe('the viewer', () => {
 
   test('an artifact no session owns shows without a pager, and lists nowhere', async () => {
     await boot();
-    frame({ type: 'focus', id: 'u1', automatic: false });
+    frame({ type: 'focus', id: 'u1', automatic: false, session: T1 });
     await settle();
     expect(shown()).toBe('u1');
     expect(headerNow().items.map((i) => i.id)).toEqual(['crumb', 'open', 'save']);
