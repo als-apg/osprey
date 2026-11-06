@@ -596,6 +596,7 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
             "overrides",
             "archiver",
             "logbook",
+            "sessions",
             "drivers",
             "couple",
             "noise",
