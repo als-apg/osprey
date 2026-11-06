@@ -127,6 +127,7 @@ export function rowIn(list, id) {
  * @typedef {object} SessionRow
  * @property {string} transcript_id
  * @property {string | null} [title]
+ * @property {'user' | 'auto' | 'prompt' | null} [title_source]
  * @property {'pending' | 'done' | 'failed'} [naming]
  * @property {'live' | 'idle'} [state]
  * @property {boolean} [truncated]
@@ -257,6 +258,7 @@ export function sessionRow(session, { active, open, count, summarized = false })
   dot.className = `osprey-dot ${session.state === 'live' ? 'ok' : 'hollow'}`;
   const row = topRow('osprey-tree-session', open, [dot, title], active || open);
   row.dataset.sessionId = session.transcript_id;
+  if (session.title_source) row.dataset.titleSource = session.title_source;
   if (active) row.classList.add('active');
   if (summarized) row.dataset.count = String(count);
   if (pending && session.title) row.append(treeSpan('osprey-tree-naming', 'naming…'));
