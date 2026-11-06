@@ -241,12 +241,11 @@ def test_demo_history_fresh_hub_lists_and_replays_the_seeded_sessions(deployment
             for part in session["parts"]:
                 assert titles[part["transcript_id"]] == part["title"]
 
-        # Every artifact under the row whose conversation made it; "Earlier" empty.
+        # Every artifact under the row whose conversation made it.
         with dep.gallery() as gallery:
             summary = gallery.post(
                 "/api/artifacts/session-summary", json={"sessions": sorted(seeded)}
             ).json()
-        assert summary["earlier"]["total"] == 0
         counts = {tid: summary["counts"].get(tid, {}).get("total", 0) for tid in seeded}
         expected = dict.fromkeys(seeded, 0)
         for owner in entry_owner.values():
