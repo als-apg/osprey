@@ -133,16 +133,33 @@ describe('a value stored before System existed', () => {
       { id: 'tools', label: 'Instruments' },
       { id: 'workspace', label: 'Workspace' },
     ],
-    placement: { events: 'workspace', ariel: 'tools' },
+    placement: { events: 'workspace', ariel: 'tools', 'system-health': 'tools' },
   };
+
+  test('an untouched old default gains System holding Events and Health', () => {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
+    expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
+    expect(groupOf('events')).toBe('system');
+    expect(groupOf('system-health')).toBe('system');
+    expect(groupOf('ariel')).toBe('tools');
+  });
+
+  test('a deliberate move of Events away from the old default stays put', () => {
+    for (const to of ['tools', 'g-0a1b2c3d']) {
+      const groups = [...legacy.groups, ...(to === 'tools' ? [] : [{ id: to, label: 'Mine' }])];
+      localStorage.setItem(
+        GROUPS_STORAGE_KEY,
+        JSON.stringify({ ...legacy, groups, placement: { events: to } })
+      );
+      expect(groupOf('events')).toBe(to);
+    }
+  });
 
   test('keeps the arrangement and gains System as the last group', () => {
     localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
     expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
     expect(labelOf('tools')).toBe('Instruments');
     expect(labelOf('system')).toBe('System');
-    // The operator's own placement of Events wins over the new default.
-    expect(groupOf('events')).toBe('workspace');
     expect(groupOf('ariel')).toBe('tools');
     // A panel never placed follows the new default.
     expect(groupOf('system-health')).toBe('system');
