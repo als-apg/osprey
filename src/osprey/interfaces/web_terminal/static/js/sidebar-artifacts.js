@@ -70,7 +70,7 @@ import * as iframeSync from './panel-iframe-sync.js';
 import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
 import { isPoppedOut } from './popout.js';
-import { setServiceMenuExtras } from './panel-menu-policy.js';
+import { setServiceMenuExtras, showAgentPane } from './panel-menu-policy.js';
 import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
 import * as store from './sidebar-artifact-listing.js';
 import * as rows from './sidebar-artifact-rows.js';
@@ -511,6 +511,7 @@ function treeNodes() {
     const node = rows.sessionRow(/** @type {any} */ (row), {
       active: isActive,
       open,
+      paneOpen: isTerminalPanelOpen(),
       count,
       summarized: treeId in data.totals.counts,
     });
@@ -636,9 +637,12 @@ function onClick(event) {
     const treeId = session.dataset.sessionId ?? '';
     // The session in use folds or unfolds; another is entered, never browsed.
     // After expand-all, the click first returns to the session in use alone.
+    // With the Agent pane closed, a click on it reopens the pane, not a fold.
     if (treeId === activeTreeId()) {
-      state.activeFolded = state.expandAll ? false : !state.activeFolded;
+      const reopen = !isTerminalPanelOpen();
+      state.activeFolded = reopen || state.expandAll ? false : !state.activeFolded;
       state.expandAll = false;
+      if (reopen) showAgentPane();
       render();
     } else void openInAgent(treeId);
     return;
@@ -646,15 +650,15 @@ function onClick(event) {
   if (target.closest('[data-tree-more]')) return void model.loadMore();
   const head = target.closest('[data-group-head]');
   if (head instanceof HTMLElement) {
-    const [treeId, form] = splitGroup(head.dataset.groupHead ?? '');
-    flip(openGroupsOf(treeId), form);
+    const [treeId, form] = rows.splitGroup(head.dataset.groupHead ?? '');
+    rows.flip(openGroupsOf(treeId), form);
     return render();
   }
   const row = target.closest('.osprey-list-row[data-id]');
   if (!(row instanceof HTMLElement)) return;
   const run = row.closest('[data-run]') ?? (row.matches('[data-run]') ? row : null);
   if (disc && run instanceof HTMLElement) {
-    flip(state.openRuns, run.dataset.run ?? '');
+    rows.flip(state.openRuns, run.dataset.run ?? '');
     return render();
   }
   pickArtifact(/** @type {string} */ (row.dataset.id));
@@ -677,20 +681,6 @@ export function toggleAllSessions(force) {
   state.expandAll = force ?? !model.rows().every((r) => unfolded(treeIdOf(r), active));
   state.activeFolded = !state.expandAll;
   render();
-}
-
-/**
- * @param {string} value  `sid:form`; the session id may itself hold colons
- * @returns {[string, string]}
- */
-function splitGroup(value) {
-  const at = value.lastIndexOf(':');
-  return [value.slice(0, at), value.slice(at + 1)];
-}
-
-/** Toggle a key's membership. @param {Set<string>} set @param {string} key */
-function flip(set, key) {
-  if (!set.delete(key)) set.add(key);
 }
 
 /**
