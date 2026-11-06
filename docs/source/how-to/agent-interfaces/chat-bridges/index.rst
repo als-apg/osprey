@@ -7,7 +7,8 @@ Chat Bridges
 A chat bridge lets your team ask the OSPREY agent questions from a chat room
 they already sit in. Someone mentions the agent in the room, and the answer
 comes back in the same conversation — plots included, and on Nextcloud Talk and
-Google Chat other files too.
+Google Chat other files too. A bridge is a good way to give a whole team read
+access to the machine, and a poor way to hand out control of it.
 
 Three chat systems are supported today: **Nextcloud Talk**, **Google Chat** and
 **Microsoft Teams**. They answer the same way and are switched on the same way in
@@ -20,11 +21,9 @@ A bridge is not a second :doc:`Web Terminal <../../web-terminal/index>`. There i
 no session to keep open, and nobody is asked to approve anything while an answer
 is being worked out.
 
-A chat question is one headless run of the agent, and what the agent may do
-during that run is decided in advance — by the dispatcher trigger the bridge
-fires, not by the question and not by who asked it. That makes a bridge a good
-way to give a whole team read access to the machine, and a poor way to hand out
-control of it.
+A chat question is one headless run of the agent. What the agent may do during
+that run is decided in advance by the dispatcher trigger the bridge fires, not
+by the question and not by who asked it.
 
 How It Works
 ============
@@ -122,19 +121,17 @@ you pick one:
      - A Google Cloud project
      - An Azure subscription, and permission to install a Teams app
 
-The plots-and-files row is the one to read twice. Google Chat can only display an
-image if Google itself can fetch it, so files are published to a world-readable
-address rather than shared privately; Nextcloud Talk keeps them in the room, and
-Teams returns plots inside the conversation and keeps other files in your own
-tenant, readable by the conversation's members. If a public
-address is not acceptable at your facility, you can turn
-files off in a Google Chat deployment and still get text answers — the Google Chat
-page explains how.
+The plots-and-files row is the one to read twice:
 
-Microsoft Teams asks the most of you up front, because a Teams bot can only be
-reached over the public internet: you publish a small relay into Azure, and the
-bridge reads what the relay queues. In return, nothing in your stack is exposed,
-and files stay in your own tenant, readable by the conversation's members. The Microsoft Teams page walks through it.
+- **Nextcloud Talk** keeps plots and files in the room.
+- **Google Chat** publishes them at a public link, because Google must fetch an
+  image to display it. The Google Chat page shows how to turn files off and
+  keep text answers.
+- **Microsoft Teams** returns plots inside the conversation and keeps other
+  files in your own tenant, readable by the conversation's members. It needs a
+  small relay in Azure, because a Teams bot is reached only over the public
+  internet. Nothing in your stack is exposed. The Microsoft Teams page walks
+  through it.
 
 Learn More
 ==========
@@ -176,7 +173,8 @@ Learn More
       :shadow: md
 
       What it takes to connect Slack, email, or any other service the agent
-      should answer from -- the developer seam, in the Contributing guide.
+      should answer from -- the extension point for developers, in the
+      Contributing guide.
 
 .. seealso::
 
