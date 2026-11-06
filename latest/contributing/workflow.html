@@ -659,48 +659,54 @@ CI wall-clock.</p>
 <td><p>2026-08-21</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">test</span></code> unit shards</p></td>
-<td><p>rest-a share of non-cli test time</p></td>
-<td><p>43–51 %</p></td>
+<td><p>rest-a / rest-b / rest-c share of non-cli test time</p></td>
+<td><p>32–35 / 33–37 / 31–32 %</p></td>
 <td><p>GHA per-test event logs</p></td>
-<td><p>2026-10-16</p></td>
+<td><p>2026-11-06</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">scan-agentic-e2e</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">test</span></code> unit shards</p></td>
+<td><p>cli-a share of tests/cli test time</p></td>
+<td><p>51 %</p></td>
+<td><p>GHA per-test event logs</p></td>
+<td><p>2026-11-06</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">scan-agentic-e2e</span></code></p></td>
 <td><p>whole cycle, cold / warm</p></td>
 <td><p>~33 min / ~7.5 min</p></td>
 <td><p>Apple Silicon host</p></td>
 <td><p>2026-08-11</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">terminal-auth-multiuser-e2e</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">terminal-auth-multiuser-e2e</span></code></p></td>
 <td><p>whole module, warm layer cache</p></td>
 <td><p>6 min 55 s</p></td>
 <td><p>developer host</p></td>
 <td><p>2026-08-27</p></td>
 </tr>
-<tr class="row-odd"><td><p>single-build auth lanes</p></td>
+<tr class="row-even"><td><p>single-build auth lanes</p></td>
 <td><p>one cold image build</p></td>
 <td><p>7–11 min</p></td>
 <td><p>runner</p></td>
 <td><p>2026-08-26</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">full-chain-auth-e2e</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">full-chain-auth-e2e</span></code></p></td>
 <td><p>whole module: project image built / warm / warm with history cases</p></td>
 <td><p>~5 min / ~1 min / 114 s</p></td>
 <td><p>developer host</p></td>
 <td><p>2026-10-11</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-e2e</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-e2e</span></code></p></td>
 <td><p>VA image cold / bench IOC image / three modules (54 tests) / total</p></td>
 <td><p>226 s / 1 s / 214 s / 7.4 min</p></td>
 <td><p>Apple Silicon host, amd64 emulated</p></td>
 <td><p>2026-08-27</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-e2e</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-e2e</span></code></p></td>
 <td><p>run step</p></td>
 <td><p>3.6 min</p></td>
 <td><p>Apple Silicon host, amd64 emulated</p></td>
 <td><p>2026-08-27</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-agentic-e2e</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">target-switch-agentic-e2e</span></code></p></td>
 <td><p>VA image cold / bench IOC image / module (10 tests) / total</p></td>
 <td><p>226 s / 1 s / 281 s / ~8.5 min</p></td>
 <td><p>Apple Silicon host, amd64 emulated</p></td>
