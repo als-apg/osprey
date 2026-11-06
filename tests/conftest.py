@@ -1088,18 +1088,15 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
 }
 
 
-def pytest_collection_modifyitems(items):
-    """Hold the wall-clock scan to pytest's marks, then auto-skip items whose
-    `requires_<resource>` marker's resource is missing.
+@pytest.hookimpl(specname="pytest_collection_modifyitems")
+def pytest_collection_modifyitems_wallclock_guard(items):
+    """Hold the wall-clock scan to pytest's marks.
 
     This runs before `-m` deselects anything, so the sweep, which deselects the
     `wallclock` marker, still sees every marked test it collects; one in a file
     tests/_wallclock_files.py does not find would be timed by nothing, and the
-    run stops with its name.
-
-    Each predicate is evaluated at most once per pytest run via cache. A
-    missing resource adds a real `pytest.mark.skip(reason=...)`; satisfied
-    markers are no-ops.
+    run stops with its name. A hook of its own, so the resource auto-skip below
+    keeps the narrow item contract its tests drive it with.
     """
     strays = _wallclock_files.unscanned(
         item.path for item in items if item.get_closest_marker(_wallclock_files.MARKER)
@@ -1109,6 +1106,15 @@ def pytest_collection_modifyitems(items):
         # the controller only as an INTERNALERROR without its text.
         print("\n".join(strays), file=sys.stderr, flush=True)
         raise pytest.UsageError("\n".join(strays))
+
+
+def pytest_collection_modifyitems(items):
+    """Auto-skip items whose `requires_<resource>` marker's resource is missing.
+
+    Each predicate is evaluated at most once per pytest run via cache. A
+    missing resource adds a real `pytest.mark.skip(reason=...)`; satisfied
+    markers are no-ops.
+    """
     cache: dict[str, tuple[bool, str]] = {}
     for item in items:
         for marker_name, (predicate, reason) in _RESOURCE_CHECKS.items():

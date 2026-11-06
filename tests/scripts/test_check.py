@@ -1085,7 +1085,9 @@ def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses(root_conftest: A
     before ``-m`` deselects them, so the sweep that hands the marker away is
     where a marker applied out of the scan's sight is caught."""
     carrier = REPO_ROOT / "tests/scripts/test_run_bounded.py"
-    root_conftest.pytest_collection_modifyitems([_item(carrier, True), _item(CI_YML, False)])
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(carrier, True), _item(CI_YML, False)]
+    )
 
 
 def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses__mutation_marks_out_of_sight(
@@ -1094,7 +1096,7 @@ def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses__mutation_marks_
     unscanned = Path(__file__).resolve()
     assert not wallclock_files.carries_marker(unscanned), "this file carries it; stale"
     with pytest.raises(pytest.UsageError, match=r"tests/scripts/test_check\.py holds a wallclock"):
-        root_conftest.pytest_collection_modifyitems([_item(unscanned, True)])
+        root_conftest.pytest_collection_modifyitems_wallclock_guard([_item(unscanned, True)])
 
 
 def test_a_run_stops_on_a_marked_test__the_excluded_trees_are_left_to_their_checks(
@@ -1102,7 +1104,20 @@ def test_a_run_stops_on_a_marked_test__the_excluded_trees_are_left_to_their_chec
 ) -> None:
     sidecar = REPO_ROOT / "tests/integration/test_suite_exit_bound.py"
     elsewhere = REPO_ROOT / "packages/osprey-connectors/tests/conftest.py"
-    root_conftest.pytest_collection_modifyitems([_item(sidecar, True), _item(elsewhere, True)])
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(sidecar, True), _item(elsewhere, True)]
+    )
+
+
+def test_the_wallclock_guard_is_a_collection_hook_pytest_calls(
+    pytestconfig: pytest.Config, root_conftest: Any
+) -> None:
+    """The guard has a name of its own, so it is wired by ``specname``; without
+    it pytest would never call the guard and the tests above would still pass."""
+    hook = pytestconfig.pluginmanager.hook.pytest_collection_modifyitems
+    called = [impl.function for impl in hook.get_hookimpls() if impl.plugin is root_conftest]
+    assert root_conftest.pytest_collection_modifyitems_wallclock_guard in called, called
+    assert root_conftest.pytest_collection_modifyitems in called, called
 
 
 def test_a_dropped_ignore_changes_the_sweep() -> None:
