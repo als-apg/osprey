@@ -33,11 +33,6 @@ from typing import Literal
 OUTPUT_SUBDIR = "source/_static/screenshots"
 MANIFEST_NAME = "manifest.json"
 
-# Determinism anchor: seeded ARIEL logbook dates resolve their relative
-# ``days_ago``/``at_time`` against this frozen instant, so ``--stack`` captures
-# are byte-stable across runs. Passed to ``osprey sim apply --now``.
-ANCHOR = "2024-03-18T12:00:00"
-
 _ALLOWED_THEMES = frozenset({"light", "dark"})
 
 

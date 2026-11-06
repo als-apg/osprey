@@ -44,6 +44,7 @@ from __future__ import annotations
 import ast
 import copy
 import dataclasses
+import fnmatch
 import functools
 import importlib.util
 import itertools
@@ -154,6 +155,8 @@ PARSE_ONLY_STEP = "Parse the merged podman topology (podman-compose config, no c
 #: Re-proves the recorded CLI tool inventory against the real pinned build.
 INVENTORY_JOB = "static-checks"
 INVENTORY_STEP = "Check the recorded CLI tool inventory against the pinned build"
+#: Resumes an authored transcript under the pinned build (same job as the inventory).
+RESUME_PROBE_STEP = "Resume an authored transcript under the pinned CLI"
 PODMAN_COMPOSE_PIN = "podman-compose==1.0.6"
 #: The containers.conf key that forces podman's choice of external provider.
 COMPOSE_PROVIDER_FORCE_KEY = "compose_providers"
@@ -400,7 +403,7 @@ def _resolved(call: list[str]) -> list[list[str]]:
     """The command lines *call* resolves to on a GitHub runner, without running them.
 
     A shard named by a matrix expression is dropped, so the unit sweep resolves
-    to the selection all three shards add up to; ``$COV_ARGS`` is the empty
+    to the selection all five shards add up to; ``$COV_ARGS`` is the empty
     string every cell but one sets.
     """
     words: list[str] = []
@@ -532,6 +535,27 @@ def _drop_ignore_line(run_text: str, target_file: str) -> str:
     kept = [line for line in lines if f"--ignore={target_file}" not in line]
     assert len(kept) == len(lines) - 1, f"expected exactly one line dropped for {target_file}"
     return "".join(kept)
+
+
+def _drop_lines(text: str, dropped: Callable[[str], bool], stale: str) -> str:
+    """Remove every line ``dropped`` matches, keeping each line's own ending.
+
+    A ``"\n".join(...)`` rebuild loses a trailing newline, so it differs from
+    its source even when nothing matched; this helper fails instead, with
+    ``stale`` naming what the mutation expected to find."""
+    lines = text.splitlines(keepends=True)
+    kept = [line for line in lines if not dropped(line)]
+    assert len(kept) < len(lines), f"{stale} — mutation is stale"
+    return "".join(kept)
+
+
+def test_drop_lines_fails_when_nothing_matches() -> None:
+    with pytest.raises(AssertionError, match="no b — mutation is stale"):
+        _drop_lines("a\nc\n", lambda line: "b" in line, "no b")
+
+
+def test_drop_lines_keeps_the_trailing_newline() -> None:
+    assert _drop_lines("a\nb\nc\n", lambda line: "b" in line, "no b") == "a\nc\n"
 
 
 def test_e2e_tests_ignores_both_new_lane_files__mutation_drops_tiled_ignore() -> None:
@@ -1602,8 +1626,11 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
     ``worksteal`` runs) on stock xdist. Deleting it would silently widen the
     override's reach beyond the lane it was written for."""
     source = _conftest_source()
-    mutated = "\n".join(line for line in source.splitlines() if 'getoption("dist"' not in line)
-    assert mutated != source, f"no dist-option guard in {SCHEDULER_SOURCE} — mutation is stale"
+    mutated = _drop_lines(
+        source,
+        lambda line: 'getoption("dist"' in line,
+        f"no dist-option guard in {SCHEDULER_SOURCE}",
+    )
     assert _missing_scheduler_parts(mutated) == ["loadgroup guard"]
 
 
@@ -1668,7 +1695,8 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
     """Whether *command* collects *test_file*.
 
     A path argument covers the file when the file is it or lies under it; a
-    ``--ignore=`` argument takes it back out. An invocation whose only path is
+    ``--ignore=`` argument takes it back out, and so does an ``--ignore-glob=``
+    pattern that matches it or a directory above it. An invocation whose only path is
     a bare variable (``$E2E_FILTER``) is an operator-chosen debug path on a
     manual dispatch, not a lane, and reaches nothing here; an invocation with
     no path at all collects ``testpaths``, which is ``tests`` and the
@@ -1680,6 +1708,7 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
         tokens = command.split()
     paths = [t for t in tokens if t == "tests" or t.startswith(("tests/", "packages/"))]
     ignores = [t.removeprefix("--ignore=") for t in tokens if t.startswith("--ignore=")]
+    globs = [t.removeprefix("--ignore-glob=") for t in tokens if t.startswith("--ignore-glob=")]
     if not paths:
         if any(t.startswith("$") for t in tokens):
             return False
@@ -1689,7 +1718,17 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
         path = path.split("::", 1)[0].rstrip("/")
         return test_file == path or test_file.startswith(f"{path}/")
 
-    return any(_covers(p) for p in paths) and not any(_covers(i) for i in ignores)
+    def _globbed(pattern: str) -> bool:
+        parts = test_file.split("/")
+        return any(
+            fnmatch.fnmatchcase("/".join(parts[:n]), pattern) for n in range(1, len(parts) + 1)
+        )
+
+    return (
+        any(_covers(p) for p in paths)
+        and not any(_covers(i) for i in ignores)
+        and not any(_globbed(g) for g in globs)
+    )
 
 
 def _carriers(row: LaneLeavingMarker, sources: dict[str, str]) -> list[str]:
@@ -4358,23 +4397,40 @@ def test_workflow_on_key_parses_to_bool_true_not_string(workflow: dict[str, Any]
 # ---------------------------------------------------------------------------
 
 BROWSER_JOB = "visual-theming"
+#: The browser lane's second job, run beside the first: the watchdog suite and
+#: the visual-regression suite with its baseline steps.
+BROWSER_AGENT_JOB = "visual-theming-agent"
+BROWSER_JOBS = (BROWSER_JOB, BROWSER_AGENT_JOB)
 BROWSER_RUN_STEP = "Run behavioral theming suite"
+#: The serial step of the browser lane's second job: the suites that start
+#: containers, kept out of the parallel run step (see (h3b)).
+BROWSER_CONTAINER_STEP = "Run the container-backed browser suites"
 AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
 
 
-#: What makes a step of the browser job one that runs suites. The lane runs
-#: its suites in more than one step — the visual-regression step stands apart
-#: so its baseline upload and commit steps can follow it — so a suite named by
-#: any of them is run by the lane, and matching the invocation rather than
-#: listing step names keeps a further step from being named by the lane and
-#: invisible to every guard below.
+def _browser_step_naming(wf: dict[str, Any], test_file: str) -> dict[str, Any]:
+    """The browser-lane step whose pytest invocation names *test_file* on a line of its own."""
+    for job in BROWSER_JOBS:
+        for step in _jobs(wf)[job]["steps"]:
+            if f"{test_file} \\\n" in step.get("run", ""):
+                return step
+    raise AssertionError(f"no browser-lane step names {test_file}")
+
+
+#: What makes a step of the browser jobs one that runs suites. The lane runs
+#: its suites in more than one step and more than one job — the
+#: visual-regression step stands apart so its baseline upload and commit steps
+#: can follow it — so a suite named by any of them is run by the lane, and
+#: matching the invocation rather than listing step names keeps a further step
+#: from being named by the lane and invisible to every guard below.
 _BROWSER_PYTEST_INVOCATION = "uv run pytest "
 
 
 def _browser_lane_files(wf: dict[str, Any]) -> str:
     return "\n".join(
         step["run"]
-        for step in _jobs(wf)[BROWSER_JOB]["steps"]
+        for job in BROWSER_JOBS
+        for step in _jobs(wf)[job]["steps"]
         if _BROWSER_PYTEST_INVOCATION in step.get("run", "")
     )
 
@@ -4396,16 +4452,17 @@ _STEP_OUTPUT_CONDITION = re.compile(r"steps\.[A-Za-z0-9_-]+\.outputs")
 _CACHE_SAVE_ACTION = "actions/cache/save@"
 
 
-def _browser_steps_gated_on_outputs(wf: dict[str, Any]) -> list[str | None]:
+def _browser_steps_gated_on_outputs(wf: dict[str, Any], job: str = BROWSER_JOB) -> list[str | None]:
     return [
         step.get("name")
-        for step in _jobs(wf)[BROWSER_JOB]["steps"]
+        for step in _jobs(wf)[job]["steps"]
         if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
         and not str(step.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
     ]
 
 
-def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None:
+@pytest.mark.parametrize("browser_job", BROWSER_JOBS)
+def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any], browser_job: str) -> None:
     """Three ways this lane could stop running, all of them silent.
 
     A job-level ``if:`` skips the job; a paths-filter step lets a later step
@@ -4414,17 +4471,17 @@ def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None
     ``all-checks-passed`` requires this lane to be ``success``, so any of the
     three turns the browser proof off at exactly the moment a reviewer is
     reading a green check."""
-    job = _jobs(workflow)[BROWSER_JOB]
-    assert "if" not in job, f"the '{BROWSER_JOB}' lane carries a job-level condition"
+    job = _jobs(workflow)[browser_job]
+    assert "if" not in job, f"the '{browser_job}' lane carries a job-level condition"
     filters = [
         step.get("name")
         for step in job["steps"]
         if str(step.get("uses", "")).startswith("dorny/paths-filter")
     ]
-    assert filters == [], f"the '{BROWSER_JOB}' lane computes a paths filter: {filters}"
-    gated = _browser_steps_gated_on_outputs(workflow)
+    assert filters == [], f"the '{browser_job}' lane computes a paths filter: {filters}"
+    gated = _browser_steps_gated_on_outputs(workflow, browser_job)
     assert gated == [], (
-        f"steps of the '{BROWSER_JOB}' lane gated on another step's output, which would "
+        f"steps of the '{browser_job}' lane gated on another step's output, which would "
         f"report the lane green having run nothing: {gated}"
     )
 
@@ -4499,7 +4556,7 @@ def test_browser_test_runs_in_the_browser_lane__mutation_drops_the_file(test_fil
     """Removing the file from the invocation must fail the guard — the exact
     vacuous-green shape above."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step = _browser_step_naming(mutated, test_file)
     step["run"] = step["run"].replace(f"{test_file} \\\n", "")
     assert test_file not in _browser_lane_files(mutated)
 
@@ -4647,10 +4704,49 @@ def test_every_browser_suite_on_disk_is_named_in_the_browser_lane(
 
 def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step = _browser_step_naming(mutated, AUTH_BROWSER_TEST_FILE)
     step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
     named = _browser_lane_named_files(mutated)
     assert [s for s in _browser_suites_on_disk() if s not in named] == [AUTH_BROWSER_TEST_FILE]
+
+
+# ---------------------------------------------------------------------------
+# (h3b) no suite that starts a container runs in the parallel run step: a
+# container's veth interface coming or going is a network change to every
+# Chromium on the host, which fails its in-flight requests with
+# ERR_NETWORK_CHANGED, so a page another worker is loading never boots
+# ---------------------------------------------------------------------------
+
+#: What a suite that starts containers imports: the repo's docker helpers or
+#: testcontainers itself.
+_CONTAINER_IMPORT = re.compile(
+    r"^\s*(?:from|import)\s+(?:tests\._container_support|testcontainers)\b", re.MULTILINE
+)
+
+
+def _parallel_step_container_suites(wf: dict[str, Any]) -> list[str]:
+    run = _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
+    return sorted(
+        tok
+        for tok in set(run.split())
+        if tok.endswith(".py") and _CONTAINER_IMPORT.search((REPO_ROOT / tok).read_text())
+    )
+
+
+def test_no_container_backed_suite_runs_in_the_parallel_step(workflow: dict[str, Any]) -> None:
+    assert _parallel_step_container_suites(workflow) == []
+    container_step = _find_named_step(workflow, BROWSER_AGENT_JOB, BROWSER_CONTAINER_STEP)
+    assert AUTH_BROWSER_TEST_FILE in container_step["run"]
+    assert " -n " not in container_step["run"]
+
+
+def test_no_container_backed_suite_runs_in_the_parallel_step__mutation_moves_one_back() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(
+        "--dist loadfile \\\n", f"--dist loadfile \\\n  {AUTH_BROWSER_TEST_FILE} \\\n", 1
+    )
+    assert _parallel_step_container_suites(mutated) == [AUTH_BROWSER_TEST_FILE]
 
 
 # ---------------------------------------------------------------------------
@@ -4782,6 +4878,34 @@ def _browser_cache_problems(wf: dict[str, Any]) -> list[str]:
 
 def test_the_playwright_cache_brackets_the_installs(workflow: dict[str, Any]) -> None:
     assert _browser_cache_problems(workflow) == []
+
+
+def _playwright_cache_writers(wf: dict[str, Any]) -> list[str]:
+    return [
+        name
+        for name, job in _jobs(wf).items()
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
+        and "ms-playwright" in str(step.get("with", {}).get("path", ""))
+    ]
+
+
+def test_one_job_writes_the_playwright_cache(workflow: dict[str, Any]) -> None:
+    """The other browser lanes only restore it: two writers would store a
+    second copy under the same key prefix, and a writer that installs one engine
+    would save a cache missing the other."""
+    assert _playwright_cache_writers(workflow) == [BROWSER_JOB]
+
+
+def test_one_job_writes_the_playwright_cache__mutation_adds_a_second_save() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    save = next(
+        s
+        for s in _jobs(mutated)[BROWSER_JOB]["steps"]
+        if str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
+    )
+    _jobs(mutated)[BROWSER_AGENT_JOB]["steps"].append(copy.deepcopy(save))
+    assert _playwright_cache_writers(mutated) == [BROWSER_JOB, BROWSER_AGENT_JOB]
 
 
 def test_the_playwright_cache_brackets_the_installs__mutation_saves_after_the_suites() -> None:
@@ -6256,9 +6380,9 @@ def test_two_shape_lane_names_match_the_module__mutation_drops_the_network() -> 
     mutated = copy.deepcopy(_load_workflow())
     steps = _jobs(mutated)[TWO_SHAPE_JOB]["steps"]
     cleanup = steps[-1]
-    before = cleanup["run"]
-    cleanup["run"] = "\n".join(line for line in before.splitlines() if "network rm" not in line)
-    assert cleanup["run"] != before, "no network removal in the cleanup — mutation is stale"
+    cleanup["run"] = _drop_lines(
+        cleanup["run"], lambda line: "network rm" in line, "no network removal in the cleanup"
+    )
     with pytest.raises(AssertionError, match="osprey-network"):
         test_two_shape_lane_names_match_the_module(mutated)
 
@@ -6864,9 +6988,9 @@ def test_contract_probe_rejects_a_runtime_that_injects_lowercase(workflow: dict[
 def test_contract_probe_rejects_a_runtime_that_injects_lowercase__mutation_drops_the_half() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_CONTRACT_STEP)
-    original = step["run"]
-    step["run"] = "\n".join(line for line in original.splitlines() if "http_proxy=" not in line)
-    assert step["run"] != original, "no lowercase check in the probe — mutation is stale"
+    step["run"] = _drop_lines(
+        step["run"], lambda line: "http_proxy=" in line, "no lowercase check in the probe"
+    )
     assert "HTTP_PROXY=" in step["run"]  # the uppercase half survives
     with pytest.raises(AssertionError, match="lowercase proxy"):
         test_contract_probe_rejects_a_runtime_that_injects_lowercase(mutated)
@@ -7497,6 +7621,13 @@ VA_REMOVE_ACTION = "./.github/actions/remove-virtual-accelerator-images"
 VA_REMOVE_ACTION_YML = (
     REPO_ROOT / ".github" / "actions" / "remove-virtual-accelerator-images" / "action.yml"
 )
+BENCH_IOC_ACTION = "./.github/actions/build-bench-ioc-image"
+BENCH_IOC_ACTION_YML = REPO_ROOT / ".github" / "actions" / "build-bench-ioc-image" / "action.yml"
+BENCH_IOC_CACHE_DIR = "/tmp/bench-ioc-buildx-cache"
+BENCH_IOC_CACHE_EXPORT_DIR = "/tmp/bench-ioc-buildx-cache-new"
+BENCH_IOC_CONTAINERFILE = "docker/bench-ioc/Containerfile"
+#: The tag the bench fixture starts, read from source like ``VA_IMAGE_TAG``.
+BENCH_IOC_TAG = _module_constant(REPO_ROOT / "tests" / "fixtures" / "bench_ioc.py", "IMAGE")
 #: Matched as a prefix, so a version bump of the setup action does not have
 #: to be made here as well.
 BUILDX_ACTION = "docker/setup-buildx-action@"
@@ -7582,6 +7713,16 @@ def _steps_using(wf: dict[str, Any], job_name: str, action: str) -> list[int]:
 
 def _va_action_steps(wf: dict[str, Any], job_name: str) -> list[int]:
     return _steps_using(wf, job_name, VA_IMAGE_ACTION)
+
+
+def _step_scripts(step: dict[str, Any]) -> list[str]:
+    """What a step runs: its own ``run:``, or the ``run:`` steps of the local
+    composite action it calls, which is where a shared build's command lives."""
+    uses = str(step.get("uses", ""))
+    if uses.startswith("./.github/actions/"):
+        action = _load_action_yml(REPO_ROOT / uses.removeprefix("./") / "action.yml")
+        return [str(inner.get("run", "")) for inner in action["runs"]["steps"]]
+    return [str(step.get("run", ""))]
 
 
 def test_every_virtual_accelerator_lane_builds_through_the_shared_action(
@@ -7832,7 +7973,9 @@ def test_every_lane_builds_after_the_shared_builder(workflow: dict[str, Any]) ->
         if not action:
             continue
         builds = [
-            i for i, step in enumerate(steps) if "docker buildx build" in str(step.get("run", ""))
+            i
+            for i, step in enumerate(steps)
+            if any("docker buildx build" in script for script in _step_scripts(step))
         ]
         too_early = [i for i in builds if i < action[0]]
         if too_early:
@@ -7848,12 +7991,135 @@ def test_every_lane_builds_after_the_shared_builder__mutation_moves_a_bench_buil
 ):
     mutated = copy.deepcopy(_load_workflow())
     steps = _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]
-    build = next(
-        i for i, step in enumerate(steps) if "docker buildx build" in str(step.get("run", ""))
-    )
-    steps.insert(0, steps.pop(build))
+    steps.insert(0, steps.pop(_steps_using(mutated, TARGET_SWITCH_JOB, BENCH_IOC_ACTION)[0]))
     with pytest.raises(AssertionError):
         test_every_lane_builds_after_the_shared_builder(mutated)
+
+
+def _bench_ioc_jobs(wf: dict[str, Any]) -> set[str]:
+    """Jobs with business in the bench IOC image: they name its tag (the
+    switch lanes pass it to the shared removal) or call its build action."""
+    return {
+        name
+        for name, job in _jobs(wf).items()
+        if any(needle in json.dumps(job) for needle in (BENCH_IOC_TAG, BENCH_IOC_ACTION))
+    }
+
+
+def test_every_bench_ioc_lane_builds_through_the_shared_action(workflow: dict[str, Any]) -> None:
+    """One recipe for the bench IOC image, as for the virtual accelerator's.
+
+    The two switch lanes used to carry their own copies of the cache, build
+    and rotate steps, and the copies' comments had already drifted apart. A
+    lane that names the image calls the action once, and no job spells the
+    build or the cache itself.
+    """
+    lanes = _bench_ioc_jobs(workflow)
+    assert {TARGET_SWITCH_JOB, TARGET_SWITCH_AGENTIC_JOB} <= lanes, (
+        f"both switch lanes run against {BENCH_IOC_TAG}; the derived set is {sorted(lanes)}"
+    )
+    wrong = {
+        name: count
+        for name in sorted(lanes)
+        if (count := len(_steps_using(workflow, name, BENCH_IOC_ACTION))) != 1
+    }
+    assert wrong == {}, (
+        f"these jobs name {BENCH_IOC_TAG} but do not build it through the shared action "
+        f"exactly once: {wrong}. Add `uses: {BENCH_IOC_ACTION}`."
+    )
+    inline = sorted(
+        f"{name}: {step.get('name')}"
+        for name, job in _jobs(workflow).items()
+        for step in job.get("steps", [])
+        if BENCH_IOC_CONTAINERFILE in str(step.get("run", ""))
+        or BENCH_IOC_CACHE_DIR in json.dumps(step.get("with") or {})
+    )
+    assert inline == [], f"these steps build or cache {BENCH_IOC_TAG} inline: {inline}"
+
+
+def test_every_bench_ioc_lane_builds_through_the_shared_action__mutation_inlines_the_steps() -> (
+    None
+):
+    """The drift this action removed: one lane spells the steps out again."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[TARGET_SWITCH_AGENTIC_JOB]["steps"]
+    call = _steps_using(mutated, TARGET_SWITCH_AGENTIC_JOB, BENCH_IOC_ACTION)[0]
+    inlined = [
+        {key: value for key, value in step.items() if key != "shell"}
+        for step in _load_action_yml(BENCH_IOC_ACTION_YML)["runs"]["steps"]
+    ]
+    steps[call : call + 1] = inlined
+    with pytest.raises(AssertionError):
+        test_every_bench_ioc_lane_builds_through_the_shared_action(mutated)
+
+
+@pytest.fixture()
+def bench_ioc_action() -> dict[str, Any]:
+    return _load_action_yml(BENCH_IOC_ACTION_YML)
+
+
+def test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation(
+    bench_ioc_action: dict[str, Any],
+) -> None:
+    """The recipe, pinned where its quiet failures live, as the virtual
+    accelerator action's is. It sets up no builder: it builds on the one that
+    action leaves as the job's default, and a second setup would export its
+    cache through a different BuildKit container."""
+    assert bench_ioc_action["runs"]["using"] == "composite"
+    steps = bench_ioc_action["runs"]["steps"]
+    unshelled = [
+        step.get("name") for step in steps if "run" in step and step.get("shell") != "bash"
+    ]
+    assert unshelled == [], (
+        f"every `run:` step of a composite action needs `shell: bash`: {unshelled}"
+    )
+    setups = [step.get("name") for step in steps if BUILDX_ACTION in str(step.get("uses", ""))]
+    assert setups == [], f"the action builds on the caller's builder; it sets up its own: {setups}"
+
+    cache = [i for i, step in enumerate(steps) if "actions/cache@" in str(step.get("uses", ""))]
+    assert len(cache) == 1, f"expected exactly one cache step; found {len(cache)}"
+    cache_with = steps[cache[0]]["with"]
+    assert cache_with["path"] == BENCH_IOC_CACHE_DIR
+    for hashed in ("Containerfile", "bench.db", "bench.acf", "st.cmd"):
+        assert f"'docker/bench-ioc/{hashed}'" in cache_with["key"], (
+            f"the cache key no longer hashes docker/bench-ioc/{hashed}"
+        )
+
+    build = _sole_step_whose_script(steps, f"--tag {BENCH_IOC_TAG}", f"builds {BENCH_IOC_TAG}")
+    script = steps[build]["run"]
+    assert f"-f {BENCH_IOC_CONTAINERFILE}" in script
+    assert f"--cache-from type=local,src={BENCH_IOC_CACHE_DIR}" in script
+    assert f"--cache-to type=local,dest={BENCH_IOC_CACHE_EXPORT_DIR},mode=max" in script
+
+    rotate = _sole_step_whose_script(
+        steps, f"mv {BENCH_IOC_CACHE_EXPORT_DIR} {BENCH_IOC_CACHE_DIR}", "rotates the cache"
+    )
+    assert rotate > build, "the rotation must follow the build"
+
+
+def test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation__mutation_drops_the_rotation() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_action_yml(BENCH_IOC_ACTION_YML))
+    steps = mutated["runs"]["steps"]
+    steps.pop(
+        _sole_step_whose_script(
+            steps, f"mv {BENCH_IOC_CACHE_EXPORT_DIR} {BENCH_IOC_CACHE_DIR}", "rotates the cache"
+        )
+    )
+    with pytest.raises(AssertionError):
+        test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+
+
+def test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation__mutation_sets_up_a_builder() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_action_yml(BENCH_IOC_ACTION_YML))
+    mutated["runs"]["steps"].insert(
+        0, {"name": "Set up Docker Buildx", "uses": "docker/setup-buildx-action@v3"}
+    )
+    with pytest.raises(AssertionError, match="caller's builder"):
+        test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation(mutated)
 
 
 @pytest.mark.parametrize("site", sorted(VA_TAG_SITES))
@@ -8054,7 +8320,8 @@ def test_each_lane_removes_every_image_it_built(workflow: dict[str, Any]) -> Non
         steps = _jobs(workflow)[name]["steps"]
         built = {VA_IMAGE_TAG}
         for step in steps:
-            built.update(re.findall(r"--tag\s+(\S+)", str(step.get("run", ""))))
+            for script in _step_scripts(step):
+                built.update(re.findall(r"--tag\s+(\S+)", script))
         removed = {VA_IMAGE_TAG}
         for index in _steps_using(workflow, name, VA_REMOVE_ACTION):
             removed.update(str((steps[index].get("with") or {}).get("extra-tags", "")).split())
@@ -11006,6 +11273,48 @@ def test_cli_tool_inventory_check_runs_on_every_push__mutation_writes_instead() 
 
 
 # ---------------------------------------------------------------------------
+# Transcript resume probe runs on every push, beside the inventory check
+# ---------------------------------------------------------------------------
+
+
+def test_transcript_resume_probe_runs_on_every_push(workflow: dict[str, Any]) -> None:
+    """Seeded transcripts are proved against the pinned build on every run, in the
+    job that re-proves its tool inventory; a job-level ``if:`` would let a build
+    that no longer resumes them pass unseen."""
+    step = _find_named_step(workflow, INVENTORY_JOB, RESUME_PROBE_STEP)
+    run = step.get("run", "")
+    assert run.strip() == "uv run python scripts/transcript_resume_probe.py", (
+        f"'{RESUME_PROBE_STEP}' must run the probe against the pinned build"
+    )
+    assert "if" not in step, f"'{RESUME_PROBE_STEP}' must carry no `if:`"
+    assert "if" not in _jobs(workflow)[INVENTORY_JOB], f"'{INVENTORY_JOB}' must carry no `if:`"
+
+
+def test_transcript_resume_probe_runs_on_every_push__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[INVENTORY_JOB]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != RESUME_PROBE_STEP]
+    with pytest.raises(AssertionError):
+        test_transcript_resume_probe_runs_on_every_push(mutated)
+
+
+def test_transcript_resume_probe_runs_on_every_push__mutation_probes_another_cli() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, INVENTORY_JOB, RESUME_PROBE_STEP)
+    step["run"] += " --cli /usr/local/bin/claude"
+    with pytest.raises(AssertionError):
+        test_transcript_resume_probe_runs_on_every_push(mutated)
+
+
+def test_transcript_resume_probe_runs_on_every_push__mutation_gates_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, INVENTORY_JOB, RESUME_PROBE_STEP)
+    step["if"] = "contains(github.event.pull_request.labels.*.name, 'full-ci')"
+    with pytest.raises(AssertionError):
+        test_transcript_resume_probe_runs_on_every_push(mutated)
+
+
+# ---------------------------------------------------------------------------
 # Web-terminal cleanup steps address containers by the compose project name
 # ---------------------------------------------------------------------------
 
@@ -11982,7 +12291,9 @@ def test_the_two_uid_log_case_is_a_docker_group_case__mutation_drops_the_group()
 # costs a slow runner its margin under the step cap; a directory no shard names
 # runs nowhere with every check green. The last shard is spelled as ignores of
 # every directory another shard names, so a new directory falls into it; what
-# is pinned here is that the spellings still partition the tree.
+# is pinned here is that the spellings still partition the tree. tests/cli is
+# split between two shards by module name (an ``--ignore-glob`` each), so that
+# directory is checked module by module.
 
 
 def _unit_shards(unit: Any = None) -> dict[str, str]:
@@ -11991,7 +12302,7 @@ def _unit_shards(unit: Any = None) -> dict[str, str]:
     lane, not the partition."""
     unit = unit or framework_checks.UNIT_SELECTION
     return {
-        name: " ".join(["pytest", *paths, *(f"--ignore={path}" for path in ignores)])
+        name: " ".join(["pytest", *paths, *map(framework_checks.ignore_flag, ignores)])
         for name, (paths, ignores) in unit.shards.items()
     }
 
@@ -12017,34 +12328,54 @@ def _test_tree_entries(root: Path = TESTS_ROOT) -> list[str]:
     return sorted(entries)
 
 
+def _split_entries(shards: dict[str, str]) -> set[str]:
+    """The top-level entries a shard names a path or ignore below: an ignore
+    one level deeper takes files out of the shard that names the directory, and
+    only a file-by-file check sees whether another shard picks them up."""
+    split = set()
+    for command in shards.values():
+        for token in command.split()[1:]:
+            path = re.sub(r"^--ignore(-glob)?=", "", token).rstrip("/")
+            if path.startswith("tests/") and path.count("/") > 1:
+                split.add("/".join(path.split("/")[:2]))
+    return split
+
+
+def _probes(entry: str, split: set[str]) -> list[str]:
+    """The files that stand for *entry*: a probe file below a directory entry
+    (a root module is its own probe), and every test module of a split one."""
+    if entry.endswith(".py"):
+        return [entry]
+    probes = [f"{entry}/test_probe.py"]
+    if entry in split:
+        root = REPO_ROOT / entry
+        probes += sorted(
+            path.relative_to(REPO_ROOT).as_posix()
+            for pattern in ("test_*.py", "*_test.py")
+            for path in root.rglob(pattern)
+            if "__pycache__" not in path.parts
+        )
+    return probes
+
+
 def _shard_coverage_problems(wf: dict[str, Any], entries: list[str], unit: Any = None) -> list[str]:
     """Why the shards do not partition *entries* (empty = each entry in exactly
     one shard, and the declared shards are the matrix's shards).
 
-    The partition is checked at the top level of ``tests/``, so it holds only
-    while every shard path and ignore is a top-level entry: an ignore one level
-    deeper takes its files out of the shard that names the directory while no
-    other shard picks them up. A shard that reaches below the top level is
-    refused outright rather than checked file by file."""
+    The partition is checked at the top level of ``tests/``, with a probe file
+    standing for each directory. A directory a shard reaches below (tests/cli,
+    split by module name) is checked over every test module it holds as well."""
     shards = _unit_shards(unit)
     matrix = sorted(_jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"]["shard"])
     problems = []
     if sorted(shards) != matrix:
         problems.append(f"declared shards {sorted(shards)} are not the matrix shards {matrix}")
-    for name, command in shards.items():
-        for token in command.split()[1:]:
-            path = token.removeprefix("--ignore=").rstrip("/")
-            if path.startswith("tests/") and path.count("/") > 1:
-                problems.append(
-                    f"shard '{name}' names {token}, below a top-level test directory; "
-                    f"a shard is a set of whole tests/<dir> entries"
-                )
+    split = _split_entries(shards)
     for entry in entries:
-        # A probe file below a directory entry; a root module is its own probe.
-        probe = entry if entry.endswith(".py") else f"{entry}/test_probe.py"
-        holders = [name for name, command in shards.items() if _invocation_reaches(command, probe)]
-        if len(holders) != 1:
-            problems.append(f"{entry} is in {len(holders)} shards: {holders}")
+        for probe in _probes(entry, split):
+            holders = [n for n, command in shards.items() if _invocation_reaches(command, probe)]
+            if len(holders) != 1:
+                problems.append(f"{probe} is in {len(holders)} shards: {holders}")
     return problems
 
 
@@ -12053,6 +12384,7 @@ def test_the_unit_shards_cover_the_test_tree_exactly_once(
 ) -> None:
     entries = _test_tree_entries()
     assert "tests/cli" in entries and len(entries) > 10, f"test tree scan broke: {entries}"
+    assert "tests/cli" in _split_entries(_unit_shards(unit)), "tests/cli is no longer split"
     assert set(PACKAGE_TEST_ROOTS) <= set(entries), f"package suite scan broke: {entries}"
     problems = _shard_coverage_problems(workflow, entries, unit)
     assert problems == [], "the unit lane's shards do not partition tests/:\n" + "\n".join(problems)
@@ -12068,7 +12400,7 @@ def _with_shard(shard: str, paths: tuple[str, ...], ignores: tuple[str, ...]) ->
 def _last_shard() -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     """The shard spelled by exclusion: its name, paths and ignored directories."""
     for name, (paths, ignores) in framework_checks.UNIT_SELECTION.shards.items():
-        if ignores:
+        if "tests/" in paths:
             return name, paths, ignores
     raise AssertionError("no unit shard is spelled by exclusion")
 
@@ -12078,7 +12410,7 @@ def test_the_unit_shards_cover_the_test_tree__mutation_drops_an_ignore() -> None
     name, paths, ignores = _last_shard()
     dropped = ignores[-1]
     mutated = _with_shard(name, paths, ignores[:-1])
-    with pytest.raises(AssertionError, match=rf"{re.escape(dropped)} is in 2 shards"):
+    with pytest.raises(AssertionError, match=rf"{re.escape(dropped)}/test_probe.py is in 2 shards"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
 
 
@@ -12173,7 +12505,7 @@ def test_the_unit_macos_cells_are_one_job_each__mutation_puts_macos_on_the_axis(
 def test_the_unit_macos_cells_are_one_job_each__mutation_runs_a_shard() -> None:
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
-    matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli"', 1)
+    matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli-a"', 1)
     assert any("is not one macOS 'macos' job" in p for p in _macos_cell_problems(mutated))
 
 
@@ -12222,7 +12554,28 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
     deeper = "tests/deployment/web_terminals"
     assert "tests/deployment" in paths, "rest-a no longer names tests/deployment"
     mutated = _with_shard(TWO_UID_LOG_SHARD, paths, (*ignores, deeper))
-    with pytest.raises(AssertionError, match="below a top-level test directory"):
+    with pytest.raises(AssertionError, match=rf"{deeper}/test_\w+\.py is in 0 shards"):
+        test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_cli_b_keeps_templates() -> None:
+    """cli-b stops ignoring tests/cli/templates: those modules run in both cli shards."""
+    paths, ignores = framework_checks.UNIT_SELECTION.shards["cli-b"]
+    kept = tuple(i for i in ignores if i != "tests/cli/templates")
+    assert len(kept) == len(ignores) - 1, "cli-b no longer ignores templates; mutation is stale"
+    mutated = _with_shard("cli-b", paths, kept)
+    with pytest.raises(AssertionError, match=r"tests/cli/templates/test_\w+\.py is in 2 shards"):
+        test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_cli_globs_disagree() -> None:
+    """cli-b's glob takes one letter more than cli-a's complement leaves it:
+    the modules of that letter run in no shard."""
+    paths, ignores = framework_checks.UNIT_SELECTION.shards["cli-b"]
+    widened = tuple(i.replace("[a-h]", "[a-i]") for i in ignores)
+    assert widened != ignores, "cli-b's glob is not [a-h]; mutation is stale"
+    mutated = _with_shard("cli-b", paths, widened)
+    with pytest.raises(AssertionError, match=r"tests/cli/test_i\w*\.py is in 0 shards"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
 
 

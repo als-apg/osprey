@@ -391,8 +391,6 @@ def graph_text(records: FacilityRecords) -> str:
 
 def _turtle(records: FacilityRecords) -> str:
     """Compute :func:`graph_text` without the per-build memo."""
-    from osprey.facility.render import facility_bytes
-
     code = str(records.document["identity"]["code"])
     classes = _class_rows(records)
 
@@ -407,7 +405,7 @@ def _turtle(records: FacilityRecords) -> str:
     _class_triples(subjects, used, classes)
     _vocabulary_triples(subjects)
 
-    digest = hashlib.sha256(facility_bytes(dict(records.document))).hexdigest()
+    digest = hashlib.sha256(records.facility_bytes()).hexdigest()
     lines = [f"{HEADER_PREFIX}{digest}"]
     lines.extend(f"@prefix {prefix}: <{namespace}> ." for prefix, namespace in PREFIXES.items())
     for subject, predicates in subjects.items():

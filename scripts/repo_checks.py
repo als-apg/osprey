@@ -59,6 +59,7 @@ class UnitSelection:
     marker: str
     quick_marker: str
     #: Shard name to (paths, extra ignores); the shards cover the roots exactly once.
+    #: An ignore holding a glob character is passed as ``--ignore-glob``.
     shards: dict[str, tuple[tuple[str, ...], tuple[str, ...]]]
     dist: tuple[str, ...]
     #: Subset name to the test files and node IDs it runs in place of the
@@ -76,6 +77,7 @@ INVARIANT_TESTS = (
     "tests/scripts/test_changelog_fragments.py",
     "tests/interfaces/test_js_module_tests.py",
     "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",
     "tests/deployment/web_terminals/test_roster_entries.py",
     "tests/infrastructure/test_import_time_audit.py",
@@ -130,7 +132,29 @@ TEST_MIRRORS: tuple[tuple[str, str], ...] = (
 )
 
 #: The test directories of the ``rest-a`` shard.
-_REST_A = ("tests/facility", "tests/mcp_server", "tests/deployment")
+_REST_A = ("tests/facility", "tests/deployment")
+
+#: The test directories of the ``rest-c`` shard. None of them uses a session
+#: container another shard uses (agent_record's ClickHouse is its own; the
+#: shared Mongo, Neo4j and Postgres sessions stay in ``rest-b``), so no
+#: container is started in two jobs.
+_REST_C = (
+    "tests/interfaces",
+    "tests/mcp_server",
+    "tests/scripts",
+    "tests/hooks",
+    "tests/agent_record",
+    "tests/infrastructure",
+    "tests/docs",
+    "tests/templates",
+)
+
+#: The tests/cli modules of the ``cli-a`` shard, by the first letter of the name
+#: after ``test_``: a-h with tests/cli/templates is about half the directory's
+#: test time. ``cli-b`` takes every other top-level module, so a new module
+#: lands in one shard by its name; tests/deployment/test_ci_workflow_wiring.py
+#: holds that every tests/cli module is in exactly one.
+_CLI_A_LETTERS = "a-h"
 
 #: What the macOS cell runs: the test files, and the tests of a file (a node
 #: ID, ``path::name`` or ``path::Class::name``, every parametrization of it),
@@ -596,9 +620,14 @@ UNIT_SELECTION = UnitSelection(
     marker="not pty and not wallclock and not canopy",
     quick_marker="not pty and not wallclock and not canopy and not slow",
     shards={
-        "cli": (("tests/cli",), ()),
+        "cli-a": (("tests/cli",), (f"tests/cli/test_[!{_CLI_A_LETTERS}]*",)),
+        "cli-b": (("tests/cli",), ("tests/cli/templates", f"tests/cli/test_[{_CLI_A_LETTERS}]*")),
         "rest-a": (_REST_A, ()),
-        "rest-b": (("tests/", "packages/osprey-connectors/tests"), ("tests/cli", *_REST_A)),
+        "rest-b": (
+            ("tests/", "packages/osprey-connectors/tests"),
+            ("tests/cli", *_REST_A, *_REST_C),
+        ),
+        "rest-c": (_REST_C, ()),
     },
     subsets={"macos": _MACOS_RUNS},
     # A dead worker ends the sweep with its report instead of being replaced.
@@ -717,24 +746,24 @@ def _select_pytest(
                 chosen.append("tests/scripts")
                 continue
             if name == "conftest.py" or _mirror_root(path) is None:
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
         elif name in ("pyproject.toml", "uv.lock"):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         elif suffix in JS_SUFFIXES or suffix in INERT_SUFFIXES:
             continue
         elif path.startswith("tests/") and len(PurePosixPath(path).parts) > 2:
             directory = "tests/" + PurePosixPath(path).parts[1]
             if not _holds_test_module(directory, files):
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             chosen.append(directory)
             continue
         elif path.startswith(("packages/", "tests/")):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         elif not path.startswith("src/osprey/"):
             continue
         mirror = _mirror(path, files)
         if mirror is None:
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         chosen.append(mirror)
     return _paths(chosen)
 
@@ -746,13 +775,14 @@ def _select_vitest(
     if guard is None:
         # Without the mapping no JavaScript change can be placed, so any one
         # widens Vitest to its whole selection.
-        reaches = any(
-            path.endswith(JS_SUFFIXES)
+        reaching = [
+            path
+            for path in paths
+            if path.endswith(JS_SUFFIXES)
             or path.rsplit("/", 1)[-1] in VITEST_WIDE_NAMES
             or path == VITEST_SETUP
-            for path in paths
-        )
-        return Selection(WHOLE) if reaches else Selection(NOT_TOUCHED)
+        ]
+        return Selection(WHOLE, cause=reaching[0]) if reaching else Selection(NOT_TOUCHED)
     chosen: list[str] = []
     for path in paths:
         name = path.rsplit("/", 1)[-1]
@@ -762,14 +792,14 @@ def _select_vitest(
         elif guard.modules([path]):
             interface = guard.interface_of(path)
             if interface == SHARED_INTERFACE:
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             own = guard.covering_tests(path, files)
             if own:
                 chosen += own
                 continue
             fallback = f"{guard.TESTS_ROOT}{interface}/"
             if not any(f.startswith(fallback) and f.endswith(guard.TEST_SUFFIXES) for f in files):
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             chosen.append(fallback)
         elif (
             name in VITEST_WIDE_NAMES
@@ -777,12 +807,17 @@ def _select_vitest(
             or path.endswith(JS_SUFFIXES)
             and path.startswith(("tests/", "src/"))
         ):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
     return _paths(chosen)
 
 
 # ---------------------------------------------------------------------------
 # Commands
+
+
+def ignore_flag(path: str) -> str:
+    """The pytest flag that leaves *path* out: ``--ignore-glob`` for a pattern."""
+    return f"--ignore-glob={path}" if any(c in path for c in "*?[") else f"--ignore={path}"
 
 
 def unit_argv(
@@ -802,7 +837,7 @@ def unit_argv(
     marker = unit.quick_marker if tier == "quick" else unit.marker
     return [
         *(targets or roots),
-        *(f"--ignore={path}" for path in ignores),
+        *(ignore_flag(path) for path in ignores),
         "-m",
         marker,
     ]
@@ -1674,6 +1709,15 @@ LANES: tuple[Lane, ...] = (
             "tests/interfaces/**/*.py",
             "tests/interfaces/design_system/baselines/**",
             "tests/docs/screenshots/**",
+        ),
+    ),
+    Lane(
+        "visual-theming-agent",
+        "browser",
+        (
+            "src/osprey/interfaces/**",
+            "tests/interfaces/**/*.py",
+            "tests/interfaces/design_system/baselines/**",
         ),
     ),
     Lane("build-boot-smoke", "matrix", ("tests/integration/test_build_boot.py",)),

@@ -70,7 +70,7 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 
 #: This deploy's own thousand-port block — same convention as
@@ -314,6 +314,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "control-assistant",
             "--no-git",
+            *e2e_scenario_pin(),
             *set_pairs({"config": {"modules.web_terminals.enabled": False}}),
             "--set",
             f"provider={e2e_provider()}",

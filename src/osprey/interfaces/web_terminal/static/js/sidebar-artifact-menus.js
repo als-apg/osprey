@@ -6,8 +6,8 @@
  * menu (panel-context-menu.js):
  *
  *   Agent row   New session · Expand all / Collapse all
- *   Session     Open in Agent · Group by Kind / Activity · Rename… ·
- *               Use automatic name · Export transcript · Copy ID · Delete…
+ *   Session     Group by Kind / Activity · Rename… · Use automatic name
+ *               (only on a hand-named session) · Export transcript · Copy ID · Delete…
  *   Group head  Expand / Collapse
  *   Run         Open result · Open approval preview · Open code · Delete…
  *   Artifact    Open · Pin · Delete… · Copy ID
@@ -26,6 +26,7 @@
 /** @returns {Promise<typeof import('./session-model.js')>} */
 const sessionModel = () => import('./session-model.js');
 
+import { withPrefix } from './api.js';
 import { openContextMenu } from './panel-context-menu.js';
 import { ARTIFACTS_BASE, fetchArtifact, readTreeView } from './sidebar-artifact-listing.js';
 import { showConfirm } from './posture-confirm.js';
@@ -109,7 +110,7 @@ export function buildAgentRowMenuItems() {
  */
 export async function putTitle(transcriptId, title) {
   try {
-    await fetch(`/api/sessions/${encodeURIComponent(transcriptId)}/title`, {
+    await fetch(withPrefix(`/api/sessions/${encodeURIComponent(transcriptId)}/title`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
@@ -155,7 +156,7 @@ export function startRename(row, transcriptId) {
 /** Download a session's transcript (GET /api/sessions/{id}/transcript.md). @param {string} id */
 export function exportTranscript(id) {
   const a = document.createElement('a');
-  a.href = `/api/sessions/${encodeURIComponent(id)}/transcript.md`;
+  a.href = withPrefix(`/api/sessions/${encodeURIComponent(id)}/transcript.md`);
   a.download = `transcript-${id}.md`;
   document.body.append(a);
   a.click();
@@ -184,7 +185,7 @@ export function confirmDeleteSession(row, transcriptId) {
     focus: 'cancel',
     onConfirm: async (ui) => {
       try {
-        const res = await fetch(`/api/sessions/${encodeURIComponent(transcriptId)}`, {
+        const res = await fetch(withPrefix(`/api/sessions/${encodeURIComponent(transcriptId)}`), {
           method: 'DELETE',
         });
         if (!res.ok) {
@@ -223,8 +224,6 @@ export function sessionMenuItems(row) {
   const active = row.classList.contains('active');
   const view = readTreeView();
   return [
-    { label: 'Open in Agent', run: () => void openSession(treeId) },
-    { divider: true },
     { label: 'Group by Kind', checked: view === 'kind', run: () => void applyView('kind') },
     {
       label: 'Group by Activity',
@@ -233,7 +232,10 @@ export function sessionMenuItems(row) {
     },
     { divider: true },
     { label: 'Rename…', disabled: !tid, run: () => tid && startRename(row, tid) },
-    { label: 'Use automatic name', disabled: !tid, run: () => tid && void putTitle(tid, '') },
+    // Only a hand-set name has an automatic one to go back to.
+    ...(tid && row.dataset.titleSource === 'user'
+      ? [{ label: 'Use automatic name', run: () => void putTitle(tid, '') }]
+      : []),
     { label: 'Export transcript', disabled: !tid, run: () => tid && exportTranscript(tid) },
     { label: 'Copy ID', disabled: !tid, run: () => tid && copyText(tid) },
     { divider: true },
@@ -245,16 +247,6 @@ export function sessionMenuItems(row) {
       run: () => tid && confirmDeleteSession(row, tid),
     },
   ];
-}
-
-/**
- * Open a session in the Agent through the controller (a click on the current
- * session's name only folds it). Imported lazily, as {@link applyView}.
- * @param {string} treeId
- */
-async function openSession(treeId) {
-  const { openInAgent } = await import('./sidebar-artifacts.js');
-  await openInAgent(treeId);
 }
 
 /**
@@ -277,7 +269,7 @@ export function groupMenuItems(head) {
 // ---- Artifact and run ----
 
 /** @param {string} id */
-const artifactUrl = (id) => `${ARTIFACTS_BASE}/api/artifacts/${encodeURIComponent(id)}`;
+const artifactUrl = (id) => withPrefix(`${ARTIFACTS_BASE}/api/artifacts/${encodeURIComponent(id)}`);
 
 /**
  * Flip an artifact's pin. The pin is set in the operator's current session,
