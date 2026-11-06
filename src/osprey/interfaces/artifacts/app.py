@@ -401,22 +401,6 @@ def _stamp_data_theme(html: str, theme_id: str | None) -> str:
     return _HTML_TAG_WITHOUT_THEME_RE.sub(f'<html data-theme="{theme_id}"', html, count=1)
 
 
-def _example_artifact_enabled() -> bool:
-    """Whether ``artifact_server.example_artifact`` is on in the primed config.
-
-    Off when no config is primed (standalone gallery, tests) or the key is
-    absent: seeding is something a deployment opts into, and a gallery that
-    cannot read its config must not invent an artifact.
-    """
-    try:
-        from osprey_connectors.config import get_config_value
-
-        return bool(get_config_value("artifact_server.example_artifact", False))
-    except Exception:
-        logger.debug("No config available for artifact_server.example_artifact", exc_info=True)
-        return False
-
-
 def _resolve_pinned_web_theme() -> str | None:
     """The concrete theme id ``web.theme`` pins, or ``None`` if it names a family.
 
@@ -1043,18 +1027,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # listing route's own ``limit`` default is built from it when the route is
     # defined.
     page_size = _page_size()
-
-    # Also after config priming: the one gallery process each workspace has
-    # (single-user `osprey web` and every render container alike) seeds the
-    # shipped example here, so the Artifacts panel is not empty on a first visit.
-    # Idempotent and sentinel-aware — see example_artifact.py.
-    if _example_artifact_enabled():
-        try:
-            from osprey.interfaces.artifacts.example_artifact import seed_example_artifact
-
-            seed_example_artifact(store)
-        except Exception:
-            logger.warning("Could not seed the example artifact", exc_info=True)
 
     broadcaster = _SSEBroadcaster()
 

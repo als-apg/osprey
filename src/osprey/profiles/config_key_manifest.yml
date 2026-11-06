@@ -2760,9 +2760,6 @@ keys:
       link. A value that is not a positive integer is logged and the default
       kept; a value above 200 is logged and capped at 200.
     default: 20
-  artifact_server.example_artifact:
-    evidence: 'get_config_value\("artifact_server\.example_artifact"'
-    default: false
 
   # ── Phoebus display bridge ──────────────────────────────────────────
   # The `phoebus` server is off in every preset, so nothing renders these keys;
@@ -3521,6 +3518,7 @@ keys:
 deleted:
   # One Agent pane for everyone. The parser refuses `web.expert_view`, naming
   # `web.terminal`, and warns about `web.ui_mode` and drops it.
+- artifact_server.example_artifact
 - web.ui_mode
 - web.expert_view
   # The LATTICE panel and the dashboard server behind it. The profile parser
@@ -4186,7 +4184,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 366
+  expected_union_size: 365
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
