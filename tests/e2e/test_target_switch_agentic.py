@@ -109,6 +109,7 @@ from osprey_connectors_tests._harness._ports import reserved_port
 from tests.e2e._facility_select import repo_view
 from tests.e2e.judge import LLMJudge
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.provider import build_model, build_provider
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     HookEvent,
@@ -573,6 +574,8 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
     The model is pinned at ``opus`` the same way every other agentic scenario
     module pins it, so the render carries an opus tier for
     :func:`tests.e2e.sdk_helpers._default_opus_model` to resolve at query time.
+    A benchmark cell's forced provider and model replace the pinned pair, because a
+    subagent runs the model id its definition was built with.
 
     Returns the REPO ROOT, not the render: it is what carries ``var/agent_data``
     (where the control-target state file lands) and it is the handle every
@@ -588,9 +591,9 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
             "control-assistant",
             "--no-git",
             "--set",
-            "provider=als-apg",
+            f"provider={build_provider('als-apg')}",
             "--set",
-            "model=claude-haiku-5-5",
+            f"model={build_model('claude-haiku-5-5')}",
             *set_pairs(_profile_edits(bench_port=bench_port, va_port=va_port)),
         ],
         timeout=INIT_TIMEOUT_S,
@@ -978,6 +981,7 @@ def approval_prompts_for_tool(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.harness_benchmark
 def test_the_build_renders_one_project_and_no_renders(
     switch_deployment: SwitchDeployment,
 ) -> None:
@@ -1006,6 +1010,7 @@ def test_the_build_renders_one_project_and_no_renders(
     )
 
 
+@pytest.mark.harness_benchmark
 def test_writes_are_live_and_channel_write_is_asked_not_denied(
     switch_deployment: SwitchDeployment,
 ) -> None:
@@ -1061,6 +1066,7 @@ def test_writes_are_live_and_channel_write_is_asked_not_denied(
     )
 
 
+@pytest.mark.harness_benchmark
 def test_the_rendered_approval_hook_still_speaks_these_lines(
     switch_deployment: SwitchDeployment,
 ) -> None:
@@ -1108,6 +1114,7 @@ def test_the_rendered_approval_hook_still_speaks_these_lines(
     )
 
 
+@pytest.mark.harness_benchmark
 def test_the_roster_makes_va_the_baseline_and_live_reachable(
     switch_deployment: SwitchDeployment,
 ) -> None:
@@ -2478,6 +2485,7 @@ async def test_a_denied_switch_leaves_the_session_where_it_was(
 MIN_COLLECTED_TESTS = 10
 
 
+@pytest.mark.harness_benchmark
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Fail if this file stops contributing the tests it is supposed to."""
     collected = [

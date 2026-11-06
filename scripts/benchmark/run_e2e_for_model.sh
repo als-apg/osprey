@@ -159,6 +159,16 @@ if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
   echo "FATAL: benchmark lane markers incomplete (see LANE-GATE lines above)." >&2
   exit 2
 fi
+# Image gate: the machine-switch tests need images they never build. A cell
+# without them would score every one of those tests as the model's failure. A
+# smoke run (OSPREY_BENCH_SELECT) may not touch them, and their fixtures still
+# fail by name if it does.
+if [ -z "${OSPREY_BENCH_SELECT:-}" ] && ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
+    --check-board-images >/dev/null; then
+  echo "FATAL: the board's images are missing or stale (see IMAGE-GATE lines above)." >&2
+  exit 2
+fi
 # OSPREY_BENCH_SELECT narrows the cell to the tests a pytest -k expression
 # selects (a smoke run); unset, the cell runs the whole in-scope suite.
 SELECT_ARGS=()

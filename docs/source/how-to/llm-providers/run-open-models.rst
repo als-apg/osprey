@@ -130,6 +130,7 @@ and the board scores its first attempt:
    scripts/benchmark/matrix.py --only gpt-oss-20b --select vacuum_burst --results-dir results-smoke
 
    # the whole grid, then render the dashboard
+   scripts/benchmark/build_board_images.sh   # once per revision
    scripts/benchmark/matrix.py --parallel 4
    scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
 
@@ -146,7 +147,7 @@ and the board scores its first attempt:
 
    - **Measured against:** OSPREY ``[FULL-RUN: version]``
    - **Run:** [FULL-RUN: date] · open models via CBORG · ``kolibri-1`` self-hosted on vLLM · Anthropic references via als-apg · 3 seeds each
-   - **Scope:** 30 tests per seed: 25 in Tier 1, 5 in Tier 2
+   - **Scope:** 34 tests per seed: 28 in Tier 1, 6 in Tier 2
    - **Scoring:** first attempt only; a timeout counts as a failure (the model did not finish within the 1800s cap). Tier 1: passes over all seeds and the median time per task. Tier 2: passes over all seeds.
 
    .. list-table::

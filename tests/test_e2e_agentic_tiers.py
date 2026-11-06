@@ -7,6 +7,7 @@ pinned here on hand-built items, without collecting the e2e suite.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -113,3 +114,33 @@ def test_a_not_applicable_skip_reason_carries_the_label_the_board_shows():
     reason = agentic_tiers.not_applicable("no vision", "provider p has no images")
     assert reason == "n/a: no vision (provider p has no images)"
     assert reason.startswith(agentic_tiers.NOT_APPLICABLE)
+
+
+class TestTheSwitchBuildFollowsTheCell:
+    """A build writes each agent's model into its definition, and a subagent runs
+    the id written there, so the machine-switch tests must build with the model a
+    board cell forces. Outside the board they keep the pair CI uses."""
+
+    def _built_with(self, monkeypatch, tmp_path) -> dict[str, str]:
+        from tests.e2e import test_target_switch_agentic as switch
+
+        calls = []
+        monkeypatch.setattr(switch, "_run_osprey", lambda verb, args, **_k: calls.append(args))
+        monkeypatch.setattr(switch, "_profile_edits", lambda **_k: {})
+        with contextlib.suppress(Exception):  # the steps after init need a real render
+            switch._init_and_build(tmp_path, bench_port=1, va_port=2)
+        init = calls[0]
+        pairs = [init[i + 1] for i, a in enumerate(init) if a == "--set"]
+        return dict(p.split("=", 1) for p in pairs)
+
+    def test_ci_keeps_its_pinned_pair(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("OSPREY_E2E_FORCE_PROVIDER", raising=False)
+        monkeypatch.delenv("OSPREY_E2E_FORCE_MODEL", raising=False)
+        built = self._built_with(monkeypatch, tmp_path)
+        assert (built["provider"], built["model"]) == ("als-apg", "claude-haiku-5-5")
+
+    def test_a_board_cell_forces_both(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("OSPREY_E2E_FORCE_PROVIDER", "cborg")
+        monkeypatch.setenv("OSPREY_E2E_FORCE_MODEL", "gpt-oss-120b")
+        built = self._built_with(monkeypatch, tmp_path)
+        assert (built["provider"], built["model"]) == ("cborg", "gpt-oss-120b")

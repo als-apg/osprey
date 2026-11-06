@@ -80,7 +80,8 @@ set; nothing in them assumes a particular provider, key file, or machine.
 | `matrix.yaml` | the whole run, declaratively (providers, models, seeds, budgets, judges). |
 | `matrix_dashboard.py --results-dir DIR --out FILE` | render `results/*.json` → a self-contained `dashboard.html` (per-model summary + per-test heatmap). |
 | `check_e2e_coverage.py` | derive a cell's pytest selection (`--print-run-args`: the `--ignore` list from `matrix_e2e_config.json`, `-m agentic`, reruns off) and warn if the run stops covering the full e2e kit minus the explicit, documented exclusions. With `--check-lanes` it is a **gate** (run per cell by the worker): every in-scope test must carry exactly one benchmark-lane marker. |
-| `matrix_e2e_config.json` | single source of truth for the excluded e2e files (each with a reason). |
+| `matrix_e2e_config.json` | single source of truth for the excluded e2e files (each with a reason) and the images a full run needs. |
+| `build_board_images.sh` | build the images a full run needs and record them against the checkout's revision. Run it once per revision, before the run. |
 
 ### Tiers
 
@@ -93,6 +94,17 @@ first attempt. The dashboard groups them by tier:
   an all-green check.
 - **Tier 2, benchmark** — harder tasks a capable model may still miss. Each test
   on its own, its first-attempt result per seed.
+
+Before a full run, run `scripts/benchmark/build_board_images.sh` on the host, once
+per revision. The machine-switch tests need `osprey-va-full` and `bench-ioc` and
+never build them, so a full cell stops at startup (`IMAGE-GATE`) unless both exist
+at the checkout's revision. A smoke run with `--select` skips this gate. The VA image
+is linux/amd64, so on Apple Silicon each cell boots it under emulation: leave memory
+for `--parallel` of them in the container VM.
+
+The plan-stack and chart-reading tests deploy a stack with a fixed project name and
+ports, so parallel cells take turns on a host-wide lock. A test's timeout and its
+reported time cover its call, not that wait or the stack build.
 
 The other in-scope tests carry `harness_benchmark` (the assertion is OSPREY's,
 not the model's); they run in CI, not on the board. Each cell writes a
