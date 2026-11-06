@@ -1,17 +1,12 @@
 """Automatic session names: a short title made from the operator's first prompt.
 
-:func:`name_session` asks the provider's ``haiku`` alias for a name in one
-tool-less, capped, unrecorded turn, and trims the reply to at most
-:data:`MAX_TITLE_WORDS` words and :data:`MAX_TITLE_CHARS` characters. Any failure
-— a timeout, an unavailable CLI, a refused or empty reply — returns ``None`` and
-is logged; the caller keeps the first-prompt title.
-
-The run is isolated the way a code review is: ``env_overrides`` (never ``env``,
-which would skip the provider routing) set the record off switch and blank every
-variable that would carry the run into the session's record or telemetry, and
-the agent runs in a temporary directory of its own, so its transcript is not
-filed under the project the operator works in. ``CLAUDE_CONFIG_DIR`` is left as
-the parent has it, since a personal ``/login`` lives there.
+:func:`name_session` asks the project's provider for a name in one plain chat
+completion on its fast model (the model Claude Code's ``haiku`` alias runs), and
+trims the reply to at most :data:`MAX_TITLE_WORDS` words and
+:data:`MAX_TITLE_CHARS` characters. Any failure — a timeout, an unresolved
+provider, a refused or empty reply — returns ``None`` and is logged; the caller
+keeps the first-prompt title. No agent runs, so nothing reaches the session's
+record or transcripts.
 
 :class:`SessionNamer` is the hub's scheduler. ``GET /api/sessions`` hands it the
 rows it listed; it marks the eligible ones pending (in memory, in
@@ -26,24 +21,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
-import shutil
-import tempfile
 from collections import deque
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
-from osprey.agent_record.contract import (
-    RECORD_OFF_ENV,
-    RECORD_OFF_VALUE,
-    SPOOL_DIR_ENV,
-    TELEMETRY_SWITCH_ENV,
-    reaches_a_record,
-)
 from osprey.stores.session_ledger import aware_time
 
 logger = logging.getLogger(__name__)
@@ -52,8 +36,9 @@ logger = logging.getLogger(__name__)
 SESSION_NAMED_FRAME = "session_named"
 #: Seconds one naming call may take before it counts as failed.
 NAMING_TIMEOUT_S = 20.0
-#: The most one naming call may spend, in USD.
-NAMING_BUDGET_USD = 0.05
+#: The most tokens a naming reply may take: a title, with room for a reasoning
+#: model's thinking before it.
+NAMING_MAX_TOKENS = 256
 #: The longest automatic title, in words and in characters.
 MAX_TITLE_WORDS = 6
 MAX_TITLE_CHARS = 60
@@ -70,32 +55,8 @@ _SYSTEM_PROMPT = (
     "no trailing punctuation, nothing else."
 )
 
-#: Set over the namer's environment: a naming call is the hub's tooling, not the
-#: operator's work, so it must not land in the session's record or telemetry.
-#: :func:`naming_env` adds whatever else in the environment reaches a record.
-NAMING_ENV_OVERRIDES: Mapping[str, str] = MappingProxyType(
-    {
-        "CLAUDE_CODE_SESSION_ID": "",
-        "OSPREY_SESSION_ID": "",
-        "OSPREY_TELEMETRY_SESSION_ID": "",
-        "OSPREY_TELEMETRY_SESSION_START": "",
-        "OSPREY_POSTURE_SESSION": "",
-        "OSPREY_TERMINAL_SESSION": "",
-        "OTEL_RESOURCE_ATTRIBUTES": "",
-        SPOOL_DIR_ENV: "",
-        TELEMETRY_SWITCH_ENV: "0",
-        RECORD_OFF_ENV: RECORD_OFF_VALUE,
-    }
-)
-
 _EDGE_JUNK = "\"'`*_#>«»“”‘’ \t"
 _TRAILING_PUNCT = ".,;:!?…-–—"
-
-
-def naming_env() -> dict[str, str]:
-    """The namer's environment overrides, from the environment as it is now."""
-    blanked = {key: "" for key in os.environ if reaches_a_record(key)}
-    return blanked | dict(NAMING_ENV_OVERRIDES)
 
 
 def trim_title(reply: str | None) -> str | None:
@@ -117,58 +78,22 @@ def trim_title(reply: str | None) -> str | None:
     return text or None
 
 
-def _naming_model(project_dir: Path) -> str:
-    """The provider's ``haiku`` alias model, else the alias itself for the CLI to map."""
+def _naming_route(project_dir: Path) -> tuple[str, str, dict[str, Any]] | None:
+    """The project's provider, its ``haiku`` alias model and its ``api.providers`` entry.
+
+    The alias model is always an id the provider serves (or its main model), so
+    a chat completion can ask for it as is. ``None`` when the project resolves
+    no provider.
+    """
     from osprey.agent_runner import primitives
+    from osprey.models.config import get_provider_config
 
     spec = primitives._resolve_project_spec(project_dir)
-    aliases = getattr(spec, "alias_models", None) or {}
-    model = aliases.get(NAMING_ALIAS)
-    return model if isinstance(model, str) and model else NAMING_ALIAS
-
-
-def naming_query_kwargs(*, model: str, cwd: Path) -> dict[str, Any]:
-    """The ``run_query`` keywords of one naming call (all but the prompt).
-
-    Tool-less, settings-less, server-less, one turn, a small budget, run in
-    *cwd* with the record switched off.
-    """
-    from osprey.agent_runner.sdk_context import make_tool_allowlist
-    from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
-
-    return {
-        "system_prompt": _SYSTEM_PROMPT,
-        "tools": [],
-        "permission_mode": None,
-        "can_use_tool": make_tool_allowlist(()),
-        "disallowed_tools": READ_ONLY_DENIED_BUILTINS,
-        "setting_sources": [],
-        "mcp_servers": {},
-        "await_mcp_servers": (),
-        "max_turns": 1,
-        "max_budget_usd": NAMING_BUDGET_USD,
-        "model": model,
-        "cwd": cwd,
-        "env_overrides": naming_env(),
-    }
-
-
-def _reply_of(run: Any) -> str | None:
-    message = getattr(run, "result", None)
-    if message is None or getattr(message, "is_error", False):
+    if spec is None:
         return None
-    text = "".join(getattr(run, "text_blocks", None) or [])
-    return text or getattr(message, "result", None)
-
-
-def _forget_transcripts(work_dir: Path) -> None:
-    """Remove the state Claude Code filed under the namer's own directory."""
-    from osprey.agent_runner.project_paths import claude_project_dir
-
-    try:
-        shutil.rmtree(claude_project_dir(work_dir), ignore_errors=True)
-    except Exception:  # best effort: a leftover directory names nothing of the operator's
-        logger.debug("Could not remove the namer's transcript directory", exc_info=True)
+    model = spec.alias_models.get(NAMING_ALIAS) or spec.default_model_id
+    provider_config = get_provider_config(spec.provider, str(project_dir / "config.yml"))
+    return spec.provider, model, provider_config
 
 
 async def name_session(
@@ -178,7 +103,7 @@ async def name_session(
 
     Args:
         prompt: The operator's first prompt.
-        project_dir: The rendered project the provider, model and launcher resolve from.
+        project_dir: The rendered project the provider and model resolve from.
         timeout: Seconds the call may take.
 
     Returns:
@@ -187,21 +112,31 @@ async def name_session(
     text = " ".join((prompt or "").split())[:PROMPT_CHARS]
     if not text:
         return None
-    work_dir: Path | None = None
     try:
-        from osprey.agent_runner.runner import run_query
+        from osprey.models.completion import aget_chat_completion
+        from osprey.models.messages import ChatCompletionRequest, ChatMessage
 
-        work_dir = Path(tempfile.mkdtemp(prefix="osprey-naming-")).resolve()
-        model = await asyncio.to_thread(_naming_model, Path(project_dir))
-        run = await asyncio.wait_for(
-            run_query(
-                Path(project_dir),
-                text,
-                **naming_query_kwargs(model=model, cwd=work_dir),
+        route = await asyncio.to_thread(_naming_route, Path(project_dir))
+        if route is None:
+            logger.warning("Session naming found no provider in %s", project_dir)
+            return None
+        provider, model, provider_config = route
+        reply = await asyncio.wait_for(
+            aget_chat_completion(
+                chat_request=ChatCompletionRequest(
+                    messages=[
+                        ChatMessage(role="system", content=_SYSTEM_PROMPT),
+                        ChatMessage(role="user", content=text),
+                    ]
+                ),
+                provider=provider,
+                model_id=model,
+                provider_config=provider_config,
+                max_tokens=NAMING_MAX_TOKENS,
             ),
             timeout,
         )
-        title = trim_title(_reply_of(run))
+        title = trim_title(reply if isinstance(reply, str) else None)
         if title is None:
             logger.warning("Session naming returned no usable title")
         return title
@@ -211,10 +146,6 @@ async def name_session(
     except Exception as exc:
         logger.warning("Session naming failed: %s: %s", type(exc).__name__, exc)
         return None
-    finally:
-        if work_dir is not None:
-            _forget_transcripts(work_dir)
-            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def _real_prompt(prompt: Any) -> str:
@@ -260,7 +191,7 @@ class SessionNamer:
     def eligible(self, row: Mapping[str, Any], since: datetime | None) -> str:
         """The prompt to name *row* from, or ``""`` when it is not to be named.
 
-        Named: a non-bookkeeping first prompt, not ``truncated``, no auto title,
+        Named: not deleted, a non-bookkeeping first prompt, not ``truncated``, no auto title,
         ``first_ts ≥ naming_since``, not pending, not failed this hub start.
         """
         from osprey.interfaces.web_terminal import session_meta
@@ -277,7 +208,7 @@ class SessionNamer:
         if since is None or first is None or first < since:
             return ""
         meta = session_meta.get(self._app, tid)
-        if meta.get("auto_title") or meta.get("naming") == "done":
+        if meta.get("deleted") or meta.get("auto_title") or meta.get("naming") == "done":
             return ""
         return prompt
 

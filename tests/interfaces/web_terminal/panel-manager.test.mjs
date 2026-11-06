@@ -67,7 +67,9 @@ const {
     // manager registers to re-run its landing once it is. Settled by default,
     // so a test that does not model a restore lands at the first health settle.
     bootSettled: true,
-    restored: /** @type {(() => void) | null} */ (null),
+    restored: /** @type {(() => void)[]} */ ([]),
+    // Whether the apply being replayed is a session's own layout (applyDock).
+    sessionApply: false,
   },
   getDockApi: vi.fn(() => /** @type {any} */ (null)),
   openTerminalPanel: vi.fn(),
@@ -91,8 +93,9 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
     dockState.redock = fn;
   },
   bootLayoutSettled: () => dockState.bootSettled,
+  applyingSessionLayout: () => dockState.sessionApply,
   setLayoutRestoredHook: (/** @type {() => void} */ fn) => {
-    dockState.restored = fn;
+    dockState.restored.push(fn);
     if (dockState.bootSettled) fn();
   },
   onDragGesture: () => [],
@@ -101,7 +104,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
 /** Announce the boot layout as final, as dock-workspace does after its restore. */
 function settleBootLayout() {
   dockState.bootSettled = true;
-  dockState.restored?.();
+  for (const fn of dockState.restored) fn();
 }
 
 // The terminal verbs the context menu binds live outside panel-manager's own
@@ -287,7 +290,8 @@ beforeEach(() => {
   getDockApi.mockImplementation(() => dockState.api);
   dockState.api = null;
   dockState.bootSettled = true;
-  dockState.restored = null;
+  dockState.restored = [];
+  dockState.sessionApply = false;
   // The pop-out seam (popout.js) rolls call on a BroadcastChannel at boot,
   // which the test environment does not provide. Unstubbed with the rest.
   vi.stubGlobal(
@@ -1257,6 +1261,24 @@ async function agentTileMenu() {
   return openTileContextMenu('terminal', { x: 40, y: 60, anchorEl });
 }
 
+const SIDEBAR_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sidebar.js';
+
+/**
+ * Set the Agent row's session list open or closed (sidebar.js, the instance
+ * the menu policy folds through).
+ * @param {boolean} open
+ */
+async function sidebarList(open) {
+  const { setListOpen } = await import(SIDEBAR_PATH);
+  setListOpen('agent', open);
+}
+
+/** @returns {Promise<boolean>} whether the Agent row's session list is open */
+async function listOpen() {
+  const { isListOpen } = await import(SIDEBAR_PATH);
+  return isListOpen('agent');
+}
+
 /**
  * Right-click a sidebar row the way the browser does — on the row button or
  * on a child of it, letting the event bubble. The returned
@@ -1381,6 +1403,14 @@ async function bootWorkspace({
   // restored tile — what dock-workspace builds before the manager boots.
   const apply = await import(DOCK_APPLY_PATH);
   const holder = apply.initLayoutHolder({ api, guard: (/** @type {() => any} */ fn) => fn() });
+  // dock-workspace (mocked here) records each focus change on the holder, as
+  // its wireHolderSync does: the rail accent is derived from that focus.
+  api.onDidActivePanelChange(() => {
+    if (holder.applying) return;
+    const key = apply.keyOfPanelId(api.activePanel?.id);
+    const tile = api.activePanel?.group?.id;
+    if (key !== null && typeof tile === 'string') holder.show(tile, key);
+  });
   // dock-workspace (mocked here) tells the holder which panels left for their
   // own windows; the holder's pop-outs ride beside the layout in every report.
   const { onPopoutChange } = await import(POPOUT_PATH);
@@ -1775,6 +1805,102 @@ describe('a whole-layout apply (a reset) keeps the panel the operator was on', (
 
     expect(tileTabs(holder)).toEqual([['okf'], ['terminal']]);
     expect(activeStamp()).toBe('okf');
+  });
+
+  test("a session's own layout with no service tile is left empty", async () => {
+    const { api, holder } = await bootWorkspace();
+    expect(activeStamp()).toBe('okf');
+
+    dockState.sessionApply = true;
+    await reset();
+    dockState.sessionApply = false;
+
+    expect(tileTabs(holder)).toEqual([['terminal']]);
+    expect(dockedTiles(api)).toEqual([]);
+    expect(activeStamp()).toBeNull();
+  });
+});
+
+describe('the rail accent is derived from the dock layout on screen', () => {
+  // A tool row is accented iff its panel is what the service tile the operator
+  // used last shows (else the first service tile) in the CURRENT layout —
+  // re-derived after a session's layout is applied and after every dock change,
+  // so no accent outlives the tile it marked.
+  /** @param {string} id @returns {HTMLElement} */
+  const entry = (id) =>
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
+    );
+  const accented = () =>
+    [...document.querySelectorAll('.panel-rail-button.active')].map((el) =>
+      el.getAttribute('data-panel-id')
+    );
+  const current = () =>
+    [...document.querySelectorAll('.panel-rail-button[aria-current="page"]')].map((el) =>
+      el.getAttribute('data-panel-id')
+    );
+  const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
+  const TERMINAL_TILE = { tile: 'tt', tabs: ['terminal'] };
+
+  /** session-layout.js's switch: the next session's own layout is applied. @param {any} layout */
+  const switchTo = async (layout) => {
+    dockState.sessionApply = true;
+    (await pageHolder()).restore(layout);
+    dockState.redock?.();
+    dockState.sessionApply = false;
+  };
+
+  test('a switch to a layout without the accented panel clears its row', async () => {
+    await bootWorkspace({ panels: ['okf', 'ariel', 'channel-finder'] });
+    entry('channel-finder').click();
+    expect(accented()).toEqual(['channel-finder']);
+
+    // The next session shows ariel: Channels is not on screen there.
+    await switchTo(rowOf(['ariel'], TERMINAL_TILE));
+    expect(accented()).not.toContain('channel-finder');
+    expect(entry('channel-finder').hasAttribute('aria-current')).toBe(false);
+
+    // And one with the Agent pane alone accents nothing.
+    await switchTo(TERMINAL_LAYOUT);
+    expect(accented()).toEqual([]);
+    expect(current()).toEqual([]);
+    expect(activeStamp()).toBeNull();
+  });
+
+  test('a switch to a layout that shows a panel accents that panel', async () => {
+    const { holder } = await bootWorkspace({ panels: ['okf', 'ariel', 'channel-finder'] });
+    expect(accented()).toEqual(['okf']);
+
+    await switchTo(rowOf(['channel-finder'], TERMINAL_TILE));
+
+    expect(tileTabs(holder)).toEqual([['channel-finder'], ['terminal']]);
+    expect(accented()).toEqual(['channel-finder']);
+    expect(current()).toEqual(['channel-finder']);
+    expect(activeStamp()).toBe('channel-finder');
+  });
+
+  test('an agent close of the accented tile hands the accent to the tile left on screen', async () => {
+    const { api, op } = await bootWorkspace({ panels: ['okf', 'ariel'] });
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    expect(accented()).toEqual(['ariel']);
+
+    op('close', { key: 'ariel' });
+    await settled(() => expect(dockedTiles(api)).toEqual(['okf']));
+    api.fireLayout();
+
+    expect(accented()).toEqual(['okf']);
+  });
+
+  test('a close that leaves no service tile clears the accent', async () => {
+    const { api, op } = await bootWorkspace({ panels: ['okf'] });
+    expect(accented()).toEqual(['okf']);
+
+    op('close', { key: 'okf' });
+    await settled(() => expect(dockedTiles(api)).toEqual([]));
+    api.fireLayout();
+
+    expect(accented()).toEqual([]);
   });
 });
 
@@ -2839,6 +2965,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Open in a new tile',
       'Pop out',
       'Move to Workspace',
+      'Move to System',
       'Move to new group…',
       'Remove from rail',
     ]);
@@ -3114,19 +3241,6 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(dockedTiles(api)).not.toContain('okf');
   });
 
-  test('a parent row (one that discloses a list) only ever brings its tile forward, never retires it', async () => {
-    const { api } = await bootWorkspace();
-    expect(activeStamp()).toBe('okf');
-    // A row that discloses a list is shipped as a `.parent`: its click opens the
-    // row's list, which is what the operator reached for.
-    entry('okf').classList.add('parent');
-
-    entry('okf').click();
-
-    expect(dockedTiles(api)).toContain('okf');
-    expect(activeStamp()).toBe('okf');
-  });
-
   test('Focus surfaces a member that holds no tile', async () => {
     const { api } = await bootWorkspace();
 
@@ -3217,20 +3331,37 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(closeTerminalPanel).toHaveBeenCalled();
   });
 
-  test('a click on the Agent row opens the pane and focuses the terminal — twice, never a close', async () => {
+  test('with the Agent pane closed, a click on the Agent row opens it and unfolds the list', async () => {
     await bootWorkspace({ surface: 'terminal' });
+    await sidebarList(false);
+    openTerminalPanel.mockClear();
+    focusTerminal.mockClear();
+    isTerminalPanelOpen.mockReturnValueOnce(false);
+
+    entry('terminal').click();
+
+    expect(openTerminalPanel).toHaveBeenCalledOnce();
+    expect(focusTerminal).toHaveBeenCalledOnce();
+    expect(await listOpen()).toBe(true);
+  });
+
+  test('with the Agent pane open, a click on the Agent row folds and unfolds the list, never the pane', async () => {
+    await bootWorkspace({ surface: 'terminal' });
+    await sidebarList(true);
     openTerminalPanel.mockClear();
     focusTerminal.mockClear();
 
     entry('terminal').click();
+    expect(await listOpen()).toBe(false);
     entry('terminal').click();
+    expect(await listOpen()).toBe(true);
 
-    expect(openTerminalPanel).toHaveBeenCalledTimes(2);
-    expect(focusTerminal).toHaveBeenCalledTimes(2);
+    expect(openTerminalPanel).not.toHaveBeenCalled();
     expect(closeTerminalPanel).not.toHaveBeenCalled();
+    expect(focusTerminal).not.toHaveBeenCalled();
   });
 
-  test('in chat the Agent row puts the caret in the composer', async () => {
+  test('in chat the Agent row that opens the pane puts the caret in the composer', async () => {
     await bootWorkspace();
     focusTerminal.mockClear();
     const operator = document.createElement('div');
@@ -3238,6 +3369,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const composer = document.createElement('textarea');
     operator.append(composer);
     document.body.append(operator);
+    isTerminalPanelOpen.mockReturnValueOnce(false);
 
     entry('terminal').click();
 
@@ -3250,7 +3382,8 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
   test('an Agent pane that did not open takes no focus', async () => {
     await bootWorkspace();
     focusTerminal.mockClear();
-    isTerminalPanelOpen.mockReturnValueOnce(false);
+    isTerminalPanelOpen.mockReturnValue(false);
+    onTestFinished(() => void isTerminalPanelOpen.mockReturnValue(true));
 
     entry('terminal').click();
 
@@ -3501,7 +3634,7 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
     const groups = [...document.querySelectorAll('#panel-rail > .sidebar-group')];
     const ids = groups.map((g) => g.getAttribute('data-group'));
     // okf sits in Tools (its default group), so the new group lands below Tools.
-    expect(ids).toEqual(['workspace', 'tools', expect.stringMatching(/^g-[0-9a-f]{8}$/)]);
+    expect(ids).toEqual(['workspace', 'tools', expect.stringMatching(/^g-[0-9a-f]{8}$/), 'system']);
     expect(groups[2].contains(entry('okf'))).toBe(true);
     const field = groups[2].querySelector('.sidebar-group-rename');
     expect(field).not.toBeNull();
@@ -4001,6 +4134,49 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     await settled(() => expect(new URL(el.src).pathname).toBe('/panel/artifacts/item/7'));
     expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
     expect(capCalls).toEqual([]);
+  });
+
+  test("a session's panel page: read from the frame inside its mount, and brought back", async () => {
+    await bootOne({ enabled: ['artifacts'], visible: ['artifacts'] });
+    await settled(() => expect(frame('artifacts')).not.toBeNull());
+    const life =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js');
+    const el = /** @type {HTMLIFrameElement} */ (frame('artifacts'));
+    /** @param {() => string} href */
+    const showing = (href) =>
+      Object.defineProperty(el, 'contentWindow', {
+        configurable: true,
+        get: () => ({
+          location: {
+            get href() {
+              return href();
+            },
+          },
+          postMessage() {},
+        }),
+      });
+    const origin = window.location.origin;
+
+    showing(() => `${origin}/panel/artifacts/item/7?q=1&embedded=true&theme=dark#top`);
+    expect(life.getPanelPage('artifacts')).toBe('/panel/artifacts/item/7?q=1#top');
+    showing(() => `${origin}/panel/ariel/`);
+    expect(life.getPanelPage('artifacts')).toBeNull();
+    showing(() => 'http://elsewhere.example/panel/artifacts/');
+    expect(life.getPanelPage('artifacts')).toBeNull();
+    showing(() => {
+      throw new DOMException('Blocked a frame', 'SecurityError');
+    });
+    expect(life.getPanelPage('artifacts')).toBeNull();
+
+    // Already there: nothing moves. Another page in the mount: the frame goes there.
+    showing(() => `${origin}/panel/artifacts/item/7?embedded=true`);
+    const before = el.src;
+    life.restorePanelPage('artifacts', '/panel/artifacts/item/7');
+    expect(el.src).toBe(before);
+    life.restorePanelPage('artifacts', '/panel/ariel/');
+    expect(el.src).toBe(before);
+    life.restorePanelPage('artifacts', '/panel/artifacts/item/9');
+    await settled(() => expect(new URL(el.src).pathname).toBe('/panel/artifacts/item/9'));
   });
 
   test('a recovered opaque panel loads its held address through a fresh cap', async () => {

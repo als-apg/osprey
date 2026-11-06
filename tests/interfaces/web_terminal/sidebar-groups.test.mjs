@@ -73,22 +73,31 @@ afterEach(() => {
 /* ---- the model ----------------------------------------------------------- */
 
 describe('the default model', () => {
-  test('two built-in groups, and nothing placed', () => {
+  test('three built-in groups, and nothing placed', () => {
     expect(defaultModel()).toEqual({
       version: 1,
       groups: [
         { id: 'workspace', label: 'Workspace' },
         { id: 'tools', label: 'Tools' },
+        { id: 'system', label: 'System' },
       ],
       placement: {},
     });
   });
 
-  test('Artifacts and Events sit in Workspace, every other panel in Tools', () => {
-    const model = defaultModel(['terminal', 'artifacts', 'events', 'ariel', 'lattice']);
+  test('Artifacts sit in Workspace, Events and Health in System, every other panel in Tools', () => {
+    const model = defaultModel([
+      'terminal',
+      'artifacts',
+      'events',
+      'system-health',
+      'ariel',
+      'lattice',
+    ]);
     expect({ ...model.placement }).toEqual({
       artifacts: 'workspace',
-      events: 'workspace',
+      events: 'system',
+      'system-health': 'system',
       ariel: 'tools',
       lattice: 'tools',
     });
@@ -97,7 +106,8 @@ describe('the default model', () => {
   test('a first visit reads the default model, and places panels as the sidebar always has', () => {
     expect(loadGroups()).toEqual(defaultModel());
     expect(groupOf('artifacts')).toBe('workspace');
-    expect(groupOf('events')).toBe('workspace');
+    expect(groupOf('events')).toBe('system');
+    expect(groupOf('system-health')).toBe('system');
     expect(groupOf('ariel')).toBe('tools');
     expect(groupOf('a-custom-panel')).toBe('tools');
   });
@@ -108,10 +118,39 @@ describe('the default model', () => {
     expect(groupOf('terminal')).toBe('tools');
   });
 
-  test('the built-in groups are workspace and tools', () => {
+  test('the built-in groups are workspace, tools and system', () => {
     expect(isBuiltinGroup('workspace')).toBe(true);
     expect(isBuiltinGroup('tools')).toBe(true);
+    expect(isBuiltinGroup('system')).toBe(true);
     expect(isBuiltinGroup(addGroup('Mine'))).toBe(false);
+  });
+});
+
+describe('a value stored before System existed', () => {
+  const legacy = {
+    version: 1,
+    groups: [
+      { id: 'tools', label: 'Instruments' },
+      { id: 'workspace', label: 'Workspace' },
+    ],
+    placement: { events: 'workspace', ariel: 'tools' },
+  };
+
+  test('keeps the arrangement and gains System as the last group', () => {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
+    expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
+    expect(labelOf('tools')).toBe('Instruments');
+    expect(labelOf('system')).toBe('System');
+    // The operator's own placement of Events wins over the new default.
+    expect(groupOf('events')).toBe('workspace');
+    expect(groupOf('ariel')).toBe('tools');
+    // A panel never placed follows the new default.
+    expect(groupOf('system-health')).toBe('system');
+  });
+
+  test('a stored default with no placements puts Events in System', () => {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify({ ...legacy, placement: {} }));
+    expect(groupOf('events')).toBe('system');
   });
 });
 
@@ -152,13 +191,13 @@ describe('add, delete and reorder', () => {
   test('a group added after another sits directly below it, with a fresh id', () => {
     const id = addGroup('Beamline', 'workspace');
     expect(id).toMatch(/^g-[0-9a-f]{8}$/);
-    expect(groupIds()).toEqual(['workspace', id, 'tools']);
+    expect(groupIds()).toEqual(['workspace', id, 'tools', 'system']);
     expect(labelOf(id)).toBe('Beamline');
   });
 
   test('a group added after no group goes last, and an empty name becomes the default', () => {
     const id = addGroup('   ');
-    expect(groupIds()).toEqual(['workspace', 'tools', id]);
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system', id]);
     expect(labelOf(id)).toBe(NEW_GROUP_LABEL);
   });
 
@@ -170,7 +209,8 @@ describe('add, delete and reorder', () => {
   test('a built-in group is never deleted', () => {
     expect(removeGroup('workspace')).toBe(false);
     expect(removeGroup('tools')).toBe(false);
-    expect(groupIds()).toEqual(['workspace', 'tools']);
+    expect(removeGroup('system')).toBe(false);
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
   });
 
   test('deleting a group sends its panels back to Tools, Artifacts included', () => {
@@ -181,7 +221,7 @@ describe('add, delete and reorder', () => {
 
     expect(removeGroup(id)).toBe(true);
 
-    expect(groupIds()).toEqual(['workspace', 'tools']);
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
     expect(groupOf('ariel')).toBe('tools');
     expect(groupOf('artifacts')).toBe('tools');
     expect(groupOf('lattice')).toBe('workspace');
@@ -194,11 +234,11 @@ describe('add, delete and reorder', () => {
   test('a group moves one place up or down, built-in ones too, never past an end', () => {
     const id = addGroup('Beamline', 'workspace');
     expect(reorderGroup(id, 'up')).toBe(true);
-    expect(groupIds()).toEqual([id, 'workspace', 'tools']);
+    expect(groupIds()).toEqual([id, 'workspace', 'tools', 'system']);
     expect(reorderGroup(id, 'up')).toBe(false);
-    expect(reorderGroup('tools', 'down')).toBe(false);
+    expect(reorderGroup('system', 'down')).toBe(false);
     expect(reorderGroup('workspace', 'down')).toBe(true);
-    expect(groupIds()).toEqual([id, 'tools', 'workspace']);
+    expect(groupIds()).toEqual([id, 'tools', 'workspace', 'system']);
     expect(reorderGroup('nope', 'up')).toBe(false);
   });
 });
@@ -238,6 +278,7 @@ describe('persistence', () => {
         { id: 'workspace', label: 'Workspace' },
         { id, label: 'Beamline' },
         { id: 'tools', label: 'Instruments' },
+        { id: 'system', label: 'System' },
       ],
       placement: { ariel: id },
     });
@@ -266,7 +307,7 @@ describe('persistence', () => {
 
     renameGroup('tools', 'Instruments');
 
-    expect(groupLabels()).toEqual(['Theirs', 'Instruments']);
+    expect(groupLabels()).toEqual(['Theirs', 'Instruments', 'System']);
   });
 
   const valid = defaultModel();
@@ -364,8 +405,8 @@ describe('onGroupsChange', () => {
     renameGroup('tools', 'Tools');
 
     expect(seen).toEqual([
-      ['Workspace', 'Instruments'],
-      ['Workspace', 'Instruments', 'Beamline'],
+      ['Workspace', 'Instruments', 'System'],
+      ['Workspace', 'Instruments', 'System', 'Beamline'],
     ]);
   });
 });
@@ -442,6 +483,7 @@ describe('group headings', () => {
     for (const [id, label] of [
       ['workspace', 'Workspace'],
       ['tools', 'Tools'],
+      ['system', 'System'],
     ]) {
       const group = groupEl(rail, id);
       const heading = qs(group, ':scope > .osprey-section-label');
@@ -511,9 +553,9 @@ describe('the group menu', () => {
     menuRow('Move down').click();
 
     expect(menu()?.hidden).toBe(true);
-    expect(groupIds()).toEqual(['tools', 'workspace']);
+    expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
     const order = [...rail.children].map((el) => el.getAttribute('data-group'));
-    expect(order).toEqual(['tools', 'workspace']);
+    expect(order).toEqual(['tools', 'workspace', 'system']);
     expect(document.activeElement).toBe(menuButton(rail, 'workspace'));
   });
 
@@ -524,7 +566,7 @@ describe('the group menu', () => {
     menuButton(rail, id).click();
     menuRow('Delete group').click();
 
-    expect(groupIds()).toEqual(['workspace', 'tools']);
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
     expect(rail.querySelector(`[data-group="${id}"]`)).toBeNull();
     const ariel = rail.querySelector('[data-panel-id="ariel"]');
     expect(groupEl(rail, 'tools').contains(ariel)).toBe(true);
@@ -537,7 +579,7 @@ describe('the group menu', () => {
     menuRow('New group below').click();
 
     const ids = groupIds();
-    expect(ids).toHaveLength(3);
+    expect(ids).toHaveLength(4);
     const id = ids[1];
     expect(labelOf(id)).toBe(NEW_GROUP_LABEL);
     const field = renameField(rail, id);

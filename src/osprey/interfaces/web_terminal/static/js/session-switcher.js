@@ -2,7 +2,7 @@
  *
  * The Agent tile's header label on both surfaces — the chat's `.op-session-label`
  * and the terminal's `#terminal-label` — names the session the tab is on
- * (`activeRow()`'s title) with a ▾. Activating it opens one shared popover: the
+ * (`activeRow()`'s title) . Activating it opens one shared popover: the
  * operator's sessions (state, age, message count; the active one checked),
  * "+ New session", and under a separator the way to the other surface ("Open
  * terminal" in chat, "Back to chat" on the terminal) where a terminal is offered.
@@ -43,11 +43,7 @@ function renderLabel(label) {
   const title = document.createElement('span');
   title.className = 'session-switcher-title';
   title.textContent = currentTitle();
-  const caret = document.createElement('span');
-  caret.className = 'session-switcher-caret';
-  caret.setAttribute('aria-hidden', 'true');
-  caret.textContent = '▾';
-  label.replaceChildren(title, caret);
+  label.replaceChildren(title);
 }
 
 function onModelChange() {
@@ -59,7 +55,7 @@ function onModelChange() {
 }
 
 /**
- * Make a header label the switcher's trigger: title + ▾, a menu button that
+ * Make a header label the switcher's trigger: title, a menu button that
  * opens the shared session popover. Idempotent per element.
  * @param {HTMLElement | null} label
  */

@@ -50,7 +50,7 @@ The window has a sidebar on the left and two panes:
 - **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
-  **Workspace** and **Tools** sections, and a footer with **Docs**,
+  **Workspace**, **Tools** and **System** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
@@ -165,9 +165,9 @@ The chat and the terminal run the same Claude Code version, the one
 is not installed, the server log says which one to install; see
 :doc:`/getting-started/installation`.
 
-While a turn runs in the chat, the composer is disabled and **Send** becomes
-**Stop**. Send the next prompt when the agent finishes, or select **Stop** to
-end the turn.
+While a turn runs in the chat, **Send** becomes **Stop**. A message entered
+meanwhile waits above the composer and is sent when the turn ends; **Interrupt
+and ask now** ends the turn and sends it at once.
 
 Clearing a conversation
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -515,22 +515,24 @@ The sidebar is on the left. From top to bottom, it shows:
   :ref:`control-target popover <web-terminal-session-posture>`.
 - **Search**. It opens the command palette. The shortcut is ⌘K on macOS and
   Ctrl+K on other systems.
-- The groups of panel rows. At first there are two, **Workspace** and
-  **Tools**:
+- The groups of panel rows. At first there are three, **Workspace**, **Tools** and
+  **System**:
 
   - **Workspace** starts with these rows:
 
-    - **Agent** opens the agent pane, or moves the focus to it, and opens
-      your session tree below it (`Sessions and artifacts`_). When the pane
-      is closed, the row shows a hollow dot. When the agent waits for your
+    - **Agent** opens the agent pane and your session tree below it
+      (`Sessions and artifacts`_); with the pane open, it folds or unfolds
+      the tree. When the pane
+      is closed, the row is dimmed. When the agent waits for your
       answer, the row shows the number of open questions. **Agent** is always
       the first row of the first group.
-    - **Events** shows only when the deployment enables the events panel.
 
   - **Tools** starts with all other panels that this deployment enables.
+  - **System** starts with **Events** (only when the deployment enables the
+    events panel) and **Health**.
 
   In each group, the rows are in your order. **+ Add panel** is always the
-  last row of the last group. See :doc:`panels`.
+  last row of **Tools**. See :doc:`panels`.
 - The footer: **Docs**, **Feedback**, **Sign out** and **☰ More**. **Sign
   out** shows only on a multi-user deployment. See
   :ref:`web-terminal-sign-out`.
@@ -545,16 +547,21 @@ Sessions and artifacts
 
 The **Agent** row's ▾ opens your sessions, newest first. A session is named
 from your first prompt ("naming…" until the name arrives); ``/clear`` starts a
-new one. Under a session, its artifacts are grouped by kind: **Runs**,
-**Plots**, **Trends**, **Tables**, **Documents**, **Dashboards**, **Images**,
-**Data**, plus any kind the deployment registers. A script run is one row with
-a dot for **succeeded**, **failed** or **not run** (none while it runs); its
-approval preview, code and outputs are its parts. A run that was never run
+new one. Under a session, its artifacts are grouped by day; **Group by Kind**
+sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
+**Dashboards**, **Images**, **Data**, plus any kind the deployment registers.
+A script run is one row with a dot for **succeeded**, **failed** or **not
+run** (none while it runs); its approval preview, code and outputs are its
+parts. A run that was never run
 opens on its proposed code. **Earlier** holds your artifacts that have no
 session; **More sessions** loads older ones.
 
-- Click a session name to switch to it: the Agent pane opens on it and shows
-  the artifact last open there (its newest if none). ▸ only browses.
+- Click a session name to switch to it: its layout comes back as you left it
+  (panels, tiles, sizes, the Agent pane, and each panel's page where the hub
+  can read it), with the artifact last open there (its newest if none). A new
+  or older session keeps the layout on screen. The sidebar stays as it is.
+  Click the current session's name to fold or unfold it. Only the current
+  session shows its artifacts; the others stay folded until you switch to them.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
@@ -562,13 +569,14 @@ session; **More sessions** loads older ones.
   first: **Cancel**, or **Stop & switch**.
 
 Right-click a session to rename it, export its transcript or group its
-artifacts by day (**Group by Activity**); a run to open its result, approval
-preview or code; an artifact to pin it. Runs and artifacts also have
-**Delete…**.
+artifacts by day or by kind, or delete a past session with its artifacts;
+a run to open its result, approval preview or code; an artifact to pin it.
+Runs and artifacts also have **Delete…**.
 
-A reload, a new tab or another device resumes your last session. Its
-last-open artifact is shown in the Artifacts panel if that panel is docked,
-otherwise highlighted in the tree; the layout does not change. The command
+A reload, a new tab or another device resumes your last session and its
+layout. Its last-open artifact is shown in the Artifacts panel if that panel
+is docked, otherwise revealed in the tree. The tree highlights only the
+artifact the Artifacts panel shows. The command
 palette finds your sessions and artifacts (by name, kind, or session name);
 opening a result enters its session. The Artifacts panel has no sidebar row;
 open it from the palette.
@@ -589,8 +597,12 @@ these items:
   its name for editing.
 - **Move up** and **Move down**. These move the group in the sidebar.
 - **Delete group**. This item shows only for a group that you added. The
-  rows of the group go back to **Tools**. You cannot delete **Workspace** or
-  **Tools**, but you can rename them.
+  rows of the group go back to **Tools**. You cannot delete **Workspace**,
+  **Tools** or **System**, but you can rename them.
+
+Double-click a group's name to fold it down to its heading, and double-click
+again to unfold it. To make **Workspace** taller, drag the faint line below it;
+double-click the line to go back to automatic height.
 
 To move a row to a different group, do one of these:
 

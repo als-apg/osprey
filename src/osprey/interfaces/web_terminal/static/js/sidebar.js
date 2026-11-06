@@ -18,12 +18,13 @@
  *     draws it) and opens and closes it (`aria-expanded` on the row, `hidden`
  *     on the tree). Whether it is open is kept per user under
  *     `scopedStorageKey('osprey-sidebar-open')`, a JSON array of row ids,
- *     `["agent"]` by default. A click on the Agent row opens the tree (the
- *     row's other half, opening the Agent pane, is panel-rail.js's); a click
- *     on its chevron (`[data-disc]`) toggles the tree only; ArrowRight /
- *     ArrowLeft open and close it from the keyboard. While the sidebar is
- *     collapsed the Agent row opens the same tree as a flyout beside the
- *     sidebar (`#sidebar-sessions-flyout`) instead.
+ *     `["agent"]` by default. A click on the Agent row is the row's activation
+ *     (panel-menu-policy.js): with the Agent pane closed it opens the pane and
+ *     the tree, with the pane open it folds or unfolds the tree and leaves the
+ *     pane alone. A click on its chevron (`[data-disc]`) toggles the tree
+ *     only; ArrowRight / ArrowLeft open and close it from the keyboard. While
+ *     the sidebar is collapsed the Agent row opens the same tree as a flyout
+ *     beside the sidebar (`#sidebar-sessions-flyout`) instead.
  *   - THE AGENT ROW. Its open/closed look comes from `html[data-agent]`
  *     (dock-workspace.js); this module keeps its tooltip and description in
  *     step and shows how many cards wait on the operator (the chat bus's
@@ -34,6 +35,9 @@
  *     scroll to (`.fade`, `.fade-top`), so a cut-off row reads as scrolled
  *     rather than clipped. A group made later is watched from the render
  *     that adds it.
+ *
+ *   - GROUPS. A double-click folds a group to its heading (sidebar-fold.js);
+ *     a divider below the Workspace group sets its height (sidebar-divider.js).
  *
  * Changing the width closes every sidebar popover and the tooltip, since each
  * is placed against a sidebar edge that is about to move.
@@ -48,6 +52,8 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
 import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { initSidebarResize } from './sidebar-resize.js';
+import { initSidebarFold } from './sidebar-fold.js';
+import { initSidebarDivider } from './sidebar-divider.js';
 
 /** The width's storage key, shared with sidebar-boot.js (pre-paint). */
 export const SIDEBAR_STORAGE_KEY = 'osprey-sidebar';
@@ -169,11 +175,20 @@ function paintDisclosure(id, open) {
 let openLists = new Set(DEFAULT_OPEN);
 
 /**
+ * Whether a row's list is open.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isListOpen(id) {
+  return openLists.has(id);
+}
+
+/**
  * Open or close a row's list and remember it.
  * @param {string} id
  * @param {boolean} open
  */
-function setListOpen(id, open) {
+export function setListOpen(id, open) {
   if (open) openLists.add(id);
   else openLists.delete(id);
   paintDisclosure(id, open);
@@ -188,7 +203,8 @@ function paintAllDisclosures() {
 /**
  * Wire a disclosing row: `primary` runs on a click on the row itself, a click
  * on its chevron toggles the list only, and ArrowRight / ArrowLeft open and
- * close the list from the keyboard.
+ * close the list from the keyboard. The expanded row's click is the row's own
+ * activation (panel-menu-policy.js), which decides whether it folds the list.
  * @param {string} id
  * @param {(event: MouseEvent) => void} primary
  */
@@ -216,17 +232,15 @@ function initDisclosures(sidebar) {
   paintAllDisclosures();
 
   wireDisclosure('agent', (event) => {
+    // Expanded, the row's click is its activation alone (panel-menu-policy.js).
+    if (!isCollapsed()) return;
     const row = /** @type {HTMLElement} */ (event.currentTarget);
-    if (isCollapsed()) {
-      const flyout = document.getElementById(FLYOUT_ID);
-      if (!flyout) return;
-      // The collapsed rail button opens the flyout; the Agent pane opens from
-      // a session name in it, so the row's pane half does not ride along.
-      event.stopImmediatePropagation();
-      togglePopover(row, flyout, { place: 'beside-right', edge: sidebar });
-      return;
-    }
-    setListOpen('agent', true);
+    const flyout = document.getElementById(FLYOUT_ID);
+    if (!flyout) return;
+    // The collapsed rail button opens the flyout; the Agent pane opens from
+    // a session name in it, so the row's pane half does not ride along.
+    event.stopImmediatePropagation();
+    togglePopover(row, flyout, { place: 'beside-right', edge: sidebar });
   });
 }
 
@@ -369,6 +383,8 @@ export function initSidebar() {
   initDisclosures(sidebar);
   initAgentRow();
   initFades(sidebar);
+  initSidebarFold(document.getElementById('panel-rail'));
+  initSidebarDivider(document.getElementById('panel-rail'));
   document.addEventListener('keydown', onTreeKeydown);
 
   document.addEventListener('osprey-collapsible-change', (event) => {
