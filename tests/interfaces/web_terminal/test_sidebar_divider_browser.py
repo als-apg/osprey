@@ -252,9 +252,16 @@ def test_an_earlier_builds_pixels_become_a_fraction_once(tmp_path, chromium_brow
         assert re.fullmatch(r"0\.\d{4}", lay["stored"]), lay["stored"]
         assert abs(float(lay["stored"]) * _rail_room(page) - 300) <= 1
 
+        # The fraction is rewritten until the sidebar's late blocks (the control
+        # target, the footer) have rendered, so the one the next load reads is
+        # whatever is stored when this page goes.
+        written = page.evaluate(f"localStorage.getItem('{_KEY}')")
         page.reload(wait_until="domcontentloaded")
         expect(page.locator(f"{_DIVIDER}[aria-valuetext]")).to_be_attached(timeout=10_000)
         page.evaluate(_LAYOUT_JS)
+        # The fraction is applied to the rail's room as it stands, which the
+        # late blocks shrink as they render: the height is 300 px once they have.
+        page.wait_for_function("window.__dividerLayout().height === 300", timeout=10_000)
         again = _layout(page)
         assert again["height"] == 300, again
-        assert again["stored"] == lay["stored"]
+        assert again["stored"] == written
