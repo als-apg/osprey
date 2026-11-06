@@ -7064,9 +7064,35 @@ def _va_live_lane_named_files(wf: dict[str, Any], job_name: str) -> list[str]:
 
     A list rather than a set: a file named twice in one lane is a duplicate
     the partition check below must still see.
+
+    A lane split into matrix cells names its files in each cell's ``suites``
+    and the run step reads them as ``${{ matrix.suites }}``; the lane's files
+    are then every cell's, concatenated, so a file in two cells is a duplicate
+    too.
     """
     run = _find_named_step(wf, job_name, VA_LIVE_LANE_RUN_STEPS[job_name])["run"]
+    if VA_LIVE_MATRIX_SUITES in run:
+        cells = " ".join(str(cell["suites"]) for cell in _va_live_cells(wf, job_name))
+        run = run.replace(VA_LIVE_MATRIX_SUITES, cells)
     return [token for token in run.split() if token.endswith(".py")]
+
+
+VA_LIVE_MATRIX_SUITES = "${{ matrix.suites }}"
+
+
+def _va_live_cells(wf: dict[str, Any], job_name: str = VA_LIVE_JOB) -> list[dict[str, Any]]:
+    """The matrix cells of a live lane that runs its suites split across runners."""
+    return list(_jobs(wf)[job_name]["strategy"]["matrix"]["include"])
+
+
+def _drop_va_live_suite(wf: dict[str, Any], path: str) -> None:
+    """Mutation helper: take *path* out of whichever VA live cell names it."""
+    for cell in _va_live_cells(wf):
+        tokens = str(cell["suites"]).split()
+        if path in tokens:
+            cell["suites"] = " ".join(t for t in tokens if t != path)
+            return
+    raise AssertionError(f"no {VA_LIVE_JOB} cell names {path}")
 
 
 def _va_live_suites_named_by_any_lane(wf: dict[str, Any]) -> list[str]:
@@ -7100,8 +7126,7 @@ def test_every_live_va_suite_is_named_by_one_lane(workflow: dict[str, Any]) -> N
 
 def test_every_live_va_suite_is_named_by_one_lane__mutation_drops_one_suite() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{VA_LIVE_SUITE_DIR}/test_full_sweep.py ", "")
+    _drop_va_live_suite(mutated, f"{VA_LIVE_SUITE_DIR}/test_full_sweep.py")
     with pytest.raises(AssertionError):
         test_every_live_va_suite_is_named_by_one_lane(mutated)
 
@@ -7132,6 +7157,103 @@ def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_
         test_every_live_va_suite_is_named_by_one_lane(mutated)
 
 
+# The VA live lane runs its suites split across matrix cells, one runner and
+# one image build each, balanced by measured module time. The partition above
+# already sees every cell's files (a file in two cells is a duplicate, a file
+# in none is unrun); this pins the rest of the split: the run step reads its
+# cell's files, every cell runs something, no cell's red cancels another, and
+# the real-facility lane runs in exactly one cell, whose zero-skip gate then
+# requires its report.
+
+
+def test_va_live_cells_split_the_suites_once(workflow: dict[str, Any]) -> None:
+    cells = _va_live_cells(workflow)
+    groups = [str(cell["group"]) for cell in cells]
+    assert len(groups) == len(set(groups)), f"'{VA_LIVE_JOB}' repeats a cell: {groups}"
+    per_cell = {str(cell["group"]): str(cell["suites"]).split() for cell in cells}
+    for group, files in per_cell.items():
+        assert files, f"'{VA_LIVE_JOB}' cell {group!r} runs no suite"
+        assert all(f.endswith(".py") for f in files), f"cell {group!r} names {files}"
+    seen = [f for files in per_cell.values() for f in files]
+    repeats = sorted({f for f in seen if seen.count(f) > 1})
+    assert not repeats, f"suites in more than one '{VA_LIVE_JOB}' cell: {repeats}"
+    strategy = _jobs(workflow)[VA_LIVE_JOB]["strategy"]
+    assert strategy.get("fail-fast") is False, "a red cell must not cancel the other cells"
+    run = _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])["run"]
+    named_in_run = [t for t in run.replace(VA_LIVE_MATRIX_SUITES, "").split() if t.endswith(".py")]
+    assert VA_LIVE_MATRIX_SUITES in run and not named_in_run, (
+        f"'{VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB]}' must run its cell's suites and only them"
+    )
+    als = [group for group, cell in zip(groups, cells, strict=True) if cell.get("als_lane") is True]
+    assert len(als) == 1, f"the real-facility lane must run in exactly one cell; runs in {als}"
+    assert _find_named_step(workflow, VA_LIVE_JOB, ALS_LANE_STEP).get("if") == "matrix.als_lane"
+    gate = _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)
+    assert gate.get("env", {}).get("ALS_LANE") == "${{ matrix.als_lane }}", gate.get("env")
+    assert 'os.environ["ALS_LANE"] == "true"' in gate["run"], "the gate must require the report"
+
+
+def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_two_cells() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    first, second = _va_live_cells(mutated)[:2]
+    second["suites"] = f"{second['suites']} {str(first['suites']).split()[0]}"
+    with pytest.raises(AssertionError, match="more than one"):
+        test_va_live_cells_split_the_suites_once(mutated)
+    with pytest.raises(AssertionError):
+        test_no_live_va_suite_is_named_by_two_lanes(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_drops_a_cell() -> None:
+    """Covered by the partition rather than the split: its files go unrun."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["strategy"]["matrix"]["include"].pop(0)
+    with pytest.raises(AssertionError, match="no live lane runs"):
+        test_every_live_va_suite_is_named_by_one_lane(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_fails_fast() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["strategy"]["fail-fast"] = True
+    with pytest.raises(AssertionError, match="must not cancel"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_the_run_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    step["run"] = step["run"].replace(
+        VA_LIVE_MATRIX_SUITES, f"{VA_LIVE_MATRIX_SUITES} {CHAIN_BOOT_MODULE}"
+    )
+    with pytest.raises(AssertionError, match="only them"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+@pytest.mark.parametrize("cells_running_it", [0, 2])
+def test_va_live_cells_split_the_suites_once__mutation_moves_the_real_facility_lane(
+    cells_running_it: int,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    for index, cell in enumerate(_va_live_cells(mutated)):
+        cell["als_lane"] = index < cells_running_it
+    with pytest.raises(AssertionError, match="exactly one cell"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_runs_the_real_facility_lane_everywhere() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)["if"]
+    with pytest.raises(AssertionError):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_gate_ignores_the_matrix() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)["env"]
+    with pytest.raises(AssertionError):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
 # The chain's boot half runs in the lane whose job builds the image it boots.
 # The partition above is satisfied by any one lane naming the module, so the
 # lane is pinned here by name, with the collection floor the run step's
@@ -7154,8 +7276,7 @@ def test_chain_boot_suite_runs_in_the_va_live_run_step(
 def test_chain_boot_suite_runs_in_the_va_live_run_step__mutation_moves_it_to_another_lane() -> None:
     """The partition still holds on this mutation, so only the pin sees it."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{CHAIN_BOOT_MODULE} ", "")
+    _drop_va_live_suite(mutated, CHAIN_BOOT_MODULE)
     other = _find_named_step(mutated, TARGET_SWITCH_JOB, VA_LIVE_LANE_RUN_STEPS[TARGET_SWITCH_JOB])
     other["run"] = f"{other['run']} {CHAIN_BOOT_MODULE}\n"
     test_every_live_va_suite_is_named_by_one_lane(mutated)
@@ -7215,8 +7336,7 @@ def test_each_measurement_suite_runs_in_the_va_live_run_step__mutation_drops_it(
     module: str,
 ) -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{module} ", "")
+    _drop_va_live_suite(mutated, module)
     with pytest.raises(AssertionError):
         test_each_measurement_suite_runs_in_the_va_live_run_step(module, mutated)
 
