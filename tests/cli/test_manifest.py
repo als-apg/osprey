@@ -200,3 +200,52 @@ class TestRestampFileChecksums:
         restamp_file_checksums(tmp_path)
 
         assert not (tmp_path / ".osprey-manifest.json").exists()
+
+
+class TestEveryRegenRestamps:
+    """A launch-time regen (regen_if_drift) is a regen: its output is recorded too."""
+
+    def _fake_regen(self, monkeypatch):
+        from osprey.cli.templates import claude_code
+
+        def fake(_root, _env, project_dir, dry_run, **_kw):
+            if not dry_run:
+                (Path(project_dir) / ".mcp.json").write_text('{"regenerated": true}')
+            return {"changed": [".mcp.json"], "unchanged": []}
+
+        monkeypatch.setattr(claude_code, "regenerate_claude_code", fake)
+
+    def _project(self, tmp_path):
+        import json
+
+        (tmp_path / "config.yml").write_text("{}\n")
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "settings.json").write_text("{}")
+        (tmp_path / ".mcp.json").write_text('{"old": true}')
+        (tmp_path / ".osprey-manifest.json").write_text(
+            json.dumps({"file_checksums": calculate_file_checksums(tmp_path)})
+        )
+
+    def test_regen_if_drift_records_the_checksums_of_what_it_wrote(self, tmp_path, monkeypatch):
+        import json
+
+        from osprey.cli.templates.manager import TemplateManager
+
+        self._project(tmp_path)
+        self._fake_regen(monkeypatch)
+
+        TemplateManager().regen_if_drift(tmp_path)
+
+        data = json.loads((tmp_path / ".osprey-manifest.json").read_text())
+        assert data["file_checksums"] == calculate_file_checksums(tmp_path)
+
+    def test_a_dry_run_records_nothing(self, tmp_path, monkeypatch):
+        from osprey.cli.templates.manager import TemplateManager
+
+        self._project(tmp_path)
+        before = (tmp_path / ".osprey-manifest.json").read_text()
+        self._fake_regen(monkeypatch)
+
+        TemplateManager().regenerate_claude_code(tmp_path, dry_run=True)
+
+        assert (tmp_path / ".osprey-manifest.json").read_text() == before
