@@ -89,6 +89,16 @@ def _figure_traces(html: str) -> list[dict[str, Any]]:
     return traces
 
 
+def _figure_layout(html: str) -> dict[str, Any]:
+    """The layout the page's ``Plotly.newPlot`` call draws with, after the traces."""
+    marker = f'Plotly.newPlot(                        "{PLOT_DIV_ID}",'
+    rest = html[html.index(marker) + len(marker) :].lstrip()
+    decoder = json.JSONDecoder()
+    _traces, end = decoder.raw_decode(rest)
+    layout, _end = decoder.raw_decode(rest[end:].lstrip().removeprefix(",").lstrip())
+    return layout
+
+
 def _event_instant() -> float:
     event = {"at_when": {"days_ago": 1, "time": "14:32:08"}}
     return anchored_instant(event, ANCHOR.timestamp(), get_facility_timezone())
@@ -117,8 +127,8 @@ def test_the_plot_is_the_gallery_plot_form_without_plotly_inlined(payloads) -> N
 
     assert plot.artifact_type == "plot_html"
     assert plot.mime_type == "text/html"
-    assert plot.filename == "stored_current_and_sector_7_pressure_around_1432.html"
-    assert plot.title == "Stored current and sector 7 pressure around 14:32"
+    assert plot.filename == "stored_current_and_sector_7_pressure.html"
+    assert plot.title == "Stored current and sector 7 pressure"
     assert plot.tool_source == "create_interactive_plot"
     assert plot.kind == ""
     html = plot.content.decode("utf-8")
@@ -163,6 +173,27 @@ def test_the_plot_shows_the_current_drop_and_the_pressure_spike_at_1432_yesterda
     # Both recover by the end of the window.
     assert current[-1] - current[at] > 15
     assert pressure[-1] < 1e-8
+
+
+def test_the_plot_shows_the_window_its_archiver_read_stated(payloads) -> None:
+    """40m ago .. 15m ago from the turn at 15:06:35 yesterday: what the agent fetched."""
+    html = payloads[("sector-7-beam-loss", "loss-plot")].content.decode("utf-8")
+    seconds = _axis_seconds(_figure_traces(html)[0]["x"])
+    turn = _sessions()[0].parts[0].turns[1].at.timestamp()
+    assert turn - 2400 <= seconds[0] < turn - 2400 + PLOT_STEP_S
+    assert turn - 900 - PLOT_STEP_S < seconds[-1] <= turn - 900
+
+
+def test_each_channel_reads_on_its_own_panel_in_its_stated_unit(payloads) -> None:
+    html = payloads[("sector-7-beam-loss", "loss-plot")].content.decode("utf-8")
+    traces, layout = _figure_traces(html), _figure_layout(html)
+    assert [t["yaxis"] for t in traces] == ["y", "y2"]
+    assert layout["yaxis"]["title"]["text"] == "mA"
+    assert layout["yaxis"].get("type", "linear") == "linear"
+    # The gauge spans 3.7e-10 .. 1.5e-07 Torr: a linear axis draws its baseline as 0.
+    assert layout["yaxis2"]["title"]["text"] == "Torr"
+    assert layout["yaxis2"]["type"] == "log"
+    assert "overlaying" not in layout["yaxis2"]
 
 
 def test_the_plot_samples_are_the_archive_samples(project: Path, payloads) -> None:

@@ -66,7 +66,7 @@ sessions:
   parts:
   - title: Sector 7 beam loss at 14:32
     turns:
-    - prompt: We lost some beam around 14:32. Which channels give me the stored current and the sector
+    - prompt: We lost some beam around 2:30. Which channels give me the stored current and the sector
         7 vacuum?
       at_offset_s: 0
       channels:
@@ -81,7 +81,7 @@ sessions:
         result: 'SR:DIAG:DCCT:01:CURRENT:RB — storage ring DCCT stored-current readback (mA).
           SR:VAC:GAUGE:SR07:PRESSURE:RB — storage ring sector 7 vacuum gauge pressure readback (Torr).'
       - answer: The stored current is SR:DIAG:DCCT:01:CURRENT:RB and the sector 7 vacuum is
-          SR:VAC:GAUGE:SR07:PRESSURE:RB. I can pull both from the archiver around 14:32 and plot them
+          SR:VAC:GAUGE:SR07:PRESSURE:RB. I can pull both from the archiver around 2:30 and plot them
           together.
     - prompt: Yes, plot the current against the sector 7 gauge around the loss.
       at_offset_s: 95
@@ -113,14 +113,14 @@ sessions:
           server: osprey_workspace
           name: create_interactive_plot
         input:
-          title: Stored current and sector 7 pressure around 14:32
+          title: Stored current and sector 7 pressure
           code: |
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_scatter(x=dcct.index, y=dcct.values, name="DCCT current (mA)")
             fig.add_scatter(x=sr07.index, y=sr07.values, name="SR07 pressure (Torr)", secondary_y=True)
             fig.update_yaxes(type="log", secondary_y=True)
-            save_artifact(fig, "Stored current and sector 7 pressure around 14:32")
-        result: Saved interactive plot "Stored current and sector 7 pressure around 14:32".
+            save_artifact(fig, "Stored current and sector 7 pressure")
+        result: Saved interactive plot "Stored current and sector 7 pressure".
       - answer: The two move together. At 14:32:08 the sector 7 gauge jumps from 3.7e-10 Torr to about
           1.5e-07 Torr and the stored current drops by about 18 mA, from 500 mA to about 482 mA, at the
           same second. The pressure is back at baseline within about two minutes and top-off brings the
@@ -129,7 +129,7 @@ sessions:
       artifacts:
       - slug: loss-plot
         form: plot
-        title: Stored current and sector 7 pressure around 14:32
+        title: Stored current and sector 7 pressure
         source: demo-history/plots/loss-plot.json
     - prompt: Is there anything in the logbook about it?
       at_offset_s: 240
