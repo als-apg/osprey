@@ -465,7 +465,14 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
 
     png = tmp_path / "screen.png"
     png.write_bytes(_PNG)
+    # A file picked while the /clear turn still runs is refused (the composer is
+    # disabled), so attach only once the composer takes input again, and see the chip.
+    box = page.locator('#operator-container textarea[aria-label="Message the agent"]')
+    expect(box).to_be_enabled(timeout=_TIMEOUT_MS)
     page.locator("#operator-container input[type=file]").set_input_files(str(png))
+    expect(page.locator("#operator-container .op-attach-chip")).to_have_count(
+        1, timeout=_TIMEOUT_MS
+    )
     _send(page, "What does this screen show?")
     _wait_for(lambda: any(t.uploads for t in hub.chat.turns))
 
