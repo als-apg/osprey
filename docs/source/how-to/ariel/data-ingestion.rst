@@ -57,7 +57,7 @@ Adapters are discovered through Osprey's central registry. The built-in ones bel
 
 **Using a custom adapter:**
 
-An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name in ``config.yml``, or pass it as ``--adapter`` --- both accept every registered name, the framework's and your own.
+An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name under ``config:`` in ``profile.yml``, or pass it as ``--adapter`` --- both accept every registered name, the framework's and your own.
 
 .. admonition:: Collaboration Welcome
    :class: outreach
@@ -564,12 +564,15 @@ ships a service that runs it in a container. Declare it in the build profile:
 
 The build copies the bundled compose template into the project and adds
 ``ariel_sync`` to ``deployed_services``. ``osprey up`` then starts a container
-that runs ``osprey ariel sync --watch``. That command syncs once on startup ---
+that runs ``osprey ariel sync --watch``. That command syncs once on startup:
 schema migration, an incremental ingest, and an enhancement pass over entries
-that are still missing derived fields --- and then enters the polling loop. Every later poll runs the same enhancement pass after it stores
-what it fetched, so a larger backlog is worked down over successive polls. A
-failure in that pass is logged and does not count toward
-``max_consecutive_failures``.
+that are still missing derived fields. It then enters the polling loop. Every
+later poll runs the same enhancement pass after it stores what it fetched, so a
+larger backlog is worked down over successive polls. A failure in that pass is
+logged and does not count toward ``max_consecutive_failures``.
+
+The profile key ``ariel_sync`` renders the compose service ``ariel-sync``
+(container ``<project>-ariel-sync``): two spellings of this one service.
 
 The deployed loop does not wait for a prior ingest. It overrides
 ``require_initial_ingest``, so a container started against an empty database
