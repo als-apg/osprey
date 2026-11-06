@@ -511,13 +511,14 @@ describe('page-owned rows', () => {
     expect(group(rail, 'workspace').contains(getEntry(rail, 'events'))).toBe(true);
   });
 
-  test('the attention dot sits before the disclosure chevron of the Agent row', () => {
+  test('the attention dot sits last on the Agent row, which has no chevron', () => {
     createRail(rail, ALL);
     setEntryAttention(rail, 'terminal', true);
     const dot = /** @type {HTMLElement} */ (
       agentRow.querySelector(':scope > [data-attention-badge]')
     );
-    expect(dot.nextElementSibling?.classList.contains('osprey-nav-disc')).toBe(true);
+    expect(agentRow.querySelector(':scope > .osprey-nav-disc')).toBeNull();
+    expect(dot.nextElementSibling).toBeNull();
   });
 
   test('setActive marks a page-owned row current', () => {
