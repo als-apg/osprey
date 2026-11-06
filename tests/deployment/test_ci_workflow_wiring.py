@@ -210,14 +210,15 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/claude_code/test_chat_attachment_read_scripted.py",
 )
 
-#: The agent record's replay: model-free, but its own lane, because it deploys
-#: two stacks in turn and waits out a stopped source twice.
+#: The agent record's replay: model-free, but its own lane, because each case
+#: deploys a whole stack and waits out a stopped source. One matrix cell per case.
 RECORD_E2E_JOB = "agent-record-e2e"
 RECORD_E2E_RUN_STEP = "Run the agent record replay"
 RECORD_E2E_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 RECORD_E2E_FILE = "tests/e2e/test_agent_record_e2e.py"
-#: The two stopped-source waits of five minutes each, plus two deploys: the
-#: run step's floor. Below it the lane reds on its own waits, not on a fault.
+#: A stopped-source wait of five minutes plus a deploy, with the headroom of
+#: the two-case size: the run step's floor. Below it the lane reds on its own
+#: waits, not on a fault.
 RECORD_E2E_MIN_STEP_MINUTES = 40
 #: Every model-free file, whichever of the two model-free lanes runs it.
 MODEL_FREE_TEST_FILES = (*NO_MODEL_TEST_FILES, RECORD_E2E_FILE)
@@ -3961,8 +3962,8 @@ def test_model_free_lane_fails_on_any_skipped_test__mutation_gate_stops_failing(
 
 
 def test_record_lane_runs_exactly_the_replay(workflow: dict[str, Any]) -> None:
-    """The replay deploys two stacks one after the other on one port block, so
-    it runs alone, serially, and by path — a path that stops existing exits
+    """Each replay case deploys a stack on the module's one port block, so it
+    runs alone, serially, and by path — a path that stops existing exits
     pytest 4 instead of selecting nothing."""
     paths = _record_lane_paths(workflow)
     assert paths == [RECORD_E2E_FILE], f"'{RECORD_E2E_RUN_STEP}' runs {paths}, not the replay alone"
@@ -3989,6 +3990,56 @@ def test_record_lane_runs_exactly_the_replay__mutation_adds_a_file() -> None:
     )
     with pytest.raises(AssertionError, match="replay alone"):
         test_record_lane_runs_exactly_the_replay(mutated)
+
+
+def _record_lane_cases(wf: dict[str, Any]) -> list[str]:
+    """The case names the record lane's matrix cells select, one per cell."""
+    include = _jobs(wf)[RECORD_E2E_JOB]["strategy"]["matrix"]["include"]
+    return [str(cell["case"]) for cell in include]
+
+
+def _record_file_cases() -> set[str]:
+    """The test functions the replay module defines, read from source."""
+    tree = ast.parse((REPO_ROOT / RECORD_E2E_FILE).read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    }
+
+
+def test_record_lane_cells_cover_every_case_once(workflow: dict[str, Any]) -> None:
+    """The lane runs one case per matrix cell, picked by ``-k``: every case in
+    the module is one cell's, no cell's name is a substring of another case
+    (``-k`` matches substrings), the cells do not cancel each other, and the
+    run step selects the cell's case."""
+    cases = _record_lane_cases(workflow)
+    defined = _record_file_cases()
+    assert sorted(cases) == sorted(defined), (
+        f"'{RECORD_E2E_JOB}' cells run {sorted(cases)}; {RECORD_E2E_FILE} defines {sorted(defined)}"
+    )
+    for case in cases:
+        assert [c for c in defined if case in c] == [case], f"-k {case!r} selects more than itself"
+    strategy = _jobs(workflow)[RECORD_E2E_JOB]["strategy"]
+    assert strategy.get("fail-fast") is False, "a red cell must not cancel the other backend"
+    run = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    assert '-k "${{ matrix.case }}"' in run, (
+        f"'{RECORD_E2E_RUN_STEP}' does not select its cell's case"
+    )
+
+
+def test_record_lane_cells_cover_every_case_once__mutation_drops_a_cell() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[RECORD_E2E_JOB]["strategy"]["matrix"]["include"].pop()
+    with pytest.raises(AssertionError, match="defines"):
+        test_record_lane_cells_cover_every_case_once(mutated)
+
+
+def test_record_lane_cells_cover_every_case_once__mutation_fails_fast() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[RECORD_E2E_JOB]["strategy"]["fail-fast"] = True
+    with pytest.raises(AssertionError, match="must not cancel"):
+        test_record_lane_cells_cover_every_case_once(mutated)
 
 
 def test_record_lane_is_not_in_the_model_free_lane(workflow: dict[str, Any]) -> None:

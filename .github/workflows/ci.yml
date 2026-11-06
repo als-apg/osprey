@@ -2399,22 +2399,37 @@ jobs:
 
 
   agent-record-e2e:
-    name: Agent Record E2E (replays every captured fixture through the real stack, both backends)
+    name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
     runs-on: ubuntu-latest
     # Every pull request, fork pull requests included, for the reasons the
     # model-free lane gives: no gateway key, public images only, no label and
     # no actor guard. The replay is model-free — every test in it carries
-    # `model_free` — but it is its own lane because it deploys two stacks one
-    # after the other and waits out a stopped source twice.
+    # `model_free` — but it is its own lane because each case deploys a whole
+    # stack and waits out a stopped source.
     if: >-
       (github.event_name == 'pull_request')
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-    # Sized for its waits, not measured: two stopped-source waits of up to five
-    # minutes each; two deploys (hello-world, and control-assistant with its
-    # services and web terminals), each with a restart, an outage, a re-`up`
-    # that closes the day and a reset, and hello-world's rebuild after it; and
-    # a one-minute readability bound per step. The step cap sits under the job
-    # cap so a hang fails the run step and the capture step still runs.
+    # One cell per case, each on its own runner: the two cases share nothing
+    # but the module's project name and port block, which are per host, so
+    # side by side on two runners they cost the longer case (~17-22 min)
+    # instead of the sum (~33-39 min). Every case is in exactly one cell
+    # (tests/deployment/test_ci_workflow_wiring.py), and neither cell cancels
+    # the other, so a red one still reports both backends.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - backend: embedded
+          case: test_embedded_record_on_hello_world
+        - backend: clickhouse
+          case: test_clickhouse_record_on_control_assistant
+    # Sized for its waits, not measured: one stopped-source wait of up to five
+    # minutes; one deploy (hello-world, or control-assistant with its services
+    # and web terminals) with a restart, an outage, a re-`up` that closes the
+    # day and a reset, and hello-world's rebuild after it; and a one-minute
+    # readability bound per step. Kept at the two-case size so a cell never
+    # reds on the cap alone. The step cap sits under the job cap so a hang
+    # fails the run step and the capture step still runs.
     timeout-minutes: 135
     steps:
     # The project image's deps layer ran the runner out of disk: uv reported
@@ -2460,10 +2475,12 @@ jobs:
       timeout-minutes: 120
       run: |
         # Named by path: a path that stops existing exits pytest 4 and reds
-        # this step. Serial on purpose — the two cases share one host port
-        # block and run one after the other.
+        # this step; a case name that stops matching collects nothing, which
+        # exits pytest 5 and the skip gate below reds too. One case per cell,
+        # serial: the cases share one host port block.
         uv run pytest \
           tests/e2e/test_agent_record_e2e.py \
+          -k "${{ matrix.case }}" \
           -v --tb=short --durations=15 \
           --junitxml=junit-agent-record-e2e.xml
 
@@ -2499,7 +2516,7 @@ jobs:
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
-        name: agent-record-e2e
+        name: agent-record-e2e-${{ matrix.backend }}
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
