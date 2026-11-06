@@ -154,11 +154,30 @@ function countRenders() {
   return seen;
 }
 
-// The groups live in this browser's storage; every test starts from the
-// default Workspace and Tools.
+// The groups live in this browser's storage. Most tests exercise rows in
+// Workspace and Tools, so they start from that arrangement (Events in
+// Workspace, the empty System group after Tools); a test of the
+// default calls useDefaultGroups().
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem(
+    'osprey-sidebar-groups',
+    JSON.stringify({
+      version: 1,
+      groups: [
+        { id: 'workspace', label: 'Workspace' },
+        { id: 'tools', label: 'Tools' },
+        { id: 'system', label: 'System' },
+      ],
+      placement: { events: 'workspace' },
+    })
+  );
 });
+
+/** Forget the arrangement above, so the first visit's default applies. */
+function useDefaultGroups() {
+  localStorage.clear();
+}
 
 describe('createRail', () => {
   /** @type {HTMLElement} */
@@ -172,11 +191,16 @@ describe('createRail', () => {
     expect(entryIds(rail)).toEqual(['events', 'ariel', 'channel-finder']);
   });
 
-  test('marks the container as a list of labelled groups, the built-in two by default', () => {
+  test('marks the container as a list of labelled groups, the built-in three by default', () => {
+    useDefaultGroups();
     createRail(rail, PANELS);
     expect(rail.getAttribute('role')).toBe('list');
     const groups = [...rail.children];
-    expect(groups.map((g) => g.getAttribute('data-group'))).toEqual(['workspace', 'tools']);
+    expect(groups.map((g) => g.getAttribute('data-group'))).toEqual([
+      'workspace',
+      'tools',
+      'system',
+    ]);
     for (const g of groups) {
       expect(g.classList.contains('sidebar-group')).toBe(true);
       expect(g.getAttribute('role')).toBe('listitem');
@@ -189,13 +213,21 @@ describe('createRail', () => {
     expect(groups.map((g) => g.querySelector('.sidebar-group-name')?.textContent)).toEqual([
       'Workspace',
       'Tools',
+      'System',
     ]);
   });
 
-  test('Events sits under Workspace and every other panel under Tools until moved', () => {
+  test('Events and Health sit under System, every other panel under Tools, until moved', () => {
+    useDefaultGroups();
+    createRail(rail, [...PANELS, { id: 'system-health', label: 'Health' }]);
+    expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Workspace', 'empty']);
+    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'channel-finder']);
+    expect(childKeys(group(rail, 'system'))).toEqual(['label:System', 'events', 'system-health']);
+  });
+
+  test('Events stays in Workspace where the operator put it, whatever the default says', () => {
     createRail(rail, PANELS);
     expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Workspace', 'events']);
-    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'channel-finder']);
   });
 
   test('no row is a tab: no tab roles, no selection state, no close corner', () => {
@@ -266,11 +298,11 @@ describe('createRail', () => {
     expect(entry.querySelector('img')).toBeNull();
   });
 
-  test('full render replaces prior rows and keeps the two groups', () => {
+  test('full render replaces prior rows and keeps the three groups', () => {
     createRail(rail, PANELS);
     createRail(rail, [{ id: 'okf', label: 'Knowledge' }]);
     expect(entryIds(rail)).toEqual(['okf']);
-    expect(rail.querySelectorAll('.sidebar-group').length).toBe(2);
+    expect(rail.querySelectorAll('.sidebar-group').length).toBe(3);
   });
 
   test('a render leaves a non-group child between the groups where it is', () => {
@@ -283,6 +315,7 @@ describe('createRail', () => {
       'workspace',
       'sidebar-divider',
       'tools',
+      'system',
     ]);
   });
 
@@ -359,12 +392,8 @@ describe('page-owned rows', () => {
       'sidebar-agent-wrap',
       'events',
     ]);
-    expect(childKeys(group(rail, 'tools'))).toEqual([
-      'label:Tools',
-      'ariel',
-      'lattice',
-      'panel-add-btn',
-    ]);
+    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'lattice']);
+    expect(childKeys(group(rail, 'system'))).toEqual(['label:System', 'empty', 'panel-add-btn']);
     expect(entryIds(rail)).toEqual(['terminal', 'events', 'ariel', 'lattice']);
     expect(rail.querySelector('[data-panel-id="artifacts"]')).toBeNull();
   });
@@ -383,7 +412,8 @@ describe('page-owned rows', () => {
 
     reorderGroup('workspace', 'down');
     reorderGroup('workspace', 'down');
-    expect(groupOrder(rail)).toEqual(['tools', id, 'workspace']);
+    reorderGroup('workspace', 'down');
+    expect(groupOrder(rail)).toEqual(['tools', 'system', id, 'workspace']);
     expect(group(rail, 'workspace').lastElementChild).toBe(addButton);
   });
 
@@ -395,7 +425,7 @@ describe('page-owned rows', () => {
       'sidebar-agent-wrap',
     ]);
     expect(agentWrap.hidden).toBe(true);
-    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'panel-add-btn']);
+    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel']);
   });
 
   test('the page-owned nodes are adopted, never rebuilt, across renders', () => {
@@ -450,16 +480,12 @@ describe('page-owned rows', () => {
     expect(agentWrap.hidden).toBe(false);
   });
 
-  test('a built Tools row added at runtime lands just above + Add panel', () => {
+  test('a built row added at runtime lands just above + Add panel', () => {
     createRail(rail, ALL);
     addEntry(rail, { id: 'okf', label: 'Knowledge' });
-    expect(childKeys(group(rail, 'tools'))).toEqual([
-      'label:Tools',
-      'ariel',
-      'lattice',
-      'okf',
-      'panel-add-btn',
-    ]);
+    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'lattice', 'okf']);
+    moveToGroup('okf', 'system');
+    expect(childKeys(group(rail, 'system'))).toEqual(['label:System', 'okf', 'panel-add-btn']);
   });
 
   test('a built row added at runtime joins the foot of its group', () => {
@@ -523,7 +549,7 @@ describe('groups', () => {
     renameGroup('tools', 'Instruments');
     createRail(rail, ROWS);
 
-    expect(groupOrder(rail)).toEqual(['workspace', id, 'tools']);
+    expect(groupOrder(rail)).toEqual(['workspace', id, 'tools', 'system']);
     expect(childKeys(group(rail, id))).toEqual(['label:Beamline', 'empty']);
     expect(childKeys(group(rail, 'tools'))).toEqual([
       'label:Instruments',
@@ -574,7 +600,7 @@ describe('groups', () => {
     createRail(rail, ROWS);
     reorderGroup('tools', 'up');
 
-    expect(groupOrder(rail)).toEqual(['tools', 'workspace']);
+    expect(groupOrder(rail)).toEqual(['tools', 'workspace', 'system']);
     expect(childKeys(group(rail, 'tools'))).toEqual([
       'label:Tools',
       'terminal',
@@ -594,7 +620,7 @@ describe('groups', () => {
 
     removeGroup(id);
 
-    expect(groupOrder(rail)).toEqual(['workspace', 'tools']);
+    expect(groupOrder(rail)).toEqual(['workspace', 'tools', 'system']);
     expect(childKeys(group(rail, 'tools'))).toEqual([
       'label:Tools',
       'ariel',
@@ -1000,14 +1026,14 @@ describe('reorder and move by drag (onReorder)', () => {
 
   test('an empty group takes a drop, under its empty line', () => {
     const id = addGroup('Beamline');
-    layOut(); // the Beamline heading at 288, its empty line at 312
+    layOut(); // the System heading at 288, its empty line at 312, the Beamline heading at 352, its empty line at 376
     const line = /** @type {HTMLElement} */ (group(rail, id).querySelector('[data-group-empty]'));
     grab('ariel');
 
-    rail.dispatchEvent(pointerEvent('dragover', 320));
+    rail.dispatchEvent(pointerEvent('dragover', 384));
     expect(line.classList.contains('drop-after')).toBe(true);
 
-    rail.dispatchEvent(pointerEvent('drop', 320));
+    rail.dispatchEvent(pointerEvent('drop', 384));
     expect(groupOf('ariel')).toBe(id);
     expect(moves).toEqual([['ariel', null]]);
     expect(line.hidden).toBe(true);
@@ -1170,22 +1196,22 @@ describe('placeEntry', () => {
 
   test('moves a row directly above another of its group', () => {
     placeEntry(rail, 'lattice', 'ariel');
-    expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
+    expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder']);
   });
 
   test('a null beforeId puts the row at the foot of its group, above + Add panel', () => {
     placeEntry(rail, 'ariel', null);
-    expect(tools()).toEqual(['label:Tools', 'channel-finder', 'lattice', 'ariel', 'panel-add-btn']);
+    expect(tools()).toEqual(['label:Tools', 'channel-finder', 'lattice', 'ariel']);
   });
 
   test('a beforeId with no row is the foot too', () => {
     placeEntry(rail, 'ariel', 'nope');
-    expect(tools()).toEqual(['label:Tools', 'channel-finder', 'lattice', 'ariel', 'panel-add-btn']);
+    expect(tools()).toEqual(['label:Tools', 'channel-finder', 'lattice', 'ariel']);
   });
 
   test('a beforeId in an earlier group puts the row at the head of its own group', () => {
     placeEntry(rail, 'lattice', 'events');
-    expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
+    expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder']);
   });
 
   test('the Agent row never moves, and no row leaves its group', () => {

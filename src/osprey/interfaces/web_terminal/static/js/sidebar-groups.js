@@ -1,8 +1,8 @@
 // @ts-check
 /* OSPREY Web Terminal — the sidebar's groups
  *
- * The sidebar sorts its panel rows into named groups. Two are built in,
- * `workspace` ("Workspace") and `tools` ("Tools"); an operator can rename
+ * The sidebar sorts its panel rows into named groups. Three are built in,
+ * `workspace` ("Workspace"), `tools` ("Tools") and `system` ("System"); an operator can rename
  * them, add groups of their own, move any group up or down the sidebar, and
  * delete the groups they added. Every row except the Agent row can move to
  * another group. The Agent row is always the first row of the first group,
@@ -14,11 +14,13 @@
  *
  *   { version: 1,
  *     groups: [{ id, label }, …],         in sidebar order; an id is
- *                                         `workspace`, `tools` or `g-<8 hex>`
+ *                                         `workspace`, `tools`, `system` or `g-<8 hex>`
  *     placement: { <panel id>: <group id> } }
  *
  * A panel with no placement sits where the sidebar has always put it:
- * Artifacts and Events in Workspace, every other panel in Tools. Within a
+ * Artifacts in Workspace, Events and Health in System, every other panel in
+ * Tools. A value stored before System existed has it added as the last
+ * group, so no arrangement is lost. Within a
  * group the rows keep the server's rail order (panel-rail.js), so a group
  * filters the rail and never reorders it. A stored value without this shape
  * reads as the default, and the next change overwrites it. The value is read
@@ -47,7 +49,7 @@ import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 
 /**
  * @typedef {object} SidebarGroup
- * @property {string} id - `workspace`, `tools`, or `g-` and eight hex digits
+ * @property {string} id - `workspace`, `tools`, `system`, or `g-` and eight hex digits
  * @property {string} label - what the heading shows: 1 to 40 characters, trimmed
  */
 
@@ -73,13 +75,20 @@ const MAX_LABEL_LENGTH = 40;
 const BUILTIN_GROUPS = Object.freeze([
   Object.freeze({ id: 'workspace', label: 'Workspace' }),
   Object.freeze({ id: 'tools', label: 'Tools' }),
+  Object.freeze({ id: 'system', label: 'System' }),
 ]);
+
+/** Built-ins added after version 1 shipped; a stored model without one gets it appended. */
+const ADDED_LATER = Object.freeze(['system']);
 
 /** Where a panel goes when nothing else places it, and where the panels of a deleted group go. */
 const FALLBACK_GROUP = 'tools';
 
 /** The panels that sit in Workspace until the operator moves them. */
-const DEFAULT_WORKSPACE = Object.freeze(['artifacts', 'events']);
+const DEFAULT_WORKSPACE = Object.freeze(['artifacts']);
+
+/** The panels that sit in System until the operator moves them. */
+const DEFAULT_SYSTEM = Object.freeze(['events', 'system-health']);
 
 /** The id of a group the operator added. */
 const CUSTOM_ID = /^g-[0-9a-f]{8}$/;
@@ -122,11 +131,12 @@ function emptyPlacement() {
  * @returns {string}
  */
 function defaultGroupOf(panelId) {
+  if (DEFAULT_SYSTEM.includes(panelId)) return 'system';
   return DEFAULT_WORKSPACE.includes(panelId) ? 'workspace' : FALLBACK_GROUP;
 }
 
 /**
- * The model of a first visit: the two built-in groups, and each named panel
+ * The model of a first visit: the three built-in groups, and each named panel
  * placed where the sidebar puts it by default. The Agent row has no
  * placement, since it is always first in the first group.
  * @param {string[]} [panelIds]
@@ -146,7 +156,7 @@ export function defaultModel(panelIds = []) {
 
 /**
  * `value` as a model, or null when it is not one. A model is version 1; its
- * groups have unique, well-formed ids, clean names, and the two built-ins
+ * groups have unique, well-formed ids, clean names, and the built-ins (System is added when missing)
  * among them; every placement names one of those groups.
  * @param {unknown} value
  * @returns {GroupsModel | null} a fresh copy
@@ -168,7 +178,12 @@ function validModel(value) {
     ids.add(id);
     copy.push({ id, label });
   }
-  if (!BUILTIN_GROUPS.every((group) => ids.has(group.id))) return null;
+  for (const group of BUILTIN_GROUPS) {
+    if (ids.has(group.id)) continue;
+    if (!ADDED_LATER.includes(group.id)) return null;
+    ids.add(group.id);
+    copy.push({ id: group.id, label: group.label });
+  }
   if (!placement || typeof placement !== 'object' || Array.isArray(placement)) return null;
   const places = emptyPlacement();
   for (const [panelId, groupId] of Object.entries(placement)) {
