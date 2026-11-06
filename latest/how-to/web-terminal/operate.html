@@ -584,7 +584,7 @@ restart — their sessions live in a store on disk; <code class="docutils litera
 <li><p><strong>Sidebar</strong> (left) — the list of everything you can open:
 the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target block</span></a> (which
 machine this deployment writes to, and whether it may), search, the
-<strong>Workspace</strong>, <strong>Tools</strong> and <strong>System</strong> sections, and a footer with <strong>Docs</strong>,
+<strong>Agent</strong> row, the <strong>Tools</strong> and <strong>System</strong> sections, and a footer with <strong>Docs</strong>,
 <strong>Feedback</strong> (see <a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>), <strong>Sign out</strong> (multi-user
 deployments only) and <strong>☰ More</strong>. See
 <a class="reference internal" href="#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p></li>
@@ -1013,17 +1013,16 @@ services. Click the block to open the
 <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target popover</span></a>.</p></li>
 <li><p><strong>Search</strong>. It opens the command palette. The shortcut is ⌘K on macOS and
 Ctrl+K on other systems.</p></li>
-<li><p>The groups of panel rows. At first there are three, <strong>Workspace</strong>, <strong>Tools</strong> and
-<strong>System</strong>:</p>
+<li><p>The groups of panel rows. At first there are three:</p>
 <ul class="simple">
-<li><p><strong>Workspace</strong> starts with these rows:</p>
+<li><p><strong>Sessions</strong>, the first group, has no heading. It starts with this row:</p>
 <ul>
 <li><p><strong>Agent</strong> opens the agent pane and your session tree below it
 (<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>); with the pane open, it folds or unfolds
 the tree. When the pane
 is closed, the row is dimmed. When the agent waits for your
 answer, the row shows the number of open questions. <strong>Agent</strong> is always
-the first row of the first group.</p></li>
+the first row of the sidebar.</p></li>
 </ul>
 </li>
 <li><p><strong>Tools</strong> starts with all other panels that this deployment enables.</p></li>
@@ -1080,8 +1079,8 @@ open it from the palette.</p>
 <section id="arrange-the-groups">
 <span id="web-terminal-sidebar-groups"></span><h3>Arrange the groups<a class="headerlink" href="#arrange-the-groups" title="Link to this heading">#</a></h3>
 <p>You can rename the groups, add your own groups, and move rows between them.</p>
-<p>To change a group, put the pointer on its name and click <strong>⋯</strong>. The menu has
-these items:</p>
+<p>To change a group, right-click its heading (or focus its name and press
+Shift+F10). The menu has these items:</p>
 <ul class="simple">
 <li><p><strong>Rename</strong>. Type the new name and press Enter. Press Escape to keep the old
 name. A name can have up to 40 characters. An empty name keeps the old one.</p></li>
@@ -1089,12 +1088,13 @@ name. A name can have up to 40 characters. An empty name keeps the old one.</p><
 its name for editing.</p></li>
 <li><p><strong>Move up</strong> and <strong>Move down</strong>. These move the group in the sidebar.</p></li>
 <li><p><strong>Delete group</strong>. This item shows only for a group that you added. The
-rows of the group go back to <strong>Tools</strong>. You cannot delete <strong>Workspace</strong>,
-<strong>Tools</strong> or <strong>System</strong>, but you can rename them.</p></li>
+rows of the group go back to <strong>Tools</strong>. You cannot delete <strong>Tools</strong> or
+<strong>System</strong>, but you can rename them.</p></li>
 </ul>
 <p>Double-click a group’s name to fold it down to its heading, and double-click
-again to unfold it. To make <strong>Workspace</strong> taller, drag the faint line below it;
-double-click the line to go back to automatic height.</p>
+again to unfold it. <strong>Sessions</strong>, the group that holds <strong>Agent</strong>, has no
+heading, so it has no menu and always stays first. To make it taller, drag the
+faint line below it; double-click the line to go back to automatic height.</p>
 <p>To move a row to a different group, do one of these:</p>
 <ul class="simple">
 <li><p>Right-click the row and pick <strong>Move to</strong> and the name of the group. Pick
