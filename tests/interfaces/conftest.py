@@ -413,12 +413,15 @@ _DISMISS_TOUR = """
 """
 
 
-
 def _diag(page):
     import sys as _s
+
     page.on("requestfailed", lambda r: print("DIAG REQFAIL", r.url, r.failure, file=_s.stderr))
     page.on("pageerror", lambda e: print("DIAG PAGEERROR", e, file=_s.stderr))
-    page.on("console", lambda m: m.type == "error" and print("DIAG CONSOLE", m.text[:300], file=_s.stderr))
+    page.on(
+        "console",
+        lambda m: m.type == "error" and print("DIAG CONSOLE", m.text[:300], file=_s.stderr),
+    )
 
 
 def _install_auth_seam(browser: Browser) -> None:
