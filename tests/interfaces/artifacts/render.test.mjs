@@ -1,7 +1,7 @@
 /**
  * Unit tests for the Artifact Gallery sidebar rendering layer (render.js:
  * gallery-card template, sidebar dispatcher + tree/activity renderers +
- * attachSidebarHandlers, pinned promotion). The browse split's orientation
+ * attachSidebarHandlers). The browse split's orientation
  * and divider are covered by browse-layout.test.mjs; the ⋯ overflow menu
  * by sidebar-menu.test.mjs.
  *
@@ -13,8 +13,7 @@
  * setters fresh per test), and formats via types.js (real implementations
  * — no network calls are exercised by anything covered here).
  *
- * Covers tree-mode grouping by type from fixture artifacts (with pinned
- * artifacts promoted into a top "Pinned" section) and activity-mode
+ * Covers tree-mode grouping by type from fixture artifacts and activity-mode
  * chronological ordering. Also covers the injected-callback contract
  * (onSelect/onPreviewNeeded/onEnterFullscreen) since that is the piece
  * genuinely new to this extraction (createSidebarRenderer's factory shape,
@@ -66,7 +65,6 @@ function makeFixtureArtifacts() {
       artifact_type: 'plot_png',
       form: 'plots',
       form_label: 'Plots',
-      pinned: false,
       timestamp: '2026-07-01T10:00:00Z',
       size_bytes: 2048,
     },
@@ -77,7 +75,6 @@ function makeFixtureArtifacts() {
       artifact_type: 'json',
       form: 'data',
       form_label: 'Data',
-      pinned: true,
       timestamp: '2026-07-03T10:00:00Z',
       size_bytes: 512,
     },
@@ -88,7 +85,6 @@ function makeFixtureArtifacts() {
       artifact_type: 'plot_html',
       form: 'plots',
       form_label: 'Plots',
-      pinned: false,
       timestamp: '2026-07-02T10:00:00Z',
       size_bytes: 4096,
     },
@@ -99,7 +95,6 @@ function makeFixtureArtifacts() {
       artifact_type: 'markdown',
       form: 'documents',
       form_label: 'Documents',
-      pinned: true,
       timestamp: '2026-06-30T10:00:00Z',
       size_bytes: 1024,
     },
@@ -137,38 +132,9 @@ beforeEach(async () => {
   setPickAnchor(null);
 });
 
-describe('tree-mode grouping by type (pinned promoted)', () => {
-  test('promotes pinned artifacts into a top "Pinned" section, then groups the rest by form', () => {
-    setArtifacts(makeFixtureArtifacts());
-    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
-
-    sidebarRenderer.renderSidebar(); // defaults to tree mode
-
-    const sections = document.querySelectorAll('#sidebar-body .tree-section');
-    // Pinned ids 2 + 4 are PROMOTED out of their type groups (leaving
-    // 'data' and 'documents' empty — those groups vanish), so 'plots'
-    // (Beam Profile, Lattice Table) is the only form group.
-    expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
-      'pinned',
-      'plots',
-    ]);
-
-    const pinnedSection = qs(document, '.tree-section[data-type="pinned"]');
-    // getFilteredArtifacts orders pinned-first/newest-first: 2 (Jul 3), 4 (Jun 30).
-    expect(
-      Array.from(pinnedSection.querySelectorAll('.tree-item')).map(
-        (el) => /** @type {HTMLElement} */ (el).dataset.id
-      )
-    ).toEqual(['2', '4']);
-    expect(qs(pinnedSection, '.tree-section-count').textContent).toBe('2');
-
-    const visSection = qs(document, '.tree-section[data-type="plots"]');
-    expect(visSection.querySelectorAll('.tree-item').length).toBe(2);
-    expect(qs(visSection, '.tree-section-count').textContent).toBe('2');
-  });
-
-  test('no "Pinned" section renders when nothing is pinned', () => {
-    setArtifacts(makeFixtureArtifacts().map((a) => ({ ...a, pinned: false })));
+describe('tree-mode grouping by type', () => {
+  test('groups by form, with no "Pinned" section even for a legacy pinned flag', () => {
+    setArtifacts(makeFixtureArtifacts().map((a) => ({ ...a, pinned: true })));
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.renderSidebar();
 
@@ -181,17 +147,17 @@ describe('tree-mode grouping by type (pinned promoted)', () => {
     ]);
   });
 
-  test('each tree item renders its title, pin indicator, and size', () => {
-    setArtifacts(makeFixtureArtifacts());
+  test('each tree item renders its title and no pin indicator', () => {
+    setArtifacts(makeFixtureArtifacts().map((a) => ({ ...a, pinned: true })));
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.renderSidebar();
 
-    const pinnedItem = document.querySelector('.tree-item[data-id="2"]');
-    expect(pinnedItem).not.toBeNull();
-    if (pinnedItem === null) throw new Error('unreachable: asserted non-null above');
-    expect(pinnedItem.classList.contains('pinned')).toBe(true);
-    expect(qs(pinnedItem, '.tree-item-name').textContent).toBe('Channel Values');
-    expect(pinnedItem.querySelector('.pin-indicator')).not.toBeNull();
+    const item = document.querySelector('.tree-item[data-id="2"]');
+    expect(item).not.toBeNull();
+    if (item === null) throw new Error('unreachable: asserted non-null above');
+    expect(item.classList.contains('pinned')).toBe(false);
+    expect(qs(item, '.tree-item-name').textContent).toBe('Channel Values');
+    expect(item.querySelector('.pin-indicator')).toBeNull();
   });
 
   test('an empty (fully filtered-out) artifact list shows the empty state instead of tree sections', () => {
@@ -213,7 +179,7 @@ describe('activity-mode chronological ordering', () => {
   test('groups by date label and orders newest-first within "today"-equivalent single-day fixtures', () => {
     // All four fixtures land on distinct days, so each date group holds one
     // item; assert the date GROUPS themselves preserve encounter order
-    // (getFilteredArtifacts already sorted pinned-first/newest-first, and
+    // (getFilteredArtifacts already sorted newest-first, and
     // renderActivityMode groups in that same iteration order without
     // re-sorting) — i.e. chronological-by-recency across groups.
     setArtifacts(makeFixtureArtifacts());
@@ -223,19 +189,18 @@ describe('activity-mode chronological ordering', () => {
     sidebarRenderer.renderSidebar();
 
     const items = document.querySelectorAll('#sidebar-body .timeline-item');
-    // getFilteredArtifacts sorts pinned-first then newest-first: '2' (pinned,
-    // Jul 3) and '4' (pinned, Jun 30) before '3' (Jul 2) and '1' (Jul 1) —
-    // pinned-first takes priority over date recency, matching state.js's
-    // contract (already pinned to the identical order in state.test.mjs).
+    // getFilteredArtifacts sorts newest-first: '2' (Jul 3), '3' (Jul 2),
+    // '1' (Jul 1), '4' (Jun 30) — state.js's contract, held to the identical
+    // order in state.test.mjs.
     expect(Array.from(items).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual([
       '2',
-      '4',
       '3',
       '1',
+      '4',
     ]);
   });
 
-  test('within a shared date group, items keep the incoming (pinned-first/newest-first) order', () => {
+  test('within a shared date group, items keep the incoming (newest-first) order', () => {
     const sameDay = [
       {
         id: 'a',
@@ -244,7 +209,6 @@ describe('activity-mode chronological ordering', () => {
         artifact_type: 'image',
         form: 'images',
         form_label: 'Images',
-        pinned: false,
         timestamp: '2026-07-01T08:00:00Z',
         size_bytes: 100,
       },
@@ -255,7 +219,6 @@ describe('activity-mode chronological ordering', () => {
         artifact_type: 'image',
         form: 'images',
         form_label: 'Images',
-        pinned: false,
         timestamp: '2026-07-01T20:00:00Z',
         size_bytes: 100,
       },
@@ -283,26 +246,24 @@ describe('shipped example (origin "demo")', () => {
     artifact_type: 'plot_html',
     form: 'plots',
     form_label: 'Plots',
-    pinned: false,
     origin: 'demo',
     // Newer than everything else: seeded at gallery start. Must still sort last.
     timestamp: '2026-07-09T10:00:00Z',
     size_bytes: 50000,
   };
 
-  test('tree mode lists it in a trailing "Examples" section, outside pinning and the type groups, with an "example" badge and no "new" badge', () => {
-    setArtifacts([...makeFixtureArtifacts(), { ...example, pinned: true }]);
+  test('tree mode lists it in a trailing "Examples" section, outside the type groups, with an "example" badge and no "new" badge', () => {
+    setArtifacts([...makeFixtureArtifacts(), example]);
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.renderSidebar();
 
     const sections = document.querySelectorAll('#sidebar-body .tree-section');
     expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
-      'pinned',
       'plots',
+      'documents',
+      'data',
       'examples',
     ]);
-    const pinned = qs(document, '.tree-section[data-type="pinned"]');
-    expect(pinned.querySelector('.tree-item[data-id="ex"]')).toBeNull();
 
     const examples = qs(document, '.tree-section[data-type="examples"]');
     expect(examples.textContent).toContain('Examples');
@@ -447,7 +408,6 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
         artifact_type: 'plot_png',
         form: 'plots',
         form_label: 'Plots',
-        pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 100,
       },
@@ -457,7 +417,7 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     expect(qs(document, '.tree-section[data-type="plots"]').classList.contains('collapsed')).toBe(
       true
     );
-    expect(qs(document, '.tree-section[data-type="pinned"]').classList.contains('collapsed')).toBe(
+    expect(qs(document, '.tree-section[data-type="data"]').classList.contains('collapsed')).toBe(
       false
     );
   });
@@ -481,7 +441,6 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
         category: HOSTILE,
         form: HOSTILE,
         form_label: HOSTILE,
-        pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 10,
       },
@@ -565,7 +524,6 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
         artifact_type: 'json',
         form: 'evilform',
         form_label: 'Evil',
-        pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 10,
       },
@@ -667,20 +625,20 @@ describe('picking several rows', () => {
   });
 
   test('in tree mode a Shift-click picks the run in DOM order across section boundaries', () => {
-    // Tree order: Pinned [2, 4], then plots [3, 1].
+    // Tree order: plots [3, 1], documents [4], data [2].
     setArtifacts(makeFixtureArtifacts());
     renderer(makeCallbacks());
 
-    clickRow('2');
-    clickRow('3', { shiftKey: true });
+    clickRow('1');
+    clickRow('2', { shiftKey: true });
 
-    expect([...getPickedIds()]).toEqual(['2', '4', '3']);
-    expect(pickedRows()).toEqual(['2', '4', '3']);
+    expect([...getPickedIds()]).toEqual(['1', '4', '2']);
+    expect(pickedRows()).toEqual(['1', '4', '2']);
   });
 
   test('a Shift-click skips rows inside a collapsed section', () => {
-    // Nothing pinned: plots [3, 1], documents [4], data [2].
-    setArtifacts(makeFixtureArtifacts().map((a) => ({ ...a, pinned: false })));
+    // Plots [3, 1], documents [4], data [2].
+    setArtifacts(makeFixtureArtifacts());
     renderer(makeCallbacks());
 
     qs(document, '.tree-section[data-type="data"] .tree-section-header').click();
@@ -696,7 +654,7 @@ describe('picking several rows', () => {
     renderer(makeCallbacks());
 
     clickRow('4', { shiftKey: true });
-    expect([...getPickedIds()]).toEqual(['2', '4']);
+    expect([...getPickedIds()]).toEqual(['4', '2']);
   });
 
   test('a Shift-click keeps the anchor, so a second one re-picks the run from the same row', () => {
@@ -704,10 +662,10 @@ describe('picking several rows', () => {
     renderer(makeCallbacks());
 
     clickRow('4');
-    clickRow('1', { shiftKey: true });
-    expect([...getPickedIds()]).toEqual(['4', '3', '1']);
+    clickRow('3', { shiftKey: true });
+    expect([...getPickedIds()]).toEqual(['3', '1', '4']);
     clickRow('2', { shiftKey: true });
-    expect([...getPickedIds()]).toEqual(['2', '4']);
+    expect([...getPickedIds()]).toEqual(['4', '2']);
     expect(getPickAnchor()).toBe('4');
   });
 
@@ -737,15 +695,15 @@ describe('picking several rows', () => {
     const callbacks = makeCallbacks();
     renderer(callbacks);
 
-    clickRow('2');
-    clickRow('3', { shiftKey: true });
+    clickRow('1');
+    clickRow('2', { shiftKey: true });
     expect(getPickedIds().size).toBe(3);
 
-    clickRow('1');
+    clickRow('3');
     expect(getPickedIds().size).toBe(0);
-    expect(getPickAnchor()).toBe('1');
+    expect(getPickAnchor()).toBe('3');
     expect(pickedRows()).toEqual([]);
-    expect(qs(document, '[data-id="1"]').classList.contains('selected')).toBe(true);
+    expect(qs(document, '[data-id="3"]').classList.contains('selected')).toBe(true);
   });
 
   test('picked rows carry the class `picked` and aria-selected="true"; others carry neither', () => {
@@ -797,15 +755,15 @@ describe('picking several rows', () => {
     setArtifacts(makeFixtureArtifacts());
     const r = renderer(makeCallbacks());
 
-    clickRow('2');
-    clickRow('3', { shiftKey: true });
+    clickRow('1');
+    clickRow('2', { shiftKey: true });
     r.renderSidebar();
-    expect(pickedRows()).toEqual(['2', '4', '3']);
+    expect(pickedRows()).toEqual(['1', '4', '2']);
 
     setArtifacts(makeFixtureArtifacts().filter((a) => a.id !== '4'));
     r.renderSidebar();
-    expect([...getPickedIds()]).toEqual(['2', '3']);
-    expect(pickedRows()).toEqual(['2', '3']);
+    expect([...getPickedIds()]).toEqual(['1', '2']);
+    expect(pickedRows()).toEqual(['1', '2']);
   });
 
   test('the same run works in activity mode', () => {
@@ -836,10 +794,10 @@ describe('picking several rows', () => {
     r.setSidebarLayout('gallery');
     r.renderSidebar();
 
-    clickRow('2');
-    clickRow('3', { shiftKey: true });
+    clickRow('1');
+    clickRow('2', { shiftKey: true });
 
-    expect([...getPickedIds()]).toEqual(['2', '4', '3']);
+    expect([...getPickedIds()]).toEqual(['1', '4', '2']);
     expect(document.querySelectorAll('.gallery-card.picked').length).toBe(3);
   });
 
@@ -860,7 +818,6 @@ describe('reveal stagger with many rows (#924)', () => {
       filename: `paged-${i}.md`,
       artifact_type: 'markdown',
       form: i % 3 ? 'documents' : 'plots',
-      pinned: false,
       timestamp: `2026-07-01T10:${String(i % 60).padStart(2, '0')}:00Z`,
       size_bytes: 10,
     }));
@@ -922,7 +879,6 @@ describe('tree mode groups by form, runs expand to their parts (shared registry 
       title: `T ${id}`,
       filename: `${id}.bin`,
       artifact_type: 'json',
-      pinned: false,
       timestamp: `2026-07-0${(Number(id.replace(/\D/g, '')) % 9) + 1}T10:00:00Z`,
       size_bytes: 10,
       ...extra,

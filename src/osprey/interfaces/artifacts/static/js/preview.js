@@ -1,10 +1,10 @@
 // @ts-check
 /**
- * OSPREY Artifact Gallery — preview pane shell, pin/delete/fullscreen/focus.
+ * OSPREY Artifact Gallery — preview pane shell, delete/fullscreen/focus.
  *
  * Owns the biggest single view in the gallery: `renderPreview` (the preview
- * pane's header/meta/viewport markup and its button wiring), pinning and
- * deleting an artifact, fullscreen enter/exit (+ the "N new" badge while
+ * pane's header/meta/viewport markup and its button wiring), deleting an
+ * artifact, fullscreen enter/exit (+ the "N new" badge while
  * fullscreen), and agent-focus (`setAsFocus`).
  *
  * What this pane owns is the *chrome*: the header, the action buttons, the
@@ -22,8 +22,8 @@
  * for a pane without one: the description, the meta strip and the viewport
  * render as they do standalone, and nothing of the header (badge, title,
  * fullscreen Back button and "N new" badge, action buttons) is rendered or
- * wired. The actions behind the header's buttons are exposed (`setPinned`,
- * `deleteArtifact`) so the viewer runs the same code paths.
+ * wired. The action behind the header's delete button is exposed
+ * (`deleteArtifact`) so the viewer runs the same code path.
  *
  * `createPreviewRenderer(callbacks, options)` follows render.js's
  * `createSidebarRenderer(callbacks)` precedent: the fullscreen flag and the
@@ -116,9 +116,6 @@ function headerHtml(a) {
         </div>
         <div class="preview-header-actions">
           <span class="fullscreen-new-badge" id="fullscreen-new-badge" data-count="0"></span>
-          <button class="btn-action-icon ${a.pinned ? 'btn-action-pinned' : ''}" id="preview-toggle-pin" title="${a.pinned ? 'Unpin' : 'Pin'}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M5 9l2-1V4a1 1 0 011-1h8a1 1 0 011 1v4l2 1a1 1 0 01.4 1.6l-1.4 2a1 1 0 01-.8.4H6.8a1 1 0 01-.8-.4l-1.4-2A1 1 0 015 9z"/></svg>
-          </button>
           <button class="btn-action-icon fullscreen-enter-btn" id="fullscreen-enter" title="Maximize (F)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M16 21h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
           </button>
@@ -137,7 +134,6 @@ function headerHtml(a) {
 /**
  * @typedef {object} PreviewRenderCallbacks
  * @property {() => void} onArtifactDeleted - fired after a successful DELETE (local artifact/selection/focus state is already updated by this module); caller updates the header count and re-renders the sidebar
- * @property {() => void} onPinToggled - fired after a successful pin/unpin; caller re-renders the sidebar
  * @property {() => void} onFullscreenExit - fired on exiting fullscreen, before the resize/scroll-into-view pass; caller re-renders the sidebar
  * @property {(container: HTMLElement, artifact: any) => void} onTimeseriesNeeded - forwarded to artifact-viewport.js's `mountArtifactViewport`; fired with the mounted `.ts-viewport-container` for a timeseries artifact, which the caller (gallery.js, via timeseries.js's renderTimeseriesView) renders the chart/table into
  */
@@ -148,9 +144,9 @@ function headerHtml(a) {
  */
 
 /**
- * Name the session a pin or focus was set in: the gallery's current key in
+ * Name the session a focus was set in: the gallery's current key in
  * the session-filtered view, nothing in the all-sessions view or with no
- * session — such a pin or focus reaches no session's prompt.
+ * session — such a focus reaches no session's prompt.
  *
  * @param {Record<string, any>} body
  * @returns {Record<string, any>}
@@ -163,7 +159,7 @@ function withSetInSession(body) {
 
 /**
  * Create the gallery's preview renderer: the preview pane (`renderPreview`),
- * pinning and deleting, fullscreen enter/exit (+ its "N new" badge), and
+ * deleting, fullscreen enter/exit (+ its "N new" badge), and
  * setting agent focus. Bound to a small set of injected callbacks for the
  * effects owned elsewhere (sidebar re-render, header count, timeseries
  * rendering).
@@ -271,10 +267,6 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
    * @returns {void}
    */
   function wireHeader(a) {
-    /** @type {HTMLElement} */ (document.getElementById('preview-toggle-pin')).addEventListener(
-      'click',
-      () => togglePin(a)
-    );
     /** @type {HTMLElement} */ (document.getElementById('preview-delete')).addEventListener(
       'click',
       () => deleteArtifact(a)
@@ -306,40 +298,7 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
     if (isFullscreen) updateNewArtifactBadge();
   }
 
-  // ---- Pin / Delete / Focus actions ----
-
-  /**
-   * Pin or unpin an artifact. On success the local entry follows, and the
-   * sidebar and this pane re-render; a refused or failed request leaves both
-   * as they were.
-   * @param {any} artifact
-   * @param {boolean} pinned
-   * @returns {Promise<void>}
-   */
-  async function setPinned(artifact, pinned) {
-    try {
-      const resp = await fetch(`/api/artifacts/${artifact.id}/pin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(withSetInSession({ pinned })),
-      });
-      if (resp.ok) {
-        artifact.pinned = pinned;
-        callbacks.onPinToggled();
-        renderPreview();
-      }
-    } catch (err) {
-      console.error('Failed to toggle pin:', err);
-    }
-  }
-
-  /**
-   * @param {any} artifact
-   * @returns {Promise<void>}
-   */
-  function togglePin(artifact) {
-    return setPinned(artifact, !artifact.pinned);
-  }
+  // ---- Delete / Focus actions ----
 
   /**
    * Delete an artifact once the operator confirms: DELETE it, drop it from
@@ -437,7 +396,6 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
 
   return {
     renderPreview,
-    setPinned,
     deleteArtifact,
     enterFullscreen,
     exitFullscreen,

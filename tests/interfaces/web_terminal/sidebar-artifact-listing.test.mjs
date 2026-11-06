@@ -235,9 +235,9 @@ describe('the live edits', () => {
 
   test('an update merges into the held entry; an unknown id is not held', async () => {
     const list = await loadedWith([entry('a', '2026-10-30T01:00:00Z')]);
-    expect(list.update({ id: 'a', pinned: true })).toBe(true);
-    expect(list.find('a')?.pinned).toBe(true);
-    expect(list.update({ id: 'nope', pinned: true })).toBe(false);
+    expect(list.update({ id: 'a', title: 'Renamed' })).toBe(true);
+    expect(list.find('a')?.title).toBe('Renamed');
+    expect(list.update({ id: 'nope', title: 'Renamed' })).toBe(false);
   });
 
   test('a delete drops a held entry and its count; an unheld id changes nothing', async () => {

@@ -44,8 +44,8 @@ from osprey.registry.mcp import (
 
 #: Tools registered by a framework server but named nowhere in its registry
 #: entry. Empty: the nine workspace tools this baseline used to carry are now
-#: classified — the rail verbs and ``register_panel`` ask, ``artifact_pin`` and
-#: the five lattice tools are allowed. Keep it empty; a tool belongs in a
+#: classified — the rail verbs and ``register_panel`` ask, and the five
+#: lattice tools are allowed. Keep it empty; a tool belongs in a
 #: permission list, not in a list nobody reads.
 _UNCLASSIFIED_BASELINE: dict[str, set[str]] = {}
 

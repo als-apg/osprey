@@ -423,11 +423,11 @@ describe('getFilteredArtifacts', () => {
     ];
   }
 
-  test('no search returns everything, pinned first then newest-first', () => {
+  test('no search returns everything newest-first; a legacy pinned flag does not reorder', () => {
     setArtifacts(makeFixtures());
 
     const result = getFilteredArtifacts('');
-    expect(result.map((a) => a.id)).toEqual(['2', '4', '3', '1']);
+    expect(result.map((a) => a.id)).toEqual(['2', '3', '1', '4']);
   });
 
   test('search matches title, filename, description, or artifact_type (case-insensitive)', () => {

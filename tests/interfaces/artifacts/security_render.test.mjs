@@ -111,7 +111,6 @@ function mountPreviewFixture() {
 function makePreviewCallbacks() {
   return {
     onArtifactDeleted: vi.fn(),
-    onPinToggled: vi.fn(),
     onFullscreenExit: vi.fn(),
     onTimeseriesNeeded: vi.fn(),
   };
@@ -158,7 +157,6 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
         category: payload,
         form: payload,
         form_label: payload,
-        pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 10,
       },
@@ -215,9 +213,8 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
 
       const item = qs(sidebarBody, '.timeline-item');
       expect(item.dataset.type).toBe(payload);
-      // The title markup interleaves a conditional pin-indicator span
-      // around the escaped title, so the node carries surrounding
-      // whitespace — trim before the round-trip comparison.
+      // The title markup carries surrounding whitespace — trim before the
+      // round-trip comparison.
       expect(qs(item, '.timeline-item-title').textContent?.trim()).toBe(payload);
     }
   );
@@ -236,7 +233,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
 
       const card = qs(sidebarBody, '.gallery-card');
       expect(card.dataset.type).toBe(payload);
-      // Same interleaved pin-indicator layout as the timeline-item title.
+      // Same surrounding whitespace as the timeline-item title.
       expect(qs(card, '.gallery-card-title').textContent?.trim()).toBe(payload);
     }
   );
@@ -258,7 +255,6 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
         artifact_type: 'evilcat',
         category: 'evilcat',
         form: 'evilform',
-        pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 10,
       },
@@ -288,7 +284,6 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
       filename: 'beam_profile.png',
       artifact_type: 'plot_png',
       category: 'visualization',
-      pinned: false,
       timestamp: '2026-07-01T10:00:00Z',
       size_bytes: 2048,
       ...overrides,
@@ -688,7 +683,6 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
       filename: 'current.png',
       artifact_type: 'plot_png',
       category: 'visualization',
-      pinned: false,
       timestamp: '2026-07-01T10:00:00Z',
       size_bytes: 10,
     });
