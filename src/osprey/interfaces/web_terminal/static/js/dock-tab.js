@@ -44,7 +44,8 @@ import { TERMINAL_RAIL_ID, titleCase } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { PLACEHOLDER_PREFIX, TAB_KEY_ATTRIBUTE, TERMINAL_KEY, keyOfPanelId } from './dock-apply.js';
 import { withEchoSuppressed } from './dock-sync.js';
-import { closeDockPanel, closeTerminalPanel } from './dock-workspace.js';
+import { closeDockPanel } from './dock-workspace.js';
+import { closeTerminalTile } from './panel-menu-policy.js';
 import { attachBlocker, popOutAttached } from './attached-popout.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { icon } from '/design-system/js/icons.js';
@@ -453,9 +454,9 @@ class TileTab {
       // effect of the close, not a human focus gesture, so it must not reach
       // the focus reporter — the same suppression retireTile applies to its
       // own removal. The Agent tile's close also puts the closed state on
-      // `html[data-agent]` for the sidebar.
+      // `html[data-agent]` for the sidebar, and raises the Undo notice.
       withEchoSuppressed(() =>
-        terminal ? closeTerminalPanel() : closeDockPanel(this._servicePanelId ?? this._panelId)
+        terminal ? closeTerminalTile() : closeDockPanel(this._servicePanelId ?? this._panelId)
       );
     });
     actions.appendChild(close);

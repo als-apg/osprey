@@ -210,7 +210,7 @@ function activateAgentRow(event) {
  * Open the Agent pane, then put the caret where the operator types — the chat
  * composer, or the terminal when that is the surface showing.
  */
-function showAgentPane() {
+export function showAgentPane() {
   openTerminalPanel();
   if (!isTerminalPanelOpen()) return;
   if (isTerminalSurface()) focusTerminal();

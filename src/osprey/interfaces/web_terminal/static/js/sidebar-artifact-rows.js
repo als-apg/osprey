@@ -242,10 +242,10 @@ export function allSessionsClick() {
  * session summary (`data-count` once it is summarized). The title's tooltip
  * says what a click does and names the expand-all click.
  * @param {SessionRow} session
- * @param {{active: boolean, open: boolean, count: number, summarized?: boolean}} options
+ * @param {{active: boolean, open: boolean, count: number, summarized?: boolean, paneOpen?: boolean}} options
  * @returns {HTMLElement}
  */
-export function sessionRow(session, { active, open, count, summarized = false }) {
+export function sessionRow(session, { active, open, count, summarized = false, paneOpen = true }) {
   const pending = session.naming === 'pending';
   const title = treeSpan(
     'osprey-tree-title',
@@ -253,7 +253,7 @@ export function sessionRow(session, { active, open, count, summarized = false })
   );
   if (pending) title.classList.add('pending');
   title.title = title.textContent ?? '';
-  title.dataset.tipDetail = `${active ? 'Click to fold or unfold' : 'Click to switch to it'} · ${allSessionsClick()} to expand or collapse all`;
+  title.dataset.tipDetail = `${active ? (paneOpen ? 'Click to fold or unfold' : 'Click to reopen the Agent pane') : 'Click to switch to it'} · ${allSessionsClick()} to expand or collapse all`;
   const dot = document.createElement('span');
   dot.className = `osprey-dot ${session.state === 'live' ? 'ok' : 'hollow'}`;
   const row = topRow('osprey-tree-session', open, [dot, title], active || open);
@@ -558,4 +558,18 @@ function treeSpan(className, text) {
   span.className = className;
   span.textContent = text;
   return span;
+}
+
+/**
+ * @param {string} value  `sid:form`; the session id may itself hold colons
+ * @returns {[string, string]}
+ */
+export function splitGroup(value) {
+  const at = value.lastIndexOf(':');
+  return [value.slice(0, at), value.slice(at + 1)];
+}
+
+/** Toggle a key's membership. @param {Set<string>} set @param {string} key */
+export function flip(set, key) {
+  if (!set.delete(key)) set.add(key);
 }

@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   setServiceMenuExtras: vi.fn(),
   isTerminalPanelOpen: vi.fn(() => true),
   openTerminalPanel: vi.fn(),
+  showAgentPane: vi.fn(),
 }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat.js', () => ({
@@ -80,6 +81,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.j
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => ({
   setServiceMenuExtras: mocks.setServiceMenuExtras,
+  showAgentPane: mocks.showAgentPane,
 }));
 vi.mock('/design-system/js/theme-manager.js', () => ({ getTheme: () => 'dark' }));
 
@@ -562,7 +564,6 @@ describe('expansion and clicks', () => {
 
   test("a click on the current session's name or disclosure folds and unfolds it, and nothing else", async () => {
     await boot();
-    mocks.isTerminalPanelOpen.mockReturnValue(false);
     const calls = fetchMock.mock.calls.length;
 
     click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
@@ -678,6 +679,26 @@ describe('expansion and clicks', () => {
     expect(mocks.openTerminalPanel).toHaveBeenCalled();
     expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
     expect(mocks.resumeSession).not.toHaveBeenCalled();
+  });
+
+  test('with the Agent pane closed, a click on the current session reopens it instead of folding', async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    mocks.showAgentPane.mockClear();
+    const tip = () =>
+      /** @type {HTMLElement} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')).dataset
+        .tipDetail ?? '';
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(tip()).toMatch(/^Click to reopen the Agent pane · /);
+    // Pane back: the next click folds again, and does not reopen.
+    mocks.isTerminalPanelOpen.mockReturnValue(true);
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
   });
 
   test('a session-name click enters a non-current session and reveals its last-open artifact', async () => {
