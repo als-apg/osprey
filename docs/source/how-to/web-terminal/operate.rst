@@ -50,8 +50,7 @@ The window has a sidebar on the left and two panes:
 - **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
-  **Agent** row with your sessions, the **Tools** and **System** sections, and
-  a footer with **Docs**,
+  **Agent** row, the **Tools** and **System** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
@@ -513,7 +512,7 @@ The sidebar is on the left. From top to bottom, it shows:
   Ctrl+K on other systems.
 - The groups of panel rows. At first there are three:
 
-  - The first group has no heading. It starts with this row:
+  - **Sessions**, the first group, has no heading. It starts with this row:
 
     - **Agent** opens the agent pane and your session tree below it
       (`Sessions and artifacts`_); with the pane open, it folds or unfolds
@@ -597,10 +596,9 @@ Shift+F10). The menu has these items:
   **System**, but you can rename them.
 
 Double-click a group's name to fold it down to its heading, and double-click
-again to unfold it. The first group, which holds **Agent**, has no heading: it
-stays first, and the row menus call it **Sessions**. To make it taller, drag
-the faint line below it;
-double-click the line to go back to automatic height.
+again to unfold it. **Sessions**, the group that holds **Agent**, has no
+heading, so it has no menu and always stays first. To make it taller, drag the
+faint line below it; double-click the line to go back to automatic height.
 
 To move a row to a different group, do one of these:
 
