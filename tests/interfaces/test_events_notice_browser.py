@@ -17,6 +17,8 @@ from playwright.sync_api import Route, expect
 
 from osprey.dispatch.dashboard import render_dashboard_html
 
+pytestmark = [pytest.mark.browser, pytest.mark.slow]
+
 _ORIGIN = "http://events.test"
 _DESIGN_SYSTEM = Path(__file__).resolve().parents[2] / "src/osprey/interfaces/design_system/static"
 _CONTENT_TYPES = {".js": "text/javascript", ".css": "text/css"}
