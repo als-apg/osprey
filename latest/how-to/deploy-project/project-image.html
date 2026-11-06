@@ -576,9 +576,9 @@ terminal.</p></li>
 </ul>
 <p>Both files are re-rendered from the framework on every build, so an edit made
 in <code class="docutils literal notranslate"><span class="pre">build/</span></code> lasts only until the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. To customize them, put
-your version in the source zone’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror instead. Keep <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-excluded in a <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> of your own; the build also strips every
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> file except <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> from the image context.</p>
+your version in the source zone’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror instead. A
+<code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> placed there replaces OSPREY’s list, so keep <code class="docutils literal notranslate"><span class="pre">.env</span></code> in it.
+The build also strips every <code class="docutils literal notranslate"><span class="pre">.env</span></code> file but <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> from the image.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   project/
     Dockerfile          # copied verbatim onto the render, every build
@@ -590,36 +590,36 @@ See <a class="reference internal" href="../build-profiles.html"><span class="doc
 <p class="admonition-title">Note</p>
 <p>This page covers the <strong>project image</strong> — one container that runs the
 assistant and its web terminal. The lifecycle verbs manage the deployment’s
-<em>service</em> containers (databases, MCP servers) — see <a class="reference internal" href="index.html"><span class="doc">Container Deployment</span></a>
-— but the two meet in one place: a deploy that includes the dispatch
-worker, the ARIEL sync service or the record archive builds this same
-project image (tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>) for them to run.</p>
+<em>service</em> containers (databases, MCP servers); see <a class="reference internal" href="index.html"><span class="doc">Container Deployment</span></a>. The two
+meet in one place. A deploy that includes the dispatch worker, the ARIEL
+sync service or the record archive builds this same project image (tagged
+<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>) for them to run.</p>
 </div>
 </section>
 <section id="keeping-repo-files-out-of-the-image">
 <h2>Keeping repo files out of the image<a class="headerlink" href="#keeping-repo-files-out-of-the-image" title="Link to this heading">#</a></h2>
-<p>The image carries your deployment repo. To keep repo files out of it —
-notebooks, scratch directories, large analysis output — list them in a
-<code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> at the repo root, beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The syntax is
-Docker’s, and patterns are anchored at the repo root:</p>
+<p>The image carries your whole deployment repo, not just the render. Some repo
+files have no use there: notebooks, scratch directories, large analysis output.
+List them in a <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> at the repo root, beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. This
+file is yours. It is not the rendered <code class="docutils literal notranslate"><span class="pre">build/.dockerignore</span></code> above, which is
+OSPREY’s list. The syntax is Docker’s, and patterns are anchored at the repo
+root:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span># my-facility/.dockerignore
 notebooks/
 *.h5
 </pre></div>
 </div>
-<p>Here <code class="docutils literal notranslate"><span class="pre">*.h5</span></code> drops <code class="docutils literal notranslate"><span class="pre">x.h5</span></code> at the root but not <code class="docutils literal notranslate"><span class="pre">data/x.h5</span></code>; write
-<code class="docutils literal notranslate"><span class="pre">**/*.h5</span></code> for every depth. Two rules hold whatever the file says:</p>
-<ul class="simple">
-<li><p>it cannot bring back what OSPREY excludes: <code class="docutils literal notranslate"><span class="pre">.env</span></code> files, <code class="docutils literal notranslate"><span class="pre">.git</span></code>,
-<code class="docutils literal notranslate"><span class="pre">build/</span></code> and the repo’s Claude Code files stay out;</p></li>
-<li><p>a pattern that would remove a build input — <code class="docutils literal notranslate"><span class="pre">data/</span></code>, the convention
-directories, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, the trigger file, <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
-a repo-local <code class="docutils literal notranslate"><span class="pre">extends:</span></code> base, the selected host-variant profile, an
-enabled watchdog’s directory —
-fails the build, naming the pattern.</p></li>
-</ul>
-<p>This file is yours; the rendered <code class="docutils literal notranslate"><span class="pre">build/.dockerignore</span></code> described above is
-OSPREY’s list of what it always keeps out.</p>
+<p>Here <code class="docutils literal notranslate"><span class="pre">*.h5</span></code> drops <code class="docutils literal notranslate"><span class="pre">x.h5</span></code> at the root but not <code class="docutils literal notranslate"><span class="pre">data/x.h5</span></code>. Write
+<code class="docutils literal notranslate"><span class="pre">**/*.h5</span></code> to match at every depth. Two rules hold whatever the file says:</p>
+<ol class="arabic simple">
+<li><p>It cannot bring back what OSPREY excludes. <code class="docutils literal notranslate"><span class="pre">.env</span></code> files, <code class="docutils literal notranslate"><span class="pre">.git</span></code>,
+<code class="docutils literal notranslate"><span class="pre">build/</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code> and the repo’s Claude Code files stay out.</p></li>
+<li><p>It cannot remove a file the build reads. Such a pattern fails the build,
+and the error names it. The build reads <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, the convention directories and the trigger file. It
+also reads a repo-local <code class="docutils literal notranslate"><span class="pre">extends:</span></code> base, the selected host-variant profile
+and an enabled watchdog’s directory.</p></li>
+</ol>
 </section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
@@ -634,34 +634,37 @@ docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </
 </div>
 <p>Every line runs at the deployment repo root; the build names the container repo
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> rendered (<code class="docutils literal notranslate"><span class="pre">build/.image/&lt;name&gt;/</span></code>) as its context.</p>
-<p>The terminal holds the agent record; like the provider key, its login and
+<p>The terminal holds the agent record. Like the provider key, its login and
 service file are supplied at run time and never enter the image. The build
-writes both readable by the building account alone (<code class="docutils literal notranslate"><span class="pre">$USER</span></code> above), so where
-that account’s uid is not 1000, the image’s <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user, mount copies that
-user can read.</p>
+writes both readable by the building account alone (<code class="docutils literal notranslate"><span class="pre">$USER</span></code> above). The
+image’s <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user has uid 1000, so where the building account’s uid is
+not 1000, mount copies that the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user can read.</p>
 <p>Then open <a class="reference external" href="http://localhost:10100">http://localhost:10100</a>. The container’s <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> prints a login
-URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) to its logs at startup; open that URL to set your session
-cookie, after which it redirects to the clean address. Anything that can read
+URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) to its logs at startup. Open that URL to set your session
+cookie; it then redirects to the clean address. Anything that can read
 those logs can read the token, so treat both like a password. If your <code class="docutils literal notranslate"><span class="pre">.env</span></code>
 sets <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET</span></code> itself, the container uses that value and
-explains why it is printing no URL — browse to
+explains why it is printing no URL. Browse to
 <code class="docutils literal notranslate"><span class="pre">http://localhost:10100/?token=&lt;that</span> <span class="pre">value&gt;</span></code> instead. Secrets are
-passed at runtime via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code> — the <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> guarantees
+passed at runtime via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code>. The build guarantees that
 <code class="docutils literal notranslate"><span class="pre">.env</span></code> and every other <code class="docutils literal notranslate"><span class="pre">.env.*</span></code> file but <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> never enter the
 image.</p>
 </section>
 <section id="build-arguments">
 <h2>Build Arguments<a class="headerlink" href="#build-arguments" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> passes these from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: the top-level <code class="docutils literal notranslate"><span class="pre">offline</span></code> key
-and the <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code>
-/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> block, resolved once and handed to the three
-images built from these recipes — the project image, each web-terminal
-image and the login sidecar. Set them there and a site network is configured in
-one place.
-The build arguments below are the same settings under the names a hand-run
-<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code> uses; each is also overridden for one shell by an environment
-variable of the same name (<code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code>, …), the same
-way <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code> overrides <code class="docutils literal notranslate"><span class="pre">images.registry</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> passes these settings from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<ul class="simple">
+<li><p>the top-level <code class="docutils literal notranslate"><span class="pre">offline</span></code> key</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code>
+/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> block</p></li>
+</ul>
+<p>It resolves them once and hands them to the three images built from these
+recipes: the project image, each web-terminal image and the login sidecar. Set
+them there and a site network is configured in one place.</p>
+<p>The build arguments below are the same settings under the names a hand-run
+<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code> uses. An environment variable of the same name
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code>, …) also overrides each one for one
+shell, the same way <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code> overrides <code class="docutils literal notranslate"><span class="pre">images.registry</span></code>.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
@@ -716,19 +719,22 @@ where a proxy re-signs TLS with its own CA — see
 </tbody>
 </table>
 </div>
-<p>(Two more ARGs are set by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> itself and you normally never set them
-by hand: <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code> makes <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> install a locally built
-wheel, and <code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_PRE</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> when the pinned OSPREY version is a
-pre-release, so the <code class="docutils literal notranslate"><span class="pre">pip</span></code> resolve inside the image admits the pre-release of
-<code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> that ships beside it. A hand-run build pinning a beta
-needs <code class="docutils literal notranslate"><span class="pre">--build-arg</span> <span class="pre">OSPREY_PIP_PRE=1</span></code> for the same reason. The
-<code class="docutils literal notranslate"><span class="pre">.gitlab-ci.yml</span></code> that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code> writes follows the same rule:
-its own <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code> passes <code class="docutils literal notranslate"><span class="pre">--pre</span></code> when <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code> names
-a pre-release.)</p>
-<p>The <strong>host</strong> side of the build reads its own settings from the shell rather
-than from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> installs the project’s virtual
-environment with <code class="docutils literal notranslate"><span class="pre">uv</span></code> (or pip), so <code class="docutils literal notranslate"><span class="pre">UV_INDEX_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code> and a
-<code class="docutils literal notranslate"><span class="pre">pip.conf</span></code> on the build host all apply there and nowhere else.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> sets two more ARGs itself, and you normally never set them by
+hand:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code> makes <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> install a locally built wheel.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_PRE</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> when the pinned OSPREY version is a
+pre-release. The <code class="docutils literal notranslate"><span class="pre">pip</span></code> resolve inside the image then admits the
+pre-release of <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> that ships beside it.</p></li>
+</ul>
+<p>A hand-run build pinning a beta needs <code class="docutils literal notranslate"><span class="pre">--build-arg</span> <span class="pre">OSPREY_PIP_PRE=1</span></code> for the
+same reason. The <code class="docutils literal notranslate"><span class="pre">.gitlab-ci.yml</span></code> that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code> writes follows
+the same rule: its own <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code> passes <code class="docutils literal notranslate"><span class="pre">--pre</span></code> when
+<code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code> names a pre-release.</p>
+<p>The <strong>host</strong> side of the build reads its own settings from the shell, not from
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> installs the project’s virtual environment
+with <code class="docutils literal notranslate"><span class="pre">uv</span></code> (or pip). So <code class="docutils literal notranslate"><span class="pre">UV_INDEX_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code> and a <code class="docutils literal notranslate"><span class="pre">pip.conf</span></code>
+on the build host all apply there and nowhere else.</p>
 <section id="building-an-image-by-hand">
 <h3>Building an image by hand<a class="headerlink" href="#building-an-image-by-hand" title="Link to this heading">#</a></h3>
 <p>Everything below is the unmanaged path — a <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code> you run yourself,
@@ -753,9 +759,12 @@ internal mirror.</p>
 </section>
 <section id="building-behind-a-proxy">
 <h3>Building Behind a Proxy<a class="headerlink" href="#building-behind-a-proxy" title="Link to this heading">#</a></h3>
-<p>Two things have to line up for a build on a proxied network: the proxy values
-have to reach the build, and the tools inside it have to find them under the
-names they actually read.</p>
+<p>A build on a proxied network needs two things to line up:</p>
+<ul class="simple">
+<li><p>The proxy values have to reach the build.</p></li>
+<li><p>The tools inside the build have to find them under the names they actually
+read.</p></li>
+</ul>
 <p><strong>Getting the values in.</strong> Docker takes them as build arguments —
 <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span> <span class="pre">--build-arg</span> <span class="pre">HTTP_PROXY=...</span> <span class="pre">--build-arg</span> <span class="pre">HTTPS_PROXY=...</span></code>. The
 uppercase spellings are predeclared by the builder, so no <code class="docutils literal notranslate"><span class="pre">ARG</span></code> line is needed
@@ -772,29 +781,31 @@ reaches the network in a generated Dockerfile opens with a bridge line:</p>
 <span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>--no-install-recommends<span class="w"> </span>ca-certificates
 </pre></div>
 </div>
-<p>Each expansion prefers a lowercase value that is already set, falls back to the
-uppercase one, and otherwise defaults to empty — so a build with no proxy
-exports three empty variables and behaves exactly as it did before.</p>
-<p>The two mechanisms answer different questions and work together: the build
-arguments (or Podman’s forwarding) deliver the values, and the bridge closes the
+<p>Each expansion prefers a lowercase value that is already set. Failing that, it
+falls back to the uppercase one, and otherwise defaults to empty. So a build
+with no proxy exports three empty variables and behaves exactly as it did
+before.</p>
+<p>The two mechanisms answer different questions and work together. The build
+arguments (or Podman’s forwarding) deliver the values. The bridge closes the
 upper/lowercase gap inside the step. <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code> remains the knob for the
 other half — which hosts to <em>skip</em> the proxy for. In the project image’s
-dependency layer the bridge runs first and the existing
-<code class="docutils literal notranslate"><span class="pre">NO_PROXY=&quot;$PIP_NO_PROXY&quot;</span></code> export follows it, so a site that needs an
-exemption there sets <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code> exactly as before while <code class="docutils literal notranslate"><span class="pre">http_proxy</span></code> and
-<code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> are bridged normally.</p>
+dependency layer the bridge runs first, and the existing
+<code class="docutils literal notranslate"><span class="pre">NO_PROXY=&quot;$PIP_NO_PROXY&quot;</span></code> export follows it. So a site that needs an
+exemption there sets <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code> exactly as before, while <code class="docutils literal notranslate"><span class="pre">http_proxy</span></code>
+and <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> are bridged normally.</p>
 </section>
 <section id="tls-intercepting-proxies">
 <h3>TLS-Intercepting Proxies<a class="headerlink" href="#tls-intercepting-proxies" title="Link to this heading">#</a></h3>
 <p>Some proxies do more than relay: they terminate every HTTPS connection and
-re-sign it with the site’s own CA (Squid is a common example). Delivering the
-proxy values as above is then not enough — every fetch inside the build (apt,
-npm, pip, the optional <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code>) fails cert verification,
-because nothing in the image trusts that CA yet.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code> build argument closes the gap. Point <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code>
-at the bundle on the deploy host and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does the rest — a Dockerfile
-<code class="docutils literal notranslate"><span class="pre">COPY</span></code> cannot reach outside the build context, so the deploy stages a copy
-into each context and passes its staged name:</p>
+re-sign it with the site’s own CA (Squid is a common example).</p>
+<p><strong>Why the build fails.</strong> With such a proxy, delivering the proxy values as
+above is not enough. Every fetch inside the build (apt, npm, pip, the optional
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code>) fails cert verification, because nothing in the image
+trusts that CA yet.</p>
+<p><strong>What to set.</strong> The <code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code> build argument closes the gap. Point
+<code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> at the bundle on the deploy host and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does the
+rest. A Dockerfile <code class="docutils literal notranslate"><span class="pre">COPY</span></code> cannot reach outside the build context, so the
+deploy stages a copy into each context and passes its staged name:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">images</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">site_ca</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem</span>
 </pre></div>
@@ -807,9 +818,9 @@ docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </
 </div>
 <p>That first path is where a RHEL-family build host keeps its system bundle
 (individual CA files also live under <code class="docutils literal notranslate"><span class="pre">/etc/pki/ca-trust/source/anchors/</span></code>).
-The path is a host fact, not an image fact: the image is Debian, and inside it
-the staged CA is installed with <code class="docutils literal notranslate"><span class="pre">update-ca-certificates</span></code> — before the first
-fetch — into the merged Debian bundle at <code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-certificates.crt</span></code>.</p>
+The path is a host fact, not an image fact: the image is Debian. Inside it,
+<code class="docutils literal notranslate"><span class="pre">update-ca-certificates</span></code> installs the staged CA before the first fetch, into
+the merged Debian bundle at <code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-certificates.crt</span></code>.</p>
 <p>Installing the CA into the system store only covers the tools that read it.
 Each tool family finds its trust through a different variable, so the image
 also points all four at that merged bundle, for build steps and the running
@@ -846,24 +857,26 @@ tool’s default and the build behaves exactly as before.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The same interception can fail <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> <strong>on the host</strong>, before any
-container is involved — and the symptom is confusing, because plain
-connectivity checks all pass. While preparing the project environment,
-pip’s build-isolation subprocess dies with <code class="docutils literal notranslate"><span class="pre">SSL:</span> <span class="pre">CERTIFICATE_VERIFY_FAILED</span></code>
-fetching a build backend such as <code class="docutils literal notranslate"><span class="pre">hatchling</span></code>, even though <code class="docutils literal notranslate"><span class="pre">curl</span></code> and the
-system Python verify the same endpoints fine. The difference is the trust
-store: those tools read the system bundle, which knows the proxy’s CA, while
-the venv’s pip trusts only its bundled <code class="docutils literal notranslate"><span class="pre">certifi</span></code> store, which cannot build
-the proxied chain. Point the certifi-backed clients at the system bundle
-before building:</p>
+container is involved. The symptom is confusing, because plain
+connectivity checks all pass.</p>
+<p><strong>Symptom.</strong> While preparing the project environment, pip’s
+build-isolation subprocess dies with <code class="docutils literal notranslate"><span class="pre">SSL:</span> <span class="pre">CERTIFICATE_VERIFY_FAILED</span></code>
+fetching a build backend such as <code class="docutils literal notranslate"><span class="pre">hatchling</span></code>. Yet <code class="docutils literal notranslate"><span class="pre">curl</span></code> and the
+system Python verify the same endpoints fine.</p>
+<p><strong>Cause.</strong> The difference is the trust store. Those tools read the system
+bundle, which knows the proxy’s CA. The venv’s pip trusts only its bundled
+<code class="docutils literal notranslate"><span class="pre">certifi</span></code> store, which cannot build the proxied chain.</p>
+<p><strong>Fix.</strong> Point the certifi-backed clients at the system bundle before
+building:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">SSL_CERT_FILE</span><span class="o">=</span>/etc/ssl/certs/ca-bundle.crt<span class="w"> </span><span class="se">\</span>
 <span class="w">       </span><span class="nv">REQUESTS_CA_BUNDLE</span><span class="o">=</span>/etc/ssl/certs/ca-bundle.crt<span class="w"> </span><span class="se">\</span>
 <span class="w">       </span><span class="nv">PIP_CERT</span><span class="o">=</span>/etc/ssl/certs/ca-bundle.crt
 </pre></div>
 </div>
-<p>(<code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-bundle.crt</span></code> is the RHEL-family spelling of the system
-bundle; Debian-family hosts use <code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-certificates.crt</span></code>.)
-These are three of the four variables the image sets for its own inside —
-exported here, they cover the host-side build, which reads them from the
+<p><code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-bundle.crt</span></code> is the RHEL-family spelling of the system
+bundle; Debian-family hosts use <code class="docutils literal notranslate"><span class="pre">/etc/ssl/certs/ca-certificates.crt</span></code>.
+These are three of the four variables the image sets for its own inside.
+Exported here, they cover the host-side build, which reads them from the
 shell rather than from the deployment’s env files.</p>
 </div>
 </section>
@@ -879,9 +892,9 @@ directory of prefetched models in the project’s <code class="docutils literal 
 <span class="w">    </span><span class="nt">models_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/osprey/qmd-models</span><span class="w">   </span><span class="c1"># absolute host path</span>
 </pre></div>
 </div>
-<p>That one key does both halves of the job: the build skips the downloads, and the
-directory is bind-mounted read-only into the container at the location the image
-looks for models. The container-side path is fixed by the image and is not
+<p>That one key does both halves of the job. The build skips the downloads. The
+directory is bind-mounted read-only into the container, at the location where
+the image looks for models. The container-side path is fixed by the image and is not
 configurable.</p>
 <section id="staging-the-files">
 <h3>Staging the files<a class="headerlink" href="#staging-the-files" title="Link to this heading">#</a></h3>
@@ -892,30 +905,37 @@ hf_tobil_qmd-query-expansion-1.7B-q4_k_m.gguf
 </pre></div>
 </div>
 <p>These are cache names, not the names the files download under. The model loader
-recognizes a staged file only in this form; under any other name it reads as
-<strong>absent</strong>, and the sidecar tries to fetch it again — into a read-only mount, on
-a network that cannot reach the model host.</p>
-<p>Copy the files from a machine that can reach <code class="docutils literal notranslate"><span class="pre">huggingface.co</span></code> (or from the
-model cache of one that has already built the sidecar image), rename them, and
-check them before setting the key:</p>
+recognizes a staged file only in this form. Under any other name it reads as
+<strong>absent</strong>, and the sidecar tries to fetch it again. That fetch goes into a
+read-only mount, on a network that cannot reach the model host.</p>
+<p>To stage the files:</p>
+<ol class="arabic">
+<li><p>Copy them into the <code class="docutils literal notranslate"><span class="pre">models_dir</span></code> directory from a machine that can reach
+<code class="docutils literal notranslate"><span class="pre">huggingface.co</span></code>, or from the model cache of one that has already built
+the sidecar image.</p></li>
+<li><p>Rename them to the names above.</p></li>
+<li><p>Check them before setting the key:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sha256sum<span class="w"> </span>/srv/osprey/qmd-models/*.gguf
 </pre></div>
 </div>
 <p>Compare the three digests against the pins in the qmd service’s Dockerfile
-(<code class="docutils literal notranslate"><span class="pre">services/qmd/Dockerfile</span></code> in the rendered deployment), which carries both the
-source URL and the expected SHA256 of each file.</p>
+(<code class="docutils literal notranslate"><span class="pre">services/qmd/Dockerfile</span></code> in the rendered deployment). It carries both
+the source URL and the expected SHA256 of each file.</p>
+</li>
+</ol>
 </section>
 <section id="what-gets-checked">
 <h3>What gets checked<a class="headerlink" href="#what-gets-checked" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><strong>Before anything starts.</strong> If <code class="docutils literal notranslate"><span class="pre">services.qmd.models_dir</span></code> is set but the
-directory is missing, or a model is absent, misnamed, or zero bytes, the
-deploy refuses up front and prints the expected filenames along with the
-staging steps. Nothing has been started at that point.</p></li>
+<li><p><strong>Before anything starts.</strong> The deploy refuses up front if
+<code class="docutils literal notranslate"><span class="pre">services.qmd.models_dir</span></code> is set but the directory is missing, or a model
+is absent, misnamed, or zero bytes. It prints the expected filenames along
+with the staging steps. Nothing has been started at that point.</p></li>
 <li><p><strong>At container start.</strong> The entrypoint verifies all three SHA256 digests
-against the pins the image was built with, every time, and fails with a clear
-message rather than letting the sidecar crash-loop unnoticed. A stamp file
-records what it already verified, so ordinary restarts stay fast.</p></li>
+against the pins the image was built with, every time. When verification fails,
+it stops with a clear message rather than letting the sidecar crash-loop
+unnoticed. A stamp file records what it already verified, so ordinary
+restarts stay fast.</p></li>
 </ul>
 <p>Leaving <code class="docutils literal notranslate"><span class="pre">models_dir</span></code> unset keeps the default: the models are baked into the
 image at build time, which needs a build host that can reach <code class="docutils literal notranslate"><span class="pre">huggingface.co</span></code>.
@@ -928,9 +948,9 @@ arguments described above.</p>
 <h2>Path Relocation<a class="headerlink" href="#path-relocation" title="Link to this heading">#</a></h2>
 <p>A render made on a host records that host’s path in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as
 <code class="docutils literal notranslate"><span class="pre">project_root</span></code>, which would be wrong inside an image. Nothing in the
-Dockerfile fixes that: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders a second copy of the deployment
-specifically for the container, against its <code class="docutils literal notranslate"><span class="pre">/app</span></code> path rather than the
-building host’s, and that copy is what the image build uses as its context. The
+Dockerfile fixes that. Instead, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders a second copy of the
+deployment specifically for the container, against its <code class="docutils literal notranslate"><span class="pre">/app</span></code> path rather
+than the building host’s. The image build uses that copy as its context. The
 recorded <code class="docutils literal notranslate"><span class="pre">project_root</span></code>, the agent artifacts (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>,
 <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>) and every path they name are already the container’s before the
 first <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code> layer runs.</p>
@@ -947,12 +967,13 @@ than where it was made.</p>
 </section>
 <section id="the-privilege-split">
 <span id="containerize-privilege-split"></span><h2>The Privilege Split<a class="headerlink" href="#the-privilege-split" title="Link to this heading">#</a></h2>
-<p>The agent never runs as root: <strong>the agent CLI refuses to run in
-bypassPermissions mode as root</strong>, and running it there would in any case put
-the whole project within its own reach. The image satisfies that in a way that
-still lets the container fix itself at startup — it <em>starts</em> as root, does the
-few things only root can do, and drops to an unprivileged <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user
-before the command that serves requests exists.</p>
+<p>The agent never runs as root. <strong>The agent CLI refuses to run in
+bypassPermissions mode as root</strong>, and root would put the whole project within
+the agent’s reach.</p>
+<p>The image satisfies that in a way that still lets the container fix itself at
+startup. It <em>starts</em> as root and does the few things only root can do. Then it
+drops to an unprivileged <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user before the command that serves
+requests exists.</p>
 <p>Two areas of the project, two owners:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -992,17 +1013,21 @@ to whatever the base image hands out, and the image states the pair in
 <code class="docutils literal notranslate"><span class="pre">OSPREY_RUNTIME_UID</span></code>. Anything outside the container that has to agree with
 it — the multi-user stack’s per-user volume seeding, for one — reads it out of
 the image instead of guessing.</p>
-<p>The agent and the server that spawned it are both <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, so the split
-between them is not a second user but what the server keeps from a process of
-its own uid. Before it serves anything, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> takes its credentials
-— the operator secret and the event-dispatcher bearer — out of its
-environment into memory, and on Linux marks itself non-dumpable, so its
-exec-time environment and memory are closed to the agent and everything the
-agent runs. The panel token is not among them: the agent’s own panel tooling
-is handed it by design. The dispatch worker does the same with its bearer. The approval
-prompt the operator answers at the terminal therefore records that a person
-intended a write; what contains agent code is the connector’s checks and the
-container, as <a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a> lays out.</p>
+<p>The agent and the server that spawned it are both <code class="docutils literal notranslate"><span class="pre">osprey</span></code>. So the split
+between them is not a second user, but what the server keeps from a process of
+its own uid. Before it serves anything, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> does two things:</p>
+<ul class="simple">
+<li><p>It takes its credentials — the operator secret and the event-dispatcher
+bearer — out of its environment into memory.</p></li>
+<li><p>On Linux, it marks itself non-dumpable.</p></li>
+</ul>
+<p>Its exec-time environment and memory are then closed to the agent and
+everything the agent runs. The dispatch worker does the same with its bearer.
+The panel token is not one of those credentials: the agent’s own panel tooling
+is handed it by design. The approval prompt the operator answers at the terminal therefore
+records that a person intended a write. What contains agent code is the
+connector’s checks and the container, as <a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a>
+lays out.</p>
 <section id="what-the-entrypoint-does">
 <h3>What the entrypoint does<a class="headerlink" href="#what-the-entrypoint-does" title="Link to this heading">#</a></h3>
 <p>There is no <code class="docutils literal notranslate"><span class="pre">USER</span></code> instruction. <code class="docutils literal notranslate"><span class="pre">ENTRYPOINT</span></code> is the <code class="docutils literal notranslate"><span class="pre">build/entrypoint.sh</span></code>
@@ -1014,8 +1039,8 @@ nothing.</p></li>
 <li><p><strong>Restores your own artifact bodies</strong> from the durable store, so a
 recreated container comes back with the artifacts you saved rather than the
 ones the image shipped. In a container that store is always the per-user
-volume — the profile baked into the image is never treated as an editable
-source, whatever its permissions look like — so this step really does put
+volume. The profile baked into the image is never treated as an editable
+source, whatever its permissions look like. So this step really does put
 your claimed bodies back into a render nothing else can write. A store
 record naming a protected path is skipped and recorded instead, under the
 surface name <code class="docutils literal notranslate"><span class="pre">scaffold_restore</span></code>; see <a class="reference internal" href="../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>.</p></li>
@@ -1023,10 +1048,10 @@ surface name <code class="docutils literal notranslate"><span class="pre">scaffo
 gives uid 1000 that name so that a control-system client reports it as the
 user behind every write the container makes; see
 <a class="reference internal" href="#containerize-control-identity"><span class="std std-ref">The name uid 1000 writes under</span></a>.</p></li>
-<li><p><strong>Hands the state zone back</strong> to the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user — only the paths root
-actually left behind — because both earlier steps wrote into <code class="docutils literal notranslate"><span class="pre">var/</span></code> as
-root, including the agent record’s spool (<code class="docutils literal notranslate"><span class="pre">var/spool/</span></code>) the running
-server has to keep appending to.</p></li>
+<li><p><strong>Hands the state zone back</strong> to the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user, covering only the
+paths root actually left behind. It does so because both earlier steps
+wrote into <code class="docutils literal notranslate"><span class="pre">var/</span></code> as root. That includes the agent record’s spool
+(<code class="docutils literal notranslate"><span class="pre">var/spool/</span></code>), which the running server has to keep appending to.</p></li>
 <li><p><strong>Drops privileges</strong> with <code class="docutils literal notranslate"><span class="pre">exec</span> <span class="pre">gosu</span> <span class="pre">osprey</span> <span class="pre">&quot;$&#64;&quot;</span></code>. Because it execs the
 arguments it was handed, overriding the command on <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">run</span></code> still
 goes through the drop.</p></li>
@@ -1038,16 +1063,16 @@ privilege drop is the opposite — a missing <code class="docutils literal notra
 <p>Two environment variables carry the consequences:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_RENDER_ZONE_READONLY=1</span></code> tells the server the render is not
-writable by this process, so it skips the startup regen and restore the
-entrypoint has already done, and logs what a regen <em>would</em> have changed
-instead of failing on a tree it cannot write.</p></li>
+writable by this process. The server then skips the startup regen and
+restore the entrypoint has already done. It logs what a regen <em>would</em> have
+changed instead of failing on a tree it cannot write.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_RUNTIME_UID=1000:1000</span></code> states the user the entrypoint drops to.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>Run the image with</strong> <code class="docutils literal notranslate"><span class="pre">--user</span></code> <strong>and both maintenance steps are
 skipped.</strong> They cannot write a root-owned render from an unprivileged
-process, and <code class="docutils literal notranslate"><span class="pre">gosu</span></code> cannot drop to a user it is not root to become — so
+process, and <code class="docutils literal notranslate"><span class="pre">gosu</span></code> cannot drop to a user it is not root to become. So
 the entrypoint says so loudly in the log and runs the command directly. The
 agent artifacts are then whatever the image was built with. That is a valid
 way to run it; it is not the way to run it if you expect a configuration
@@ -1058,17 +1083,17 @@ failure table below says what a non-root start does with an identity.</p>
 <section id="the-name-uid-1000-writes-under">
 <span id="containerize-control-identity"></span><h3>The name uid 1000 writes under<a class="headerlink" href="#the-name-uid-1000-writes-under" title="Link to this heading">#</a></h3>
 <p>A Channel Access or PV Access client reports the user name of the process
-doing the put, and it reads that name from the account database
-(<code class="docutils literal notranslate"><span class="pre">getpwuid</span></code>), never from <code class="docutils literal notranslate"><span class="pre">USER</span></code> or <code class="docutils literal notranslate"><span class="pre">LOGNAME</span></code>. Every process in the
+doing the put. It reads that name from the account database (<code class="docutils literal notranslate"><span class="pre">getpwuid</span></code>),
+never from <code class="docutils literal notranslate"><span class="pre">USER</span></code> or <code class="docutils literal notranslate"><span class="pre">LOGNAME</span></code>. Every process in the
 container runs as uid 1000, so without an identity every write from the
 container arrives as <code class="docutils literal notranslate"><span class="pre">osprey</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY</span></code> changes that name. The render sets it on a
 personal card behind a login wall that carries a <code class="docutils literal notranslate"><span class="pre">control_identity</span></code> in the
 roster (see <a class="reference internal" href="../web-terminal/multi-user/login.html#multi-user-control-identity"><span class="std std-ref">Name the account a card writes as</span></a>), and on every dispatch worker
 as <code class="docutils literal notranslate"><span class="pre">osprey-dispatch-&lt;i&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY_MODULE</span></code> names the file
-that performs the change: a small stdlib-only script the render stages beside
-the compose file and bind-mounts read-only into the container, so the step
-does not depend on the image version.</p>
+that performs the change. It is a small stdlib-only script that the render
+stages beside the compose file and bind-mounts read-only into the container.
+So the step does not depend on the image version.</p>
 <p>The step adds a second <code class="docutils literal notranslate"><span class="pre">/etc/passwd</span></code> line for uid 1000, directly above the
 <code class="docutils literal notranslate"><span class="pre">osprey</span></code> line:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>alice:x:1000:1000::/home/osprey:/bin/bash
@@ -1133,20 +1158,20 @@ value, and <code class="docutils literal notranslate"><span class="pre">osprey</
 </table>
 </div>
 <p>A Bluesky lane renames root to its <code class="docutils literal notranslate"><span class="pre">osprey-bluesky-*</span></code> name in its own start
-command, with the same answer: a failed rename prints a warning and the lane
+command, with the same answer. A failed rename prints a warning and the lane
 starts as <code class="docutils literal notranslate"><span class="pre">root</span></code>, the name its preflight records then carry.</p>
 </section>
 <section id="one-tier-gets-one-more-file">
 <h3>One tier gets one more file<a class="headerlink" href="#one-tier-gets-one-more-file" title="Link to this heading">#</a></h3>
 <p>A deployment can grant a single tier the ability to edit its own
 configuration — the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool and the browser’s Config
-panel. The image reads that grant off the render’s own permissions: where the
-setup tool is left out of the deny list, and only there, <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>
-is handed to the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user, which is also what lets the Config panel’s
-write land. Every other render leaves the file root-owned, which is what makes
+panel. The image reads that grant off the render’s own permissions. Where the
+setup tool is left out of the deny list, and only there, the image hands
+<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> to the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user. That is also what lets the Config
+panel’s write land. Every other render leaves the file root-owned. That makes
 the boundary a fact of the filesystem rather than a permission list the agent
 is asked to respect. Grant the two surfaces together, the way the bundled
-tiers do — a tier handed the panel alone would find the file it has to
+tiers do. A tier handed the panel alone would find the file it has to
 write still owned by root. See <a class="reference internal" href="../web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a> for the tiers this exists
 for.</p>
 </section>
@@ -1154,14 +1179,13 @@ for.</p>
 <h3>On a bare host it is ownership you set up<a class="headerlink" href="#on-a-bare-host-it-is-ownership-you-set-up" title="Link to this heading">#</a></h3>
 <p>Run the same project with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> on a host instead of in a container
 and the split is <strong>not</strong> there. There is no second user: the server runs as
-you, and it keeps the self-healing startup behaviour the container moved into
-its entrypoint — it re-renders drifted artifacts and restores your saved
-artifact bodies in-process, because there is no root step ahead of it to have
-done so.</p>
+you. It keeps the self-healing startup behaviour the container moved into its
+entrypoint. It re-renders drifted artifacts and restores your saved artifact
+bodies in-process, because there is no root step ahead of it to have done so.</p>
 <p>The parts that are code rather than file ownership do carry over. The restore
 refuses a protected path on a bare host exactly as it does under the
-entrypoint, because both call the same function — a private copy for the
-container would be a second gate to keep in step, and the one running as root
+entrypoint, because both call the same function. A private copy for the
+container would be a second gate to keep in step. And the one running as root
 is the worst place to discover a drift.</p>
 <p>The rest is worth saying plainly: on a bare host the render is only as
 protected as the file ownership you give it. If that matters for your
@@ -1182,13 +1206,14 @@ the one the server runs as.</p>
 </div>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code> — generated data artifacts and the backup every config
-write takes before it writes (<code class="docutils literal notranslate"><span class="pre">config-backups/&lt;name&gt;.bak</span></code>). The backup anchors on the project root, so
-it lands in the same place whether the project is flat, a deployment
-repository, or this image — unless the deployment relocates
-<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>, which moves the backups with it.</p></li>
+write takes before it writes (<code class="docutils literal notranslate"><span class="pre">config-backups/&lt;name&gt;.bak</span></code>). The backup
+anchors on the project root. So it lands in the same place whether the
+project is flat, a deployment repository, or this image. The exception is a
+deployment that relocates <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>, which moves the backups
+with it.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> — the agent CLI’s per-user state (sessions, credentials).
-Set <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code> to this directory: it is the only variable that
-names the durable store scaffold claims are recorded in, and without it a
+Set <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code> to this directory. It is the only variable that
+names the durable store scaffold claims are recorded in. Without it, a
 claim made from the running deployment is lost when the container is
 recreated. The deployment logs a warning at startup when it is unset.</p></li>
 </ul>
@@ -1212,9 +1237,9 @@ with.</p></li>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
-<p><strong>pip fails building</strong> <code class="docutils literal notranslate"><span class="pre">accelerator-toolbox</span></code> <strong>on Apple Silicon</strong> — parts
-of OSPREY’s dependency chain ship prebuilt wheels for <code class="docutils literal notranslate"><span class="pre">linux/amd64</span></code> only,
-so an arm64 build must compile them from source, which is where it breaks.
+<p><strong>pip fails building</strong> <code class="docutils literal notranslate"><span class="pre">accelerator-toolbox</span></code> <strong>on Apple Silicon.</strong> Parts
+of OSPREY’s dependency chain ship prebuilt wheels for <code class="docutils literal notranslate"><span class="pre">linux/amd64</span></code> only.
+So an arm64 build must compile them from source, which is where it breaks.
 Build (and run) the amd64 image under Docker Desktop’s emulation instead; it
 matches the usual amd64 deployment target:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span><span class="se">\</span>
@@ -1230,7 +1255,7 @@ docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="
 <h2>Customizing<a class="headerlink" href="#customizing" title="Link to this heading">#</a></h2>
 <p>The file is yours — common edits:</p>
 <ul class="simple">
-<li><p><strong>Layer a site image on top</strong>: build the generated image as a base, then
+<li><p><strong>Layer a site image on top</strong>: build the generated image as a base. Then
 <code class="docutils literal notranslate"><span class="pre">FROM</span></code> it in a small site Dockerfile that adds credentials helpers,
 enterprise settings, or extra processes.</p></li>
 <li><p><strong>Change the entrypoint</strong>: the default <code class="docutils literal notranslate"><span class="pre">CMD</span></code> runs
@@ -1241,19 +1266,20 @@ add sidecars.</p></li>
 <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror (above) so every rebuild lands it again.</p></li>
 <li><p><strong>Template-level override</strong>: an app bundle can ship its own
 <code class="docutils literal notranslate"><span class="pre">apps/&lt;bundle&gt;/Dockerfile.j2</span></code>, which takes precedence over the framework
-template at build time — use this when every project built from a bundle
+template at build time. Use this when every project built from a bundle
 needs the same customization.</p></li>
 </ul>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><strong>A Dockerfile you forked keeps the recipe you forked.</strong> A copy in your
 deployment’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror is laid over the render on every build,
-and no regeneration ever rewrites it — that is what the mirror is for, and
-it is also why your copy never picks up anything the framework’s recipe
-gained afterwards. <a class="reference internal" href="#the-privilege-split">The Privilege Split</a> is exactly such a gain: a forked
-Dockerfile still creates the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user, hands it the <em>whole</em> project
-with a blanket <code class="docutils literal notranslate"><span class="pre">chown</span></code>, and switches to it with <code class="docutils literal notranslate"><span class="pre">USER</span></code> — so the render
-it is meant to protect stays writable by the agent.</p>
+and no regeneration ever rewrites it. That is what the mirror is for. It
+is also why your copy never picks up anything the framework’s recipe
+gained afterwards.</p>
+<p><a class="reference internal" href="#the-privilege-split">The Privilege Split</a> is exactly such a gain. A forked Dockerfile still
+creates the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user, hands it the <em>whole</em> project with a blanket
+<code class="docutils literal notranslate"><span class="pre">chown</span></code>, and switches to it with <code class="docutils literal notranslate"><span class="pre">USER</span></code>. So the render the split is meant
+to protect stays writable by the agent.</p>
 <p>Seven changes port the split into a forked recipe. Or delete your fork,
 rebuild, and re-apply your customization on top of the current one, which is
 usually the smaller job.</p>
