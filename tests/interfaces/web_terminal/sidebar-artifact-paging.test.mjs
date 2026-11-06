@@ -115,7 +115,7 @@ describe('fill', () => {
 });
 
 describe('watch', () => {
-  /** @type {Array<{ cb: () => void, observed: Element[], disconnect: ReturnType<typeof vi.fn> }>} */
+  /** @type {Array<{ cb: () => void, observed: Element[], disconnect: () => void }>} */
   let observers;
   beforeEach(() => {
     observers = [];
@@ -124,6 +124,7 @@ describe('watch', () => {
       class {
         /** @param {() => void} cb */
         constructor(cb) {
+          /** @type {{ cb: () => void, observed: Element[], disconnect: () => void }} */
           this.entry = { cb, observed: [], disconnect: vi.fn() };
           observers.push(this.entry);
         }
