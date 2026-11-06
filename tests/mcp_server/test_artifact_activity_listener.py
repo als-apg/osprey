@@ -8,7 +8,7 @@ have given us for free:
 * one ``execute`` run that produces a figure emits ONE frame, not three (the
   auto-saved notebook and the ``code_output`` record are bookkeeping);
 * the store callback itself performs no HTTP — the blocking POST happens on the
-  worker thread, so ``delete_everything`` over a full gallery does not stall the
+  worker thread, so ``delete_owned`` over a full session does not stall the
   caller;
 * a process that never registers (gallery, retention sweep) emits nothing.
 
@@ -89,6 +89,15 @@ def save_figure(store: ArtifactStore, title: str = "Beam profile") -> None:
         mime_type="image/png",
         tool_source="execute",
     )
+
+
+def owned(store: ArtifactStore):
+    """The current session's scope (``web_session`` bound), as ``artifact_delete_all`` resolves it."""
+    from osprey.stores.artifact_scope import current_scope
+
+    scope = current_scope(root=store._workspace)
+    assert scope.transcript is not None, scope.reason
+    return scope
 
 
 def save_run_bookkeeping(store: ArtifactStore) -> None:
@@ -202,7 +211,8 @@ def test_legacy_result_record_never_emits(project, notified):
     assert notified == []
 
 
-def test_delete_everything_emits_per_surviving_entry(project, notified):
+@pytest.mark.usefixtures("web_session")
+def test_delete_owned_emits_per_surviving_entry(project, notified):
     """Deletes emit one frame per entry, under the same bookkeeping filter."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 
@@ -215,7 +225,7 @@ def test_delete_everything_emits_per_surviving_entry(project, notified):
     wait_drained()
     notified.clear()
 
-    store.delete_everything()
+    store.delete_owned(owned(store))
     wait_drained()
 
     assert [kwargs["tool"] for kwargs, _ in notified] == ["artifact_delete"] * 2
@@ -223,6 +233,7 @@ def test_delete_everything_emits_per_surviving_entry(project, notified):
     assert "Orbit X" in details and "Orbit Y" in details
 
 
+@pytest.mark.usefixtures("web_session")
 @pytest.mark.parametrize("actor", ["human", "system"])
 def test_non_agent_deletes_never_emit(project, notified, actor):
     """The frames are *agent* activity: a delete by the gallery user or a
@@ -238,7 +249,7 @@ def test_non_agent_deletes_never_emit(project, notified, actor):
     notified.clear()
 
     with artifact_mutation_actor(actor):
-        store.delete_everything()
+        store.delete_owned(owned(store))
     wait_drained()
 
     assert notified == []
@@ -280,6 +291,7 @@ def test_actor_tag_is_scoped_to_the_context(project, notified):
     assert "Kept" in notified[0][0]["detail"]
 
 
+@pytest.mark.usefixtures("web_session")
 def test_suppressed_scope_emits_no_per_entry_delete_frames(project, notified):
     """The bulk-delete scope silences the per-entry flood, and only the flood.
 
@@ -299,7 +311,7 @@ def test_suppressed_scope_emits_no_per_entry_delete_frames(project, notified):
     notified.clear()
 
     with artifact_activity.suppress_delete_frames():
-        store.delete_everything()
+        store.delete_owned(owned(store))
     wait_drained()
 
     assert notified == []
@@ -308,14 +320,18 @@ def test_suppressed_scope_emits_no_per_entry_delete_frames(project, notified):
     save_figure(store, title="Orbit Z")
     wait_drained()
     notified.clear()
-    store.delete_everything()
+    store.delete_owned(owned(store))
     wait_drained()
 
     assert [kwargs["tool"] for kwargs, _ in notified] == ["artifact_delete"]
 
 
+@pytest.mark.usefixtures("web_session")
 def test_artifact_delete_all_tool_emits_one_summary_frame(project, notified):
-    """The tool path end-to-end: N entries → ONE ``artifact_delete_all`` frame."""
+    """The tool path end-to-end: N entries → ONE ``artifact_delete_all`` frame.
+
+    The figures are saved in a resolved web session, which owns them.
+    """
     import asyncio
 
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -339,6 +355,7 @@ def test_artifact_delete_all_tool_emits_one_summary_frame(project, notified):
     assert "2" in detail and "everything" in detail
 
 
+@pytest.mark.usefixtures("web_session")
 def test_artifact_delete_all_of_an_empty_scope_emits_nothing(project, notified):
     """Nothing was destroyed, so there is no action to report."""
     import asyncio
@@ -372,8 +389,9 @@ def test_notify_runs_on_the_worker_not_the_caller(project, notified):
     assert ident != threading.get_ident()
 
 
-def test_delete_everything_returns_while_notifies_are_still_blocked(project):
-    """A slow web terminal must not stall a gallery-wide delete."""
+@pytest.mark.usefixtures("web_session")
+def test_delete_owned_returns_while_notifies_are_still_blocked(project):
+    """A slow web terminal must not stall a session-wide delete."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 
     initialize_workspace_singletons()
@@ -391,8 +409,9 @@ def test_delete_everything_returns_while_notifies_are_still_blocked(project):
             save_figure(store, title=f"Orbit {i}")
         assert entered.wait(DRAIN_TIMEOUT), "worker never picked up the first event"
 
+        scope = owned(store)
         t0 = time.perf_counter()
-        store.delete_everything()
+        store.delete_owned(scope)
         elapsed = time.perf_counter() - t0
 
         release.set()
@@ -400,9 +419,9 @@ def test_delete_everything_returns_while_notifies_are_still_blocked(project):
         # (network-touching) notify.
         wait_drained()
 
-    # The worker is parked inside a notify for the whole call; delete_everything fires
+    # The worker is parked inside a notify for the whole call; delete_owned fires
     # the listener five more times and must still return promptly.
-    assert elapsed < 1.0, f"delete_everything blocked on the notify path ({elapsed:.2f}s)"
+    assert elapsed < 1.0, f"delete_owned blocked on the notify path ({elapsed:.2f}s)"
 
 
 @pytest.mark.timeout(10)
@@ -435,12 +454,13 @@ def test_full_backlog_drops_instead_of_waiting(monkeypatch):
     assert artifact_activity._pending.qsize() == 1
 
 
+@pytest.mark.usefixtures("web_session")
 def test_unregistered_process_emits_nothing(project, notified):
     """Gallery / retention processes build their own store and never register."""
     store = ArtifactStore(workspace_root=project / "_agent_data")
 
     save_figure(store)
-    store.delete_everything()
+    assert store.delete_owned(owned(store))
     wait_drained()
 
     assert notified == []

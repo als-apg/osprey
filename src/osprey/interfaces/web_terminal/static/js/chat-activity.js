@@ -67,7 +67,6 @@ export const TOOL_PHRASES = Object.freeze({
 
   // Workspace artifacts (plots, documents and stored datasets alike).
   artifact_register: 'registering an artifact',
-  artifact_get: 'opening an artifact',
   artifact_list: 'listing saved artifacts',
   artifact_read: 'reading a saved artifact',
   artifact_focus: 'showing an artifact',

@@ -6,9 +6,11 @@ files. The store keeps ``delete_category`` for entries saved before categories
 were retired, which still carry one.
 
 Covers:
-  - ``artifact_delete`` removes one artifact's index entry and file
+  - ``artifact_delete`` removes one artifact's index entry and file; a run's
+    head takes its whole run, exactly as the gallery's delete does
   - ``delete_category`` deletes exactly one legacy category, spares the rest
-  - ``delete_everything`` is the whole-store clear and fires delete listeners
+  - ``delete_owned`` clears what one session owns and fires delete listeners;
+    the whole-store and whole-form clears are gone
   - ``artifact_delete_all`` requires an explicit ``scope`` (no default)
   - scoped tool calls report exactly what was destroyed
   - an unknown scope is a validation error that deletes nothing
@@ -18,7 +20,7 @@ import json
 
 import pytest
 
-from osprey.stores.artifact_store import initialize_artifact_store
+from osprey.stores.artifact_store import RUN_RECORD_KEY, initialize_artifact_store
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 
@@ -98,13 +100,24 @@ class TestDeleteCategory:
         assert [e.id for e in store.list_entries()] == [dataset.id]
 
 
-class TestDeleteEverything:
-    """``ArtifactStore.delete_everything`` — the whole-store clear."""
+class TestDeleteOwned:
+    """``ArtifactStore.delete_owned`` — the only bulk clear, scoped to one session."""
 
-    def test_clears_every_category_and_fires_listeners(self, store, tmp_path):
+    def test_clears_every_category_and_fires_listeners(self, store, tmp_path, monkeypatch):
+        from osprey.stores.artifact_scope import SessionScope
         from osprey.stores.artifact_store import (
             register_artifact_delete_listener,
             unregister_artifact_delete_listener,
+        )
+        from osprey.stores.session_ledger import EPOCH, Ledger, LedgerRow
+
+        key = "11111111-1111-4111-8111-111111111111"
+        transcript = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        monkeypatch.setenv("OSPREY_SESSION_ID", key)
+        scope = SessionScope(
+            kind="web",
+            transcript=transcript,
+            ledger=Ledger(rows=(LedgerRow(key, transcript, EPOCH),)),
         )
 
         entries = [
@@ -116,7 +129,7 @@ class TestDeleteEverything:
         received: list = []
         register_artifact_delete_listener(received.append)
         try:
-            deleted = store.delete_everything()
+            deleted = store.delete_owned(scope)
         finally:
             unregister_artifact_delete_listener(received.append)
 
@@ -129,9 +142,10 @@ class TestDeleteEverything:
         index = json.loads((tmp_path / "artifacts" / "artifacts.json").read_text())
         assert index["entries"] == []
 
-    def test_delete_all_is_gone(self, store):
-        """The unscoped, innocuously-named alias must not survive."""
-        assert not hasattr(store, "delete_all")
+    @pytest.mark.parametrize("name", ["delete_all", "delete_everything", "delete_form"])
+    def test_unscoped_bulk_deletes_are_gone(self, store, name):
+        """No store-wide or form-wide clear survives: a bulk delete is a session's."""
+        assert not hasattr(store, name)
 
 
 # ---------------------------------------------------------------------------
@@ -139,8 +153,12 @@ class TestDeleteEverything:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("web_session")
 class TestArtifactDeleteAllScope:
-    """The agent-facing tool cannot clear the store without saying so."""
+    """The agent-facing tool cannot clear the store without saying so.
+
+    Each case runs in a resolved web session that owns what it saves.
+    """
 
     @pytest.mark.asyncio
     async def test_scope_is_required_in_the_tool_schema(self):
@@ -182,6 +200,7 @@ class TestArtifactDeleteAllScope:
 
         assert payload["status"] == "success"
         assert payload["scope"] == "everything"
+        assert payload["session"] is not None
         assert payload["deleted_count"] == 3
         assert len(payload["artifact_ids"]) == 3
         assert "deleted_by_category" not in payload
@@ -228,6 +247,7 @@ class TestArtifactDelete:
 
         assert result["status"] == "success"
         assert result["artifact_id"] == entry.id
+        assert result["deleted_ids"] == [entry.id]
         assert store.get_entry(entry.id) is None
         assert not file_path.exists()
 
@@ -247,8 +267,160 @@ class TestArtifactDelete:
         def _boom(*args, **kw):
             raise RuntimeError("index unreadable")
 
-        monkeypatch.setattr(store, "delete_entry", _boom)
+        monkeypatch.setattr(store, "delete_with_group", _boom)
 
         with assert_raises_error(error_type="internal_error") as ctx:
             await delete_tool(artifact_id="e1")
         assert "index unreadable" in ctx["envelope"]["error_message"]
+
+
+# ---------------------------------------------------------------------------
+# ``artifact_delete`` — run groups, same rule as the gallery's delete
+# ---------------------------------------------------------------------------
+
+
+def _run(store, exec_id="toolu_run1"):
+    """A settled run: preview and notebook parts, a figure output, a result head.
+
+    Returns ``{title: entry}``; titles are unique so two identically built
+    stores can be compared by title (ids differ between stores).
+    """
+    preview = store.save_file(
+        b"{}",
+        "review.ipynb",
+        "notebook",
+        "Review: fit",
+        mime_type="application/x-ipynb+json",
+        tool_source="osprey_approval",
+        metadata={"run_part": "preview", RUN_RECORD_KEY: True},
+        exec_id=exec_id,
+    )
+    notebook = store.save_file(
+        b"{}",
+        "run.ipynb",
+        "notebook",
+        "Notebook: fit",
+        mime_type="application/x-ipynb+json",
+        tool_source="execute",
+        metadata={"run_part": "code", RUN_RECORD_KEY: True},
+        exec_id=exec_id,
+    )
+    output = store.save_file(
+        b"png",
+        "fig.png",
+        "image",
+        "Figure: fit",
+        mime_type="image/png",
+        tool_source="execute",
+        metadata={"run_part": "output", "figure": True},
+        exec_id=exec_id,
+    )
+    result = store.save_data(
+        tool="execute",
+        data={"stdout": ""},
+        title="Result: fit",
+        metadata={"run_part": "result", RUN_RECORD_KEY: True},
+        exec_id=exec_id,
+    )
+    return {e.title: e for e in (preview, notebook, output, result)}
+
+
+def _build(store):
+    """The fixture layout both sides of a parity check start from."""
+    run = _run(store)
+    other = _dataset(store, tool="other_read", category="")
+    return {**run, other.title: other}
+
+
+def _titles(store):
+    return sorted(e.title for e in store.list_entries())
+
+
+class TestArtifactDeleteRunGroups:
+    """The agent's delete removes what the gallery's delete removes (contract C5)."""
+
+    @pytest.mark.asyncio
+    async def test_head_deletes_the_whole_run(self, store, delete_tool):
+        built = _build(store)
+        run_ids = {e.id for t, e in built.items() if t != "other_read dataset"}
+        head = built["Result: fit"]
+        files = [store.get_file_path(i) for i in run_ids]
+
+        result = json.loads(await delete_tool(artifact_id=head.id))
+
+        assert result["status"] == "success"
+        assert result["artifact_id"] == head.id
+        assert set(result["deleted_ids"]) == run_ids
+        assert len(result["deleted_ids"]) == len(run_ids)
+        assert _titles(store) == ["other_read dataset"]
+        assert not any(f.exists() for f in files)
+
+    @pytest.mark.asyncio
+    async def test_a_part_goes_alone(self, store, delete_tool):
+        built = _build(store)
+        part = built["Notebook: fit"]
+
+        result = json.loads(await delete_tool(artifact_id=part.id))
+
+        assert result["deleted_ids"] == [part.id]
+        assert "Notebook: fit" not in _titles(store)
+        assert len(_titles(store)) == len(built) - 1
+
+    @pytest.mark.asyncio
+    async def test_an_output_goes_alone(self, store, delete_tool):
+        built = _build(store)
+        output = built["Figure: fit"]
+
+        result = json.loads(await delete_tool(artifact_id=output.id))
+
+        assert result["deleted_ids"] == [output.id]
+        assert store.get_entry(built["Result: fit"].id) is not None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target", ["Result: fit", "Review: fit", "Figure: fit"])
+    async def test_parity_with_the_gallery_delete(self, tmp_path, delete_tool, target):
+        """On identical stores, agent and gallery deletes leave identical stores."""
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.artifacts.app import create_app
+
+        gallery_root = tmp_path / "gallery"
+        gallery_root.mkdir()
+        client = TestClient(create_app(workspace_root=gallery_root))
+        gallery_store = client.app.state.artifact_store
+        gallery_built = _build(gallery_store)
+
+        agent_store = initialize_artifact_store(workspace_root=tmp_path / "agent")
+        agent_built = _build(agent_store)
+        assert _titles(agent_store) == _titles(gallery_store)
+
+        response = client.delete(f"/api/artifacts/{gallery_built[target].id}")
+        assert response.status_code == 200
+        result = json.loads(await delete_tool(artifact_id=agent_built[target].id))
+
+        assert _titles(agent_store) == _titles(gallery_store)
+        removed = {t for t in agent_built if t not in _titles(agent_store)}
+        assert {t for t, e in agent_built.items() if e.id in result["deleted_ids"]} == removed
+
+    @pytest.mark.asyncio
+    async def test_reaches_an_entry_of_another_session(self, store, delete_tool):
+        """By-id deletes are unscoped: an id is an explicit reference."""
+        entry = _dataset(store)
+        store.update_entry_metadata(
+            entry.id,
+            session_id="someone-elses-session",
+            metadata={**entry.metadata, "transcript_id": "someone-elses-transcript"},
+        )
+
+        result = json.loads(await delete_tool(artifact_id=entry.id))
+
+        assert result["deleted_ids"] == [entry.id]
+        assert store.get_entry(entry.id) is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_id_deletes_nothing(self, store, delete_tool):
+        built = _build(store)
+
+        with assert_raises_error(error_type="not_found"):
+            await delete_tool(artifact_id="nonexistent_id")
+        assert len(_titles(store)) == len(built)
