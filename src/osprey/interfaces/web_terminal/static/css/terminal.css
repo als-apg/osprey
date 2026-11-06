@@ -422,14 +422,6 @@ html[data-sidebar="collapsed"] .sidebar :is(
 
 /* ---- The Agent row: open, closed, waiting ---- */
 
-.sidebar-agent-dot {
-  width: 6px;
-  height: 6px;
-  margin-left: auto;
-  margin-right: var(--space-1);
-  background: var(--color-success);
-}
-
 .sidebar-open-hint {
   display: none;
   margin-left: auto;
@@ -444,16 +436,6 @@ html[data-agent="closed"] #sidebar-agent-row .osprey-nav-icon {
 
 html[data-agent="closed"] #sidebar-agent-row .osprey-nav-label {
   color: var(--text-muted);
-}
-
-/* Closed is a shape (a hollow circle), not only a hue. */
-html[data-agent="closed"] #sidebar-agent-row .sidebar-agent-dot {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--text-muted);
-}
-
-html[data-agent="closed"] #sidebar-agent-row:is(:hover, :focus-visible) .sidebar-agent-dot {
-  display: none;
 }
 
 html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(:hover, :focus-visible) .sidebar-open-hint {
@@ -730,8 +712,7 @@ html[data-sidebar="collapsed"] :is(
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,
-  .sidebar-open-hint,
-  .sidebar-agent-dot
+  .sidebar-open-hint
 ) {
   display: none;
 }

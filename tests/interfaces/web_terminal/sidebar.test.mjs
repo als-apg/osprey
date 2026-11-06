@@ -74,7 +74,6 @@ const SIDEBAR_HTML = `
                     aria-expanded="true" aria-controls="sidebar-session-tree">
               <svg class="osprey-ic osprey-nav-icon" data-icon="agent" aria-hidden="true"></svg>
               <span class="osprey-nav-label">Agent</span>
-              <span class="osprey-dot sidebar-agent-dot" data-agent-dot aria-hidden="true"></span>
               <span class="sidebar-open-hint" aria-hidden="true">Open</span>
               <span class="osprey-nav-badge" data-agent-badge hidden></span>
               <svg class="osprey-ic osprey-nav-disc" data-disc data-icon="chevron-right" aria-hidden="true"></svg>
