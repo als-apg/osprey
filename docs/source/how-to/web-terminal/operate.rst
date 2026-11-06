@@ -532,7 +532,7 @@ The sidebar is on the left. From top to bottom, it shows:
     events panel) and **Health**.
 
   In each group, the rows are in your order. **+ Add panel** is always the
-  last row of the last group. See :doc:`panels`.
+  last row of **Tools**. See :doc:`panels`.
 - The footer: **Docs**, **Feedback**, **Sign out** and **☰ More**. **Sign
   out** shows only on a multi-user deployment. See
   :ref:`web-terminal-sign-out`.
