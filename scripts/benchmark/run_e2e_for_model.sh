@@ -21,6 +21,7 @@
 #   ALS_APG_API_KEY / ALS_APG_BASE_URL / OSPREY_E2E_JUDGE_MODEL   LLM judge wiring
 #   ANTHROPIC_API_KEY           collection-gate shim (real routing overridden)
 #   OSPREY_E2E_BUDGET_SCALE     per-query max_budget_usd multiplier (default 1)
+#   OSPREY_BENCH_SELECT         optional pytest -k expression (matrix.py --select)
 #   OSPREY_BENCH_RESULTS_DIR    where the outputs below go (matrix.py --results-dir)
 #
 # Outputs (under $OSPREY_BENCH_RESULTS_DIR, default results/ in the repo root):
@@ -155,9 +156,14 @@ if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
   echo "FATAL: benchmark lane markers incomplete (see LANE-GATE lines above)." >&2
   exit 2
 fi
+# OSPREY_BENCH_SELECT narrows the cell to the tests a pytest -k expression
+# selects (a smoke run); unset, the cell runs the whole in-scope suite.
+SELECT_ARGS=()
+[ -n "${OSPREY_BENCH_SELECT:-}" ] && SELECT_ARGS=(-k "$OSPREY_BENCH_SELECT")
 # shellcheck disable=SC2086  # intentional word-split of space-free --ignore tokens
 "$PY" -m pytest tests/e2e/ \
   $IGNORE_ARGS \
+  "${SELECT_ARGS[@]+"${SELECT_ARGS[@]}"}" \
   -p no:cacheprovider -q --no-header \
   -o addopts="" \
   --timeout="${E2E_TEST_TIMEOUT:-1800}" --timeout-method=signal \

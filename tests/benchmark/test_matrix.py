@@ -456,6 +456,26 @@ def test_drive_writes_markers_and_resumes(tmp_path, monkeypatch):
     assert calls == []
 
 
+def test_main_hands_the_selection_to_every_cell(monkeypatch):
+    seen: dict[str, str] = {}
+
+    def fake_drive(_cfg, **kwargs):
+        seen.update(kwargs["extra_env"])
+        return 0
+
+    monkeypatch.setenv("ALS_APG_BASE_URL", GATEWAY_ORIGIN)
+    monkeypatch.setattr(matrix, "drive", fake_drive)
+
+    matrix.main(["--select", "vacuum_burst or sector_bpms"])
+    assert seen["OSPREY_BENCH_SELECT"] == "vacuum_burst or sector_bpms"
+
+    # Unselected, the variable is blanked so an exported one cannot narrow a run.
+    seen.clear()
+    monkeypatch.setenv("OSPREY_BENCH_SELECT", "stale")
+    matrix.main([])
+    assert seen["OSPREY_BENCH_SELECT"] == ""
+
+
 @pytest.mark.usefixtures("keys")
 def test_run_cell_tells_the_worker_where_the_results_go(tmp_path, monkeypatch):
     """The worker writes its summary where drive() looks for it on resume."""

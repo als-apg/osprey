@@ -12,6 +12,7 @@ and spawns one isolated worker process per (model, seed) cell.
     scripts/benchmark/matrix.py --config m.yaml      # alternate config
     scripts/benchmark/matrix.py --only deepseek-v4   # substring-filter models
     scripts/benchmark/matrix.py --dry-run            # print the plan, run nothing
+    scripts/benchmark/matrix.py --select vacuum      # only the tests -k selects
 
 Design seam: this module owns every *decision* (which provider, which key, proxy
 or direct, judge endpoint, budget scale, grid order, resume); the worker
@@ -476,6 +477,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="comma-separated provider filter (e.g. 'cborg' or 'als-apg')",
     )
+    ap.add_argument(
+        "--select",
+        default=None,
+        help="pytest -k expression: run only the tests it selects in each cell (a smoke run)",
+    )
     ap.add_argument("--dry-run", action="store_true", help="print the plan and exit")
     args = ap.parse_args(argv)
 
@@ -487,7 +493,8 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
         return 0
 
-    extra_env: dict[str, str] = {}
+    # Always set, so a selection exported in the shell cannot narrow a full run.
+    extra_env: dict[str, str] = {"OSPREY_BENCH_SELECT": args.select or ""}
     if "timeout_s" in cfg.defaults:
         extra_env["E2E_TEST_TIMEOUT"] = str(cfg.defaults["timeout_s"])
 
