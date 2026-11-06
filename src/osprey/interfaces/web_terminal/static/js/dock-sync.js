@@ -389,7 +389,11 @@ async function detailOf(resp) {
  * the last acknowledged report. Read at flush time (not at event time), so an
  * intermediate arrangement is never what gets reported. No holder, or a holder
  * with no layout yet, reports nothing and leaves the dedupe baseline untouched:
- * silence is honest, an invented empty workspace is not. A report the server
+ * silence is honest, an invented empty workspace is not. An empty dock whose
+ * panes are all detached is a real workspace, though — the Agent pane leaving
+ * the default layout for its window — and is reported as a null layout with
+ * the pop-outs beside it. So is the empty dock that last pane's window leaves
+ * behind when it closes: the server still names the pop-out until it is told. A report the server
  * refused with a 4xx is not sent again until the layout changes; a forced
  * report (`reportLayoutNow`) skips only the dedupe.
  *
@@ -409,7 +413,8 @@ function flushLayoutReport() {
   }
   const holder = getLayoutHolder();
   const layout = holder?.layout ?? null;
-  if (!holder || !layout) return;
+  if (!holder) return;
+  if (!layout && holder.detachedKeys().length === 0 && !lastReported?.popouts.length) return;
   const popouts = holder.popouts;
   const sent = { layout, popouts };
   if (!reportForced && sameReport(sent, lastReported)) {
@@ -698,6 +703,8 @@ export function initDockSync() {
     // A panel leaving for its own window, or coming back, is a change the
     // agent reads (the report's `popouts`), whether or not dockview's tree moved.
     onPopoutChange(scheduleLayoutReport);
+    // So is a pane detaching, reattaching or closing with its window.
+    getLayoutHolder()?.onDetachedChange(scheduleLayoutReport);
     root.addEventListener('click', onDockClickCapture, true);
     wired = true;
     setLayoutRestoredHook(armBootReport);
