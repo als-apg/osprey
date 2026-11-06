@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   startNewSession: vi.fn(async () => {}),
   resumeSession: vi.fn(),
   showConfirm: vi.fn(),
+  relayTranscriptMove: vi.fn(),
   /** @type {((data: any) => void)[]} */
   hubHandlers: [],
   /** @type {Record<string, ((detail: any) => void)[]>} */
@@ -47,6 +48,9 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js', 
     (mocks.chatHandlers[name] ??= []).push(fn);
     return () => {};
   },
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js', () => ({
+  relayTranscriptMove: mocks.relayTranscriptMove,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/api.js', async (orig) => ({
   ...(await orig()),
@@ -391,6 +395,19 @@ describe('listing and refresh', () => {
     for (const fn of mocks.hubHandlers) fn({ type: 'session_transcript', session_key: K1 });
     await vi.advanceTimersByTimeAsync(model.REFRESH_THROTTLE_MS + 10);
     expect(listings()).toHaveLength(1);
+  });
+
+  test('session_transcript is relayed to the panels by its key, known or not; other frames are not', async () => {
+    await boot();
+    mocks.relayTranscriptMove.mockClear();
+    for (const fn of mocks.hubHandlers) fn({ type: 'session_transcript', session_key: K1 });
+    for (const fn of mocks.hubHandlers) fn({ type: 'session_transcript', session_key: 'nobody' });
+    for (const fn of mocks.hubHandlers)
+      fn({ type: 'session_named', transcript_id: T1, title: 'x', naming: 'auto' });
+    // panel-manager decides whether the key is the one the panels show.
+    await vi.waitFor(() =>
+      expect(mocks.relayTranscriptMove.mock.calls).toEqual([[K1], ['nobody']])
+    );
   });
 
   test('session_named retitles in place without a listing', async () => {

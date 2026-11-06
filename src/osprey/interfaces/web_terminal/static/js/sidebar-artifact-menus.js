@@ -29,6 +29,7 @@ const sessionModel = () => import('./session-model.js');
 import { openContextMenu } from './panel-context-menu.js';
 import { ARTIFACTS_BASE, fetchArtifact, readTreeView } from './sidebar-artifact-listing.js';
 import { showConfirm } from './posture-confirm.js';
+import { getPointer } from './session-pointer.js';
 
 /** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
@@ -223,12 +224,20 @@ export function groupMenuItems(head) {
 /** @param {string} id */
 const artifactUrl = (id) => `${ARTIFACTS_BASE}/api/artifacts/${encodeURIComponent(id)}`;
 
-/** @param {ArtifactEntry} entry */
+/**
+ * Flip an artifact's pin. The pin is set in the operator's current session,
+ * even when the row belongs to another one; with no session, in none.
+ * @param {ArtifactEntry} entry
+ */
 async function setPinned(entry) {
+  const sessionKey = getPointer();
+  /** @type {{pinned: boolean, session_key?: string}} */
+  const body = { pinned: !entry.pinned };
+  if (sessionKey) body.session_key = sessionKey;
   await fetch(`${artifactUrl(entry.id)}/pin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pinned: !entry.pinned }),
+    body: JSON.stringify(body),
   });
 }
 

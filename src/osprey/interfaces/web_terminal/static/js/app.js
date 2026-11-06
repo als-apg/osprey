@@ -18,7 +18,7 @@ import {
 import { wireAgentLinks } from './agent-links.js';
 import { wireArtifactLinks } from './artifact-links.js';
 import { fetchJSON, withPrefix } from './api.js';
-import { setPointer } from './session-pointer.js';
+import { getPointer, setPointer } from './session-pointer.js';
 import { subscribe as subscribeToSessions } from './session-model.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
@@ -476,11 +476,15 @@ export function initArtifactLinks() {
   wireArtifactLinks(operatorRoot, {
     focusArtifact: async (id) => {
       let res;
+      // The focus belongs to the session the operator is on (the gallery
+      // resolves the key to its transcript); with none it is set in no session.
+      const sessionKey = getPointer();
+      const body = sessionKey ? { artifact_id: id, session_key: sessionKey } : { artifact_id: id };
       try {
         res = await fetch(withPrefix(`/panel/${ARTIFACTS_PANEL_ID}/api/focus`), {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ artifact_id: id }),
+          body: JSON.stringify(body),
         });
       } catch {
         return 'unreachable';

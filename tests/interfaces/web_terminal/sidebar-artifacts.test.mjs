@@ -581,12 +581,12 @@ describe('the viewer', () => {
   test('a non-automatic focus takes the pick and records last-artifact; an automatic one in chat only records the focus', async () => {
     await boot();
     // The hook's review notebook: a run record, focused automatically.
-    frame({ type: 'focus', id: 'run1', automatic: true });
+    frame({ type: 'focus', id: 'run1', automatic: true, session: T1 });
     await settle();
     expect(shown()).toBe('a3');
     expect(requests('/last-artifact', 'PUT')).toHaveLength(0);
 
-    frame({ type: 'focus', id: 'a2', automatic: false });
+    frame({ type: 'focus', id: 'a2', automatic: false, session: T1 });
     await settle();
     expect(shown()).toBe('a2');
     expect(requests(`/api/sessions/${T1}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
@@ -597,14 +597,36 @@ describe('the viewer', () => {
   test('on the terminal surface every focus takes the pick', async () => {
     mocks.terminal = true;
     await boot();
-    frame({ type: 'focus', id: 'a2', automatic: true });
+    frame({ type: 'focus', id: 'a2', automatic: true, session: T1 });
     await settle();
     expect(shown()).toBe('a2');
   });
 
+  test('a focus naming another transcript, or none, leaves the pick alone', async () => {
+    await boot();
+    frame({ type: 'focus', id: 'a2', automatic: false, session: T2 });
+    frame({ type: 'focus', id: 'a2', automatic: false, session: null });
+    frame({ type: 'focus', id: 'a2', automatic: false });
+    await settle();
+    expect(shown()).toBe('a3');
+    expect(requests('/last-artifact', 'PUT')).toHaveLength(0);
+  });
+
+  test('a session without a transcript follows no focus', async () => {
+    // A key the listing has no row for: the active row is synthesized.
+    pointer.setPointer('77777777-7777-4777-8777-777777777777');
+    await boot();
+    const before = shown();
+    frame({ type: 'focus', id: 'a2', automatic: false, session: null });
+    frame({ type: 'focus', id: 'a2', automatic: false, session: T1 });
+    await settle();
+    expect(shown()).toBe(before);
+    expect(requests('/last-artifact', 'PUT')).toHaveLength(0);
+  });
+
   test("a key change never re-shows the previous session's artifact", async () => {
     await boot();
-    frame({ type: 'focus', id: 'a2', automatic: false });
+    frame({ type: 'focus', id: 'a2', automatic: false, session: T1 });
     await settle();
     pointer.setPointer('77777777-7777-4777-8777-777777777777');
     await settle();

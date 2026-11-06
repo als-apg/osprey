@@ -366,7 +366,10 @@ function onFrame(frame) {
     if (state.focusId === frame.id) state.focusId = null;
     void summarize(true);
   } else {
-    if (frame.type === 'focus') void onFocus(frame.id, frame.automatic === true);
+    // A focus frame is followed only when its `session` names the active
+    // row's transcript (session-model.js isActiveTranscript).
+    if (frame.type === 'focus' && model.isActiveTranscript(frame.session))
+      void onFocus(frame.id, frame.automatic === true);
     return;
   }
   render();

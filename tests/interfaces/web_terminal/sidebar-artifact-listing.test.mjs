@@ -64,6 +64,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete window.__OSPREY_PREFIX__;
+  localStorage.clear();
 });
 
 describe('the listing request', () => {
@@ -289,6 +290,17 @@ describe('fetchFocusedId', () => {
     );
     expect(await mod.fetchFocusedId()).toBe('f1');
     expect(fetchMock.mock.calls[0][0]).toBe('/u/alice/panel/artifacts/api/focus');
+  });
+
+  test("asks for the operator's current session's slot", async () => {
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+    pointer.setPointer('key/1');
+    fetchMock.mockResolvedValueOnce(
+      reply({ focused: true, artifact: entry('f1', '2026-10-30T01:00:00Z') })
+    );
+    expect(await mod.fetchFocusedId()).toBe('f1');
+    expect(fetchMock.mock.calls[0][0]).toBe('/panel/artifacts/api/focus?session_key=key%2F1');
   });
 
   test("the panel's newest-artifact fallback is no focus, nor is a failure", async () => {
