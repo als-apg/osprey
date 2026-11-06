@@ -6893,7 +6893,7 @@ jobs:
         extra-tags: bench-ioc:latest
 
   va-live-e2e:
-    name: Live Virtual Accelerator E2E (one container, every suite the switch lane does not run)
+    name: Live Virtual Accelerator E2E (${{ matrix.group }}; every suite the switch lane does not run)
     runs-on: ubuntu-latest
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This lane holds no credential of any kind, and that is a property
@@ -6939,12 +6939,52 @@ jobs:
     #   - the real-facility lane on the NSLS-II stand-in, one install of a two-model
     #     export — init, import, set, build — and one boot under that
     #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 10 minutes.
-    # A green run takes about 18–23 minutes on an ubuntu-latest runner, of which
-    # the image build is 2–5; the cap is about twice that. It is larger than
-    # va-substrate-equivalence-e2e and archiver-world-e2e, and than the switch
-    # lane's 30, because that lane runs five modules against containers two of
-    # its own images serve, while this one runs fifteen and boots fourteen.
-    timeout-minutes: 50
+    # Serially, in one job, these took 22–24 minutes on an ubuntu-latest
+    # runner (runs 42191862450, 42212691895): 4 for the image build and 18 of
+    # pytest. The suites are therefore split across three matrix cells, each
+    # building its own image and booting its own containers, balanced by the
+    # measured module times (each cell is 6–7 minutes of pytest): a cell is
+    # about 11–12 minutes green; the cap leaves room for both step caps
+    # below, the build and the capture step.
+    timeout-minutes: 40
+    # One cell per group of suites, every suite in exactly one cell (pinned by
+    # tests/deployment/test_ci_workflow_wiring.py, which reads `suites` as the
+    # run step's file list). Each group keeps the run order the single job had,
+    # so the modules that share the session container still run in one
+    # process, in the same order, against one container. `als_lane` marks the
+    # one cell that also runs the real-facility lane.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - group: session-container
+          # The seven modules that only share the session container, the
+          # put-surface module's one boot and the journal module's two, then
+          # the parity module, which reads the session container and boots one
+          # of its own, then the chain module (one install, one boot). ~6 min.
+          suites: >-
+            tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py
+            tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py
+            tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py
+            tests/va/e2e/test_sim_apply_va.py
+            tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py
+            tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py
+          als_lane: false
+        - group: measurements
+          # The guarded-measurement module, which builds two deployments and
+          # boots one container over each, then the check-B module, which
+          # installs the served export and builds the example deployment
+          # before one boot each. ~6.5 min.
+          suites: >-
+            tests/va/e2e/test_pyaml_measure_guarded.py tests/va/e2e/test_check_b_served.py
+          als_lane: false
+        - group: facility-trees
+          # The harvested-tree module, which installs a facility export from
+          # scratch before each of its three boots, then the real-facility lane
+          # on the NSLS-II stand-in. ~6 min.
+          suites: >-
+            tests/va/e2e/test_mml_trees_boot.py
+          als_lane: true
 
     steps:
     - name: Checkout repository
@@ -6987,19 +7027,19 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it. A green run of this step takes
-      # about 11–15 minutes; the cap is about twice that, and still bounds the
-      # realistic hang here — a read of a channel nobody serves, which the
-      # connector itself gives up on after 120 s.
-      timeout-minutes: 30
+      # about 6–7 minutes in any cell; the cap is about three times that, and
+      # still bounds the realistic hang here — a read of a channel nobody
+      # serves, which the connector itself gives up on after 120 s.
+      timeout-minutes: 20
       env:
         # Without it every test in tests/va/e2e/ skips by design (the directory
         # must collect and skip cleanly on a laptop with no runtime). The
         # zero-skip gate below is what turns a lost flag into a red lane
         # instead of a green one over nothing.
         OSPREY_VA_E2E_ENABLE: "1"
-      # One pytest process, no xdist: the directory conftest keeps ONE
+      # One pytest process per cell, no xdist: the directory conftest keeps ONE
       # session-scoped container per process, and eight of these modules are
-      # written against that single endpoint.
+      # written against that single endpoint (all eight in one cell).
       #
       # Named by path rather than by marker: these modules are the whole
       # subject of this lane, and a path that stops existing exits pytest 4 and
@@ -7009,26 +7049,11 @@ jobs:
       # asserted by its final test), so a file that survives a refactor while
       # losing tests to it reds the step rather than passing on what is left.
       #
-      # Ordered cheapest first — the seven that only share the session
-      # container, then the put-surface module's one boot and the journal
-      # module's two, then the parity module, which reads the session container
-      # and boots one of its own, then the chain module, which installs the
-      # two-model tree before its one boot, then the guarded-measurement
-      # module, which builds two deployments and boots one container over
-      # each, then the harvested-tree module, which installs a facility export
-      # from scratch before each of its three boots, then the check-B module,
-      # which installs the served export and builds the example deployment
-      # before one boot each — so a failure in the cheap set is reported
-      # before the expensive work starts.
+      # The cell's paths come from its `suites` (the matrix above), ordered
+      # cheapest first within each cell, so a failure in the cheap set is
+      # reported before the expensive work starts.
       run: |
-        uv run pytest tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py \
-          tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
-          tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
-          tests/va/e2e/test_sim_apply_va.py \
-          tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py \
-          tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py \
-          tests/va/e2e/test_pyaml_measure_guarded.py \
-          tests/va/e2e/test_mml_trees_boot.py tests/va/e2e/test_check_b_served.py \
+        uv run pytest ${{ matrix.suites }} \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
     - name: Run the real-facility lane on the NSLS-II stand-in
@@ -7042,6 +7067,9 @@ jobs:
       # job cap so a hang leaves the capture step room to run.
       # A green run takes about 2–3 minutes; the cap is several times that
       # because one slow boot alone may take the module's 240 s boot bound.
+      # One cell runs it (`als_lane`), facility-trees, whose pytest
+      # step is the shortest.
+      if: matrix.als_lane
       timeout-minutes: 10
       env:
         OSPREY_ALS_LANE_STAND_IN: tests/fixtures/mml/nsls2
@@ -7049,6 +7077,8 @@ jobs:
         uv run pytest tests/cli/test_als_lane.py -v --tb=short --junitxml=junit-als-lane.xml
 
     - name: Fail the lane on any skipped test
+      env:
+        ALS_LANE: ${{ matrix.als_lane }}
       run: |
         # The gate reads the reports rather than pytest's exit codes because an
         # exit code cannot express the difference: a run that skipped every
@@ -7056,13 +7086,20 @@ jobs:
         # modules without `OSPREY_VA_E2E_ENABLE`, and the real-facility lane without
         # `OSPREY_ALS_LANE_STAND_IN`. Unset, either collects cleanly and skips,
         # and the job goes green having built an image and measured nothing.
-        # One report per step, each named here.
+        # One report per step, each named here; the real-facility lane's only
+        # in the cell that runs it, read from the matrix rather than from
+        # whether the file exists, so a cell that should have run it and did
+        # not reds here.
         uv run python - <<'PY'
+        import os
         import sys
         import xml.etree.ElementTree as ET
 
+        reports = ["junit-va-live-e2e.xml"]
+        if os.environ["ALS_LANE"] == "true":
+            reports.append("junit-als-lane.xml")
         failed = False
-        for report in ("junit-va-live-e2e.xml", "junit-als-lane.xml"):
+        for report in reports:
             total = skipped = 0
             for suite in ET.parse(report).getroot().iter("testsuite"):
                 total += int(suite.get("tests", 0))
@@ -7084,7 +7121,7 @@ jobs:
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
-        name: va-live-e2e
+        name: va-live-e2e-${{ matrix.group }}
         engine: docker
 
     - name: Clean up the target images
