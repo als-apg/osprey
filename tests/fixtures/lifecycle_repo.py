@@ -1068,9 +1068,6 @@ config:
   # value a `label` and the `base_form` it is listed under (plots, trends,
   # tables, documents, dashboards, images, data).
   # artifact_server.extension_types.beam_diagnostics: {label: Beam Diagnostics, base_form: plots}
-  # Seed one shipped example (an interactive plot, synthetic data) into an
-  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
-  artifact_server.example_artifact: true
   # osprey:panel-port system_health
   # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.
@@ -1862,8 +1859,6 @@ config:
   approval.tools.entry_publish: always
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -1969,8 +1964,6 @@ config:
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -2074,8 +2067,6 @@ config:
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every

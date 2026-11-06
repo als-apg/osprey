@@ -111,7 +111,6 @@ ariel:
     path: data/facility/ariel/vocabulary.yml
 artifact_server:
   auto_launch: true
-  example_artifact: false
   host: 127.0.0.1
   port: 10200
 bluesky:

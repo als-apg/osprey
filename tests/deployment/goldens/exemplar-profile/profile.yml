@@ -641,9 +641,6 @@ config:
   services.graphdb.query_max_rows: 200
   artifact_server.host: 127.0.0.1
   artifact_server.auto_launch: true
-  # Seed one shipped example (an interactive plot, synthetic data) into an
-  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
-  artifact_server.example_artifact: true
   # osprey:panel-port system_health
   # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.

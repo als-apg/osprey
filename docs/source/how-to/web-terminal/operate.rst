@@ -62,12 +62,7 @@ The window has a sidebar on the left and two panes:
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
   plots, and data files appear under their session in the sidebar
   (`Sessions and artifacts`_) as the agent creates them, with no refresh.
-  On a fresh deployment the tree is not empty: the control-assistant preset
-  ships one interactive example plot (synthetic data). It is there for you,
-  not the agent, which never lists or cites it. Delete it when you no longer
-  want it; it does not come back. It is switched on by
-  ``artifact_server.example_artifact`` in ``config.yml``. Your
-  control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
+  Your control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
   on) open here too. See :doc:`panels`.
 
 The settings drawer (**☰ More** › **Settings**) lets you read and edit the
