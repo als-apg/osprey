@@ -11,7 +11,8 @@
 # model RPC on PVAccess.
 #
 # Build context MUST be a staging directory containing exactly:
-#   pyproject.toml, README.md, src/, packages/, docker/virtual-accelerator/Containerfile
+#   pyproject.toml, uv.lock, README.md, src/, packages/,
+#   docker/virtual-accelerator/Containerfile
 # (see scripts/va/build_and_boot_check.sh, which stages it) --
 # NOT the repo root, which also contains .venv/.git/worktrees and would
 # make every build re-tar gigabytes of unrelated content.
@@ -24,30 +25,48 @@
 # stack's CA server extension alongside the aioca client has been measured
 # to work (scripts/va/live_ca/ is that measurement).
 # The accepted cost: on an Apple Silicon host the image runs emulated.
-# The third-party dependency set, computed in a stage of its own from the
-# project manifests alone -- the root pyproject.toml (core dependencies plus the
-# `virtual-accelerator` extra) and every packages/*/pyproject.toml -- with the
-# workspace's own distributions left out, since those install from source below.
+# The third-party dependency set, exported from uv.lock in a stage of its own,
+# so the image installs exactly the versions CI and the dev venv run against.
+# pip does not read uv.lock: resolving the manifests' ranges with pip instead
+# takes the newest release each range admits on the day of the build, so the
+# physics and serving stack this image serves from would drift away from the
+# locked one the unit lanes test, with no signal (PyAT had to be hand-pinned
+# here for exactly that reason). `uv export --frozen` reads the lock as
+# committed and never re-resolves, so a lock out of step with a manifest fails
+# the build here rather than quietly picking something else.
+#
+# What the export selects: --all-packages takes every workspace member's
+# requirements as well as the framework's, --extra virtual-accelerator the
+# serving stack, --no-dev leaves the dev group out, and --no-emit-workspace
+# drops the workspace's own distributions, which install from source below
+# (pip would otherwise go to PyPI for them). Hashes are kept, so the install
+# below runs in pip's hash-checking mode and a re-uploaded artifact cannot
+# slip in under a locked version.
+# --quiet only because uv also echoes the export to stdout, which would put
+# some five thousand lines into every build log.
+#
+# uv is pinned for the same reason as in scripts/va/live_ca/Containerfile,
+# whose image this reuses: what an export emits from a given lock is uv's
+# behaviour, not the lock's, so an unpinned uv could change what the image
+# installs without any change to the repo. 0.9.30 reads the lock's current
+# revision; a lock written by a uv too new for it fails --frozen loudly here.
+#
+# The export needs the lock and every project's manifest -- the members'
+# pyproject.toml files under packages/ define the workspace -- but no source.
+# packages/ is copied whole because COPY cannot keep the directory layout of
+# a glob; that costs only a rerun of this cheap stage on a member source edit.
 # Only the resulting requirements file reaches the image, and the layer that
 # installs it is cached on that file's content: a change to src/ or to a
 # member's code leaves it byte-identical, so the expensive download-and-install
 # layer restores from cache and only the from-source builds rerun. Without this
 # split the one pip layer sat after `COPY src/` and every source change
-# re-downloaded and re-installed the whole closure. The final install below
-# still resolves with dependencies, so a requirement this stage missed would be
-# installed there (slower), never silently absent.
-FROM --platform=linux/amd64 python:3.11-slim AS dependency-set
+# re-downloaded and re-installed the whole closure.
+FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:0.9.30-python3.11-bookworm-slim AS dependency-set
 WORKDIR /spec
-COPY pyproject.toml /spec/
+COPY pyproject.toml uv.lock /spec/
 COPY packages/ /spec/packages/
-RUN python -c "import glob, re, tomllib; \
-projects = [tomllib.load(open(path, 'rb'))['project'] for path in ['pyproject.toml', *sorted(glob.glob('packages/*/pyproject.toml'))]]; \
-key = lambda spec: re.sub(r'[-_.]+', '-', re.match(r'[A-Za-z0-9._-]+', spec).group(0)).lower(); \
-local = {key(project['name']) for project in projects}; \
-specs = [spec for project in projects for spec in project.get('dependencies', [])]; \
-specs += projects[0].get('optional-dependencies', {}).get('virtual-accelerator', []); \
-print(chr(10).join(sorted({spec for spec in specs if key(spec) not in local})))" \
-    > /spec/requirements.txt \
+RUN uv export --quiet --frozen --no-dev --all-packages \
+        --extra virtual-accelerator --no-emit-workspace -o /spec/requirements.txt \
     && test -s /spec/requirements.txt
 
 FROM --platform=linux/amd64 python:3.11-slim
@@ -68,26 +87,19 @@ RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
     || { echo "ERROR: the virtual accelerator image is linux/amd64 only (this build is $arch). No pcaspy wheel exists for linux/aarch64 at any interpreter, so an aarch64 image would carry no Channel Access server." >&2; exit 1; }
 
 # Third-party dependencies, from the dependency-set stage above (see there for
-# why this layer comes before any source).
+# why this layer comes before any source and why it is the lock's export).
+# --require-hashes makes pip refuse any artifact whose hash the lock does not
+# list; the export carries a hash for every entry, so it costs nothing.
 #
 # --only-binary pcaspy is a guard, not an optimisation. pcaspy's sdist needs a
 # full EPICS base + epics-modules/pcas build -- minutes, not seconds -- and on
 # amd64 a wheel always exists, so if pip ever reaches for that sdist here
-# something is wrong and the build should say so rather than stall.
-#
-# PyAT is the exception, and the pin is not redundant. pyproject.toml declares
-# `accelerator-toolbox[plot]>=0.8.0` and uv.lock resolves that to 0.8.0 --
-# which is what the dev venv and every unit test run against -- but this image
-# installs with pip, and pip does not read uv.lock. Without the pin the image
-# silently takes the newest release satisfying the floor, so the physics
-# library the container serves from would drift away from the one the lattice
-# code is tested against, with no signal. This line is what keeps the two in
-# step, and it must be bumped together with uv.lock. A lockfile-driven install
-# would make it unnecessary, but that is a change to how the whole image
-# resolves, not a change to this pin.
+# something is wrong and the build should say so rather than stall. Everything
+# else installs from prebuilt manylinux_x86_64 wheels too, so the image carries
+# no C toolchain at all.
 COPY --from=dependency-set /spec/requirements.txt /opt/osprey-deps/requirements.txt
-RUN pip install --no-cache-dir --only-binary pcaspy \
-        -r /opt/osprey-deps/requirements.txt "accelerator-toolbox[plot]==0.8.0"
+RUN pip install --no-cache-dir --require-hashes --only-binary pcaspy \
+        -r /opt/osprey-deps/requirements.txt
 
 # osprey itself -- manifest/lattice/serving/entrypoint live under
 # src/osprey/services/virtual_accelerator/ and install as part of the
@@ -130,27 +142,29 @@ COPY packages/ /opt/osprey/packages/
 ARG OSPREY_VERSION=0.0.0.dev0+unknown
 ARG OSPREY_CONNECTORS_VERSION=
 
-# The `virtual-accelerator` extra rather than a bare install, matching the
-# service Dockerfile, so both images resolve the serving dependency set the
-# same way. That extra is where the whole serving stack now comes from:
-# `lume-pva-apg[ca,pva]`, exact-pinned, carrying pcaspy for Channel Access and
-# p4p for PVAccess -- the two transports the runner serves. None of the three
-# is declared here as an install target or version constraint, deliberately,
-# so this image cannot pin a serving dependency pyproject.toml disagrees with;
-# the --only-binary guard names pcaspy but pins nothing. lume-base and
-# lume-pyat need no mention
-# either -- they are exact-pinned core dependencies of osprey, so the resolve
-# can only produce one answer for them.
+# Every source build here is --no-deps: the third-party closure is already in
+# place from the lock, and letting pip resolve on top of it would let pip pick
+# a newer release than the lock's for any requirement a member or the
+# framework declares -- the drift the export above exists to rule out. What
+# the closure holds is decided by the export alone; `pip check` afterwards
+# fails the build if a project here requires something the export left out or
+# pinned outside its range, so the two cannot disagree silently.
 #
-# --only-binary pcaspy is repeated here for the same reason as above.
+# The framework still installs as `.[virtual-accelerator]`, matching the
+# service Dockerfile and the export's --extra, so the line says which serving
+# set the image carries; under --no-deps the extra itself installs nothing.
+# That extra is where the whole serving stack comes from: `lume-pva-apg[ca,pva]`,
+# exact-pinned, carrying pcaspy for Channel Access and p4p for PVAccess -- the
+# two transports the runner serves.
 #
 # The members install one by one ahead of the framework, looping over packages/
-# rather than naming them so a new member is picked up the day it lands; none of
-# them depends on the framework, so each resolves on its own. `|| exit 1` keeps a
-# failed member build from being masked by the next iteration's success.
+# rather than naming them so a new member is picked up the day it lands. `||
+# exit 1` keeps a failed member build from being masked by the next
+# iteration's success.
 #
-# Everything here installs from prebuilt manylinux_x86_64 wheels, so the image
-# carries no C toolchain at all.
+# The build backends (hatchling, hatch-vcs) are not in the lock: pip's build
+# isolation fetches them from PyPI for each source build. They shape how a
+# project is packaged, not what the image runs against.
 #
 # The install ends by asserting that the `pyaml` import package has exactly one
 # owning distribution (osprey.deployment.pyaml_owner): every pyAML distribution
@@ -161,10 +175,11 @@ RUN for member in ./packages/*/; do \
                */osprey-connectors/) version="${OSPREY_CONNECTORS_VERSION:-${OSPREY_VERSION}}" ;; \
            esac; \
            SETUPTOOLS_SCM_PRETEND_VERSION="$version" \
-           pip install --no-cache-dir "$member" || exit 1; \
+           pip install --no-cache-dir --no-deps "$member" || exit 1; \
        done \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
-       pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy \
+       pip install --no-cache-dir --no-deps ".[virtual-accelerator]" \
+    && pip check \
     && python -m osprey.deployment.pyaml_owner
 
 # Channel Access server port. TCP only is required -- CA name-server mode

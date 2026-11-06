@@ -27,7 +27,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: /tmp/va-buildx-cache
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/*/pyproject.toml') }}
+        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'uv.lock', 'packages/*/pyproject.toml') }}
         # One key for every lane, because it is the same image from the same
         # inputs: whichever lane runs first saves it, the others restore it,
         # and a concurrent second save is a non-fatal "cache already exists"
@@ -36,12 +36,12 @@ runs:
         # two builds share one key for the same reason, within a single job.)
         #
         # What this buys is decided by the Containerfile's layer order: the
-        # expensive RUN (pip install of the third-party closure plus a pinned
-        # PyAT) is keyed on a requirements file derived from the manifests
-        # alone and sits BEFORE `COPY src/`, so a source change restores it
-        # and reruns only the from-source builds of osprey and its members. A
-        # change to pyproject.toml or a member's manifest reinstalls the
-        # closure; a re-run of a red lane restores the whole build.
+        # expensive RUN (pip install of the third-party closure) is keyed on a
+        # requirements file exported from uv.lock alone and sits BEFORE
+        # `COPY src/`, so a source change restores it and reruns only the
+        # from-source builds of osprey and its members. A change to uv.lock
+        # (or to a manifest that changes the export) reinstalls the closure; a
+        # re-run of a red lane restores the whole build.
         restore-keys: |
           va-full-buildx-${{ runner.os }}-
 
@@ -54,7 +54,8 @@ runs:
       # The staging is scripts/va/build_and_boot_check.sh's, for its reason:
       # the Containerfile installs osprey from source, so handing it the
       # repository root would tar .git, .venv and every worktree into the build
-      # context. Five things are staged — pyproject.toml, README.md, src/, the
+      # context. Six things are staged — pyproject.toml, uv.lock (the image's
+      # third-party install is the lock's export), README.md, src/, the
       # Containerfile and packages/, which holds every workspace member the
       # framework installs from source — and that set IS the build-context
       # contract.
@@ -81,7 +82,7 @@ runs:
         staging=/tmp/osprey-va-full-build
         rm -rf "$staging"
         mkdir -p "$staging/src" "$staging/docker/virtual-accelerator"
-        cp pyproject.toml README.md "$staging/"
+        cp pyproject.toml uv.lock README.md "$staging/"
         cp -R src/. "$staging/src/"
         cp -R packages "$staging/packages"
         cp docker/virtual-accelerator/Containerfile "$staging/docker/virtual-accelerator/Containerfile"

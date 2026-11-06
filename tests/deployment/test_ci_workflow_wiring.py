@@ -7938,6 +7938,10 @@ def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(
     for hashed in (
         "docker/virtual-accelerator/Containerfile",
         "'pyproject.toml'",
+        # The image's third-party install is the lock's export, so a lock bump
+        # must change the key: a cache entry is never overwritten, and under an
+        # unchanged key the new closure's layers would never be saved.
+        "'uv.lock'",
         VA_CACHE_MEMBER_GLOB,
     ):
         assert hashed in cache_with["key"], f"the cache key no longer hashes {hashed}"
