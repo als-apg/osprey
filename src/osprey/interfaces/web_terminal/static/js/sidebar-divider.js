@@ -265,7 +265,9 @@ export function initSidebarDivider(railOrNull) {
     divider.hidden =
       isGroupFolded(group.getAttribute('data-group') ?? '') ||
       root.getAttribute('data-sidebar') === 'collapsed';
-    const now = height ?? group.offsetHeight;
+    // Read after measure(): the height the group renders at, kept in range
+    // (a short tree can render under the minimum); a drag's live height as is.
+    const now = height ?? clamp(group.offsetHeight);
     divider.setAttribute('aria-valuemin', String(MIN_HEIGHT));
     divider.setAttribute('aria-valuemax', String(maxHeight()));
     divider.setAttribute('aria-valuenow', String(now));

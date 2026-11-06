@@ -115,6 +115,26 @@ describe('the Workspace divider', () => {
     expect(divider().getAttribute('aria-valuetext')).toBe('Automatic');
   });
 
+  test('aria-valuenow is the rendered height kept within the limits, and the live height in a drag', async () => {
+    await boot();
+    const ws = group('workspace');
+    Object.defineProperty(ws, 'offsetHeight', { value: 108, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    expect(divider().getAttribute('aria-valuenow')).toBe('120');
+    Object.defineProperty(ws, 'offsetHeight', { value: 900, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    expect(divider().getAttribute('aria-valuenow')).toBe(divider().getAttribute('aria-valuemax'));
+    Object.defineProperty(ws, 'offsetHeight', { value: 200, configurable: true });
+    ptr('pointerdown', 100);
+    ptr('pointermove', 160);
+    expect(divider().getAttribute('aria-valuenow')).toBe('260');
+    expect(divider().getAttribute('aria-valuetext')).toBe('260 pixels');
+    ptr('pointermove', 104);
+    expect(divider().getAttribute('aria-valuenow')).toBe('200');
+    ptr('pointerup', 104);
+    expect(divider().getAttribute('aria-valuetext')).toBe('Automatic');
+  });
+
   test('the cap stays between 240 and 480 px', async () => {
     await boot({ toolsHeight: 500 });
     expect(cap()).toBe('240px');
