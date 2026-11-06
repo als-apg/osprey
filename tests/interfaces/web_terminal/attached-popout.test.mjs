@@ -41,11 +41,18 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () =>
 const mod = await import(`${JS}/attached-popout.js`);
 const win = await import(`${JS}/attached-window.js`);
 
-/** A popup: its own document, `close()` firing `pagehide`. */
+/** The shell page, loaded: its <html> carries the marker attached-window.js waits for. */
+function shellDocument() {
+  const doc = document.implementation.createHTMLDocument('');
+  doc.documentElement.setAttribute('data-osprey-attached-shell', '');
+  return doc;
+}
+
+/** A popup on the loaded shell page: its own document, `close()` firing `pagehide`. */
 function fakePopup() {
   const target = new EventTarget();
   const popup = {
-    document: document.implementation.createHTMLDocument(''),
+    document: shellDocument(),
     closed: false,
     focus: vi.fn(),
     close: vi.fn(() => {
@@ -122,6 +129,7 @@ describe('a service panel', () => {
     expect(mod.popOutAttached('ariel')).toBe(true);
     const popup = popups[0];
     expect(popup.document.title).toBe('Ariel · OSPREY');
+    expect(popup.document.querySelector('.attached-window-title')?.textContent).toBe('Ariel');
     expect(popup.document.querySelector('iframe.panel-iframe')).toBe(frame);
     const standIn = /** @type {HTMLElement} */ (overlay.querySelector('.attached-standin'));
     expect(standIn.textContent).toContain('Ariel is in its own window.');
@@ -155,9 +163,10 @@ describe('a service panel', () => {
     expect(popout.redockPanel).not.toHaveBeenCalled();
   });
 
-  test('the stand-in brings the panel back, and shows its window', () => {
+  test('the stand-in reattaches the panel, and shows its window', () => {
     mod.popOutAttached('ariel');
     const standIn = /** @type {HTMLElement} */ (overlay.querySelector('.attached-standin'));
+    expect(standIn.querySelector('.attached-standin-back')?.textContent).toBe('Reattach');
     /** @type {HTMLButtonElement} */ (standIn.querySelector('.attached-standin-show')).click();
     expect(popups[0].focus).toHaveBeenCalledTimes(1);
     /** @type {HTMLButtonElement} */ (standIn.querySelector('.attached-standin-back')).click();
@@ -204,6 +213,7 @@ describe('the Agent pane', () => {
     expect(mod.popOutAttached('terminal')).toBe(true);
     const popup = popups[0];
     expect(popup.document.title).toBe('Agent · OSPREY');
+    expect(popup.document.querySelector('.attached-window-title')?.textContent).toBe('Agent');
     expect(popup.document.querySelector('.terminal-panel > textarea')).toBe(child);
     expect(host.querySelector('.attached-standin')?.textContent).toContain(
       'Agent is in its own window.'
@@ -235,7 +245,7 @@ describe('the Agent pane', () => {
     expect(mod.popOutAttached('terminal')).toBe(false);
   });
 
-  test('Bring back returns it and closes the window', () => {
+  test('Reattach returns it and closes the window', () => {
     mod.popOutAttached('terminal');
     mod.bringBackAttached('terminal');
     expect(popups[0].closed).toBe(true);

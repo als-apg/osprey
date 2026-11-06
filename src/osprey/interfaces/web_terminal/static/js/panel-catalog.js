@@ -120,8 +120,8 @@ export const PANEL_ICONS = Object.freeze({
   ariel: 'book-open',
   okf: 'library',
   'channel-finder': 'radio',
-  bluesky: 'flask',
-  'system-health': 'activity',
+  bluesky: 'chart-scatter',
+  'system-health': 'stethoscope',
 });
 
 /** The glyph of a panel {@link PANEL_ICONS} does not name. */

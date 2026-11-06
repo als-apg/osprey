@@ -1,8 +1,8 @@
 """Browser tests: a sidebar layout stored before the System group existed.
 
-An operator's browser keeps its own sidebar layout; one stored before System
-existed must still show System holding Events, unless the operator moved Events
-themselves.
+An operator's browser keeps its own sidebar layout; one stored by an older
+version must show System holding Events, whichever group it held Events in.
+Only a move made on the current version sticks.
 
 Run:
     .venv/bin/pytest tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py -v
@@ -49,16 +49,23 @@ def _stored(placement: dict[str, str], version: int = 1) -> dict:
     }
 
 
-def _group_of_events(browser: Browser, tmp_path: Path, stored: dict) -> tuple[str, list[str]]:
-    """Load the hub with `stored` seeded; the group Events sits in, and all groups."""
+def _groups_of(
+    browser: Browser,
+    tmp_path: Path,
+    stored: dict,
+) -> tuple[dict[str, str], list[str]]:
+    """Load the hub with `stored` seeded; the group of Events and Bluesky, and all groups."""
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
     shared_root = patch(
         "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace
     )
     # Events is a URL-backed custom panel, as the control-assistant preset has it.
-    events = {"id": "events", "label": "Events", "url": "http://127.0.0.1:9/dashboard"}
-    with hub_server(workspace, shared_root, custom_panels=[events]) as (base_url, _app):
+    panels = [
+        {"id": "events", "label": "Events", "url": "http://127.0.0.1:9/dashboard"},
+        {"id": "bluesky", "label": "Bluesky", "url": "http://127.0.0.1:9/bluesky"},
+    ]
+    with hub_server(workspace, shared_root, custom_panels=panels) as (base_url, _app):
         page = browser.new_page()
         try:
             value = json.dumps(json.dumps(stored))
@@ -66,41 +73,43 @@ def _group_of_events(browser: Browser, tmp_path: Path, stored: dict) -> tuple[st
                 f"try {{ localStorage.setItem({json.dumps(_KEY)}, {value}); }} catch (e) {{}}"
             )
             page.goto(base_url, wait_until="domcontentloaded")
-            events = page.locator('button.panel-rail-button[data-panel-id="events"]')
-            expect(events).to_be_attached(timeout=10_000)
-            group = events.locator("xpath=ancestor::*[@data-group][1]")
+            found: dict[str, str] = {}
+            for panel_id in ("events", "bluesky"):
+                row = page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')
+                expect(row).to_be_attached(timeout=10_000)
+                group = row.locator("xpath=ancestor::*[@data-group][1]")
+                found[panel_id] = group.get_attribute("data-group") or ""
             groups = page.eval_on_selector_all(
                 ".sidebar-group[data-group]", "els => els.map(e => e.dataset.group)"
             )
-            return group.get_attribute("data-group") or "", groups
+            return found, groups
         finally:
             page.close()
 
 
 def test_untouched_old_layout_shows_events_in_system(tmp_path, chromium_browser):
     """An old default layout (Events in Workspace) gains System holding Events."""
-    group, groups = _group_of_events(chromium_browser, tmp_path, _stored({"events": "workspace"}))
-    assert group == "system"
+    found, groups = _groups_of(chromium_browser, tmp_path, _stored({"events": "workspace"}))
+    assert found["events"] == "system"
     assert "system" in groups
 
 
-def test_empty_system_group_still_shows_events(tmp_path, chromium_browser):
-    """A layout saved by an intermediate build (System present, empty) follows the default."""
-    stored = _stored({"events": "workspace"})
+@pytest.mark.parametrize("version", [1, 2])
+def test_old_layout_events_in_tools_custom_group_kept(tmp_path, chromium_browser, version):
+    """The owner's layout: Events in Tools, a custom group holding Bluesky, System empty."""
+    stored = _stored({"events": "tools", "bluesky": "g-0a1b2c3d"}, version=version)
+    stored["groups"] += [
+        {"id": "g-0a1b2c3d", "label": "test'"},
+        {"id": "system", "label": "System"},
+    ]
+    found, groups = _groups_of(chromium_browser, tmp_path, stored)
+    assert found == {"events": "system", "bluesky": "g-0a1b2c3d"}
+    assert groups == ["workspace", "tools", "g-0a1b2c3d", "system"]
+
+
+def test_current_version_events_in_tools_sticks(tmp_path, chromium_browser):
+    """On the current version, Events moved to Tools is the operator's choice."""
+    stored = _stored({"events": "tools"}, version=3)
     stored["groups"].append({"id": "system", "label": "System"})
-    group, _ = _group_of_events(chromium_browser, tmp_path, stored)
-    assert group == "system"
-
-
-def test_current_version_events_in_workspace_sticks(tmp_path, chromium_browser):
-    """On the current version, Events moved to Workspace is the operator's choice."""
-    stored = _stored({"events": "workspace"}, version=2)
-    stored["groups"].append({"id": "system", "label": "System"})
-    group, _ = _group_of_events(chromium_browser, tmp_path, stored)
-    assert group == "workspace"
-
-
-def test_deliberately_moved_events_stays_put(tmp_path, chromium_browser):
-    """An operator who moved Events into Tools keeps it there."""
-    group, _ = _group_of_events(chromium_browser, tmp_path, _stored({"events": "tools"}))
-    assert group == "tools"
+    found, _ = _groups_of(chromium_browser, tmp_path, stored)
+    assert found["events"] == "tools"

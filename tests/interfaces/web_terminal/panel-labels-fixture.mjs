@@ -19,7 +19,7 @@ export const BUILTIN_PANEL_LABELS = Object.freeze({
   jupyter: 'JUPYTER',
   canopy: 'CANOPY',
   okf: 'KNOWLEDGE',
-  'system-health': 'SYSTEM',
+  'system-health': 'Health',
 });
 
 /**

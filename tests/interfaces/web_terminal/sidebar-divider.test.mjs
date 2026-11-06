@@ -3,12 +3,14 @@
  * The Workspace divider (sidebar-divider.js):
  *   npx vitest run tests/interfaces/web_terminal/sidebar-divider.test.mjs
  *
- * The divider sets the Agent group's height by drag, steps it by key, resets
- * it by double-click, clamps it, stores it under
- * `osprey-sidebar-workspace-height`, and hides when the group is folded or the
- * sidebar is collapsed. Two cases drive the divider together with
- * sidebar-fold.js. Layout does not exist in the test DOM, so the rail's and
- * group's heights are stubbed.
+ * The divider caps the Agent group's automatic height, sets it by drag (with
+ * a snap to the automatic height), steps it by key, resets it by double-click,
+ * clamps it, stores it under `osprey-sidebar-workspace-height` as a fraction
+ * of the rail's room (reading an earlier build's whole pixels once), and hides
+ * when the group is folded or the sidebar is collapsed. Two cases drive the
+ * divider together with sidebar-fold.js. Layout does not exist in the test
+ * DOM, so the rail's and groups' heights are stubbed; the row floors are
+ * pinned by test_sidebar_divider_browser.py.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -40,6 +42,8 @@ const rail = () => byId('panel-rail');
 const group = (/** @type {string} */ id) => qs(rail(), `[data-group="${id}"]`);
 const name = (/** @type {string} */ id) => qs(group(id), '.sidebar-group-name');
 const divider = () => qs(rail(), '.sidebar-divider');
+const height = () => group('workspace').style.getPropertyValue('--sidebar-group-height');
+const cap = () => group('workspace').style.getPropertyValue('--sidebar-group-cap');
 const stored = (/** @type {string} */ key) => JSON.parse(localStorage.getItem(key) ?? 'null');
 
 /** @param {Element} el */
@@ -61,13 +65,15 @@ const ptr = (type, y) =>
 
 /**
  * Draw the rail, with a 600 px rail and a 200 px group, and wire the divider;
- * `withFold` also wires the fold module the interaction cases need.
- * @param {{ withFold?: boolean }} [opts]
+ * `withFold` also wires the fold module the interaction cases need, and
+ * `toolsHeight` is the Tools group's height.
+ * @param {{ withFold?: boolean, toolsHeight?: number }} [opts]
  */
-async function boot({ withFold = false } = {}) {
+async function boot({ withFold = false, toolsHeight = 0 } = {}) {
   document.body.innerHTML = HTML;
   Object.defineProperty(rail(), 'clientHeight', { value: 600, configurable: true });
   Object.defineProperty(group('workspace'), 'offsetHeight', { value: 200, configurable: true });
+  Object.defineProperty(group('tools'), 'offsetHeight', { value: toolsHeight, configurable: true });
   vi.resetModules();
   if (withFold) (await import(`${JS}/sidebar-fold.js`)).initSidebarFold(rail());
   (await import(`${JS}/sidebar-divider.js`)).initSidebarDivider(rail());
@@ -100,29 +106,132 @@ describe('the Workspace divider', () => {
     expect(rail().lastElementChild).toBe(divider());
   });
 
-  test('a drag sets the height and stores it once it ends', async () => {
+  test('automatic sizing caps the group at what leaves the other groups whole', async () => {
+    await boot({ toolsHeight: 272 });
+    expect(group('workspace').hasAttribute('data-capped')).toBe(true);
+    expect(group('workspace').hasAttribute('data-sized')).toBe(false);
+    expect(cap()).toBe('328px');
+    expect(divider().getAttribute('aria-valuetext')).toBe('Automatic');
+  });
+
+  test('aria-valuenow follows the tree when it grows after init', async () => {
+    await boot();
+    expect(divider().getAttribute('aria-valuenow')).toBe('200');
+    Object.defineProperty(group('workspace'), 'offsetHeight', { value: 253, configurable: true });
+    qs(group('workspace'), '.sidebar-row').append(document.createElement('div'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(divider().getAttribute('aria-valuenow')).toBe('253');
+    expect(divider().getAttribute('aria-valuetext')).toBe('Automatic');
+  });
+
+  test('aria-valuenow is the rendered height kept within the limits, and the live height in a drag', async () => {
+    await boot();
+    const ws = group('workspace');
+    Object.defineProperty(ws, 'offsetHeight', { value: 108, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    expect(divider().getAttribute('aria-valuenow')).toBe('120');
+    Object.defineProperty(ws, 'offsetHeight', { value: 900, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    expect(divider().getAttribute('aria-valuenow')).toBe(divider().getAttribute('aria-valuemax'));
+    Object.defineProperty(ws, 'offsetHeight', { value: 200, configurable: true });
+    ptr('pointerdown', 100);
+    ptr('pointermove', 160);
+    expect(divider().getAttribute('aria-valuenow')).toBe('260');
+    expect(divider().getAttribute('aria-valuetext')).toBe('260 pixels');
+    ptr('pointermove', 104);
+    expect(divider().getAttribute('aria-valuenow')).toBe('200');
+    ptr('pointerup', 104);
+    expect(divider().getAttribute('aria-valuetext')).toBe('Automatic');
+  });
+
+  test('the cap stays between 240 and 480 px', async () => {
+    await boot({ toolsHeight: 500 });
+    expect(cap()).toBe('240px');
+    await boot();
+    expect(cap()).toBe('480px');
+  });
+
+  test('the cap never passes the maximum', async () => {
+    await boot();
+    Object.defineProperty(rail(), 'clientHeight', { value: 300, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    expect(cap()).toBe('244px');
+  });
+
+  test('a drag sets the height and stores it as a fraction once it ends', async () => {
     await boot();
     ptr('pointerdown', 100);
     ptr('pointermove', 160);
-    expect(group('workspace').style.getPropertyValue('--sidebar-group-height')).toBe('260px');
+    expect(height()).toBe('260px');
     expect(localStorage.getItem(HEIGHT)).toBeNull();
     ptr('pointerup', 160);
-    expect(stored(HEIGHT)).toBe(260);
+    expect(localStorage.getItem(HEIGHT)).toBe('0.4333');
     expect(group('workspace').hasAttribute('data-sized')).toBe(true);
+    expect(divider().getAttribute('aria-valuenow')).toBe('260');
+  });
+
+  test('a stored fraction keeps its share of the rail when the window resizes', async () => {
+    localStorage.setItem(HEIGHT, '0.5');
+    await boot();
+    expect(height()).toBe('300px');
+    Object.defineProperty(rail(), 'clientHeight', { value: 800, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    expect(height()).toBe('400px');
+    expect(localStorage.getItem(HEIGHT)).toBe('0.5');
+  });
+
+  test("an earlier build's whole pixels are read once and rewritten as a fraction", async () => {
+    localStorage.setItem(HEIGHT, '300');
+    await boot();
+    expect(height()).toBe('300px');
+    expect(localStorage.getItem(HEIGHT)).toBe('0.5000');
+    await boot();
+    expect(height()).toBe('300px');
+    expect(localStorage.getItem(HEIGHT)).toBe('0.5000');
+  });
+
+  test('the drag snaps to the automatic height silently, with no tick and no tooltip', async () => {
+    await boot();
+    expect(divider().querySelector('.sidebar-divider-default')).toBeNull();
+    expect(divider().children.length).toBe(0);
+    expect(divider().hasAttribute('data-tip')).toBe(false);
+    expect(divider().hasAttribute('data-tip-detail')).toBe(false);
+    expect(divider().getAttribute('aria-label')).toBe('Workspace height');
+    ptr('pointerdown', 100);
+    ptr('pointermove', 150);
+    expect(height()).toBe('250px');
+    expect(divider().querySelector('.sidebar-divider-default')).toBeNull();
+    ptr('pointermove', 108);
+    expect(height()).toBe('200px');
+    ptr('pointerup', 108);
+  });
+
+  test('a drag that ends on the automatic height goes back to automatic sizing', async () => {
+    localStorage.setItem(HEIGHT, '0.5');
+    await boot();
+    expect(height()).toBe('300px');
+    ptr('pointerdown', 300);
+    ptr('pointermove', 206);
+    ptr('pointerup', 206);
+    expect(group('workspace').hasAttribute('data-sized')).toBe(false);
+    expect(height()).toBe('');
+    expect(localStorage.getItem(HEIGHT)).toBeNull();
   });
 
   test('a drag clamps to the minimum and to what leaves the next group a row', async () => {
     await boot();
     ptr('pointerdown', 100);
     ptr('pointermove', -500);
-    expect(group('workspace').style.getPropertyValue('--sidebar-group-height')).toBe('120px');
+    expect(height()).toBe('120px');
     ptr('pointermove', 5000);
     ptr('pointerup', 5000);
-    expect(stored(HEIGHT)).toBe(544);
+    expect(height()).toBe('544px');
+    expect(stored(HEIGHT)).toBe(0.9067);
   });
 
   test('the cap does not move when a group folds, only the rail content does', async () => {
-    localStorage.setItem(HEIGHT, '428');
+    // 428 px of the 639 px the sidebar leaves the rail.
+    localStorage.setItem(HEIGHT, '0.6698');
     await boot({ withFold: true });
     const side = document.createElement('div');
     side.className = 'sidebar';
@@ -158,17 +267,19 @@ describe('the Workspace divider', () => {
   test('ArrowUp and ArrowDown step, Shift steps further', async () => {
     await boot();
     press(divider(), 'ArrowDown');
-    expect(stored(HEIGHT)).toBe(216);
+    expect(height()).toBe('216px');
+    expect(stored(HEIGHT)).toBe(0.36);
     press(divider(), 'ArrowDown', true);
-    expect(stored(HEIGHT)).toBe(280);
+    expect(height()).toBe('280px');
     press(divider(), 'ArrowUp');
-    expect(stored(HEIGHT)).toBe(264);
+    expect(height()).toBe('264px');
+    expect(stored(HEIGHT)).toBe(0.44);
   });
 
   test('a double-click returns to automatic sizing', async () => {
-    localStorage.setItem(HEIGHT, '300');
+    localStorage.setItem(HEIGHT, '0.5');
     await boot();
-    expect(group('workspace').style.getPropertyValue('--sidebar-group-height')).toBe('300px');
+    expect(height()).toBe('300px');
     dbl(divider());
     expect(group('workspace').hasAttribute('data-sized')).toBe(false);
     expect(group('workspace').style.getPropertyValue('--sidebar-group-height')).toBe('');
@@ -176,9 +287,11 @@ describe('the Workspace divider', () => {
   });
 
   test('a stored value out of range is ignored', async () => {
-    localStorage.setItem(HEIGHT, '12');
-    await boot();
-    expect(group('workspace').hasAttribute('data-sized')).toBe(false);
+    for (const raw of ['12', '1.5', '0', 'tall']) {
+      localStorage.setItem(HEIGHT, raw);
+      await boot();
+      expect(group('workspace').hasAttribute('data-sized')).toBe(false);
+    }
   });
 
   test('is hidden while the group is folded and while the sidebar is collapsed', async () => {
@@ -199,6 +312,6 @@ describe('the Workspace divider', () => {
       throw new Error('quota');
     });
     press(divider(), 'ArrowDown');
-    expect(group('workspace').style.getPropertyValue('--sidebar-group-height')).toBe('216px');
+    expect(height()).toBe('216px');
   });
 });

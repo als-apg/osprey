@@ -1,12 +1,13 @@
 """Browser e2e: the Agent pane popped out into an attached window on the hermetic hub.
 
-The tile header's Pop out moves the Agent pane's live subtree into a blank window
-the hub drives (attached-popout.js, attached-window.js). Pins: the window holds
-the chat and the tile a stand-in; a message typed in the window goes through the
-hub's own chat client (the scripted chat child's reply comes back into it); the
-layout never changes; closing the window puts the pane back in its tile, with
-the conversation; a reload of the hub closes the window and shows the pane in
-its tile.
+The tile header's Pop out moves the Agent pane's live subtree into a window the
+hub drives, opened on the hub's shell page (attached-popout.js,
+attached-window.js). Pins: the window is at the hub's address, with a bar naming
+the pane and Reattach above the chat; the tile shows a stand-in; a message typed
+in the window goes through the hub's own chat client (the scripted chat child's
+reply comes back into it); the layout never changes; Reattach, or closing the
+window, puts the pane back in its tile, with the conversation; a reload of the
+hub closes the window and shows the pane in its tile.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ _TIMEOUT_MS = 20_000
 _COMPOSER = '#operator-container textarea[aria-label="Message the agent"]'
 _AGENT_TILE = '.tile-tab[data-panel-id="terminal"]'
 _STAND_IN = ".dock-panel-host > .attached-standin"
+_BAR_TITLE = ".attached-window-bar .attached-window-title"
+_BAR_REATTACH = ".attached-window-bar button.attached-window-reattach"
 
 #: The dock as it stands: every tile bar's panel id, and the stored layouts.
 _DOCK_JS = """() => ({
@@ -87,11 +90,23 @@ def _pop_out(page: Page) -> Page:
     return popup
 
 
-def test_the_agent_pane_pops_out_chats_from_the_window_and_comes_back(hub, page):
+def test_the_agent_pane_pops_out_chats_from_the_window_and_comes_back(hub, page, tmp_path):
     _boot(page, hub)
     before = _dock(page)
 
     popup = _pop_out(page)
+
+    # The window is on the hub's own shell page, not about:blank, and its bar
+    # names the pane above the chat, which fills the window.
+    assert popup.url == f"{hub.base_url.rstrip('/')}/static/attached-window.html"
+    expect(popup.locator(_BAR_TITLE)).to_have_text("Agent")
+    expect(popup.locator(_BAR_REATTACH)).to_have_text("Reattach")
+    bar = popup.locator(".attached-window-bar").bounding_box()
+    pane = popup.locator(".attached-window-root > .terminal-panel").bounding_box()
+    assert bar is not None and pane is not None
+    assert bar["y"] == 0 and pane["x"] == 0
+    assert pane["y"] == bar["y"] + bar["height"]
+    popup.screenshot(path=str(tmp_path / "attached-agent-window.png"))
 
     # The window holds the chat, styled and themed like the hub; the tile stays.
     expect(page.locator(_COMPOSER)).to_have_count(0)
@@ -120,6 +135,20 @@ def test_the_agent_pane_pops_out_chats_from_the_window_and_comes_back(hub, page)
     expect(page.locator("#operator-container")).to_contain_text(
         "Done: Check the beam from the window"
     )
+    assert _dock(page) == before
+
+
+def test_reattach_on_the_window_bar_puts_the_pane_back_and_closes_the_window(hub, page):
+    _boot(page, hub)
+    before = _dock(page)
+    popup = _pop_out(page)
+
+    with popup.expect_event("close", timeout=_TIMEOUT_MS):
+        popup.locator(_BAR_REATTACH).click()
+
+    expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(page.locator(_STAND_IN)).to_have_count(0)
+    expect(page.locator("html")).not_to_have_attribute("data-agent", "popped")
     assert _dock(page) == before
 
 

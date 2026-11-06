@@ -461,7 +461,7 @@ const MISSES_BEFORE_UNREACHABLE = 2;
  *
  * A panel that never answered keeps its `.disabled` boot state and is never
  * counted, and its tile, which never opens, carries no notice. Liveness
- * detail lives in the SYSTEM panel's `web_panels` category.
+ * detail lives in the Health panel's `web_panels` category.
  * @param {Panel} panel
  * @param {boolean} wasHealthy
  */

@@ -389,7 +389,7 @@ export function setServiceMenuExtras(panelId, fn) {
  * by the rows registered through {@link setServiceMenuExtras}.
  *
  * A panel with a tile offers "Pop out", the tile button's attached window
- * (attached-popout.js), and "Bring back" while it is out. "Open in new
+ * (attached-popout.js), and "Reattach" while it is out. "Open in new
  * window" stays inert until the panel can open its standalone page
  * (popout.js): its URL has resolved, and it is not an opaque-origin panel. A
  * panel in that window offers "Bring back" in its place and no "Open in a
@@ -489,19 +489,19 @@ function moveToNewGroup(id) {
 
 /**
  * The attached pop-out's row (the tile header's Pop out button,
- * attached-popout.js): Pop out, or Bring back while the content is in its
+ * attached-popout.js): Pop out, or Reattach while the content is in its
  * window.
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
  * @returns {import('./panel-context-menu.js').MenuItem}
  */
 function attachedRow(id) {
   return isAttached(id)
-    ? { label: 'Bring back', glyph: '⊟', run: () => bringBackAttached(id) }
+    ? { label: 'Reattach', glyph: '⊟', run: () => bringBackAttached(id) }
     : { label: 'Pop out', glyph: '⧉', disabled: !canAttach(id), run: () => popOutAttached(id) };
 }
 
 /**
- * The Agent tile header's menu rows: Pop out (or Bring back), Export
+ * The Agent tile header's menu rows: Pop out (or Reattach), Export
  * conversation in chat, Restart terminal on the terminal, Reset layout, Close
  * Agent pane. The Agent row in the sidebar heads the session tree and has
  * its own menu (buildAgentRowMenuItems, sidebar-artifact-menus.js), which is

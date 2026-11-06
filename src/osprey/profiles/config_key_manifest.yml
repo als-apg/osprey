@@ -3056,13 +3056,12 @@ keys:
       the control-assistant preset.
     default: null
   web.panels.system-health.hidden:
+    rendered: false
     evidence: 'spec\.get\("hidden", False\)'
     note: >-
       Serves the panel without a sidebar row: it stays enabled (the "+ Add
       panel" menu and the command palette open it) but is not a sidebar member
-      until someone adds it. The
-      control-assistant preset ships it true. The same per-panel key works for
-      every panel; this is the one shipped configuration that writes it.
+      until someone adds it. The same per-panel key works for every panel.
     default: false
   web.panels.my-grafana.rewrite_prefixes:
     rendered: false
@@ -4184,7 +4183,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 365
+  expected_union_size: 364
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

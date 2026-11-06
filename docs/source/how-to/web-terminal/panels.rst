@@ -72,10 +72,9 @@ Taking panels out of the sidebar
 To remove a panel row, right-click it or use the **×** of the row. You can
 undo this for a few seconds.
 
-A panel can be open without a sidebar row. In the ``control-assistant`` preset
-SYSTEM starts that way (``web.panels.system-health.hidden: true``): open it
-from **+ Add panel** or the command palette, and right-click its tile to pin it
-to the sidebar.
+A panel can be open without a sidebar row (``web.panels.<id>.hidden: true``):
+open it from **+ Add panel** or the command palette, and right-click its tile
+to pin it to the sidebar.
 
 When a panel stops answering
 ----------------------------
@@ -90,7 +89,7 @@ because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.
 
-This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
+This applies to panels that have a health check: Jupyter, CANOPY, Health, and any
 URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be
