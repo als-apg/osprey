@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import inspect
-import sys
 from pathlib import Path
 
 import claude_agent_sdk
@@ -24,7 +23,6 @@ from osprey.infrastructure.proxy import lifecycle
 _RUN_PATH = Path(__file__).resolve().parents[2] / "scripts" / "benchmark" / "matrix_run.py"
 _spec = importlib.util.spec_from_file_location("benchmark_matrix_run", _RUN_PATH)
 matrix_run = importlib.util.module_from_spec(_spec)
-sys.modules["benchmark_matrix_run"] = matrix_run
 _spec.loader.exec_module(matrix_run)
 
 
