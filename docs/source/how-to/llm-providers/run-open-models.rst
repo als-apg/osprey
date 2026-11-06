@@ -89,19 +89,34 @@ Benchmark it yourself
 
 The numbers are reproducible. OSPREY ships the benchmark toolchain under
 ``scripts/benchmark/`` (see its `README
-<https://github.com/als-apg/osprey/blob/main/scripts/benchmark/README.md>`_): it runs the model-driving part of
-``tests/e2e/`` — the tests that actually exercise the model under test — across a
-matrix of models and renders a per-test pass-rate dashboard. The
+<https://github.com/als-apg/osprey/blob/main/scripts/benchmark/README.md>`_): it runs the agentic tests of
+``tests/e2e/`` — those where the model under test drives the agent — across a
+matrix of models and renders a per-test dashboard. The
 whole run is declared in one file, ``scripts/benchmark/matrix.yaml`` — each row
 names a ``provider`` and a model ``id``; the launcher resolves credentials,
 derives the route (proxy for OpenAI-protocol models, direct for Anthropic),
 wires the judge, and runs one isolated worker per (model, seed) cell. Adding a
 model — or a self-hosted ``vllm`` server — is a config edit, not a script edit.
 Every answer the tests judge is graded by ``claude-haiku-5-5`` on als-apg. Each
-test sits in one of two lanes: the **capability** lane (``agentic_benchmark``,
-tasks the model itself can fail; the headline score) and the **harness** lane
-(``harness_benchmark``, model-independent safety and plumbing checks, scored
-apart).
+test carries its tier and a plain-words description on an ``agentic`` marker,
+and the board scores its first attempt:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 46 36
+
+   * - Tier
+     - What it covers
+     - What the board shows
+   * - 1 · basic
+     - The stack works, the model calls the right tools, a simple workflow goes through.
+     - Median time and tokens per task; all green expected.
+   * - 2 · benchmark
+     - Harder tasks a capable model may still miss.
+     - Each test's first-attempt result per seed.
+   * - 3 · facility scale
+     - Planned.
+     -
 
 .. code-block:: bash
 
@@ -122,20 +137,17 @@ apart).
    scripts/benchmark/matrix_dashboard.py --results-dir results --artifact \
        --out docs/source/_static/benchmark-dashboard.html
 
-The dashboard derives every count from the run data at render time — it never
-hard-codes a number, so it stays accurate as the suite grows.
-
 .. admonition:: Benchmark snapshot — OSPREY [FULL-RUN: version]
    :class: important
 
-   Capability-lane pass rates on the model-driving subset of the e2e suite.
+   First-attempt results on the agentic tests of the e2e suite.
    The judge changed to ``claude-haiku-5-5``, so these numbers are not
    comparable with the June and October 2026 runs.
 
    - **Measured against:** OSPREY ``[FULL-RUN: version]``
    - **Run:** [FULL-RUN: date] · open models via CBORG · ``kolibri-1`` self-hosted on vLLM · Anthropic references via als-apg · 3 seeds each
-   - **Scope:** 212 tests per seed: 38 in the capability lane, 174 in the harness lane
-   - **Scoring:** pass rate = passed / (passed + failed + timeout + errors); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over the three seeds.
+   - **Scope:** 30 tests per seed: 25 in Tier 1, 5 in Tier 2
+   - **Scoring:** first attempt only; a timeout counts as a failure (the model did not finish within the 1800s cap). Tier 1: passes over all seeds and the median time per task. Tier 2: passes over all seeds.
 
    .. list-table::
       :header-rows: 1
@@ -143,8 +155,8 @@ hard-codes a number, so it stays accurate as the suite grows.
 
       * - Model
         - Provider
-        - Capability (mean)
-        - Harness (mean)
+        - Tier 1 (passed · median task)
+        - Tier 2 (passed)
       * - ``cborg-coder``
         - CBORG
         - [FULL-RUN]
