@@ -38,6 +38,11 @@ _CANONICAL_NAMES = (
     "archive",
     "agent_record",
     "simulator",
+    "safety_chain",
+    "rendered",
+    "versions",
+    "dispatch",
+    "service_capabilities",
 )
 
 
@@ -71,7 +76,7 @@ class TestCoreRegistry:
     def test_canonical_names_present_without_import(self):
         assert set(CORE_CATEGORY_NAMES) == set(_CANONICAL_NAMES)
         assert set(CORE_CATEGORIES) == set(_CANONICAL_NAMES)
-        assert len(CORE_CATEGORIES) == 19
+        assert len(CORE_CATEGORIES) == 24
 
     def test_contains(self):
         assert "configuration" in CORE_CATEGORIES

@@ -48,6 +48,10 @@ class CheckResult:
             deciding how loudly to report a non-``ok`` row knows there is no
             reachability fact behind it. In-process only: it is not part of
             :meth:`to_dict`'s locked wire shape.
+        fix: One shell command that repairs the fault this row reports
+            (optional; set only where a real one exists).
+        used_by: The consumers of a shared resource whose duplicate probes
+            were folded into this row (set by :func:`osprey.health.dedupe.fold_shared`).
     """
 
     name: str
@@ -58,12 +62,15 @@ class CheckResult:
     latency_ms: float = 0.0
     details: str = ""
     probed: bool = False
+    fix: str = ""
+    used_by: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to the wire shape, omitting empty optional fields.
 
-        ``value`` and ``details`` are included only when truthy; ``latency_ms``
-        only when greater than zero (rounded to one decimal place).
+        ``value``, ``details``, ``fix`` and ``used_by`` are included only when
+        truthy; ``latency_ms`` only when greater than zero (rounded to one
+        decimal place).
         """
         d: dict[str, Any] = {
             "name": self.name,
@@ -77,6 +84,10 @@ class CheckResult:
             d["latency_ms"] = round(self.latency_ms, 1)
         if self.details:
             d["details"] = self.details
+        if self.fix:
+            d["fix"] = self.fix
+        if self.used_by:
+            d["used_by"] = list(self.used_by)
         return d
 
 

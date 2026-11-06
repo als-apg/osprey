@@ -66,6 +66,11 @@ class TestPolicySets:
                 "reach",
                 "archive",
                 "simulator",
+                "safety_chain",
+                "rendered",
+                "versions",
+                "dispatch",
+                "service_capabilities",
             }
         )
 
