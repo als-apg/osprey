@@ -169,16 +169,15 @@ def _check_config_structure(config: dict[str, Any]) -> list[CheckResult]:
     models = config.get("models", {})
 
     if not models:
+        # Optional: the agent's own model comes from claude_code, so a render
+        # without per-role models is a complete deployment.
         results.append(
             CheckResult(
                 name="model_configs",
                 category=_CATEGORY,
-                status=Status.WARNING,
-                message="No models section in config",
-                details=(
-                    "The models section is optional but python_code_generator is needed "
-                    "for Python code execution."
-                ),
+                status=Status.SKIP,
+                message="No models section in config (optional)",
+                value="absent (optional)",
             )
         )
     else:
@@ -311,9 +310,21 @@ def _check_config_structure(config: dict[str, Any]) -> list[CheckResult]:
 def _check_environment_variables(config: dict[str, Any]) -> list[CheckResult]:
     """Check if environment variables referenced in config are set.
 
-    Emits no row when the config references no ``${VAR}`` placeholders.
+    A variable referenced only by a catalogue provider no role of this
+    deployment names (:func:`~osprey.health.core.providers.used_providers`)
+    is not counted: an unused gateway's unset key is not this deployment's
+    concern. Emits no row when the config references no ``${VAR}`` placeholders.
     """
-    config_str = str(config)
+    from osprey.health.core.providers import used_providers
+
+    used = used_providers(config)
+    api = config.get("api") if isinstance(config.get("api"), dict) else {}
+    catalogue = api.get("providers") if isinstance(api.get("providers"), dict) else {}
+    relevant = {
+        **config,
+        "api": {**api, "providers": {k: v for k, v in catalogue.items() if k in used}},
+    }
+    config_str = str(relevant)
     env_vars = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", config_str)
     env_vars = list(set(env_vars))  # Remove duplicates.
 
@@ -325,7 +336,8 @@ def _check_environment_variables(config: dict[str, Any]) -> list[CheckResult]:
                 name="environment_variables",
                 category=_CATEGORY,
                 status=Status.WARNING,
-                message=f"Missing environment variables: {', '.join(missing_vars)}",
+                message=f"Missing environment variables: {', '.join(sorted(missing_vars))}",
+                value=f"{len(env_vars) - len(missing_vars)} / {len(env_vars)} set",
                 details=("These variables are referenced in config.yml but not set in environment"),
             )
         ]
@@ -336,6 +348,7 @@ def _check_environment_variables(config: dict[str, Any]) -> list[CheckResult]:
                 category=_CATEGORY,
                 status=Status.OK,
                 message=f"All {len(env_vars)} environment variables set",
+                value=f"{len(env_vars)} / {len(env_vars)} set",
             )
         ]
     return []

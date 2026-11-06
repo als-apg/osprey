@@ -22,6 +22,14 @@ class Status(StrEnum):
     SKIP = "skip"
 
 
+#: The ``value`` of a ``skip`` row whose subject this deployment does not use
+#: (a catalogue provider no role names). Renderers group these rows apart.
+NOT_USED = "not used by this deployment"
+
+#: The ``value`` of a ``skip`` row whose subject has no meaning inside a
+#: container (the host's ``.env``, the host's container runtime).
+N_A_IN_CONTAINER = "n/a in container"
+
 STATUS_ICONS = {
     "ok": "\033[32m✓\033[0m",  # green checkmark
     "warning": "\033[33m⚠\033[0m",  # yellow warning
