@@ -135,6 +135,25 @@ test('Rename edits in place: Enter keeps it (stored), Escape and an empty name k
   expect(head().getAttribute('aria-expanded')).toBe('false');
 });
 
+test('the Sessions divider re-measures when the group shows, hides, folds or unfolds', async () => {
+  const { FOLD_EVENT } = await import(`${JS}/sidebar-fold.js`);
+  const heard = vi.fn();
+  document.addEventListener(FOLD_EVENT, heard);
+  try {
+    pins.paintPinnedGroup(0);
+    expect(heard).not.toHaveBeenCalled();
+    pins.paintPinnedGroup(1);
+    expect(heard).toHaveBeenCalledTimes(1);
+    pins.paintPinnedGroup(2);
+    expect(heard).toHaveBeenCalledTimes(1);
+    pins.setPinnedFolded(false);
+    pins.setPinnedHidden(true);
+    expect(heard).toHaveBeenCalledTimes(3);
+  } finally {
+    document.removeEventListener(FOLD_EVENT, heard);
+  }
+});
+
 test('the view state is read back from per-user storage', async () => {
   localStorage.setItem(
     pins.PINS_STORAGE_KEY,

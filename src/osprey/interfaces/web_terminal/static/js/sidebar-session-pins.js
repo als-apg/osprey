@@ -34,6 +34,7 @@ import { icon } from '/design-system/js/icons.js';
 import { isContextMenuKey } from '/design-system/js/context-menu.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { openContextMenu } from './panel-context-menu.js';
+import { FOLD_EVENT } from './sidebar-fold.js';
 
 /** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 
@@ -84,11 +85,20 @@ let count = 0;
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
+/**
+ * The group's height changed (shown, hidden, folded, unfolded): the Sessions
+ * divider re-measures the room it leaves on the fold event (sidebar-divider.js).
+ */
+function resized() {
+  document.dispatchEvent(new CustomEvent(FOLD_EVENT));
+}
+
 /** Store the view and redraw. @param {Partial<PinsView>} change */
 function update(change) {
   view = { ...view, ...change };
   writeView();
   for (const fn of [...listeners]) fn();
+  resized();
 }
 
 /**
@@ -202,7 +212,9 @@ export function paintPinnedGroup(pinned) {
   count = pinned;
   const group = groupEl();
   if (!group) return;
+  const wasHidden = group.hidden;
   group.hidden = !pinnedShown();
+  if (group.hidden !== wasHidden) resized();
   const head = /** @type {HTMLElement} */ (group.querySelector('.sidebar-pinned-head'));
   const name = /** @type {HTMLElement} */ (head.querySelector('.sidebar-group-name'));
   name.textContent = view.name;
