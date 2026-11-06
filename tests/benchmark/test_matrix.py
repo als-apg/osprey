@@ -456,6 +456,42 @@ def test_drive_writes_markers_and_resumes(tmp_path, monkeypatch):
     assert calls == []
 
 
+# --- the shipped grid --------------------------------------------------------
+
+
+def _shipped(monkeypatch) -> matrix.MatrixConfig:
+    pytest.importorskip("yaml")
+    monkeypatch.setenv("ALS_APG_BASE_URL", GATEWAY_ORIGIN)
+    return matrix.load_config(matrix.DEFAULT_CONFIG)
+
+
+def test_shipped_grid_is_the_open_models_and_the_current_claude_references(monkeypatch):
+    cfg = _shipped(monkeypatch)
+
+    by_provider: dict[str, set[str]] = {}
+    for row in cfg.models:
+        by_provider.setdefault(row["provider"], set()).add(row["id"])
+    assert by_provider == {
+        "cborg": {
+            "gpt-oss-20b",
+            "gpt-oss-120b",
+            "gemma-4",
+            "cborg-coder",
+            "google/qwen-3-coder",
+            "google/qwen-3",
+        },
+        "als-apg": {"claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"},
+    }
+    assert {c.seed for c in matrix.expand_grid(cfg)} == {1, 2, 3}
+
+
+def test_shipped_grid_judges_every_cell_with_haiku_5_5_on_als_apg(monkeypatch):
+    cfg = _shipped(monkeypatch)
+
+    for name, provider in cfg.providers.items():
+        assert provider["judge"] == {"via": "als-apg", "model": "claude-haiku-5-5"}, name
+
+
 def test_main_hands_the_selection_to_every_cell(monkeypatch):
     seen: dict[str, str] = {}
 

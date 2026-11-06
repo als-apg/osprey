@@ -43,15 +43,27 @@ MODEL_ORDER = [
     "gpt-oss-120b",
     "google/qwen-3-coder",
     "google/qwen-3",
+    "kolibri-1",
     "deepseek-v4-flash",
     "deepseek-v4-pro",
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
     "claude-haiku-4-5-20251001",
     "claude-sonnet-4-6",
     "claude-opus-4-6",
 ]
 # Anthropic Claude models as a control/ceiling reference, flagged "(ref)".
-# Ordered weak->strong (haiku < sonnet < opus) to bracket the open subjects.
-REFERENCE_MODELS = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"}
+# Ordered weak->strong (haiku < sonnet < opus) to bracket the open subjects;
+# the 4.x ids label earlier runs' results.
+REFERENCE_MODELS = {
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+}
 SEEDS = [1, 2, 3]
 OUTCOME_COLORS = {
     "passed": "#1a7f37",
@@ -394,8 +406,8 @@ def provider_display(provider: str) -> str:
     """Render the canonical provider for the [provider] line. ds4 is the keyless
     local-server entry, so flag it as self-hosted to set it apart from the
     remote providers."""
-    if provider == "ds4":
-        return "ds4 · self-hosted"
+    if provider in ("ds4", "vllm"):
+        return f"{provider} · self-hosted"
     return provider
 
 

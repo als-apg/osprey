@@ -48,22 +48,22 @@ the bash now lives in the config + launcher.
 ```yaml
 providers:
   cborg:   { base_url: https://api.cborg.lbl.gov/v1, key_file: ~/.cborg_key,
-             protocol: openai,    judge: { via: cborg,   model: google/claude-haiku-4-5 } }
+             protocol: openai,    judge: { via: als-apg, model: claude-haiku-5-5 } }
   als-apg: { base_url: ${ALS_APG_BASE_URL}, key_file: ~/.als_apg_key,
-             protocol: anthropic, judge: { via: als-apg, model: claude-haiku-4-5-20251001 } }
-  ds4:     { base_url: http://127.0.0.1:8000/v1, keyless: true,
-             protocol: openai,    judge: { via: cborg,   model: google/claude-haiku-4-5 } }
+             protocol: anthropic, judge: { via: als-apg, model: claude-haiku-5-5 } }
+  vllm:    { base_url: ${VLLM_BASE_URL:-http://127.0.0.1:8000/v1}, keyless: true,
+             protocol: openai,    judge: { via: als-apg, model: claude-haiku-5-5 } }
 models:
-  - { id: gpt-oss-20b,     provider: cborg }                              # 3 seeds (default)
-  - { id: claude-opus-4-6, provider: als-apg, seeds: 1, budget_scale: 6 } # pricey ref
-  # - { id: deepseek-v4-flash, provider: ds4 }                            # local DeepSeek
+  - { id: gpt-oss-20b,     provider: cborg }                               # 3 seeds (default)
+  - { id: claude-opus-5-5, provider: als-apg, budget_scale: 40 }           # pricey ref
+  # - { id: kolibri-1, provider: vllm }                                    # self-hosted
 ```
 
 `protocol` is per-model-overridable — required because CBORG serves `claude-*` on
 the Anthropic route and everything else on the OpenAI route under one provider.
 `judge.via` names a provider whose endpoint+key back the grader, which is always
-a reachable remote, **never the model under test** (so a local `ds4` cell judges
-via `cborg`). `budget_scale` multiplies the per-query `$` cap so a pricey
+a reachable remote, **never the model under test** (so a local `vllm` cell judges
+via `als-apg`). `budget_scale` multiplies the per-query `$` cap so a pricey
 reference model doesn't blow the haiku-tuned ceiling mid-query. It applies to
 direct (`anthropic`) cells only: a proxied model reaches the SDK under a Claude
 alias and is priced at Claude rates, so its dollar figure is fiction and the
@@ -134,10 +134,16 @@ bash scripts/benchmark/matrix_restart.sh
 scripts/benchmark/matrix_dashboard_live.sh
 ```
 
-To benchmark a local DeepSeek (`ds4`) server: start it
-(`ds4-server --ctx 100000 …`), uncomment the `ds4` rows in `matrix.yaml`, and
-`scripts/benchmark/matrix.py --provider ds4 --parallel 1` (local inference is
-slow; keep it serial so serving + testing don't contend).
+To benchmark a model on a local vLLM server: serve it, set `VLLM_BASE_URL`
+if it is not on this host's :8000, uncomment a `vllm` row in `matrix.yaml`
+naming its `--served-model-name`, and run
+`scripts/benchmark/matrix.py --provider vllm --parallel 1` (keep it serial so
+serving and testing don't contend).
+
+A smoke run of one model on a few tests:
+`scripts/benchmark/matrix.py --only gpt-oss-120b --select "vacuum_burst" --results-dir results-smoke`
+(`--select` is a pytest `-k` expression; use a fresh `--results-dir`, since a
+cell with a summary is skipped on resume).
 
 ## Prerequisites
 
@@ -145,7 +151,7 @@ slow; keep it serial so serving + testing don't contend).
   (each cell runs `pytest tests/e2e/`). On the benchmark box, in the remote
   checkout (`OSPREY_BENCH_REMOTE_REPO`).
 - A CBORG key (`~/.cborg_key`) for open models; an als-apg key (`~/.als_apg_key`)
-  for the Anthropic reference bracket. A local server (e.g. `ds4`) needs no key.
+  for the Anthropic reference bracket. A local vLLM server needs no key.
 - A live, seeded **ARIEL Postgres** for the scenario columns (rf_cavity,
   vacuum_burst); `osprey up && osprey ariel migrate && osprey ariel
   quickstart`. Those tests skip with an actionable message if it is absent. The
