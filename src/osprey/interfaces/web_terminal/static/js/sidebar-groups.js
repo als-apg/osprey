@@ -82,7 +82,7 @@ const BUILTIN_GROUPS = Object.freeze([
 const ADDED_LATER = Object.freeze(['system']);
 
 /** Where a panel goes when nothing else places it, and where the panels of a deleted group go. */
-const FALLBACK_GROUP = 'tools';
+export const FALLBACK_GROUP = 'tools';
 
 /** The panels that sit in Workspace until the operator moves them. */
 const DEFAULT_WORKSPACE = Object.freeze(['artifacts']);
