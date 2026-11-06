@@ -171,7 +171,7 @@ def _lay_down_session(
     cli_version: str,
 ) -> None:
     """Fill every store for one seeded session; raise when any step did not land."""
-    from osprey_connectors.simulation.sessions import from_dict
+    from osprey.simulation.sessions import from_dict
 
     key = raw["key"]
     scenario = raw["scenario"]

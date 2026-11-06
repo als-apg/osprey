@@ -1,6 +1,6 @@
 """Write a stated agent conversation as the transcript the agent CLI would have kept.
 
-A scenario's ``sessions`` block (``osprey_connectors.simulation.sessions``) states a
+A scenario's ``sessions`` block (``osprey.simulation.sessions``) states a
 past conversation: prompts, tool calls and their results, answers. A deployment that
 lays such a conversation down needs it as the CLI's own JSONL transcript, so that
 every surface reading transcripts (the agent record, the chat replay, ``--resume``)
@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.agent_runner.tool_names import _MCP_NAME_UNSAFE
 
 if TYPE_CHECKING:
-    from osprey_connectors.simulation.sessions import ResolvedPart, ToolStep
+    from osprey.simulation.sessions import ResolvedPart, ToolStep
 
 __all__ = ["APPROVED_CALL_NOTE", "author_transcript"]
 
@@ -62,7 +62,7 @@ def author_transcript(
     Returns:
         JSON-ready line objects; write each as one line of ``<session_id>.jsonl``.
     """
-    from osprey_connectors.simulation.sessions import AnswerStep
+    from osprey.simulation.sessions import AnswerStep
 
     lines: list[dict[str, Any]] = []
 

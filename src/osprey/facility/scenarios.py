@@ -25,7 +25,7 @@ An entry's ``attachments`` list names its pictures, each item one of
 scenario's own directory ``scenarios/<name>/``.
 
 A scenario's ``sessions`` block parses through
-:func:`~osprey_connectors.simulation.sessions.parse_sessions`;
+:func:`~osprey.simulation.sessions.parse_sessions`;
 :func:`check_scenario_sessions` checks it against the facility.
 """
 
@@ -40,9 +40,9 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.errors import FacilityBuildError, exact_number, quoted_slots
+from osprey.simulation.sessions import SessionTurn, ToolStep, parse_sessions
 from osprey_connectors.relative_time import RelativeTimestamp
 from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
-from osprey_connectors.simulation.sessions import SessionTurn, ToolStep, parse_sessions
 
 __all__ = [
     "FaultRoster",

@@ -36,10 +36,10 @@ from osprey.simulation.apply import (
     persisted_scenario_anchor,
 )
 from osprey.simulation.session_artifacts import PLOT_DIV_ID, render_session_artifacts
+from osprey.simulation.sessions import parse_sessions, resolve
 from osprey_connectors.archiver import field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.series import anchored_instant
-from osprey_connectors.simulation.sessions import parse_sessions, resolve
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 SCENARIO_FILE = TEMPLATE_FACILITY / "scenarios" / "demo-history.yaml"

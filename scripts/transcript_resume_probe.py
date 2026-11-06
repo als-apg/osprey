@@ -166,7 +166,7 @@ def author(config_dir: Path, project: Path, cli_version: str) -> list[dict[str, 
 
     from osprey.agent_runner.project_paths import encode_claude_project_path
     from osprey.agent_runner.transcript_author import author_transcript
-    from osprey_connectors.simulation.sessions import parse_sessions, resolve
+    from osprey.simulation.sessions import parse_sessions, resolve
 
     raw = yaml.safe_load(SCENARIO.read_text(encoding="utf-8")) or {}
     sessions = resolve(parse_sessions(raw.get("sessions"), f"{SCENARIO.name}: sessions"), ANCHOR)

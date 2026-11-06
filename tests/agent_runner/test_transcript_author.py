@@ -13,7 +13,7 @@ from pathlib import Path
 
 from osprey.agent_runner.transcript_author import APPROVED_CALL_NOTE, author_transcript
 from osprey.interfaces.web_terminal.routes import session as session_routes
-from osprey_connectors.simulation.sessions import parse_sessions, resolve
+from osprey.simulation.sessions import parse_sessions, resolve
 
 SESSION_ID = "0b6f4f5e-6a1d-5d2c-9a43-3c1f2b7d9e10"
 CWD = "/home/alice/project"

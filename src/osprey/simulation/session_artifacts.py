@@ -38,13 +38,13 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
-    from osprey_connectors.simulation.archive import ArchiveComposite
-    from osprey_connectors.simulation.sessions import (
+    from osprey.simulation.sessions import (
         ArtifactSpec,
         ResolvedSession,
         ResolvedTurn,
         ToolStep,
     )
+    from osprey_connectors.simulation.archive import ArchiveComposite
 
 __all__ = [
     "PLOT_DIV_ID",
@@ -389,7 +389,7 @@ def _producing_step(
     turn: ResolvedTurn, spec: ArtifactSpec, tools: Sequence[str]
 ) -> ToolStep | None:
     """The turn's call that produced ``spec``: by tool preference, the one titled as it first."""
-    from osprey_connectors.simulation.sessions import ToolStep
+    from osprey.simulation.sessions import ToolStep
 
     calls = [step for step in turn.turn.steps if isinstance(step, ToolStep)]
     for tool in tools:

@@ -49,9 +49,9 @@ if TYPE_CHECKING:
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.simulation.session_artifacts import ArtifactPayload
+    from osprey.simulation.sessions import ResolvedSession
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
-    from osprey_connectors.simulation.sessions import ResolvedSession
     from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("simulation_apply")
@@ -505,7 +505,7 @@ def _seed_session(
     payloads: Mapping[tuple[str, str], ArtifactPayload],
 ) -> dict[str, Any]:
     """One seed-file session of *identity*: the resolved session, its ids and artifacts."""
-    from osprey_connectors.simulation.sessions import to_dict
+    from osprey.simulation.sessions import to_dict
 
     slug = rs.session.slug
     plain = to_dict(rs)
@@ -556,8 +556,8 @@ def write_scenario_sessions(
 
     from osprey.deployment.compose_generator import ensure_control_target_dir
     from osprey.simulation.session_artifacts import render_session_artifacts
+    from osprey.simulation.sessions import parse_sessions, resolve
     from osprey_connectors.safety_file import atomic_replace
-    from osprey_connectors.simulation.sessions import parse_sessions, resolve
 
     project_dir = Path(project_dir)
     if anchor.tzinfo is None or anchor.utcoffset() is None:
