@@ -348,21 +348,6 @@ html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-sized]:no
   max-height: none;
 }
 
-/* The automatic height's mark while the divider is dragged. */
-.sidebar-divider-default {
-  position: absolute;
-  left: var(--space-3);
-  right: var(--space-3);
-  height: 0;
-  border-top: 1px dashed var(--color-accent);
-  opacity: 0.6;
-  pointer-events: none;
-}
-
-.sidebar-divider-default[hidden] {
-  display: none;
-}
-
 .sidebar-group-rename {
   flex: 1;
   min-width: 0;

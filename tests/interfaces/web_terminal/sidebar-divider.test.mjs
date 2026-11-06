@@ -42,7 +42,6 @@ const rail = () => byId('panel-rail');
 const group = (/** @type {string} */ id) => qs(rail(), `[data-group="${id}"]`);
 const name = (/** @type {string} */ id) => qs(group(id), '.sidebar-group-name');
 const divider = () => qs(rail(), '.sidebar-divider');
-const tick = () => qs(divider(), '.sidebar-divider-default');
 const height = () => group('workspace').style.getPropertyValue('--sidebar-group-height');
 const cap = () => group('workspace').style.getPropertyValue('--sidebar-group-cap');
 const stored = (/** @type {string} */ key) => JSON.parse(localStorage.getItem(key) ?? 'null');
@@ -191,22 +190,23 @@ describe('the Workspace divider', () => {
     expect(localStorage.getItem(HEIGHT)).toBe('0.5000');
   });
 
-  test('while dragging, a tick marks the automatic height and the line snaps to it', async () => {
+  test('the drag snaps to the automatic height silently, with no tick and no tooltip', async () => {
     await boot();
-    expect(tick().hidden).toBe(true);
+    expect(divider().querySelector('.sidebar-divider-default')).toBeNull();
+    expect(divider().children.length).toBe(0);
+    expect(divider().hasAttribute('data-tip')).toBe(false);
+    expect(divider().hasAttribute('data-tip-detail')).toBe(false);
+    expect(divider().getAttribute('aria-label')).toBe('Workspace height');
     ptr('pointerdown', 100);
     ptr('pointermove', 150);
     expect(height()).toBe('250px');
-    expect(tick().hidden).toBe(false);
-    expect(tick().style.top).toBe('-50px');
+    expect(divider().querySelector('.sidebar-divider-default')).toBeNull();
     ptr('pointermove', 108);
     expect(height()).toBe('200px');
-    expect(tick().style.top).toBe('0px');
     ptr('pointerup', 108);
-    expect(tick().hidden).toBe(true);
   });
 
-  test('a drag that ends on the tick goes back to automatic sizing', async () => {
+  test('a drag that ends on the automatic height goes back to automatic sizing', async () => {
     localStorage.setItem(HEIGHT, '0.5');
     await boot();
     expect(height()).toBe('300px');

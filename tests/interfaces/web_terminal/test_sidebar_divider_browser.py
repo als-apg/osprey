@@ -13,8 +13,7 @@ Coverage:
       scrolls; every session row stays 30 px, the open session's artifact
       box keeps three rows, and nothing spills out of the tree.
   (3) a drag is stored as a fraction of the rail, which holds when the window
-      grows; while dragging a tick marks the automatic height, and a drag back
-      onto it clears the stored height.
+      grows; a drag back within 10 px of the automatic height snaps and clears the stored height.
   (4) a whole-pixel height stored by an earlier build keeps its height and is
       rewritten once as a fraction.
 
@@ -205,17 +204,17 @@ def test_thirty_sessions_scroll_in_the_group_and_no_row_squashes(tmp_path, chrom
 
 
 def test_drag_is_kept_as_a_fraction_and_snaps_back_to_automatic(tmp_path, chromium_browser):
-    """A drag keeps its share of the rail at 1100 px; a drag onto the tick resets."""
+    """A drag keeps its share of the rail at 1100 px; a drag back to the automatic height resets."""
     with _hub(tmp_path) as url, _page(chromium_browser, url, 800) as page:
         auto = _seed(page, 4, 0)
         x, y = _divider_y(page)
         page.mouse.move(x, y)
         page.mouse.down()
         page.mouse.move(x, y + 80, steps=4)
-        tick = page.locator(f"{_DIVIDER} .sidebar-divider-default")
-        expect(tick).to_be_visible()
+        assert page.locator(f"{_DIVIDER} .sidebar-divider-default").count() == 0
+        assert page.locator(_DIVIDER).get_attribute("data-tip") is None
+        assert page.locator(_DIVIDER).get_attribute("data-tip-detail") is None
         page.mouse.up()
-        expect(tick).to_be_hidden()
 
         dragged = _layout(page)
         assert dragged["sized"]
@@ -232,7 +231,7 @@ def test_drag_is_kept_as_a_fraction_and_snaps_back_to_automatic(tmp_path, chromi
         assert abs(taller["height"] - round(fraction * _rail_room(page))) <= 1, taller
         assert taller["stored"] == dragged["stored"]
 
-        # Back to within 10 px of the tick: snapped, and the stored height cleared.
+        # Back to within 10 px of the automatic height: snapped, and the stored height cleared.
         x, y = _divider_y(page)
         page.mouse.move(x, y)
         page.mouse.down()
