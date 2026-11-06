@@ -230,8 +230,8 @@ operations entries — RF trips, vacuum maintenance, beam-recovery shifts,
 radiation surveys, and more. A fresh deployment starts in the ``rf-thermal``
 and ``demo-history`` scenarios, so the logbook and the archived history also
 carry their incidents, such as an RF cavity that tripped on a thermal excursion
-four days ago, and the sidebar lists three past agent sessions. Ask the agent
-about past events in natural language:
+four days ago, and the sidebar lists three past agent sessions. Ask the agent about
+past events in natural language:
 
 .. code-block:: text
 
