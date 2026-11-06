@@ -100,10 +100,9 @@ worker runs on.
    your venv — handy for development. First repoint the worker URL in
    ``triggers.yml`` (the Docker hostname does not resolve on the host):
 
-   .. code-block:: yaml
-
-      dispatcher:
-        dispatch_target: http://localhost:10011
+   .. literalinclude:: examples/triggers-dev-target.yml
+      :language: yaml
+      :caption: triggers.yml
 
    Generate the two bearer tokens once (the containerized path does this for you;
    here you set them by hand) and export them so both shells share them:
@@ -314,25 +313,9 @@ Authoring Triggers
    ``dispatcher:`` block (where the dispatcher finds its worker) and a list of
    ``triggers:``. A minimal webhook trigger:
 
-   .. code-block:: yaml
-
-      dispatcher:
-        dispatch_target: http://dispatch-worker-1:10011  # worker URL
-        max_concurrent_runs: 2
-        max_queue_depth: 50
-
-      triggers:
-        - name: hello-dispatch
-          source: webhook                # webhook, cron or epics_ca
-          action:
-            prompt: >-
-              Reply with a single sentence confirming the pipeline works.
-            allowed_tools: []            # tools this run may use
-            max_turns: 25                # optional; defaults to dispatch.max_turns
-          on_error:                      # optional: retry if the worker is unreachable
-            action: retry
-            max_retries: 2
-            backoff_sec: 1.0
+   .. literalinclude:: examples/triggers-webhook.yml
+      :language: yaml
+      :caption: triggers.yml
 
    Each webhook trigger is reachable at ``POST /webhook/<name>``.
 
@@ -367,7 +350,8 @@ Authoring Triggers
 
    **Tool denylist (defence in depth).** The worker enforces a server-side tool
    denylist regardless of what a trigger requests: ``WebFetch``, ``WebSearch``,
-   every plugin's and claude.ai connector's MCP tools, all shell tools
+   every plugin's and claude.ai connector's MCP tools (``mcp__plugin_*``,
+   ``mcp__claude_ai_*``), all shell tools
    (``Bash``, ``TaskStop``, ``Monitor``), the tools that fire or schedule jobs
    (``Workflow``, ``CronCreate``, ``ScheduleWakeup``, and the dispatcher's own
    ``manual_fire``), ``SendMessage`` and ``EnterWorktree``. This sits on top of
@@ -395,37 +379,9 @@ the trigger; a blank one is empty. Three sources ship. A ``source:`` that no ins
 dispatcher starts, and its triggers are skipped while the rest of the file
 loads.
 
-.. code-block:: yaml
-
-   triggers:
-     - name: hourly-summary
-       source: cron
-       source_config:
-         interval_sec: 3600
-       action:
-         prompt: >-
-           Summarise what changed in the last hour.
-         allowed_tools: []
-     - name: morning-summary
-       source: cron
-       source_config:
-         at: ["07:45"]
-         days: [mon, tue, wed, thu, fri]
-       action:
-         prompt: >-
-           Summarise what happened overnight.
-         allowed_tools: []
-     - name: vacuum-alarm
-       source: epics_ca
-       source_config:
-         pv: demo:vacuum:pressure
-         threshold: 3.0
-         edge: rising
-         cool_down_sec: 300
-       action:
-         prompt: >-
-           The pressure crossed its threshold; describe the event.
-         allowed_tools: []
+.. literalinclude:: examples/triggers-sources.yml
+   :language: yaml
+   :caption: triggers.yml
 
 ``source: webhook``
    Fires on an authenticated ``POST /webhook/<name>`` carrying the
