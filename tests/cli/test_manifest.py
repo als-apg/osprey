@@ -165,3 +165,38 @@ class TestRuntimeWritePathValidation:
             ConfigBuilder(str(project / "config.yml"), load_env=False)
 
         assert "state_dir" not in caplog.text
+
+
+class TestRestampFileChecksums:
+    """The checksums describe the render as it stands once the build finished."""
+
+    def test_restamp_replaces_checksums_and_keeps_other_keys(self, tmp_path: Path):
+        import json
+
+        from osprey.cli.templates.manifest import restamp_file_checksums
+
+        (tmp_path / ".mcp.json").write_text('{"before": 1}')
+        manifest = tmp_path / ".osprey-manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": 9,
+                    "file_checksums": calculate_file_checksums(tmp_path),
+                }
+            )
+        )
+        # The re-render rewrites a checksummed file after the manifest was written.
+        (tmp_path / ".mcp.json").write_text('{"after": 2}')
+
+        restamp_file_checksums(tmp_path)
+
+        data = json.loads(manifest.read_text())
+        assert data["schema_version"] == 9
+        assert data["file_checksums"] == calculate_file_checksums(tmp_path)
+
+    def test_restamp_without_manifest_writes_nothing(self, tmp_path: Path):
+        from osprey.cli.templates.manifest import restamp_file_checksums
+
+        restamp_file_checksums(tmp_path)
+
+        assert not (tmp_path / ".osprey-manifest.json").exists()

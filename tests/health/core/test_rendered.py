@@ -130,3 +130,38 @@ def test_unreadable_mcp_json_warns(tmp_path):
 
     assert row.status is Status.WARNING
     assert "unreadable" in row.value
+
+
+def test_a_graph_agent_baked_by_the_seeder_is_not_drift(tmp_path):
+    from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
+        CHANNEL_FINDER_FILENAME,
+        SNAPSHOT_BEGIN,
+        SNAPSHOT_END,
+    )
+
+    rel = f".claude/agents/{CHANNEL_FINDER_FILENAME}"
+    _render(tmp_path)
+    _write(tmp_path, rel, f"prompt\n{SNAPSHOT_BEGIN}\nplaceholder\n{SNAPSHOT_END}\n")
+    _stamp(tmp_path)
+    # `osprey up` rewrites the region marker to marker after the build.
+    _write(tmp_path, rel, f"prompt\n{SNAPSHOT_BEGIN}\nlabels: Device\n{SNAPSHOT_END}\n")
+    rows = _rows(tmp_path)
+
+    assert rows["rendered.claude_dir"].status is Status.OK
+    assert rows["rendered.agents"].status is Status.OK
+
+
+def test_a_graph_agent_with_its_markers_removed_is_drift(tmp_path):
+    from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
+        CHANNEL_FINDER_FILENAME,
+        SNAPSHOT_BEGIN,
+        SNAPSHOT_END,
+    )
+
+    rel = f".claude/agents/{CHANNEL_FINDER_FILENAME}"
+    _render(tmp_path)
+    _write(tmp_path, rel, f"prompt\n{SNAPSHOT_BEGIN}\nplaceholder\n{SNAPSHOT_END}\n")
+    _stamp(tmp_path)
+    _write(tmp_path, rel, "prompt edited by hand\n")
+
+    assert _rows(tmp_path)["rendered.agents"].status is Status.WARNING

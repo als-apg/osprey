@@ -7,7 +7,9 @@ checksummed into the render's ``.osprey-manifest.json`` (``file_checksums``,
 reads that record rather than re-rendering — the manifest is the one producer
 of "what the build wrote", and a re-render would be a second, slower one that
 could disagree with it. A file edited, replaced or deleted since the build is
-drift; a file the build never wrote (an agent's own addition) is not counted.
+drift; a file the build never wrote (an agent's own addition) is not counted,
+and neither is a graph agent prompt whose snapshot region ``osprey up`` baked
+after the build (that writer owns the region by design).
 
 Runs against the render directory (``cwd``: the directory holding the rendered
 ``config.yml``). With no ``.claude/`` and no ``.mcp.json`` there — nothing was
@@ -116,10 +118,39 @@ def _matches(root: Path, rel: str, expected: str) -> bool:
         return False
 
 
+def _baked(root: Path, rel: str) -> bool:
+    """Whether ``root/rel`` is a graph agent file the seeder baked after the build.
+
+    ``osprey up`` rewrites the snapshot region of these agent prompts in place
+    (:mod:`osprey.services.facility_knowledge.seeder.prompt_snapshot`), so their
+    checksum differs from the build's by design. A file carrying its complete
+    marker pair is that writer's output, not drift.
+    """
+    from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
+        SNAPSHOT_BEGIN,
+        SNAPSHOT_END,
+        TARGET_FILENAMES,
+    )
+
+    if Path(rel).name not in TARGET_FILENAMES:
+        return False
+    try:
+        text = (root / rel).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    begin = text.find(SNAPSHOT_BEGIN)
+    return begin != -1 and text.find(SNAPSHOT_END) > begin
+
+
+def _differs(root: Path, rel: str, expected: str) -> bool:
+    """Whether a tracked file drifted: checksum differs and no deploy-time writer owns it."""
+    return not _matches(root, rel, expected) and not _baked(root, rel)
+
+
 def _drifted(root: Path, checksums: Mapping[str, str], prefix: str) -> tuple[list[str], int]:
     """Tracked paths under *prefix* that differ or are missing, and how many are tracked."""
     tracked = sorted(rel for rel in checksums if rel.startswith(prefix))
-    return [rel for rel in tracked if not _matches(root, rel, checksums[rel])], len(tracked)
+    return [rel for rel in tracked if _differs(root, rel, checksums[rel])], len(tracked)
 
 
 def _skip(name: str, message: str) -> CheckResult:
@@ -195,7 +226,7 @@ def _agents_row(root: Path, checksums: Mapping[str, str] | None) -> CheckResult:
     if checksums is None:
         return _skip(name, "No build manifest to compare the sub-agents against")
     tracked = sorted(rel for rel in checksums if rel.startswith(_AGENTS) and rel.count("/") == 2)
-    drifted = [rel for rel in tracked if not _matches(root, rel, checksums[rel])]
+    drifted = [rel for rel in tracked if _differs(root, rel, checksums[rel])]
     matching = len(tracked) - len(drifted)
     if not drifted:
         return CheckResult(
