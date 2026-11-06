@@ -3155,6 +3155,20 @@ def test_list_changed_names_the_checks_and_lanes_a_range_touches(
     assert check.resolve(["list", "--changed", "B"]) == []
 
 
+@pytest.mark.usefixtures("any_base")
+def test_list_changed_names_the_path_that_widened_a_runner(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A root-level tests/ helper has no mirror, so the unit sweep runs whole;
+    the listing says which changed path did that."""
+    changed = ["tests/test_wait_ceilings.py", "tests/_live.py"]
+    monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: changed)
+    assert check.main(["list", "--changed", "B", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["widened"] == {"pytest": "tests/_live.py"}
+    assert check.main(["list", "--changed", "B"]) == 0
+    assert "widened: pytest runs whole because of tests/_live.py" in capsys.readouterr().out
+
+
 @pytest.mark.usefixtures("repo")
 def test_list_changed_refuses_a_base_that_does_not_resolve(
     capsys: pytest.CaptureFixture[str],
