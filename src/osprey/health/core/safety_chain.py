@@ -581,10 +581,15 @@ def _watchdog_rows(cfg: Mapping[str, Any], render: Path, repo: Path) -> list[Che
 
 
 def _flags_row(root: Path) -> CheckResult:
-    from osprey_connectors.session_hold import is_safe_session_key, open_flags
+    from osprey_connectors.session_hold import (
+        UNREADABLE_FLAG_ID,
+        is_safe_session_key,
+        open_flags,
+    )
 
     flags = 0
     held = 0
+    unreadable: list[str] = []
     try:
         keys = sorted(p.name for p in root.iterdir() if p.is_dir())
     except FileNotFoundError:
@@ -592,17 +597,37 @@ def _flags_row(root: Path) -> CheckResult:
     for key in keys:
         if not is_safe_session_key(key):
             continue
-        n = len(open_flags(key, root=root))
-        flags += n
-        held += 1 if n else 0
-    if not flags:
+        found = open_flags(key, root=root)
+        if any(f.flag_id == UNREADABLE_FLAG_ID for f in found):
+            # Still held (fail closed), but there is no operator question to
+            # answer: the record itself is the fault.
+            unreadable.append(key)
+            continue
+        flags += len(found)
+        held += 1 if found else 0
+    if not flags and not unreadable:
         return _row("watchdog.flags_open", Status.OK, "no open hold flag", "0 · no hold")
+    parts: list[str] = []
     noun = "session" if held == 1 else "sessions"
+    if flags:
+        parts.append(f"{flags} open · {held} {noun} held")
+    if unreadable:
+        parts.append(
+            f"{len(unreadable)} hold record{'s' if len(unreadable) != 1 else ''} unreadable"
+        )
+    message = (
+        f"{flags} open hold flag(s); {held} {noun} held until an operator answers"
+        if flags
+        else "a session's hold record is missing or unreadable, so the session is held"
+    )
+    if flags and unreadable:
+        message += f"; {len(unreadable)} more held on an unreadable record"
     return _row(
         "watchdog.flags_open",
         Status.WARNING,
-        f"{flags} open hold flag(s); {held} {noun} held until an operator answers",
-        f"{flags} open · {held} {noun} held",
+        message,
+        " · ".join(parts),
+        details="\n".join(str(root / key / "record.json") for key in unreadable),
     )
 
 

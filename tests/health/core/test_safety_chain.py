@@ -437,6 +437,29 @@ def test_watchdogs_without_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert rows["watchdog.flags_open"].value == "0 · no hold"
 
 
+def test_an_unreadable_hold_record_holds_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.services.watchdog.config import WatchdogDefinition
+
+    config, build = _render(tmp_path, limits=GOOD_LIMITS)
+    monkeypatch.setattr(
+        sc,
+        "_load_watchdogs",
+        lambda _cfg, _dir: (WatchdogDefinition(name="radiation", engine="decision", enabled=True),),
+    )
+    session = sc.session_hold_dir(build.parent) / "s1"
+    session.mkdir(parents=True)
+    (session / "record.json").write_text("{not json")
+    row = _run(config, build)["watchdog.flags_open"]
+
+    # Fail closed: the session still counts as held; the text names the fault.
+    assert row.status is Status.WARNING
+    assert row.value == "1 hold record unreadable"
+    assert "operator" not in row.message
+    assert "s1" in row.details
+
+
 def test_invalid_watchdogs_block_is_an_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
