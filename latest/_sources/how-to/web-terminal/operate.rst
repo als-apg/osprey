@@ -62,12 +62,7 @@ The window has a sidebar on the left and two panes:
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
   plots, and data files appear under their session in the sidebar
   (`Sessions and artifacts`_) as the agent creates them, with no refresh.
-  On a fresh deployment the tree is not empty: the control-assistant preset
-  ships one interactive example plot (synthetic data). It is there for you,
-  not the agent, which never lists or cites it. Delete it when you no longer
-  want it; it does not come back. It is switched on by
-  ``artifact_server.example_artifact`` in ``config.yml``. Your
-  control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
+  Your control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
   on) open here too. See :doc:`panels`.
 
 The settings drawer (**☰ More** › **Settings**) lets you read and edit the
@@ -553,8 +548,7 @@ sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
 A script run is one row with a dot for **succeeded**, **failed** or **not
 run** (none while it runs); its approval preview, code and outputs are its
 parts. A run that was never run
-opens on its proposed code. **Earlier** holds your artifacts that have no
-session; **More sessions** loads older ones.
+opens on its proposed code. **More sessions** loads older ones.
 
 - Click a session name to switch to it: its layout comes back as you left it
   (panels, tiles, sizes, the Agent pane, and each panel's page where the hub
@@ -562,6 +556,8 @@ session; **More sessions** loads older ones.
   or older session keeps the layout on screen. The sidebar stays as it is.
   Click the current session's name to fold or unfold it. Only the current
   session shows its artifacts; the others stay folded until you switch to them.
+  ⌥-click (Alt+click) a session or **Agent** to expand every session, or
+  collapse them all if all are open.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
@@ -637,34 +633,40 @@ or press the same keys.
 Pop a pane out
 ~~~~~~~~~~~~~~
 
-You can move a panel out of the workspace into its own browser window. This
-works for each service panel, the Artifacts panel included. The agent pane
-stays in the workspace.
+Click **Pop out** in a tile's header, left of the close button, to move the
+tile's content into a window of its own. This works for the agent pane and for
+each service panel. The window stays attached to the terminal: the content
+keeps running there, and the window follows its theme. The tile keeps its
+place and shows **Bring back**. A service panel loads again when it moves into
+the window and when it comes back.
 
-To pop a panel out, do one of these:
+To bring the content back, close the window, or click **Bring back** in the
+tile. When you reload or close the terminal, the window closes and the content
+is back in its tile.
 
-- Click the **Pop out** button in the header of its tile, left of the close
-  button.
-- Right-click its row in the sidebar and pick **Pop out**.
-- Open the command palette and run **Pop out <panel>**.
+To open a service panel as a page of its own instead, do one of these:
+
+- Right-click its row in the sidebar or its tile header and pick
+  **Open in new window**.
+- Open the command palette and run **Open <panel> in new window**.
 
 The panel opens in a new window the size of its tile. Its tile leaves the
 workspace, and its sidebar row shows a window glyph. The window follows the
 theme, the view and the session of the terminal. The agent can still show you
 the panel: a focus from the agent brings the window to the front.
 
-While the panel is popped out:
+While the panel is in that window:
 
 - A click on its sidebar row brings the window to the front.
-- Its row menu offers **Bring back** in place of **Pop out**.
+- Its row menu offers **Bring back** in place of **Open in new window**.
 - A layout change in the workspace does not open a tile for it.
 
 To bring the panel back, close the window, or pick **Bring back** from its
 row menu. The tile returns next to the active tile.
 
-When you reload the terminal, the open windows stay open and connect to the
-reloaded page again. When you close the terminal tab, the windows stay open
-as normal pages, and they no longer follow the terminal.
+When you reload the terminal, these windows stay open and connect to the
+reloaded page again. When you close the terminal tab, they stay open as normal
+pages, and they no longer follow the terminal.
 
 .. note::
 
@@ -673,7 +675,8 @@ as normal pages, and they no longer follow the terminal.
    the site in the browser, then try again.
 
    A panel that runs at an opaque origin (a page the agent wrote) cannot be
-   popped out. Its **Pop out** button and row are disabled.
+   popped out. Its **Pop out** button and its **Open in new window** row are
+   disabled.
 
 The More menu
 ~~~~~~~~~~~~~

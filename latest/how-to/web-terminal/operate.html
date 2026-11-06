@@ -596,12 +596,7 @@ Close the pane with its <strong>×</strong>; the <strong>Agent</strong> row in t
 in tiles you arrange by dragging (<a class="reference internal" href="#tiles">Tiles</a>). New artifacts,
 plots, and data files appear under their session in the sidebar
 (<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>) as the agent creates them, with no refresh.
-On a fresh deployment the tree is not empty: the control-assistant preset
-ships one interactive example plot (synthetic data). It is there for you,
-not the agent, which never lists or cites it. Delete it when you no longer
-want it; it does not come back. It is switched on by
-<code class="docutils literal notranslate"><span class="pre">artifact_server.example_artifact</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Your
-control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
+Your control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
 on) open here too. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p></li>
 </ul>
 <p>The settings drawer (<strong>☰ More</strong> › <strong>Settings</strong>) lets you read and edit the
@@ -1054,15 +1049,16 @@ sorts them into <strong>Runs</strong>, <strong>Plots</strong>, <strong>Trends</s
 A script run is one row with a dot for <strong>succeeded</strong>, <strong>failed</strong> or <strong>not
 run</strong> (none while it runs); its approval preview, code and outputs are its
 parts. A run that was never run
-opens on its proposed code. <strong>Earlier</strong> holds your artifacts that have no
-session; <strong>More sessions</strong> loads older ones.</p>
+opens on its proposed code. <strong>More sessions</strong> loads older ones.</p>
 <ul class="simple">
 <li><p>Click a session name to switch to it: its layout comes back as you left it
 (panels, tiles, sizes, the Agent pane, and each panel’s page where the hub
 can read it), with the artifact last open there (its newest if none). A new
 or older session keeps the layout on screen. The sidebar stays as it is.
 Click the current session’s name to fold or unfold it. Only the current
-session shows its artifacts; the others stay folded until you switch to them.</p></li>
+session shows its artifacts; the others stay folded until you switch to them.
+⌥-click (Alt+click) a session or <strong>Agent</strong> to expand every session, or
+collapse them all if all are open.</p></li>
 <li><p>Click an artifact to show it. This never changes the session.</p></li>
 <li><p>The title in the agent tile’s header has its own ▾ switcher: your sessions
 with state, age and message count, and <strong>+ New session</strong>.</p></li>
@@ -1127,38 +1123,44 @@ program. To hide or show the labels in this state, click the toggle.</p>
 </section>
 <section id="pop-a-pane-out">
 <span id="web-terminal-pop-out"></span><h3>Pop a pane out<a class="headerlink" href="#pop-a-pane-out" title="Link to this heading">#</a></h3>
-<p>You can move a panel out of the workspace into its own browser window. This
-works for each service panel, the Artifacts panel included. The agent pane
-stays in the workspace.</p>
-<p>To pop a panel out, do one of these:</p>
+<p>Click <strong>Pop out</strong> in a tile’s header, left of the close button, to move the
+tile’s content into a window of its own. This works for the agent pane and for
+each service panel. The window stays attached to the terminal: the content
+keeps running there, and the window follows its theme. The tile keeps its
+place and shows <strong>Bring back</strong>. A service panel loads again when it moves into
+the window and when it comes back.</p>
+<p>To bring the content back, close the window, or click <strong>Bring back</strong> in the
+tile. When you reload or close the terminal, the window closes and the content
+is back in its tile.</p>
+<p>To open a service panel as a page of its own instead, do one of these:</p>
 <ul class="simple">
-<li><p>Click the <strong>Pop out</strong> button in the header of its tile, left of the close
-button.</p></li>
-<li><p>Right-click its row in the sidebar and pick <strong>Pop out</strong>.</p></li>
-<li><p>Open the command palette and run <strong>Pop out &lt;panel&gt;</strong>.</p></li>
+<li><p>Right-click its row in the sidebar or its tile header and pick
+<strong>Open in new window</strong>.</p></li>
+<li><p>Open the command palette and run <strong>Open &lt;panel&gt; in new window</strong>.</p></li>
 </ul>
 <p>The panel opens in a new window the size of its tile. Its tile leaves the
 workspace, and its sidebar row shows a window glyph. The window follows the
 theme, the view and the session of the terminal. The agent can still show you
 the panel: a focus from the agent brings the window to the front.</p>
-<p>While the panel is popped out:</p>
+<p>While the panel is in that window:</p>
 <ul class="simple">
 <li><p>A click on its sidebar row brings the window to the front.</p></li>
-<li><p>Its row menu offers <strong>Bring back</strong> in place of <strong>Pop out</strong>.</p></li>
+<li><p>Its row menu offers <strong>Bring back</strong> in place of <strong>Open in new window</strong>.</p></li>
 <li><p>A layout change in the workspace does not open a tile for it.</p></li>
 </ul>
 <p>To bring the panel back, close the window, or pick <strong>Bring back</strong> from its
 row menu. The tile returns next to the active tile.</p>
-<p>When you reload the terminal, the open windows stay open and connect to the
-reloaded page again. When you close the terminal tab, the windows stay open
-as normal pages, and they no longer follow the terminal.</p>
+<p>When you reload the terminal, these windows stay open and connect to the
+reloaded page again. When you close the terminal tab, they stay open as normal
+pages, and they no longer follow the terminal.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>If the browser blocks pop-ups for this site, the terminal shows
 <em>Pop-ups are blocked for this site.</em> and the tile stays. Allow pop-ups for
 the site in the browser, then try again.</p>
 <p>A panel that runs at an opaque origin (a page the agent wrote) cannot be
-popped out. Its <strong>Pop out</strong> button and row are disabled.</p>
+popped out. Its <strong>Pop out</strong> button and its <strong>Open in new window</strong> row are
+disabled.</p>
 </div>
 </section>
 <section id="the-more-menu">
