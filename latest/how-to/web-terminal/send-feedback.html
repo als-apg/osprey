@@ -634,15 +634,13 @@ to the deployment’s own record even if the paste step is missed,</p></li>
 <li><p>the session’s tool-call and agent event log,</p></li>
 <li><p>its chat history,</p></li>
 <li><p>the terminal scrollback,</p></li>
-<li><p>an artifact inventory listing <strong>titles and ids only</strong> — artifacts tagged to
-this session, plus artifacts created on this deployment during the same time
-window, which may include work from other terminal tabs or the chat panel.</p></li>
+<li><p>an artifact inventory listing <strong>titles and ids only</strong>, in two sections: the
+artifacts this session owns (its row in the gallery sidebar), and artifacts
+no session owns from the same time window.</p></li>
 </ul>
-<p>OSPREY does not tag every artifact with the session that produced it, so the
-inventory falls back to a time window: an artifact somebody else made in a
-different tab during the same minutes can be listed. Only its title and id
-appear — never its contents — but a sender attaching context to a <strong>public</strong>
-issue should know that the list is not strictly their own work.</p>
+<p>The second section is not this session’s work: it may come from the chat panel
+or a CLI conversation. Only titles and ids appear — never contents — but a
+sender attaching context to a <strong>public</strong> issue should know it is there.</p>
 <p>Session context is triaged newest-first and truncated to fit a size budget, so a
 long session is attached in part rather than in full. The outbound copy — the
 clipboard payload behind a GitHub issue or a mail draft — is trimmed harder

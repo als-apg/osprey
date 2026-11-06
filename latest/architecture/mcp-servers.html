@@ -652,11 +652,11 @@ tools into several functional areas.</p>
 <p><strong>Artifacts:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_register</span></code> – Register a file on disk, or literal text, as a gallery artifact.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_get</span></code> – Look up an artifact by ID to get its file path and metadata.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_list</span></code> – List stored artifacts, optionally narrowed by form, tool or agent.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_read</span></code> – Read a stored artifact’s full content (small artifacts only).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_list</span></code> – List this session’s artifacts, optionally narrowed by form or tool;
+<code class="docutils literal notranslate"><span class="pre">scope=&quot;all&quot;</span></code> lists every session’s.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_read</span></code> – Return an artifact’s metadata and file path, plus its content when small.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code> – Delete an artifact from the gallery.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code> – Delete a whole scope of artifacts (one form, or everything)
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code> – Delete one form, or everything, of this session’s artifacts
 in a single call. The <code class="docutils literal notranslate"><span class="pre">scope</span></code> argument is required.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_export</span></code> – Export an artifact to a different format (e.g., PNG, SVG, PDF).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_focus</span></code> – Select an artifact in the gallery so the user sees it.</p></li>
@@ -727,7 +727,6 @@ never names it.</p>
 <p><strong>Session:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">session_log</span></code> – Retrieve the structured session activity log.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">session_summary</span></code> – Return a compact inventory of all data and artifacts in the session.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">submit_response</span></code> – Submit a formatted response to the web terminal.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">facility_description</span></code> – Get the hand-written facility description and the build’s generated facts page (places with device counts, device classes with their groups, models, and the signals and roles the channels use).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">prior_answer_read</span></code> – Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).</p></li>
