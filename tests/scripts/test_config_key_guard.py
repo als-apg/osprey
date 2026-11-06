@@ -1243,7 +1243,7 @@ def test_a_well_shaped_provider_passes():
     assert "provider-shape" not in modes(guard)
 
 
-# ── back-test: developer-time, behind a flag ─────────────────────────────
+# ── back-test: behind a flag, needs git history ──────────────────────────
 
 
 def _baseline_commit() -> str:
@@ -1263,7 +1263,7 @@ def _baseline_reachable() -> bool:
 
 needs_baseline = pytest.mark.skipif(
     not _baseline_reachable(),
-    reason="merge-base commit unavailable (shallow clone); back-test is developer-time",
+    reason="merge-base commit unavailable (shallow clone); the back-test needs history",
 )
 
 
