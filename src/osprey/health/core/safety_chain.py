@@ -71,6 +71,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from osprey.deployment.web_terminals.roster import authored_people
 from osprey.health.models import CheckResult, Status
 from osprey.utils.workspace import session_hold_dir
 from osprey_connectors import control_context, posture_store
@@ -325,7 +326,8 @@ def _logins(cfg: Mapping[str, Any]) -> list[tuple[str, str | None]]:
     if wt.get("enabled"):
         default = wt.get("default_tier")
         out: list[tuple[str, str | None]] = []
-        for user in wt.get("users") or []:
+        # As authored: the normalizer projects the per-person tier away.
+        for user in authored_people(wt):
             if isinstance(user, Mapping) and isinstance(user.get("name"), str) and user["name"]:
                 tier = user.get("tier") or default
                 out.append((user["name"], tier if isinstance(tier, str) else None))

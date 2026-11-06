@@ -46,7 +46,7 @@ _TIMEOUT_S = 5.0
 _FAILED = frozenset({"error", "failed"})
 
 _WINDOW_S = 24 * 3600.0
-_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"  # noqa: S105 - the variable name, not a secret
+_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"  # noqa: S105 -- the variable name, not a secret
 
 
 def dispatch(
