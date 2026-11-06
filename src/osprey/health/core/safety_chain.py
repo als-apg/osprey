@@ -24,7 +24,8 @@ Rows, all in category ``safety_chain``:
   file are ``error``; a file whose sha differs from the template is
   ``warning`` with fix ``osprey build``. A render with no write tools skips the
   three rows ("no write tools in this render"); one with no ``.claude/``
-  skips them ("not rendered"); an unreadable ``settings.json`` is ``error``.
+  skips them ("not rendered"); an unreadable ``settings.json`` is ``error``,
+  and so is a missing or unreadable ``hook_config.json`` (fail closed).
 * ``hooks.order`` — in every ``PreToolUse`` entry the three run in the order
   ``writes_check → limits → approval``; any other order is ``error``.
 * ``write_switch.<login>`` — per login (``modules.web_terminals.users`` when
@@ -219,7 +220,22 @@ def _hook_rows(render: Path) -> list[CheckResult]:
             )
             for h in CHAIN
         ]
-    write_tools = _write_tools(claude / "hooks" / "hook_config.json")
+    try:
+        write_tools = _write_tools(claude / "hooks" / "hook_config.json")
+    except (OSError, ValueError, AttributeError) as exc:
+        # The hooks' own contract: without it nothing says which tools write,
+        # so the chain cannot be shown to cover them. Fail closed.
+        return [
+            _row(
+                f"hooks.{h}",
+                Status.ERROR,
+                f"{h}: .claude/hooks/hook_config.json cannot be read",
+                "hook_config.json unreadable",
+                details=str(exc),
+                fix=_FIX_BUILD,
+            )
+            for h in CHAIN
+        ]
     if not write_tools:
         return [
             _row(
@@ -261,10 +277,8 @@ def _hook_rows(render: Path) -> list[CheckResult]:
 
 
 def _write_tools(hook_config: Path) -> list[str]:
-    try:
-        tools = json.loads(hook_config.read_text(encoding="utf-8")).get("write_tools")
-    except (OSError, ValueError, AttributeError):
-        return []
+    """The render's write tools; raises when ``hook_config.json`` is missing or malformed."""
+    tools = json.loads(hook_config.read_text(encoding="utf-8")).get("write_tools")
     return [t for t in tools or [] if isinstance(t, str) and t]
 
 

@@ -190,6 +190,21 @@ def test_unreadable_settings_is_an_error(tmp_path: Path) -> None:
     assert rows["hooks.osprey_writes_check"].value == "settings.json unreadable"
 
 
+@pytest.mark.parametrize("body", [None, "{not json", '["a list"]'])
+def test_a_missing_or_unreadable_hook_config_fails_closed(tmp_path: Path, body) -> None:
+    config, build = _render(tmp_path, limits=GOOD_LIMITS)
+    hook_config = build / ".claude" / "hooks" / "hook_config.json"
+    if body is None:
+        hook_config.unlink()
+    else:
+        hook_config.write_text(body)
+    rows = _run(config, build)
+    for hook in CHAIN:
+        row = rows[f"hooks.{hook}"]
+        assert row.status is Status.ERROR, row.message
+        assert row.fix == "osprey build"
+
+
 def test_no_rendered_claude_dir_skips_the_hooks(tmp_path: Path) -> None:
     config, build = _render(tmp_path, limits=GOOD_LIMITS)
     shutil.rmtree(build / ".claude")
