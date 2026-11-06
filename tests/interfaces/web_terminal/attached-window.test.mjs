@@ -6,8 +6,9 @@
  * closes, when the hub asks for it, and when the hub page goes away.
  *
  * jsdom opens no windows: `window.open` returns a stand-in window whose
- * document is a second jsdom document, which is what a blank same-origin
- * popup is to the hub.
+ * document is a second jsdom document, which is what the same-origin shell
+ * page is to the hub. It has loaded (it carries the shell's marker) unless a
+ * test says otherwise.
  *
  *   npx vitest run tests/interfaces/web_terminal/attached-window.test.mjs
  */
@@ -15,14 +16,25 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 const MOD = '../../../src/osprey/interfaces/web_terminal/static/js/attached-window.js';
 
+/** The marker the shell page's <html> carries (static/attached-window.html). */
+const SHELL_MARKER = 'data-osprey-attached-shell';
+
+/** @param {boolean} loaded @returns {Document} */
+function shellDocument(loaded) {
+  const doc = document.implementation.createHTMLDocument('');
+  if (loaded) doc.documentElement.setAttribute(SHELL_MARKER, '');
+  return doc;
+}
+
 /**
  * A popup as the hub sees it: its own document, its own event target, and
  * `close()` firing `pagehide` the way a closing window does.
+ * @param {boolean} [loaded]  whether the shell page has loaded yet
  */
-function fakePopup() {
+function fakePopup(loaded = true) {
   const target = new EventTarget();
   const win = {
-    document: document.implementation.createHTMLDocument(''),
+    document: shellDocument(loaded),
     closed: false,
     focus: vi.fn(),
     close: vi.fn(() => {
@@ -92,7 +104,7 @@ afterEach(() => {
 });
 
 describe('open', () => {
-  test('opens a blank named popup and moves the live node into it, the stand-in in its place', () => {
+  test('opens a named popup on the shell page and moves the live node into it, the stand-in in its place', () => {
     const changes = /** @type {[string, boolean][]} */ ([]);
     mod.onAttachedChange((/** @type {string} */ key, /** @type {boolean} */ out) =>
       changes.push([key, out])
@@ -102,7 +114,7 @@ describe('open', () => {
 
     expect(win).toBe(popups[0]);
     const [url, name, features] = open.mock.calls[0];
-    expect(url).toBe('');
+    expect(url).toBe('/static/attached-window.html');
     expect(name).toBe('osprey-attached-ariel');
     expect(features).toMatch(/^popup=yes,width=\d+,height=\d+/);
     expect(win.document.title).toBe('Ariel');
@@ -111,6 +123,134 @@ describe('open', () => {
     expect(mod.isAttached('ariel')).toBe(true);
     expect(mod.attachedWindow('ariel')).toBe(win);
     expect(changes).toEqual([['ariel', true]]);
+  });
+
+  test('a shell page under a URL prefix is opened under it', () => {
+    vi.stubGlobal('__OSPREY_PREFIX__', '/u/alice');
+    mod.openAttached({ key: 'k', title: 't', content, standIn: standIn() });
+    expect(open.mock.calls[0][0]).toBe('/u/alice/static/attached-window.html');
+  });
+
+  test('the window has a bar with the pane’s name and Reattach, above the node', () => {
+    const onReturn = vi.fn();
+    const win = mod.openAttached({
+      key: 'k',
+      title: 'Agent · OSPREY',
+      label: 'Agent',
+      content,
+      standIn: standIn(),
+      onReturn,
+    });
+    const root = win.document.querySelector('.attached-window-root');
+    const bar = root.firstElementChild;
+    expect(bar.className).toBe('attached-window-bar');
+    expect(bar.querySelector('.attached-window-title').textContent).toBe('Agent');
+    expect(root.lastElementChild).toBe(content);
+    const button = bar.querySelector('button.attached-window-reattach');
+    expect(button.textContent).toBe('Reattach');
+
+    button.click();
+
+    expect(content.parentElement).toBe(parent);
+    expect(win.close).toHaveBeenCalledTimes(1);
+    expect(onReturn).toHaveBeenCalledExactlyOnceWith('bring-back');
+    expect(mod.isAttached('k')).toBe(false);
+  });
+
+  test('the bar names the title when no label is given', () => {
+    const win = mod.openAttached({ key: 'k', title: 'Ariel', content, standIn: standIn() });
+    expect(win.document.querySelector('.attached-window-title').textContent).toBe('Ariel');
+  });
+
+  test('the node moves only once the shell has loaded', () => {
+    vi.useFakeTimers();
+    open.mockImplementation(() => {
+      const win = fakePopup(false);
+      popups.push(win);
+      return win;
+    });
+    const onOpen = vi.fn();
+    const changes = /** @type {[string, boolean][]} */ ([]);
+    mod.onAttachedChange((/** @type {string} */ key, /** @type {boolean} */ out) =>
+      changes.push([key, out])
+    );
+    const win = mod.openAttached({ key: 'k', title: 't', content, standIn: standIn(), onOpen });
+    expect(win).toBe(popups[0]);
+
+    vi.advanceTimersByTime(mod.READY_POLL_MS * 4);
+    expect(content.parentElement).toBe(parent);
+    expect(mod.isAttached('k')).toBe(false);
+    expect(mod.attachedWindow('k')).toBeNull();
+    expect(onOpen).not.toHaveBeenCalled();
+    // A second Pop out meanwhile brings the loading window forward.
+    expect(mod.openAttached({ key: 'k', title: 't', content, standIn: standIn() })).toBe(win);
+    expect(open).toHaveBeenCalledTimes(1);
+
+    win.document = shellDocument(true);
+    vi.advanceTimersByTime(mod.READY_POLL_MS);
+    expect(win.document.querySelector('.attached-window-root > .live')).toBe(content);
+    expect(mod.isAttached('k')).toBe(true);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(changes).toEqual([['k', true]]);
+  });
+
+  test('a window closed, or never loaded, before its shell loaded moves nothing', () => {
+    vi.useFakeTimers();
+    open.mockImplementation(() => {
+      const win = fakePopup(false);
+      popups.push(win);
+      return win;
+    });
+    const onReturn = vi.fn();
+    const closed = mod.openAttached({
+      key: 'a',
+      title: 't',
+      content,
+      standIn: standIn(),
+      onReturn,
+    });
+    closed.closed = true;
+    vi.advanceTimersByTime(mod.CLOSED_POLL_MS);
+    expect(content.parentElement).toBe(parent);
+    expect(onReturn).not.toHaveBeenCalled();
+
+    const stuck = mod.openAttached({ key: 'b', title: 't', content, standIn: standIn(), onReturn });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.advanceTimersByTime(mod.READY_TIMEOUT_MS + mod.READY_POLL_MS);
+    expect(stuck.close).toHaveBeenCalledTimes(1);
+    expect(content.parentElement).toBe(parent);
+    expect(onReturn).not.toHaveBeenCalled();
+    // Gone: a new Pop out opens a new window.
+    mod.openAttached({ key: 'b', title: 't', content, standIn: standIn() });
+    expect(open).toHaveBeenCalledTimes(3);
+  });
+
+  test('the hub going away while a shell loads closes that window', () => {
+    open.mockImplementation(() => {
+      const win = fakePopup(false);
+      popups.push(win);
+      return win;
+    });
+    const win = mod.openAttached({ key: 'k', title: 't', content, standIn: standIn() });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(win.closed).toBe(true);
+    expect(content.parentElement).toBe(parent);
+  });
+
+  test('a node that lost its place while the shell loaded stays with the hub', () => {
+    vi.useFakeTimers();
+    open.mockImplementation(() => {
+      const win = fakePopup(false);
+      popups.push(win);
+      return win;
+    });
+    const win = mod.openAttached({ key: 'k', title: 't', content, standIn: standIn() });
+    content.remove();
+    win.document = shellDocument(true);
+    vi.advanceTimersByTime(mod.READY_POLL_MS);
+    expect(win.close).toHaveBeenCalledTimes(1);
+    expect(content.isConnected).toBe(false);
+    expect(mod.isAttached('k')).toBe(false);
   });
 
   test('a refused window moves nothing', () => {
@@ -210,7 +350,7 @@ describe('return', () => {
     expect(onReturn).toHaveBeenCalledExactlyOnceWith('closed');
   });
 
-  test('Bring back returns the node and closes the window', () => {
+  test('Reattach from the hub returns the node and closes the window', () => {
     const onReturn = vi.fn();
     const win = mod.openAttached({ key: 'k', title: 't', content, standIn: standIn(), onReturn });
     mod.returnAttached('k');

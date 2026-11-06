@@ -4,7 +4,7 @@
  * The tile header's Pop out: a tile's content moves into a window the hub
  * drives (attached-window.js) and comes back when that window closes. The
  * tile stays in the dock meanwhile, showing a stand-in — "<panel> is in its
- * own window" and a Bring back button — so the layout, the stored per-session
+ * own window" and a Reattach button — so the layout, the stored per-session
  * arrangements and the agent's view of the dock never see a pop-out at all.
  *
  *   a service panel — its overlay iframe (dock-iframe.js) moves. The frame
@@ -19,8 +19,8 @@
  *     The tile keeps the Agent bar. `html[data-agent="popped"]` marks it
  *     (dock-workspace.js).
  *
- * A node comes back to its tile when its window closes, on Bring back, and
- * when the hub page goes away. A tile closed meanwhile is opened again when
+ * A node comes back to its tile when its window closes, on Reattach (in the
+ * window's bar or the stand-in), and when the hub page goes away. A tile closed meanwhile is opened again when
  * the content returns (never on the hub's unload: that page is going).
  *
  * The other pop-out, "Open in new window" (popout.js), opens a panel's
@@ -93,15 +93,16 @@ function popOutAgent() {
   const win = openAttached({
     key: TERMINAL_RAIL_ID,
     title: 'Agent · OSPREY',
+    label: 'Agent',
     content,
     standIn: buildStandIn('Agent', TERMINAL_RAIL_ID),
+    onOpen: () => fitTerminal(),
     onResize: () => fitTerminal(),
     onReturn: (reason) => {
       if (reason !== 'unload' && !isTerminalPanelOpen()) openTerminalPanel();
       fitTerminal();
     },
   });
-  if (win) fitTerminal();
   return win !== null;
 }
 
@@ -118,16 +119,16 @@ function popOutService(id) {
   const win = openAttached({
     key: id,
     title: `${label} · OSPREY`,
+    label,
     content: iframe,
     standIn,
+    onOpen: () => setIframeStandIn(id, standIn),
     onReturn: (reason) => {
       setIframeStandIn(id, null);
       if (reason !== 'unload' && !isPanelDocked(id)) redockPanel(id);
     },
   });
-  if (!win) return false;
-  setIframeStandIn(id, standIn);
-  return true;
+  return win !== null;
 }
 
 /**
@@ -146,7 +147,7 @@ function buildStandIn(label, id) {
   const back = document.createElement('button');
   back.type = 'button';
   back.className = 'osprey-btn attached-standin-back';
-  back.textContent = 'Bring back';
+  back.textContent = 'Reattach';
   back.addEventListener('click', () => bringBackAttached(id));
   const show = document.createElement('button');
   show.type = 'button';

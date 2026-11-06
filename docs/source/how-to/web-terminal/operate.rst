@@ -637,12 +637,12 @@ Click **Pop out** in a tile's header, left of the close button, to move the
 tile's content into a window of its own. This works for the agent pane and for
 each service panel. The window stays attached to the terminal: the content
 keeps running there, and the window follows its theme. The tile keeps its
-place and shows **Bring back**. A service panel loads again when it moves into
+place and shows **Reattach**. A service panel loads again when it moves into
 the window and when it comes back.
 
-To bring the content back, close the window, or click **Bring back** in the
-tile. When you reload or close the terminal, the window closes and the content
-is back in its tile.
+To bring the content back, click **Reattach** in the window's bar or in the
+tile; closing the window does the same. When you reload or close the terminal,
+the window closes and the content is back in its tile.
 
 To open a service panel as a page of its own instead, do one of these:
 
