@@ -58,8 +58,8 @@ def _emit_rows(
 
     *readback_error* ``(gain, offset)`` models a corrector whose readback
     tracks its demand imperfectly: each corrector then reports its commanded
-    current under ``<name>_setpoint`` and ``gain * commanded + offset`` under
-    ``<name>``, while the BPMs respond to the commanded current.
+    setpoint under ``<name>_setpoint`` and ``gain * commanded + offset`` under
+    ``<name>``, while the BPMs respond to the commanded setpoint.
     """
     if offsets is None:
         offsets = np.zeros(len(readbacks))
@@ -278,7 +278,7 @@ def test_a_corrector_that_never_moved_yields_no_column():
 
 
 def test_a_corrector_missing_its_own_current_yields_no_column():
-    """Without the driven current there is no x-axis to fit against."""
+    """Without the driven setpoint there is no x-axis to fit against."""
     correctors = ["CH1", "CH2"]
     readbacks = ["BPM1"]
     truth = _truth_matrix(len(readbacks), len(correctors))
