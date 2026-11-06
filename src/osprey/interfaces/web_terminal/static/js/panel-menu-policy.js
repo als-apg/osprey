@@ -42,7 +42,7 @@
  */
 
 import { openContextMenu } from './panel-context-menu.js';
-import { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
+import { TERMINAL_PANE_LABEL, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { setPanelVisibility, setRailOrder } from './panel-commands.js';
 import { openPanelBeside, hasDockedTile } from './panel-placement.js';
 import {
@@ -357,7 +357,7 @@ function openSurfaceMenu(id, x, y, anchorEl) {
   const items = id === TERMINAL_RAIL_ID ? buildTerminalMenuItems() : buildServiceMenuItems(id);
   // No rows is a decline, never an empty popover.
   if (!items.length) return false;
-  const label = id === TERMINAL_RAIL_ID ? TERMINAL_RAIL_LABEL : ctx().labelOf(id);
+  const label = id === TERMINAL_RAIL_ID ? TERMINAL_PANE_LABEL : ctx().labelOf(id);
   openContextMenu({ x, y, anchorEl, ariaLabel: `${label} actions`, items });
   return true;
 }

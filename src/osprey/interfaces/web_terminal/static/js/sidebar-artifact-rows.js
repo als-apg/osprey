@@ -1,7 +1,7 @@
 // @ts-check
 /* OSPREY Web Terminal — the rows of the sidebar's artifact tree
  *
- * Pure DOM builders for the session tree: the Agent row's disclosure, one row
+ * Pure DOM builders for the session tree: the Sessions row's disclosure, one row
  * per agent session (its title, or "naming…" while the name is pending, and
  * the server's artifact count), a per-session scroll box, form group heads
  * with the server's counts, run rows (a status dot for succeeded, failed and
@@ -24,6 +24,9 @@
 import { icon } from '/design-system/js/icons.js';
 import { facilityDayKey, formatFacilityTime } from '/design-system/js/facility-time.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
+
+/** The session peek's element id (sidebar-session-peek.js draws it). */
+export const SESSION_PEEK_ID = 'sidebar-session-peek';
 
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
 
@@ -241,11 +244,22 @@ export function allSessionsClick() {
  * to it), the live dot, the title (or "naming…"), the artifact count from the
  * session summary (`data-count` once it is summarized). The title's tooltip
  * says what a click does and names the expand-all click.
+ *
+ * Only the active row is bold (`.active`). The accent bar and tint
+ * (`.accent`) sit on the active row, or on the row just clicked while the
+ * switch to it is under way. `.is-busy` marks the session the agent is
+ * working in: its bar breathes. A folded row's title names the peek
+ * (sidebar-session-peek.js) in `aria-controls`, so the tooltip layer stays
+ * quiet while the peek shows.
  * @param {SessionRow} session
- * @param {{active: boolean, open: boolean, count: number, summarized?: boolean, paneOpen?: boolean}} options
+ * @param {{active: boolean, open: boolean, count: number, summarized?: boolean,
+ *   paneOpen?: boolean, accent?: boolean, busy?: boolean}} options
  * @returns {HTMLElement}
  */
-export function sessionRow(session, { active, open, count, summarized = false, paneOpen = true }) {
+export function sessionRow(
+  session,
+  { active, open, count, summarized = false, paneOpen = true, accent = active, busy = false }
+) {
   const pending = session.naming === 'pending';
   const title = treeSpan(
     'osprey-tree-title',
@@ -260,6 +274,9 @@ export function sessionRow(session, { active, open, count, summarized = false, p
   row.dataset.sessionId = session.transcript_id;
   if (session.title_source) row.dataset.titleSource = session.title_source;
   if (active) row.classList.add('active');
+  if (accent) row.classList.add('accent');
+  if (busy) row.classList.add('is-busy');
+  if (!open) title.setAttribute('aria-controls', SESSION_PEEK_ID);
   if (summarized) row.dataset.count = String(count);
   if (pending && session.title) row.append(treeSpan('osprey-tree-naming', 'naming…'));
   row.append(treeSpan('osprey-tree-n', String(count)));

@@ -50,14 +50,14 @@ The window has a sidebar on the left and two panes:
 - **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
-  **Agent** row, the **Tools** and **System** sections, and a footer with **Docs**,
+  **Sessions** row, the **Tools** and **System** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
 - **Agent** (right) — the operator chat, or a real terminal running the OSPREY
   agent when you open one from the pane's **⋯** menu. It survives reconnects,
   and you can keep a few background conversations alive and hop between them.
-  Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
+  Close the pane with its **×**; the **Sessions** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
   plots, and data files appear under their session in the sidebar
@@ -514,12 +514,11 @@ The sidebar is on the left. From top to bottom, it shows:
 
   - **Sessions**, the first group, has no heading. It starts with this row:
 
-    - **Agent** opens the agent pane and your session tree below it
+    - **Sessions** opens the agent pane and your session tree below it
       (`Sessions and artifacts`_); with the pane open, it folds or unfolds
-      the tree. When the pane
-      is closed, the row is dimmed. When the agent waits for your
-      answer, the row shows the number of open questions. **Agent** is always
-      the first row of the sidebar.
+      the tree. Its **+** starts a new session. When the pane is closed, the
+      row is dimmed. When the agent waits for your answer, the row shows the
+      number of open questions. It is always the first row of the sidebar.
 
   - **Tools** starts with all other panels that this deployment enables.
   - **System** starts with **Events** (only when the deployment enables the
@@ -539,7 +538,7 @@ scrolls. The other groups and the footer always stay on the screen.
 Sessions and artifacts
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The **Agent** row's ▾ opens your sessions, newest first. A session is named
+The **Sessions** row lists your sessions, newest first. A session is named
 from your first prompt ("naming…" until the name arrives); ``/clear`` starts a
 new one. Under a session, its artifacts are grouped by day; **Group by Kind**
 sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
@@ -555,8 +554,10 @@ opens on its proposed code. **More sessions** loads older ones.
   or older session keeps the layout on screen. The sidebar stays as it is.
   Click the current session's name to fold or unfold it. Only the current
   session shows its artifacts; the others stay folded until you switch to them.
-  ⌥-click (Alt+click) a session or **Agent** to expand every session, or
-  collapse them all if all are open.
+  ⌥-click (Alt+click) a session or **Sessions** to expand every session, or
+  collapse them all if all are open. The session the agent works in has a
+  breathing accent bar.
+- Hover a folded session to see its artifacts; click one to show it.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
@@ -596,7 +597,7 @@ Shift+F10). The menu has these items:
   **System**, but you can rename them.
 
 Double-click a group's name to fold it down to its heading, and double-click
-again to unfold it. **Sessions**, the group that holds **Agent**, has no
+again to unfold it. **Sessions**, the first group, has no
 heading, so it has no menu and always stays first. To make it taller, drag the
 faint line below it; double-click the line to go back to automatic height.
 
@@ -607,7 +608,7 @@ To move a row to a different group, do one of these:
   group. Then type the name of the new group.
 - Drag the row into the other group. Release it where it must go.
 
-You can move each row except **Agent**. A group without rows shows "No
+You can move each row except **Sessions**. A group without rows shows "No
 panels — move one here from a row's menu".
 
 Your groups are kept in this browser, for your user only. They do not change
@@ -618,7 +619,7 @@ Hide the labels
 
 To hide the labels, click the toggle at the top of the sidebar, or press ⌘\\
 (Ctrl+\\ on other systems). The sidebar then shows only icons. Put the pointer
-on an icon to see its name. In this state, a click on **Agent** opens the
+on an icon to see its name. In this state, a click on **Sessions** opens the
 session tree next to the sidebar. To show the labels again, click the toggle
 or press the same keys.
 
