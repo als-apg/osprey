@@ -1,0 +1,1 @@
+Sidebar: the Workspace group grows with its sessions up to 480 px, then scrolls; session rows no longer squash when it runs out of room. A dragged height is kept as a share of the sidebar, so it holds when the window is resized; while dragging, a dashed mark shows the automatic height, and the line snaps to it and resets.

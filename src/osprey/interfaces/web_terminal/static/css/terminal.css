@@ -69,10 +69,11 @@ html[data-sidebar-resizing] * {
 
 /* Height budget: the head, the control-system block, search, the groups and
    the footer never shrink, except for the one group that holds the Agent
-   row's session tree. In that group the open tree shrinks to a floor of two
-   rows (row 28 + padding 6 + two rows 52), then the group scrolls. #panel-rail
-   holds the groups and hands the shrink on to that one, keeping the others
-   whole. */
+   row's session tree. In that group only an open session's artifact box
+   gives way, to min(its content, 3 rows); the rows keep their height and
+   past the floors (sidebar-divider.js adds them up) the group scrolls.
+   #panel-rail holds the groups and hands the shrink on to that one, keeping
+   the others whole. */
 .sidebar > * {
   flex: none;
 }
@@ -113,7 +114,7 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row:not([hidden])
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
-  min-height: 86px;
+  min-height: var(--sidebar-row-floor, 86px);
 }
 
 .sidebar-group > .sidebar-row > .osprey-nav-row {
@@ -128,15 +129,29 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
 }
 
 /* The tree is a column that gives way to its boxes, so a box scrolls once the
-   room runs out (the dragged group, or the rail in automatic sizing) and
-   otherwise takes its content's height. Only while shown: the display would
-   outrank the user-agent [hidden] rule, and a folded Agent row would leave
-   its tree on screen. */
+   group's room runs out and otherwise takes its content's height. Only while
+   shown: the display would outrank the user-agent [hidden] rule, and a folded
+   Agent row would leave its tree on screen. */
 .sidebar-group > .sidebar-row > [data-session-tree]:not([hidden]) {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
-  min-height: 52px;
+}
+
+/* Its floor (sidebar-divider.js): every row whole, every box at its own. */
+html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > [data-session-tree]:not([hidden]) {
+  min-height: var(--sidebar-tree-floor, 52px);
+}
+
+/* Rows keep their height; a box keeps min(its content, 3 rows of 26 px and
+   its 2 px padding): up to three rows it never shrinks, past that 80 px. */
+.sidebar-group > .sidebar-row > [data-session-tree] > :not(.osprey-tree-box),
+.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:not(:has(> :nth-child(4))) {
+  flex: none;
+}
+
+.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:has(> :nth-child(4)) {
+  min-height: 80px;
 }
 
 /* A scrolled group fades at whichever edge has more (sidebar.js sets .fade /
@@ -319,12 +334,33 @@ html[data-sidebar-dividing] * {
   user-select: none;
 }
 
-/* #panel-rail outranks the shrinking rule for the session tree's group above. */
-html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-sized]:not([data-folded]) {
+/* #panel-rail outranks the shrinking rule for the session tree's group above.
+   Automatic: as tall as its content, up to the cap; dragged: the set height. */
+html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-capped]:not([data-folded]) {
   flex: none;
-  height: var(--sidebar-group-height);
+  max-height: var(--sidebar-group-cap);
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-sized]:not([data-folded]) {
+  height: var(--sidebar-group-height);
+  max-height: none;
+}
+
+/* The automatic height's mark while the divider is dragged. */
+.sidebar-divider-default {
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  height: 0;
+  border-top: 1px dashed var(--color-accent);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.sidebar-divider-default[hidden] {
+  display: none;
 }
 
 .sidebar-group-rename {
