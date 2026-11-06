@@ -23,6 +23,7 @@ from osprey_connectors.simulation.state import (
     validate_composition,
 )
 from osprey_connectors.workspace import resolve_simulation_state_dir
+from tests._facility_file import demo_facility_document
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
@@ -33,13 +34,12 @@ VIEW_CONFIG: dict[str, Any] = {"control_system": {"type": "virtual_accelerator"}
 @pytest.fixture(scope="module")
 def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A project whose render holds the example facility's simulator view, as a build writes it."""
-    from osprey.facility.build import build_facility
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
 
     root = tmp_path_factory.mktemp("project")
-    doc = build_facility(TEMPLATE_FACILITY, project_name="example")
+    doc = demo_facility_document()
     write_simulator_view(
         root / "data" / "simulator",
         ViewInputs(

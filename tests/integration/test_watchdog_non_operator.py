@@ -41,7 +41,6 @@ from osprey.agent_record.client import URL_ENV
 from osprey.agent_record.contract import KIND_AUDIT
 from osprey.agent_runner import runner
 from osprey.agent_runner.runner import WATCHDOG_SKIP_ENV_VAR
-from osprey.cli.init_cmd import init
 from osprey.cli.query_cmd import query
 from osprey.dispatch import server as dispatch_server
 from osprey.dispatch.sources.webhook import WebhookSource
@@ -51,8 +50,8 @@ from osprey.services.watchdog.engines.decision import QUESTION_ID
 from osprey.services.watchdog.verdict import SURFACE_SAFETY_WATCHDOG
 from osprey_connectors.posture_store import AGENT_DATA_ROOT_ENV_VAR, DISPATCH_RUN_ENV_VAR
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR, ensure_session, open_flags
+from tests._builds import copy_build
 from tests._live import wait_until
-from tests.cli._lifecycle_build import invoke_build
 from tests.conftest import dispatcher_route_registry
 from tests.dispatch._fakes import FakeEntryPoint
 from tests.dispatch_worker.record_double import worker_record  # noqa: F401 - a fixture
@@ -107,7 +106,9 @@ class _HttpStub:
                 pass
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        ).start()
 
     @property
     def port(self) -> int:
@@ -137,20 +138,16 @@ class _Deployment:
 
 
 @pytest.fixture(scope="module")
-def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Deployment]:
-    """A real ``osprey init`` + ``osprey build`` with the preset's watchdog turned on."""
-    repo = tmp_path_factory.mktemp("watchdog-non-operator") / "repo"
-    done = CliRunner().invoke(
-        init, [str(repo), "--preset", "control-assistant", "--no-git"], catch_exceptions=False
+def deployment(
+    tmp_path_factory: pytest.TempPathFactory, built_control_assistant_watchdog_on: Path
+) -> Iterator[_Deployment]:
+    """A real ``osprey init`` + ``osprey build`` with the preset's watchdog turned on.
+
+    A copy of the run's shared one, because the jev route is written into its render.
+    """
+    repo = copy_build(
+        built_control_assistant_watchdog_on, tmp_path_factory.mktemp("watchdog-non-operator")
     )
-    assert done.exit_code == 0, done.output
-    profile = repo / "profile.yml"
-    text = profile.read_text(encoding="utf-8")
-    off = f"  {NAME}:\n    engine: decision\n    enabled: false\n"
-    assert text.count(off) == 1
-    profile.write_text(text.replace(off, off.replace("false", "true")), encoding="utf-8")
-    built = invoke_build(repo)
-    assert built.exit_code == 0, built.output
 
     jev = _HttpStub(_fake_jev_reply(FakeJev({QUESTION_ID: _FLAGGING_ANSWER})))
     build = repo / "build"

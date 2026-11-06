@@ -135,6 +135,11 @@ def seeder_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
     Session-scoped: this module reads the store rather than wiping it, so one
     seeded container serves every test here. A read that gets no answer fails
     naming this store and the state its container was in.
+
+    A container of its own rather than the session's ``graphdb_session_store``:
+    the test below bootstraps a store nothing has touched, the store a first
+    deploy meets, before the wiped one a re-seed meets. On the shared store
+    both bootstraps would meet a wiped one.
     """
     with watched_graphdb_store(graphdb_plugin_dir, label=SEEDER_STORE_LABEL) as store:
         yield store

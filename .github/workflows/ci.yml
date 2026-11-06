@@ -313,6 +313,10 @@ jobs:
       # `fail_ci_if_error: false` would swallow into a silent coverage
       # blackout. test_ci_workflow_wiring.py pins the two together.
       #
+      # Only the xml report is written: Codecov reads it, and nothing reads a
+      # terminal table, which costs a second ~12 s pass over the whole source
+      # set at the end of the run.
+      #
       # -n 4 --dist loadgroup (pytest-xdist): the cross-test global-state
       # bleed that makes this lane flake under -n (stdlib subprocess.run
       # monkeypatches, loguru sink reconfiguration) is file-local, so pinning
@@ -360,7 +364,7 @@ jobs:
       # summary says the contract was not exercised here.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml"
         else
           COV_ARGS=""
         fi
