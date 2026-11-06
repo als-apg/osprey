@@ -1440,9 +1440,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             # here, so a removed example stays removed whichever one ran.
             self._mark_example_removed()
 
-    def _delete_entry_locked(
-        self, artifact_id: str, *, persist: bool = True
-    ) -> ArtifactEntry | None:
+    def _delete_entry_locked(self, artifact_id: str) -> ArtifactEntry | None:
         """Delete one entry from *inside* an already-held index lock.
 
         The lock-free half of :meth:`delete_entry`, for callers that are
@@ -1456,9 +1454,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         them after leaving the lock, exactly as :meth:`delete_entry` does.
 
         Args:
-            artifact_id: Id of the entry to remove.
-            persist: Whether to rewrite the index. Pass ``False`` when the
-                caller saves the index once for a batch of mutations.
+            artifact_id: Id of the entry to remove; the index is rewritten.
 
         Returns:
             The removed entry, or ``None`` when no entry matched.
@@ -1467,8 +1463,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             if e.id == artifact_id:
                 self._unlink_entry_files(e)
                 del self._entries[i]
-                if persist:
-                    self._save_index()
+                self._save_index()
                 return e
         return None
 
