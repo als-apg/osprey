@@ -67,6 +67,12 @@ WORKER_TOKEN = "worker-token"
 #: All mass on the first flag option; the preset lists its one clear option first.
 _FLAGGING_ANSWER = {"type": "choice", "choice": "k002", "probabilities": {"k002": 1.0}}
 
+#: The detached judge's whole time from the prompt to Jev's answer: a cold process,
+#: the record read and a loopback round trip into this worker's stub. The shipped
+#: three seconds are sized for a live judge, not a loaded CI runner; it answers as
+#: soon as the stub does, and the bound stays under the entry's own lifetime.
+_JUDGE_BUDGET = {"timeout_s": 60, "max_retries": 1, "total_s": 60}
+
 #: What would make a run of this file's watchdog machinery look like someone else's.
 _AMBIENT = (
     "OSPREY_WEB_PORT",
@@ -156,6 +162,7 @@ def deployment(
     config.setdefault("api", {})["jev"] = {
         "route": "typesafe",
         "routes": {"typesafe": {"api_key": "test-key", "base_url": f"http://127.0.0.1:{jev.port}"}},
+        "budgets": {"interactive": _JUDGE_BUDGET},
     }
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
     yield _Deployment(repo=repo, build=build, jev=jev)
