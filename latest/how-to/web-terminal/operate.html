@@ -584,7 +584,7 @@ restart — their sessions live in a store on disk; <code class="docutils litera
 <li><p><strong>Sidebar</strong> (left) — the list of everything you can open:
 the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target block</span></a> (which
 machine this deployment writes to, and whether it may), search, the
-<strong>Workspace</strong> and <strong>Tools</strong> sections, and a footer with <strong>Docs</strong>,
+<strong>Workspace</strong>, <strong>Tools</strong> and <strong>System</strong> sections, and a footer with <strong>Docs</strong>,
 <strong>Feedback</strong> (see <a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>), <strong>Sign out</strong> (multi-user
 deployments only) and <strong>☰ More</strong>. See
 <a class="reference internal" href="#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p></li>
@@ -684,9 +684,9 @@ take the full five seconds to hand over.</p>
 <code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> names. If the chat is refused because that version
 is not installed, the server log says which one to install; see
 <a class="reference internal" href="../../getting-started/installation.html"><span class="doc">Installation</span></a>.</p>
-<p>While a turn runs in the chat, the composer is disabled and <strong>Send</strong> becomes
-<strong>Stop</strong>. Send the next prompt when the agent finishes, or select <strong>Stop</strong> to
-end the turn.</p>
+<p>While a turn runs in the chat, <strong>Send</strong> becomes <strong>Stop</strong>. A message entered
+meanwhile waits above the composer and is sent when the turn ends; <strong>Interrupt
+and ask now</strong> ends the turn and sends it at once.</p>
 <section id="clearing-a-conversation">
 <h3>Clearing a conversation<a class="headerlink" href="#clearing-a-conversation" title="Link to this heading">#</a></h3>
 <p>Run <code class="docutils literal notranslate"><span class="pre">/clear</span></code> in the terminal to start a new conversation under the same
@@ -1018,23 +1018,25 @@ services. Click the block to open the
 <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target popover</span></a>.</p></li>
 <li><p><strong>Search</strong>. It opens the command palette. The shortcut is ⌘K on macOS and
 Ctrl+K on other systems.</p></li>
-<li><p>The groups of panel rows. At first there are two, <strong>Workspace</strong> and
-<strong>Tools</strong>:</p>
+<li><p>The groups of panel rows. At first there are three, <strong>Workspace</strong>, <strong>Tools</strong> and
+<strong>System</strong>:</p>
 <ul class="simple">
 <li><p><strong>Workspace</strong> starts with these rows:</p>
 <ul>
-<li><p><strong>Agent</strong> opens the agent pane, or moves the focus to it, and opens
-your session tree below it (<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>). When the pane
-is closed, the row shows a hollow dot. When the agent waits for your
+<li><p><strong>Agent</strong> opens the agent pane and your session tree below it
+(<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>); with the pane open, it folds or unfolds
+the tree. When the pane
+is closed, the row is dimmed. When the agent waits for your
 answer, the row shows the number of open questions. <strong>Agent</strong> is always
 the first row of the first group.</p></li>
-<li><p><strong>Events</strong> shows only when the deployment enables the events panel.</p></li>
 </ul>
 </li>
 <li><p><strong>Tools</strong> starts with all other panels that this deployment enables.</p></li>
+<li><p><strong>System</strong> starts with <strong>Events</strong> (only when the deployment enables the
+events panel) and <strong>Health</strong>.</p></li>
 </ul>
 <p>In each group, the rows are in your order. <strong>+ Add panel</strong> is always the
-last row of the last group. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p>
+last row of <strong>Tools</strong>. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p>
 </li>
 <li><p>The footer: <strong>Docs</strong>, <strong>Feedback</strong>, <strong>Sign out</strong> and <strong>☰ More</strong>. <strong>Sign
 out</strong> shows only on a multi-user deployment. See
@@ -1046,16 +1048,21 @@ scrolls. The other groups and the footer always stay on the screen.</p>
 <span id="web-terminal-sessions"></span><h3>Sessions and artifacts<a class="headerlink" href="#sessions-and-artifacts" title="Link to this heading">#</a></h3>
 <p>The <strong>Agent</strong> row’s ▾ opens your sessions, newest first. A session is named
 from your first prompt (“naming…” until the name arrives); <code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts a
-new one. Under a session, its artifacts are grouped by kind: <strong>Runs</strong>,
-<strong>Plots</strong>, <strong>Trends</strong>, <strong>Tables</strong>, <strong>Documents</strong>, <strong>Dashboards</strong>, <strong>Images</strong>,
-<strong>Data</strong>, plus any kind the deployment registers. A script run is one row with
-a dot for <strong>succeeded</strong>, <strong>failed</strong> or <strong>not run</strong> (none while it runs); its
-approval preview, code and outputs are its parts. A run that was never run
+new one. Under a session, its artifacts are grouped by day; <strong>Group by Kind</strong>
+sorts them into <strong>Runs</strong>, <strong>Plots</strong>, <strong>Trends</strong>, <strong>Tables</strong>, <strong>Documents</strong>,
+<strong>Dashboards</strong>, <strong>Images</strong>, <strong>Data</strong>, plus any kind the deployment registers.
+A script run is one row with a dot for <strong>succeeded</strong>, <strong>failed</strong> or <strong>not
+run</strong> (none while it runs); its approval preview, code and outputs are its
+parts. A run that was never run
 opens on its proposed code. <strong>Earlier</strong> holds your artifacts that have no
 session; <strong>More sessions</strong> loads older ones.</p>
 <ul class="simple">
-<li><p>Click a session name to switch to it: the Agent pane opens on it and shows
-the artifact last open there (its newest if none). ▸ only browses.</p></li>
+<li><p>Click a session name to switch to it: its layout comes back as you left it
+(panels, tiles, sizes, the Agent pane, and each panel’s page where the hub
+can read it), with the artifact last open there (its newest if none). A new
+or older session keeps the layout on screen. The sidebar stays as it is.
+Click the current session’s name to fold or unfold it. Only the current
+session shows its artifacts; the others stay folded until you switch to them.</p></li>
 <li><p>Click an artifact to show it. This never changes the session.</p></li>
 <li><p>The title in the agent tile’s header has its own ▾ switcher: your sessions
 with state, age and message count, and <strong>+ New session</strong>.</p></li>
@@ -1063,12 +1070,13 @@ with state, age and message count, and <strong>+ New session</strong>.</p></li>
 first: <strong>Cancel</strong>, or <strong>Stop &amp; switch</strong>.</p></li>
 </ul>
 <p>Right-click a session to rename it, export its transcript or group its
-artifacts by day (<strong>Group by Activity</strong>); a run to open its result, approval
-preview or code; an artifact to pin it. Runs and artifacts also have
-<strong>Delete…</strong>.</p>
-<p>A reload, a new tab or another device resumes your last session. Its
-last-open artifact is shown in the Artifacts panel if that panel is docked,
-otherwise highlighted in the tree; the layout does not change. The command
+artifacts by day or by kind, or delete a past session with its artifacts;
+a run to open its result, approval preview or code; an artifact to pin it.
+Runs and artifacts also have <strong>Delete…</strong>.</p>
+<p>A reload, a new tab or another device resumes your last session and its
+layout. Its last-open artifact is shown in the Artifacts panel if that panel
+is docked, otherwise revealed in the tree. The tree highlights only the
+artifact the Artifacts panel shows. The command
 palette finds your sessions and artifacts (by name, kind, or session name);
 opening a result enters its session. The Artifacts panel has no sidebar row;
 open it from the palette.</p>
@@ -1085,9 +1093,12 @@ name. A name can have up to 40 characters. An empty name keeps the old one.</p><
 its name for editing.</p></li>
 <li><p><strong>Move up</strong> and <strong>Move down</strong>. These move the group in the sidebar.</p></li>
 <li><p><strong>Delete group</strong>. This item shows only for a group that you added. The
-rows of the group go back to <strong>Tools</strong>. You cannot delete <strong>Workspace</strong> or
-<strong>Tools</strong>, but you can rename them.</p></li>
+rows of the group go back to <strong>Tools</strong>. You cannot delete <strong>Workspace</strong>,
+<strong>Tools</strong> or <strong>System</strong>, but you can rename them.</p></li>
 </ul>
+<p>Double-click a group’s name to fold it down to its heading, and double-click
+again to unfold it. To make <strong>Workspace</strong> taller, drag the faint line below it;
+double-click the line to go back to automatic height.</p>
 <p>To move a row to a different group, do one of these:</p>
 <ul class="simple">
 <li><p>Right-click the row and pick <strong>Move to</strong> and the name of the group. Pick
