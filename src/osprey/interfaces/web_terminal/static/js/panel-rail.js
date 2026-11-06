@@ -14,7 +14,7 @@
  * machine can drive the sidebar without owning any DOM specifics.
  *
  * The rows deliberately carry no per-poll readout — coarse reachability only.
- * Backend liveness is reported in one place — the SYSTEM panel's
+ * Backend liveness is reported in one place — the Health panel's
  * `web_panels` health category — so the sidebar stays a navigation surface
  * rather than a status board. Health reaches a row as two coarse states: a row
  * whose backend has never answered is `.disabled` (dimmed and inert), and one

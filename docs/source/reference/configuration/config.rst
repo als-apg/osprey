@@ -82,7 +82,7 @@ list, so a tier that sets the key there stops the build with
 ``osprey health`` always runs its built-in checks; a ``health:`` block adds a
 facility's own checks and tunes the suite's timing. Everything in the block is
 optional. For how to put these settings to work — the two recipes worth
-starting from, cost classes, and the ``SYSTEM`` dashboard — see
+starting from, cost classes, and the Health dashboard — see
 :doc:`/how-to/health-and-monitoring/configure-health-checks`; for the shape of
 the ``--json`` report, see :doc:`/reference/contracts/health-json`.
 
@@ -1390,7 +1390,7 @@ the surface that refused it.
       Settings that arrive from the environment rather than from ``config.yml``.
 
    :doc:`/how-to/health-and-monitoring/configure-health-checks`
-      Putting the ``health:`` block to work, and the ``SYSTEM`` dashboard.
+      Putting the ``health:`` block to work, and the Health dashboard.
 
    :doc:`/how-to/web-terminal/operate`
       Running the terminal the ``web:`` settings render.

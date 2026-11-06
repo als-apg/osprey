@@ -9,7 +9,7 @@
  * through the mutators here, which panel-rail.js re-exports to the shell.
  *
  * The rows carry NO per-panel health readout: backend liveness is reported by
- * the SYSTEM panel's `web_panels` health category. `.disabled` and
+ * the Health panel's `web_panels` health category. `.disabled` and
  * `.unreachable` are the only health-derived states a row renders.
  *
  * The environment is happy-dom (vitest.config.js), so `document` is a global;
