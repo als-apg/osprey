@@ -205,13 +205,10 @@ paths. The terminal proxy serves its own copy:
    <link rel="stylesheet" href="/design-system/css/base.css">
    <link rel="stylesheet" href="/design-system/css/primitives.css">
 
-When the terminal embeds a panel, the tile bar shows the title of the panel.
-The panel sends only its subtitle, at most three panel icons and its entries
-for the ⋯ menu, through ``header-contrib.js`` (protocol v3). Toolbars live in
-the panel: the toolbar, the sidebar and the states of a panel stay in the
-panel, embedded and standalone. ``DESIGN.md`` section 12 gives the rules.
-:doc:`/how-to/web-terminal/panels` gives the panel contract, and
-:doc:`/how-to/web-terminal/theming` gives the theme families.
+When the terminal embeds a panel, the panel hides its own top bar and sends
+its controls to the pane header through ``header-contrib.js`` (header
+contract version 1). :doc:`/how-to/web-terminal/panels` gives the panel
+contract, and :doc:`/how-to/web-terminal/theming` gives the theme families.
 
 Enforcement
 -----------

@@ -102,7 +102,7 @@ let idSequence = 0;
  * @property {() => void} applyDefault Evaluate the default again and apply it
  *   (call it when the panel changes view); not stored.
  * @property {() => void} resetWidth Go back to the `width` option and forget
- *   the stored width (an operator's reset, from the panel's ⋯ entry).
+ *   the stored width (an operator's reset, from a panel menu entry).
  * @property {() => void} destroy Remove every listener, the scrim and the
  *   observer. Nothing is stored.
  */

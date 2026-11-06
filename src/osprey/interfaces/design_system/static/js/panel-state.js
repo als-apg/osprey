@@ -6,8 +6,8 @@
  * §12, "Panel chrome standard"): an icon, one message, an optional second
  * line, and at most one action (Retry, or the one obvious next step). Logs and
  * technical details (an env var name, an exit code) do not go here: put them
- * behind an Info icon (`info-popover.js`) or in the tile ⋯. The visual half is
- * `.osprey-state` in primitives.css.
+ * behind an Info icon (`info-popover.js`) or in the panel's menu. The visual
+ * half is `.osprey-state` in primitives.css.
  *
  * @module panel-state
  */

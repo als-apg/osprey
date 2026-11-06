@@ -527,8 +527,8 @@ The JS modules (ES modules unless noted; each has a `.test.mjs` in
 | `collapsible.js` | `initCollapsible({attribute, storageKey, toggle, controls, shortcut})` → `{isCollapsed, toggle, set}` | State on `<html>[attribute]` (`collapsed` or `expanded`; absent = expanded). The toggle button carries `aria-expanded` (true while the labels show) and `aria-controls` (`controls`, default `sidebar`) with a label that flips between Hide and Show. The button, Cmd+\ (macOS) or Ctrl+\ and `set()` change the state; it is stored under `scopedStorageKey(storageKey)` and announced as `osprey-collapsible-change` `{attribute, state}` on `document`. |
 | `sidebar-boot.js` | none (non-module pre-paint script) | Stamps `data-sidebar="collapsed"` on `<html>` from the scoped `osprey-sidebar` key, and `--sidebar-user-width` from the scoped `osprey-sidebar-width` key (the web terminal's resize handle), so the sidebar never flashes the other width. Same inline scope rule as `theme-boot.js`; no fallback to the bare key on a scoped page. |
 | `popout-client.js` | `initPopoutClient()` → boolean, `popoutPanelId()` | The popup side of the pop-out protocol below. `applyEmbedded()` starts it on a `?popout=true` page. |
-| `panel-sidebar.js` | `initPanelSidebar({sidebar, handle, toggle, storageKey, defaultOpen, min, max, width, narrowQuery, root})` → `{open, close, toggle, isOpen, setDefaultOpen, applyDefault, resetWidth, destroy}` | The panel sidebar of §12.4 on `splitter.js`. Mirrors the state to `[data-open]` on the sidebar and the panel root, and to the toggle's `aria-expanded`, `aria-controls` and title. Stores `{size, collapsed}` under `scopedStorageKey(storageKey)`: only the operator's gestures (the toggle, and a drag, nudge, double-click or Enter on the handle) are stored, a toggle only where `defaultOpen` is true on a wide panel. Calls from code, `applyDefault()` and the narrow rule are never stored. At a panel width that matches `narrowQuery` (a ResizeObserver on the panel root) it is an overlay with a scrim: it starts closed and closes on Escape and on a press outside it. |
-| `panel-state.js` | `renderState(host, {icon, message, detail, action: {label, onClick}})` → the `.osprey-state` root, `clearState(host)` | Replaces the content of `host` with the centred state of §12.5; `icon` is an `icons.js` name. `clearState` removes only the state. |
+| `panel-sidebar.js` | `initPanelSidebar({sidebar, handle, toggle, storageKey, defaultOpen, min, max, width, narrowQuery, root})` → `{open, close, toggle, isOpen, setDefaultOpen, applyDefault, resetWidth, destroy}` | The panel sidebar of §12.2 on `splitter.js`. Mirrors the state to `[data-open]` on the sidebar and the panel root, and to the toggle's `aria-expanded`, `aria-controls` and title. Stores `{size, collapsed}` under `scopedStorageKey(storageKey)`: only the operator's gestures (the toggle, and a drag, nudge, double-click or Enter on the handle) are stored, a toggle only where `defaultOpen` is true on a wide panel. Calls from code, `applyDefault()` and the narrow rule are never stored. At a panel width that matches `narrowQuery` (a ResizeObserver on the panel root) it is an overlay with a scrim: it starts closed and closes on Escape and on a press outside it. |
+| `panel-state.js` | `renderState(host, {icon, message, detail, action: {label, onClick}})` → the `.osprey-state` root, `clearState(host)` | Replaces the content of `host` with the centred state of §12.3; `icon` is an `icons.js` name. `clearState` removes only the state. |
 | `info-popover.js` | `openInfoPopover(anchor, {title, text, rows: [{label, value, copy}]})` → `{close}` | One body-level info popover per page on `popover.js` (`below-end`, `role=dialog`). Rows are a definition list; `copy: true` adds a Copy button (`clipboard.js`) that shows a check mark for a moment. A second open on the same anchor closes it. |
 | `content-strip.js` | `createContentStrip(host, {groups: [{id, items: [{id, icon, title, detail, mode, pressed}]}], onAction, label})` → `{show, hide, setPressed, destroy}` | Renders the strip into `host` (made `position: relative` when it is static). `show()` makes it visible for about 3 s. A mode toggles `aria-pressed`, one per group, and calls `onAction(id, pressed)`; an action calls `onAction(id)`. A mode marked `pressed` is its group's default, and that group is a radio set. While a mode other than the default is pressed, the strip stays visible. `setPressed` follows the content without a callback. |
 
@@ -540,7 +540,7 @@ its own address. The address says which, and `frame-params.js` reads it:
 
 | Where | Address | What the page does |
 |---|---|---|
-| Tile | `?embedded=true&theme=<id>` | `applyEmbedded()` adds `body.embedded`. The page shows its own toolbar (`.osprey-panel-toolbar`), as at its own address: toolbars live in the panel. It contributes only its subtitle, at most three panel icons and its ⋯ "This panel" entries to the tile bar (`header-contrib.js`, protocol v3, §12.7). `initTheme({role: 'follower'})`. |
+| Tile | `?embedded=true&theme=<id>` | `applyEmbedded()` adds `body.embedded`; the page hides its own chrome and contributes its header controls to the tile bar (`header-contrib.js`). `initTheme({role: 'follower'})`. |
 | Pop-out window | `?popout=true&theme=<id>` | `applyEmbedded()` stamps `html[data-popout="true"]` and starts `popout-client.js`. The page keeps its own chrome. `initTheme` runs as a follower whatever role the page asks for. |
 | Own address | neither | A standalone page: `initTheme({role: 'hub'})`, its own preferences. |
 
@@ -613,46 +613,12 @@ falls back to its own same-value defaults.
 
 These rules apply to every new panel, and to every panel that moves to the
 standard. A panel is fully on the standard or it is not changed: never half.
-The hub owns the tile bar and the ⋯ menu. The panel owns its toolbar, its
-sidebar and its states. Build them from the primitives in
+The hub owns the tile bar. The panel owns its toolbar, its sidebar and its
+states. Build them from the primitives in
 [`static/css/primitives.css`](static/css/primitives.css) (section "Panel
 chrome") and the modules below. Do not make a local copy.
 
-### 12.1 Tile bar (the hub)
-
-```
-[Title  subtitle] ……………… [panel icons ≤3] │ [shared controls] [⋯] [Pop out] [×]
-```
-
-- The bar is `--wt-pane-head-height` (40 px) high.
-- ×, Pop out and ⋯ are at the right edge, in that order from right to left.
-  They do not fold or move. Every tile has all three, the Agent tile too.
-- The subtitle is identity only: the name of the shown artifact, the concept
-  id, the lattice model. It is never a status, a count or a control.
-- A panel contributes at most three panel icons: icon-only buttons with a
-  tooltip. A 1 px divider separates them from the shared controls. In a
-  narrow tile they fold into ⋯ "This panel" first.
-- The shared controls come from `web.tile_bar.controls` (`ask_agent`,
-  `reload`, `help`; the default is `[ask_agent]`). They do not show on the
-  Agent tile. They fold into ⋯ after the panel icons.
-- A first-party panel puts no text buttons, search fields or view switchers
-  in the bar.
-- A right-click on the bar opens the same ⋯ menu at the pointer.
-
-### 12.2 The ⋯ menu (the hub)
-
-Each tile has one ⋯ menu, built with `context-menu.js`. It has two sections:
-
-1. **This panel:** the panel's `menu` entries, then the folded panel icons and
-   shared controls. An empty section does not show.
-2. **Tile:** Open in a new tile, Move to new group…, Pop out or Bring back,
-   Reload, Copy link, Open in browser tab, Help (only when the panel has a
-   docs page), Remove from rail and Reset layout.
-
-Put a destructive entry last, after a separator, with `danger: true`. A menu
-click is only an action: the panel keeps its own confirm step.
-
-### 12.3 Panel toolbar (the panel, optional)
+### 12.1 Panel toolbar (the panel, optional)
 
 ```
 [sidebar toggle] [view switcher | breadcrumb | context] …… [status chip] [search] [secondary] [primary]
@@ -676,14 +642,13 @@ click is only an action: the panel keeps its own confirm step.
 - Safety controls never fold or hide: Bluesky's Stop and Abort, and its lane
   picker when there is more than one lane.
 - In a panel that is 560 px wide or less, the search field folds to an icon.
-  A secondary action can hide only if ⋯ "This panel" lists it too. List every
-  secondary toolbar action there.
+  A secondary action can hide only if the panel's tile-bar menu lists it too.
+  List every secondary toolbar action there.
 - A panel with its own application chrome (Jupyter) has no toolbar and no
   sidebar.
-- The standalone page shows the same toolbar; it has no tile bar. Delete the
-  old in-body header of a panel when its toolbar replaces it.
+- Delete the old in-body header of a panel when its toolbar replaces it.
 
-### 12.4 Panel sidebar (the panel, optional)
+### 12.2 Panel sidebar (the panel, optional)
 
 - Build it with `.osprey-panel-sidebar` and `initPanelSidebar()`
   ([`panel-sidebar.js`](static/js/panel-sidebar.js)). It is left of the
@@ -710,7 +675,7 @@ click is only an action: the panel keeps its own confirm step.
 - Use `.osprey-section-label` headings and `.osprey-list-row` or
   `.osprey-nav-row` rows in it. The selected row uses `--surface-selected`.
 
-### 12.5 States
+### 12.3 States
 
 - Loading, connecting, empty, error and unreachable use one centred look,
   from `renderState()` ([`panel-state.js`](static/js/panel-state.js)): an
@@ -718,13 +683,13 @@ click is only an action: the panel keeps its own confirm step.
   or the one obvious next step).
 - Do not show a blank pane.
 - Put logs and technical details (an env var name, an exit code) in an info
-  popover or in ⋯. Do not print them on the page.
+  popover or in the panel's menu. Do not print them on the page.
 
-### 12.6 Details stay off the page
+### 12.4 Details stay off the page
 
 - Move details that are not the content of the panel behind an Info icon
   (`openInfoPopover()`, [`info-popover.js`](static/js/info-popover.js)) or
-  into ⋯. These details are descriptions, file paths, sizes, created dates,
+  into the panel's menu. These details are descriptions, file paths, sizes, created dates,
   sources, provenance and help paragraphs.
 - Remove a detail that means nothing to an operator.
 - Field help is a tooltip on a small Info icon next to the label.
@@ -733,22 +698,7 @@ click is only an action: the panel keeps its own confirm step.
   [`content-strip.js`](static/js/content-strip.js)), in the order modes, view,
   output.
 
-### 12.7 Contribution protocol v3
-
-The transport does not change: `postMessage` to the same origin, the
-`canopy-host-*` message names and whole-replace contributions
-([`header-contrib.js`](static/js/header-contrib.js)).
-
-| Kind | Meaning | Where the hub shows it |
-|---|---|---|
-| `text` | `{kind:'text', id, text}`: the subtitle, identity only | Beside the title |
-| `icon` | `{kind:'icon', id, icon, title, disabled?, pressed?, priority?}`: `icon` is an `icons.js` name, `title` the tooltip and the accessible name; a click comes back as `canopy-host-header-action` with `id` | The panel-icon slot, at most 3; more fold into ⋯ |
-| `menu` | `{kind:'menu', id, items:[{id, label, checked?, disabled?, danger?, separator?}]}`, at most one; an entry click comes back with the menu id and the entry id | ⋯ "This panel" |
-| `search`, `nav`, `button`, `crumb`, `sep` | Legacy. A first-party panel does not send them; CANOPY and unmigrated panels still do | As before |
-
-A migrated first-party panel sends only `text`, `icon` and `menu`.
-
-### 12.8 A panel skeleton
+### 12.5 A panel skeleton
 
 ```html
 <div class="app" data-panel-root>
