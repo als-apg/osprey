@@ -1,0 +1,1 @@
+An `artifact_delete_all` in a process that never registered the artifact-activity listeners no longer parks its summary frame for a later registration to deliver to the Web Terminal as fresh activity.
