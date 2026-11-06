@@ -64,6 +64,7 @@ if TYPE_CHECKING:
         EntryAttachment,
         FacilityEntryCreateResult,
     )
+    from osprey.stores.artifact_scope import SessionScope
 
 router = APIRouter(prefix="/api")
 logger = get_logger("ariel")
@@ -1811,13 +1812,35 @@ async def _picture_for_workspace_artifact(
     return dict(row), dict(entry), summary
 
 
+def _browser_save_scope(session_key: str | None) -> tuple[SessionScope, str]:
+    """The scope and ``session_id`` a browser save runs under.
+
+    Never read from this process's environment: the route runs inside the
+    ``osprey chat`` launcher, whose environment names the CLI conversation,
+    not the operator who clicked.
+    """
+    from osprey.stores import artifact_scope
+
+    ledger, ledger_ok = artifact_scope.read_ledger()
+    key = session_key or None
+    scope = artifact_scope.resolve_scope(key=key, ledger=ledger, ledger_ok=ledger_ok)
+    return scope, key or ""
+
+
 @router.post("/attachments/{attachment_id}/artifact")
-async def attachment_to_workspace_artifact(request: Request, attachment_id: str) -> dict[str, Any]:
+async def attachment_to_workspace_artifact(
+    request: Request,
+    attachment_id: str,
+    session_key: str | None = Query(None),
+) -> dict[str, Any]:
     """Copy a stored viewable picture into the local Workspace gallery.
 
     This is intentionally a local API action, not an agent command.  Its
     response contains only gallery metadata; the caller is responsible for
-    moving its own browser to Workspace after a successful response.
+    moving its own browser to Workspace after a successful response.  With a
+    ``session_key`` (the web terminal key the host gave the ARIEL panel) the
+    picture belongs to that session's current transcript; without one it is
+    an untagged (Earlier) artifact.
     """
     from osprey.services.ariel_search.attachments.artifacts import (
         save_viewable_picture_as_artifact,
@@ -1827,7 +1850,10 @@ async def attachment_to_workspace_artifact(request: Request, attachment_id: str)
     _require_attachment_id(attachment_id)
     try:
         row, entry, summary = await _picture_for_workspace_artifact(service, attachment_id)
-        return save_viewable_picture_as_artifact(row, entry, summary)
+        scope, session_id = _browser_save_scope(session_key)
+        return save_viewable_picture_as_artifact(
+            row, entry, summary, scope=scope, session_id=session_id
+        )
     except HTTPException:
         raise
     except Exception:
