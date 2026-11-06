@@ -221,12 +221,12 @@ The web dashboard (Health panel)
 --------------------------------
 
 In a Web Terminal build that ships panels, the same **poll-class** results are
-served as a read-only browser dashboard — the Health tab. It never runs
-``on_demand`` checks, so a browser can never trigger a costly probe; those
-categories render as cards carrying a copyable ``osprey health --full`` hint.
+served as a browser dashboard — the Health tab — one band per layer of the
+deployment, one tile per component. The poll never runs ``on_demand`` checks
+or spawns MCP servers; a click does: a re-probe, a provider's ping (one
+one-token completion), or opening the MCP tile, which introspects the servers.
 The tab appears only when ``system-health`` is in the build's ``web_panels``
-list, and its LED reflects sidecar liveness only — the pass/warn/fail status
-lives inside the panel.
+list; its LED reflects sidecar liveness only.
 
 Title, host, port, and auto-launch live under ``health.title`` and
 ``health.web`` (all optional):
