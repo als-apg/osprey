@@ -656,6 +656,7 @@ function applyStoredLayout() {
 function applyRepaired(stored, { keepTerminal }) {
   const holder = layoutHolder;
   if (!holder) return null;
+  measureDock();
   let layout = reconcile(stored.layout, buildableKeys(stored.layout));
   if (!layout) return null;
   if (keepTerminal && !keysOf(layout).includes(PANEL_TERMINAL)) {
@@ -666,6 +667,30 @@ function applyRepaired(stored, { keepTerminal }) {
   if (applyHeld(layout)) return true;
   restoredPanels = previous;
   return false;
+}
+
+/**
+ * Size dockview to #dock-root now, when it has not measured the root yet.
+ *
+ * dockview learns its size from a ResizeObserver, whose first callback comes
+ * at a rendering step; until then it lays out at its 100 × 100 px default. A
+ * stored layout applied in that window is laid out at 100 px: its tiles are
+ * clamped to their 40 px minimums, the read-back in onDidLayoutChange hands
+ * those clamped fractions to the holder as a size change, and the next persist
+ * overwrites the stored sizes with them. The restore runs as soon as
+ * GET /api/panels answers, which can be before that first callback, so the
+ * dock is measured here first. A root with no size yet (hidden) is left to
+ * the observer.
+ */
+function measureDock() {
+  const root = document.getElementById('dock-root');
+  if (!dockApi || !root) return;
+  const style = getComputedStyle(root);
+  const width = root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  const height = root.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+  if (!(width > 0 && height > 0)) return;
+  if (width === dockApi.width && height === dockApi.height) return;
+  dockApi.layout(width, height);
 }
 
 /** True while {@link applyDock} applies. @type {boolean} */
