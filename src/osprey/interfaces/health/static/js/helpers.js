@@ -527,7 +527,7 @@ export function mcpSummary(data) {
  * @returns {{value: string, method: string}}
  */
 export function pingText(p) {
-  const method = p.kind === 'embedding' ? '1 embedding' : '1-token completion';
+  const method = p.kind === 'embedding' ? '1 embedding' : '1 completion';
   if (p.status && p.status !== 'ok')
     return { value: p.message || SEVERITY[p.status] || '', method };
   const parts = [];

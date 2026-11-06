@@ -61,7 +61,7 @@ export async function ping(provider) {
   } catch (e) {
     pings.set(provider, {
       value: e instanceof Error ? e.message : String(e),
-      method: '1-token completion',
+      method: '1 completion',
       status: 'warning',
       t: now(),
     });

@@ -495,7 +495,7 @@ describe('pingText', () => {
         input_tokens: 14,
         output_tokens: 1,
       })
-    ).toEqual({ value: 'm · 880 ms · 14 in / 1 out', method: '1-token completion' });
+    ).toEqual({ value: 'm · 880 ms · 14 in / 1 out', method: '1 completion' });
   });
 
   test('an embedding shows input tokens only', () => {

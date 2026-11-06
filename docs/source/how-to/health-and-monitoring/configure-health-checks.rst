@@ -223,8 +223,8 @@ The web dashboard (Health panel)
 In a Web Terminal build that ships panels, the same **poll-class** results are
 served as a browser dashboard — the Health tab — one band per layer of the
 deployment, one tile per component. The poll never runs ``on_demand`` checks
-or spawns MCP servers; a click does: a re-probe, a provider's ping (one
-one-token completion), or opening the MCP tile, which introspects the servers.
+or spawns MCP servers; a click does: a re-probe (on_demand rows included), a
+provider's ping (one small completion), or opening the MCP tile.
 The tab appears only when ``system-health`` is in the build's ``web_panels``
 list; its LED reflects sidecar liveness only.
 

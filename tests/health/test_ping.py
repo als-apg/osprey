@@ -46,7 +46,7 @@ async def test_a_ping_sends_one_token_and_reports_latency(monkeypatch: pytest.Mo
     assert result["status"] == "ok"
     assert result["model"] == "claude-x"
     assert result["latency_ms"] >= 0
-    assert sent["max_tokens"] == 1
+    assert sent["max_tokens"] >= 1
 
 
 async def test_a_failing_completion_is_the_answer(monkeypatch: pytest.MonkeyPatch):
@@ -59,3 +59,42 @@ async def test_a_failing_completion_is_the_answer(monkeypatch: pytest.MonkeyPatc
 
     assert result["status"] == "error"
     assert "401" in result["message"]
+
+
+async def test_concurrent_pings_of_one_provider_send_one_request(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import asyncio
+    import threading
+
+    calls: list[int] = []
+    release = threading.Event()
+
+    def slow_completion(**kwargs: Any) -> str:
+        calls.append(kwargs["max_tokens"])
+        release.wait(5)
+        return "OK"
+
+    monkeypatch.setattr("osprey.models.completion.get_chat_completion", slow_completion)
+    config = {"api": {"providers": {"anthropic": {"default_model": "m"}}}}
+
+    first = asyncio.ensure_future(ping_provider(config, "anthropic"))
+    second = asyncio.ensure_future(ping_provider(config, "anthropic"))
+    await asyncio.sleep(0.2)
+    release.set()
+    results = await asyncio.gather(first, second)
+
+    assert len(calls) == 1
+    assert [r["status"] for r in results] == ["ok", "ok"]
+
+
+async def test_a_ping_leaves_room_for_a_reasoning_model(monkeypatch: pytest.MonkeyPatch):
+    from osprey.health import ping
+
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        "osprey.models.completion.get_chat_completion", lambda **kw: sent.update(kw) or "OK"
+    )
+    await ping_provider({"api": {"providers": {"p": {"default_model": "m"}}}}, "p")
+
+    assert sent["max_tokens"] == ping.MAX_TOKENS >= 32

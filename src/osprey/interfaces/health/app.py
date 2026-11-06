@@ -26,7 +26,7 @@ handles it, serving core-category results with default cadence.
 servers' own description of themselves (spawning them only when nothing is
 cached, or on an explicit re-probe — ``/checks`` never does);
 ``POST /reprobe`` re-runs part of the report through the engine's single
-flight; ``POST /ping`` sends one one-token completion to one provider. Each is
+flight; ``POST /ping`` sends one small completion to one provider. Each is
 a click, never a poll.
 
 **Lifespan registers teardown only.** No suite runs at startup; the first
@@ -271,7 +271,7 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     async def ping(
         body: Annotated[dict[str, Any] | None, Body()] = None,
     ) -> dict[str, Any] | JSONResponse:
-        """One one-token completion to ``{"provider": name}``."""
+        """One small completion to ``{"provider": name}``."""
         from osprey.health.ping import ping_provider
 
         provider = (body or {}).get("provider")
