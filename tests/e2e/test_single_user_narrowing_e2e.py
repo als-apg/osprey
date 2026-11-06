@@ -97,7 +97,7 @@ from tests.e2e._facility_select import bounded_setpoint, facility_view, repo_vie
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 #: This deploy's own thousand-port block. Chosen clear of every other deploy e2e
 #: in this suite (dispatch 20700, overlay 21100, sandbox-escape 21400, web-deploy
@@ -142,6 +142,7 @@ INIT_PRESET_ARGS = [
     "--preset",
     "control-assistant",
     "--no-git",
+    *e2e_scenario_pin(),
     *set_pairs(
         {
             "config": {

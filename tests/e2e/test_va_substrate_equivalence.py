@@ -106,7 +106,7 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.sdk_helpers import render_dir, set_switch_in_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -521,6 +521,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "--preset",
             "control-assistant",
             "--no-git",
+            *e2e_scenario_pin(),
             *set_pairs(edits),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
