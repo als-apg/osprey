@@ -7,7 +7,7 @@ response builder and refusal head and by the approval hook's own preview and
 settle functions; uploads go through the composer; a terminal ``/clear`` is the
 hook's ``POST /api/agent-turn``. Pins: one Runs row per run with its parts and
 its status arriving live; the ``/clear`` split, entering an older transcript and
-a live terminal ``/clear``; Earlier and the rows the tree leaves out; an upload
+a live terminal ``/clear``; the rows the tree leaves out; an upload
 after ``/clear``; resume across reload, a fresh context and sign-out; the
 streaming guard and browsing; naming, rename and revert, the switcher and More
 sessions; the ``beam_profile`` stub viewer and its fallback; the palette and
@@ -64,15 +64,14 @@ _HOOK = (
     / "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py"
 )
 
-#: Opens every closed node of the tree (sessions, Earlier, form groups, runs),
+#: Opens every closed node of the tree (sessions, form groups, runs),
 #: one per poll, and answers true once ten polls in a row found none closed:
 #: an opened session lists its groups only once its listing has loaded.
 _OPEN_ALL_JS = """() => {
   const tree = document.querySelector('#sidebar-session-tree');
   const closed = tree.querySelector('[data-group-head][aria-expanded="false"]')
     ?? tree.querySelector('.osprey-tree-run[aria-expanded="false"] [data-tree-disc]')
-    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]')
-    ?? tree.querySelector('.osprey-tree-earlier[aria-expanded="false"]');
+    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]');
   if (closed) {
     window.__e2eQuietPolls = 0;
     closed.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -411,7 +410,7 @@ def test_entering_an_older_transcript_keeps_its_save_and_a_terminal_clear_shows_
 # --- what the tree holds ------------------------------------------------------------
 
 
-def test_earlier_holds_untagged_artifacts_and_dispatch_and_watchdog_are_absent(hub, page):
+def test_unowned_dispatch_and_watchdog_artifacts_are_absent(hub, page):
     store = _store(hub)
     loose = store.save_file(b"# loose\n", "loose.md", "markdown", title="Loose note", session_id="")
     dispatched = store.save_file(
@@ -433,23 +432,13 @@ def test_earlier_holds_untagged_artifacts_and_dispatch_and_watchdog_are_absent(h
 
     _boot(page, hub)
     _open_all(page)
-    earlier_box = page.locator(f'{_TREE} [data-session-box="{_earlier_box_id(page)}"]')
-    expect(earlier_box.locator(f'.osprey-list-row[data-id="{loose.id}"]')).to_have_count(1)
+    # Every row the tree shows is an agent session's: no bucket for the rest.
+    expect(page.locator(f"{_TREE} [data-tree-earlier]")).to_have_count(0)
+    expect(_row(page, loose.id)).to_have_count(0)
     expect(_row(page, dispatched.id)).to_have_count(0)
     expect(_row(page, watched.id)).to_have_count(0)
     expect(page.locator(_TREE)).not_to_contain_text("Dispatched report")
     expect(page.locator(_TREE)).not_to_contain_text("Watchdog report")
-
-
-def _earlier_box_id(page: Page) -> str:
-    """The Earlier row's box id: the box right after the Earlier row."""
-    return page.evaluate(
-        """() => {
-          const row = document.querySelector('#sidebar-session-tree [data-tree-earlier]');
-          const box = row && row.nextElementSibling;
-          return box ? box.dataset.sessionBox ?? '' : '';
-        }"""
-    )
 
 
 def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tmp_path):
@@ -616,6 +605,52 @@ def _remove_artifacts_from_rail(page: Page) -> None:
 
 
 # --- the streaming guard and browsing -----------------------------------------------
+
+
+def test_the_agent_row_folds_the_tree_and_option_click_expands_every_session(hub, page):
+    """With the Agent pane open the Agent row folds and unfolds the whole tree (a
+    display rule once outranked ``hidden``, so the tree stayed on screen); ⌥-click
+    expands every session, a second ⌥-click collapses them all. The row has no
+    chevron, and its menu's Expand all does what ⌥-click does."""
+    _boot(page, hub)
+    agent = page.locator("#sidebar-agent-row")
+    tree = page.locator(_TREE)
+    expect(page.locator("html")).not_to_have_attribute("data-agent", "closed")
+    expect(tree).to_be_visible()
+    expect(agent.locator("svg.osprey-nav-disc, [data-disc]")).to_have_count(0)
+
+    agent.click()
+    expect(agent).to_have_attribute("aria-expanded", "false")
+    expect(tree).to_be_hidden()
+    agent.click()
+    expect(agent).to_have_attribute("aria-expanded", "true")
+    expect(tree).to_be_visible()
+
+    sessions = page.locator(f"{_TREE} .osprey-tree-session")
+    folded = page.locator(f'{_TREE} .osprey-tree-session[aria-expanded="false"]')
+    expect(sessions).not_to_have_count(0)
+    expect(sessions).not_to_have_count(1)
+    agent.click(modifiers=["Alt"])
+    expect(folded).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(sessions.count())
+    expect(page.locator("html")).not_to_have_attribute("data-agent", "closed")
+
+    sessions.last.locator(".osprey-tree-title").click(modifiers=["Alt"])
+    expect(page.locator(f'{_TREE} .osprey-tree-session[aria-expanded="true"]')).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(0)
+
+    # The menu's Expand all is the same gesture: every session opens.
+    _menu(page, agent, "Expand all")
+    expect(folded).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(sessions.count())
+    expect(agent).to_have_attribute("aria-expanded", "true")
+
+    # Keyboard still folds the tree from the row.
+    agent.focus()
+    page.keyboard.press("Enter")
+    expect(agent).to_have_attribute("aria-expanded", "false")
+    page.keyboard.press("Space")
+    expect(agent).to_have_attribute("aria-expanded", "true")
 
 
 def test_a_session_click_while_streaming_asks_and_another_session_never_opens_in_place(hub, page):

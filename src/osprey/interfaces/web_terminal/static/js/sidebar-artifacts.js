@@ -3,8 +3,7 @@
  *
  * The Agent row wraps the tree: the operator's sessions (session-model.js),
  * each expanding to its artifacts grouped by day (Activity mode, the default)
- * or by form (Kind mode), then the Earlier row (artifacts no session owns),
- * "More sessions", and a notice when the session history is cut short or
+ * or by form (Kind mode), then "More sessions", and a notice when the session history is cut short or
  * unreadable.
  * The rows are drawn by sidebar-artifact-rows.js; this module owns the data,
  * the clicks and the viewer.
@@ -24,7 +23,11 @@
  * group (its run opened), scrolled to and shown, the panels left to the
  * session's own layout (session-layout.js). A click (or double-click) on the
  * session in use folds or unfolds it. The fold is this tab's own state, reset
- * on every switch. An artifact click shows it without changing the session,
+ * on every switch. The one exception to "only the session in use":
+ * ⌥-click (altKey) on a session or on the Agent row ({@link toggleAllSessions})
+ * expands every session, or collapses them all when all are open; a plain
+ * session click or a switch afterwards returns to the session in use alone,
+ * left open. An artifact click shows it without changing the session,
  * focusing an already docked Artifacts panel in place, and records it as its
  * owner's last-open artifact.
  *
@@ -98,8 +101,8 @@ function freshState() {
     view: 'activity',
     /** The session in use folded by the operator (reset on a switch). */
     activeFolded: false,
-    /** Whether the Earlier row is open. */
-    earlierOpen: false,
+    /** Every session expanded by ⌥-click (reset by a plain click or a switch). */
+    expandAll: false,
     /** Open form groups per session. @type {Map<string, Set<string>>} */
     openGroups: new Map(),
     /** Open runs, by run key. @type {Set<string>} */
@@ -148,14 +151,6 @@ function treeIdOf(row) {
 function activeTreeId() {
   const row = model.activeRow();
   return row ? treeIdOf(row) : null;
-}
-
-/**
- * The tree id an artifact belongs under: its owner's, or Earlier.
- * @param {ArtifactEntry} entry
- */
-function treeIdOfEntry(entry) {
-  return entry.owner ?? store.EARLIER;
 }
 
 // ---- Init / teardown ----
@@ -242,7 +237,8 @@ async function summarize(all = false) {
 /** @param {{reason: string}} change */
 function onModelChange({ reason }) {
   // The session switched to always opens; the fold was the previous one's.
-  if (reason === 'pointer' || reason === 'switched') state.activeFolded = false;
+  if (reason === 'pointer' || reason === 'switched')
+    Object.assign(state, { activeFolded: false, expandAll: false });
   if (reason === 'rows') void summarize();
   render();
 }
@@ -289,18 +285,21 @@ function activeListing() {
 }
 
 /**
- * The listing the pager walks for an artifact: its own session's.
+ * The listing the pager walks for an artifact: its own session's, or null for
+ * one no session owns (no pager).
  * @param {ArtifactEntry} entry
+ * @returns {Listing | null}
  */
 function pagerListing(entry) {
-  if (inActiveSession(entry)) return /** @type {Listing} */ (activeListing());
-  return data.listingOf(treeIdOfEntry(entry));
+  if (inActiveSession(entry)) return activeListing();
+  return entry.owner == null ? null : data.listingOf(entry.owner);
 }
 
 /** @param {1 | -1} delta */
 async function step(delta) {
   const shown = held(state.shownId);
-  const target = shown ? await data.stepFrom(pagerListing(shown), shown.id, delta) : null;
+  const listing = shown ? pagerListing(shown) : null;
+  const target = shown && listing ? await data.stepFrom(listing, shown.id, delta) : null;
   if (!target || !served) return;
   model.setPick(target.id);
   model.recordLastArtifact(target);
@@ -308,7 +307,8 @@ async function step(delta) {
 
 /** @param {ArtifactEntry | null} shown */
 function pagerPosition(shown) {
-  return shown ? data.position(pagerListing(shown), shown.id) : null;
+  const listing = shown ? pagerListing(shown) : null;
+  return shown && listing ? data.position(listing, shown.id) : null;
 }
 
 // ---- Recording ----
@@ -356,7 +356,7 @@ function extraListings(entry) {
   return active && inActiveSession(entry) ? [`key:${active.session_key}|`] : [];
 }
 
-/** Whether an entry's owner is a loaded row (no owner = Earlier, always known). @param {ArtifactEntry} entry */
+/** Whether an entry's owner is a loaded row (no owner: nothing to load). @param {ArtifactEntry} entry */
 const knownOwner = (entry) => entry.owner == null || model.sessionOfArtifact(entry) !== null;
 
 /** @param {any} frame */
@@ -504,7 +504,7 @@ function treeNodes() {
     const count = data.totals.counts[treeId]?.total ?? 0;
     loadedTotal += row.transcript_id ? count : 0;
     const isActive = treeId === active;
-    const open = served && isActive && !state.activeFolded;
+    const open = served && unfolded(treeId, active);
     const node = rows.sessionRow(/** @type {any} */ (row), {
       active: isActive,
       open,
@@ -514,11 +514,6 @@ function treeNodes() {
     node.dataset.sessionId = treeId;
     nodes.push(node);
     if (open) nodes.push(rows.sessionBox(treeId, boxRows(treeId)));
-  }
-  if (served && data.totals.earlier.total > 0) {
-    const open = state.earlierOpen;
-    nodes.push(rows.earlierRow({ count: data.totals.earlier.total, open }));
-    if (open) nodes.push(rows.sessionBox(store.EARLIER, boxRows(store.EARLIER)));
   }
   if (model.hasMore())
     nodes.push(rows.moreSessionsRow(Math.max(0, data.totals.ownedTotal - loadedTotal)));
@@ -629,23 +624,21 @@ function onClick(event) {
   const tree = target?.closest(TREE_SELECTOR);
   if (!target || !tree) return;
   const session = target.closest('.osprey-tree-session[data-session-id]');
-  const earlier = target.closest('[data-tree-earlier]');
   const disc = target.closest('[data-tree-disc]');
   if (session instanceof HTMLElement) {
     // A double-click's second click is the same gesture: it never undoes the
     // first (a fold, or the switch it started).
     if (event.detail > 1) return;
+    if (event.altKey) return toggleAllSessions();
     const treeId = session.dataset.sessionId ?? '';
     // The session in use folds or unfolds; another is entered, never browsed.
+    // After expand-all, the click first returns to the session in use alone.
     if (treeId === activeTreeId()) {
-      state.activeFolded = !state.activeFolded;
+      state.activeFolded = state.expandAll ? false : !state.activeFolded;
+      state.expandAll = false;
       render();
     } else void openInAgent(treeId);
     return;
-  }
-  if (earlier) {
-    state.earlierOpen = !state.earlierOpen;
-    return render();
   }
   if (target.closest('[data-tree-more]')) return void model.loadMore();
   const head = target.closest('[data-group-head]');
@@ -662,6 +655,25 @@ function onClick(event) {
     return render();
   }
   pickArtifact(/** @type {string} */ (row.dataset.id));
+}
+
+/**
+ * Whether a session row is open: the session in use unless folded, another
+ * only under expand-all.
+ * @param {string} treeId @param {string | null} active
+ */
+const unfolded = (treeId, active) => (treeId === active ? !state.activeFolded : state.expandAll);
+
+/**
+ * The ⌥-click on a session or on the Agent row (Finder's): expand every
+ * session, artifacts and all, or collapse them all when all are already open.
+ * @param {boolean} [force]  expand (true) or collapse (false) instead of toggling
+ */
+export function toggleAllSessions(force) {
+  const active = activeTreeId();
+  state.expandAll = force ?? !model.rows().every((r) => unfolded(treeIdOf(r), active));
+  state.activeFolded = !state.expandAll;
+  render();
 }
 
 /**
@@ -694,7 +706,7 @@ export async function openInAgent(treeId) {
   const moved = wasActive ? false : await model.switchTo(row, { reason: 'gesture' });
   if (!wasActive && !moved) return;
   const now = activeTreeId() ?? treeId;
-  state.activeFolded = false;
+  Object.assign(state, { activeFolded: false, expandAll: false });
   render();
   await reveal(now, model.pick() ?? row.last_artifact_id ?? null, false, !wasActive);
 }

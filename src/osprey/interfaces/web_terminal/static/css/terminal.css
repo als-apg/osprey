@@ -129,8 +129,10 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
 
 /* The tree is a column that gives way to its boxes, so a box scrolls once the
    room runs out (the dragged group, or the rail in automatic sizing) and
-   otherwise takes its content's height. */
-.sidebar-group > .sidebar-row > [data-session-tree] {
+   otherwise takes its content's height. Only while shown: the display would
+   outrank the user-agent [hidden] rule, and a folded Agent row would leave
+   its tree on screen. */
+.sidebar-group > .sidebar-row > [data-session-tree]:not([hidden]) {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
@@ -727,7 +729,6 @@ html[data-sidebar="collapsed"] #sidebar-toggle .osprey-ic {
 html[data-sidebar="collapsed"] :is(
   .sidebar-brand-word,
   .sidebar .osprey-nav-label,
-  .sidebar .osprey-nav-disc,
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,

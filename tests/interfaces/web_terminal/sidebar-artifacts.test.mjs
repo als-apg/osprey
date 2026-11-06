@@ -171,7 +171,6 @@ function defaultServer() {
         [T2]: { total: 2, by_form: { plots: 2 } },
         [T3]: { total: 1, by_form: { data: 1 } },
       },
-      earlier: { total: 1, by_form: { documents: 1 } },
       owned_total: 9,
       ledger: 'ok',
     },
@@ -190,7 +189,13 @@ function defaultServer() {
         next_cursor: null,
       },
     },
-    byId: { a2: A2, a3: A3, b1: B1, run1: RUN1 },
+    byId: {
+      a2: A2,
+      a3: A3,
+      b1: B1,
+      run1: RUN1,
+      u1: art('u1', 'plots', '2026-10-30T08:00:00Z', { owner: null, session_id: '' }),
+    },
     focus: { focused: false, artifact: null },
     enterKey: '99999999-9999-4999-8999-999999999999',
   };
@@ -202,7 +207,7 @@ const reply = (body, status = 200) =>
 
 /** @param {any} body */
 function listKey(body) {
-  const scope = body.session ? `session:${body.session}` : body.key ? `key:${body.key}` : 'earlier';
+  const scope = body.session ? `session:${body.session}` : `key:${body.key}`;
   return `${scope}|${body.form ?? ''}|${body.cursor ?? ''}`;
 }
 
@@ -278,6 +283,20 @@ function boxIds(sid) {
 /** @param {Element} el @param {number} [detail]  the click count */
 function click(el, detail = 1) {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
+}
+
+/** A ⌥-click (altKey). @param {Element} el */
+function altClick(el) {
+  el.dispatchEvent(
+    new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, altKey: true })
+  );
+}
+
+/** @returns {string[]} the open session rows' ids */
+function openSessions() {
+  return [...tree().querySelectorAll('.osprey-tree-session[aria-expanded="true"]')].map(
+    (r) => /** @type {HTMLElement} */ (r).dataset.sessionId ?? ''
+  );
 }
 
 /** A double-click: two clicks, the second with `detail` 2, then dblclick. @param {Element} el */
@@ -388,7 +407,8 @@ describe('the data', () => {
     expect(sessionRowEl(T1).querySelector('.osprey-tree-n')?.textContent).toBe('3');
     // 9 owned − (3 + 2) loaded.
     expect(tree().querySelector('[data-tree-more] .osprey-tree-n')?.textContent).toBe('4');
-    expect(tree().querySelector('[data-tree-earlier] .osprey-tree-n')?.textContent).toBe('1');
+    // Every row the tree shows is an agent session's: no bucket for the rest.
+    expect(tree().querySelector('[data-tree-earlier], .osprey-tree-earlier')).toBeNull();
 
     click(/** @type {Element} */ (tree().querySelector('[data-tree-more]')));
     await settle();
@@ -571,6 +591,83 @@ describe('expansion and clicks', () => {
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
+  test('⌥-click on a session expands every session, artifacts shown; again collapses them all', async () => {
+    await boot();
+    altClick(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+    // The other session shows its artifacts, behind a disclosure, without a switch.
+    expect(tree().querySelector(`[data-session-box="${T2}"] [data-group-head]`)).not.toBeNull();
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+    expect(pointer.getPointer()).toBe(K1);
+
+    altClick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([]);
+    expect(tree().querySelectorAll('[data-session-box]')).toHaveLength(0);
+
+    // Not all open (only the current one): ⌥-click expands rather than collapses.
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1]);
+    altClick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+  });
+
+  test('toggleAllSessions (the Agent row’s ⌥-click) expands, collapses, and honours a forced value', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+    mod.toggleAllSessions();
+    await settle();
+    expect(openSessions()).toEqual([]);
+    mod.toggleAllSessions(true);
+    await settle();
+    mod.toggleAllSessions(true);
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+  });
+
+  test('a plain click on the current session after expand-all returns to it alone, still open', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1]);
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).toBeNull();
+    // From there the plain rule holds: the next click folds it.
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([]);
+  });
+
+  test('a switch after expand-all returns to the current-only rule', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
+    expect(openSessions()).toEqual([T2]);
+  });
+
+  test('a session title’s tip says what a click does and names the ⌥-click', async () => {
+    await boot();
+    const tip = (/** @type {string} */ id) =>
+      /** @type {HTMLElement} */ (sessionRowEl(id).querySelector('.osprey-tree-title')).dataset
+        .tipDetail ?? '';
+    expect(tip(T1)).toMatch(
+      /^Click to fold or unfold · (⌥-click|Alt\+click) to expand or collapse all$/
+    );
+    expect(tip(T2)).toMatch(
+      /^Click to switch to it · (⌥-click|Alt\+click) to expand or collapse all$/
+    );
+  });
+
   test('openInAgent on the current session opens the Agent pane and keeps it unfolded', async () => {
     await boot();
     mocks.isTerminalPanelOpen.mockReturnValue(false);
@@ -740,6 +837,16 @@ describe('the viewer', () => {
     expect(shown()).toBe('a2');
   });
 
+  test('an artifact no session owns shows without a pager, and lists nowhere', async () => {
+    await boot();
+    frame({ type: 'focus', id: 'u1', automatic: false });
+    await settle();
+    expect(shown()).toBe('u1');
+    expect(headerNow().items.map((i) => i.id)).toEqual(['crumb', 'open', 'save']);
+    expect(requests('/session-list').some((r) => !r.body.session && !r.body.key)).toBe(false);
+    expect(tree().querySelector('.osprey-list-row[data-id="u1"]')).toBeNull();
+  });
+
   test('the tile menu keeps its artifact verbs', async () => {
     await boot();
     expect(mocks.setServiceMenuExtras).toHaveBeenCalledWith('artifacts', expect.any(Function));
@@ -791,6 +898,20 @@ describe('live updates', () => {
     });
     await settle();
     expect(count(T1)).toBe('3');
+  });
+
+  test('a frame no session owns adds no row and no count anywhere', async () => {
+    await boot();
+    frame({
+      type: 'artifact',
+      ...art('u2', 'plots', '2026-10-30T11:30:00Z', { owner: null, session_id: '' }),
+    });
+    await settle();
+    expect(count(T1)).toBe('3');
+    expect(tree().querySelector('.osprey-list-row[data-id="u2"]')).toBeNull();
+    expect(tree().querySelector('[data-tree-earlier], .osprey-tree-earlier')).toBeNull();
+    // 9 owned − (3 + 2) loaded: an unowned artifact is not a hidden session's.
+    expect(tree().querySelector('[data-tree-more] .osprey-tree-n')?.textContent).toBe('4');
   });
 
   test('an owner change re-places the entry and its count', async () => {

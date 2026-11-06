@@ -75,7 +75,6 @@ describe('the listing request', () => {
       runs: 'grouped',
       cursor: 'abc+=',
     });
-    expect(listing({ earlier: true }).body()).toEqual({ earlier: true, runs: 'grouped' });
     expect(JSON.stringify(listing().body())).not.toMatch(/"run"|run_record/);
   });
 
@@ -305,7 +304,7 @@ describe('fetchFocusedId', () => {
 
 describe('fetchSummary', () => {
   test('POSTs one page of session ids, null on failure', async () => {
-    fetchMock.mockResolvedValueOnce(reply({ counts: {}, earlier: { total: 0, by_form: {} } }));
+    fetchMock.mockResolvedValueOnce(reply({ counts: {}, owned_total: 0 }));
     expect(await mod.fetchSummary(['t1', 't2'])).toMatchObject({ counts: {} });
     expect(fetchMock.mock.calls[0][0]).toBe('/panel/artifacts/api/artifacts/session-summary');
     expect(sent(0)).toEqual({ sessions: ['t1', 't2'] });

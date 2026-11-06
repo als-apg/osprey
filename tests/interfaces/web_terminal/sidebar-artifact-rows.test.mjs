@@ -259,9 +259,6 @@ describe('a session row', () => {
     expect(cls(slot)).toContain('osprey-tree-disc');
     expect(slot.getAttribute('aria-hidden')).toBe('true');
     expect(slot.childElementCount).toBe(0);
-    expect(
-      rows.earlierRow({ count: 1, open: false }).querySelector('[data-tree-disc]')
-    ).not.toBeNull();
   });
 
   test('shows "naming…" while the name is pending', () => {
@@ -608,13 +605,8 @@ describe('the rows after the sessions', () => {
     expect(more.querySelector('.osprey-tree-n')?.textContent).toBe('42');
   });
 
-  test('the Earlier row is a session-level row with its count', () => {
-    const earlier = rows.earlierRow({ count: 3, open: false });
-    expect(earlier.dataset.treeEarlier).toBe('');
-    expect(earlier.querySelector('.osprey-tree-title')?.textContent).toBe('Earlier');
-    expect(earlier.querySelector('.osprey-tree-n')?.textContent).toBe('3');
-    expect(cls(earlier)).toContain('osprey-tree-d0');
-    expect(earlier.getAttribute('aria-expanded')).toBe('false');
+  test('no row stands for artifacts without a session', () => {
+    expect(/** @type {any} */ (rows).earlierRow).toBeUndefined();
   });
 
   test.each([

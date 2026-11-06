@@ -39,10 +39,10 @@ const SESSION_SELECTOR = '.osprey-tree-session[data-session-id]';
 const GROUP_SELECTOR = '[data-group-head]';
 const RUN_SELECTOR = '.osprey-list-row.osprey-tree-run[data-id]';
 const ARTIFACT_SELECTOR = '.osprey-list-row[data-id]';
-/** Top-level rows Expand/Collapse all acts on: sessions and Earlier. Only a
- * row with a disclosure folds (the session in use, Earlier); another session
- * opens only by switching to it. */
-const TOP_SELECTOR = `${SESSION_SELECTOR}, [data-tree-earlier]`;
+/** Top-level rows Expand/Collapse all acts on: the sessions. Only a row with
+ * a disclosure folds (the session in use); another session opens only by
+ * switching to it. */
+const TOP_SELECTOR = SESSION_SELECTOR;
 
 // ---- Row lookups ----
 
@@ -69,42 +69,34 @@ const isOpen = (row) => row.getAttribute('aria-expanded') === 'true';
 
 // ---- Agent row ----
 
-/** @returns {boolean} whether any top-level tree row is open */
-function anyOpen() {
-  return [...document.querySelectorAll(TOP_SELECTOR)].some(
-    (row) => row instanceof HTMLElement && isOpen(row)
-  );
+/** @returns {boolean} whether every top-level tree row is open */
+function allOpen() {
+  const rows = [...document.querySelectorAll(TOP_SELECTOR)];
+  return rows.length > 0 && rows.every((row) => row instanceof HTMLElement && isOpen(row));
 }
 
 /**
- * Open or close every top-level row. Each click re-renders the tree, so the
- * rows are looked up afresh each round.
+ * The same gesture as a ⌥-click on the Agent row (sidebar.js, imported lazily
+ * like the session model: it sits behind panel-menu-policy).
  * @param {boolean} open
  */
-export function setAllOpen(open) {
-  const limit = document.querySelectorAll(TOP_SELECTOR).length + 1;
-  for (let i = 0; i < limit; i += 1) {
-    const row = [...document.querySelectorAll(TOP_SELECTOR)].find(
-      (r) => r instanceof HTMLElement && isOpen(r) !== open && r.querySelector('[data-tree-disc]')
-    );
-    if (!(row instanceof HTMLElement)) return;
-    clickDisc(row);
-  }
+async function setAllSessions(open) {
+  (await import('./sidebar.js')).toggleEverySession(open);
 }
 
 /**
  * The Agent row's menu: a new session, and one Expand all / Collapse all row
- * worded for what it will do.
+ * worded for what it will do (Collapse all when every session is open).
  * @returns {MenuItem[]}
  */
 export function buildAgentRowMenuItems() {
-  const open = anyOpen();
+  const open = allOpen();
   return [
     { label: 'New session', run: () => void sessionModel().then((m) => m.switchTo({ new: true })) },
     { divider: true },
     open
-      ? { label: 'Collapse all', run: () => setAllOpen(false) }
-      : { label: 'Expand all', run: () => setAllOpen(true) },
+      ? { label: 'Collapse all', run: () => void setAllSessions(false) }
+      : { label: 'Expand all', run: () => void setAllSessions(true) },
   ];
 }
 
@@ -384,7 +376,7 @@ export function runMenuItems(head, entry) {
 // ---- Opening ----
 
 /**
- * The menu a tree row offers, or null when it offers none (Earlier, "more").
+ * The menu a tree row offers, or null when it offers none ("more").
  * Artifact and run rows read their entry first (pin state, run parts).
  * @param {Element} target
  * @returns {Promise<{row: HTMLElement, label: string, items: MenuItem[]} | null>}

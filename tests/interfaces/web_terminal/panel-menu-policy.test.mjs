@@ -32,6 +32,7 @@ const sessionModel = vi.hoisted(() => ({
   refresh: vi.fn(),
 }));
 const sessions = vi.hoisted(() => ({ startNewSession: vi.fn() }));
+const tree = vi.hoisted(() => ({ toggleAllSessions: vi.fn() }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/agent-surface.js', () => ({
   isTerminalSurface: () => surface.terminal,
@@ -45,8 +46,10 @@ vi.mock(
   () => sessionModel
 );
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js', () => sessions);
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js', () => tree);
 
 const policy = await import(`${JS}/panel-menu-policy.js`);
+const sidebar = await import(`${JS}/sidebar.js`);
 
 /** @typedef {{label?: string, run?: () => unknown}} Item */
 const { TERMINAL_RAIL_ID } = await import(`${JS}/panel-catalog.js`);
@@ -161,27 +164,27 @@ describe('the Agent row', () => {
     );
   });
 
-  test('with a session open it offers Collapse all, which closes every open row', () => {
-    const tree = document.createElement('div');
-    tree.dataset.sessionTree = '';
+  test('with every session open it offers Collapse all, the ⌥-click gesture', async () => {
+    const treeEl = document.createElement('div');
+    treeEl.dataset.sessionTree = '';
     const row = document.createElement('div');
     row.className = 'osprey-tree-session';
     row.dataset.sessionId = 't1';
     row.setAttribute('aria-expanded', 'true');
-    const disc = document.createElement('span');
-    disc.dataset.treeDisc = '';
-    // The controller's toggle, stood in for: a disclosure click flips the row.
-    disc.addEventListener('click', () =>
-      row.setAttribute('aria-expanded', String(row.getAttribute('aria-expanded') !== 'true'))
-    );
-    row.append(disc);
-    tree.append(row);
-    document.body.append(tree);
+    treeEl.append(row);
+    document.body.append(treeEl);
 
     policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1);
     expect(menuLabels()).toEqual(['New session', 'Collapse all']);
     menuRow('Collapse all').click();
-    expect(row.getAttribute('aria-expanded')).toBe('false');
+    await vi.waitFor(() => expect(tree.toggleAllSessions).toHaveBeenCalledWith(false));
+  });
+
+  test('Expand all expands every session through the same path as ⌥-click', async () => {
+    policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1);
+    menuRow('Expand all').click();
+    await vi.waitFor(() => expect(tree.toggleAllSessions).toHaveBeenCalledWith(true));
+    expect(sidebar.isListOpen('agent')).toBe(true);
   });
 
   test('New session goes through switchTo({new: true}), never startNewSession directly', async () => {
@@ -189,5 +192,53 @@ describe('the Agent row', () => {
     menuRow('New session').click();
     await vi.waitFor(() => expect(sessionModel.switchTo).toHaveBeenCalledWith({ new: true }));
     expect(sessions.startNewSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('the Agent row’s click', () => {
+  /** The rail's own click on the Agent row. @param {MouseEventInit} [init] */
+  const activate = (init = {}) =>
+    policy
+      .railOptions()
+      .onActivate(TERMINAL_RAIL_ID, new MouseEvent('click', { detail: 1, ...init }));
+
+  test('with the pane open, a click folds the session list and the next unfolds it', () => {
+    sidebar.setListOpen('agent', true);
+    activate();
+    expect(sidebar.isListOpen('agent')).toBe(false);
+    activate();
+    expect(sidebar.isListOpen('agent')).toBe(true);
+    expect(dock.openTerminalPanel).not.toHaveBeenCalled();
+  });
+
+  test('with the pane closed, a click opens the pane and unfolds the list', () => {
+    sidebar.setListOpen('agent', false);
+    dock.isTerminalPanelOpen.mockReturnValueOnce(false);
+    activate();
+    expect(dock.openTerminalPanel).toHaveBeenCalledTimes(1);
+    expect(sidebar.isListOpen('agent')).toBe(true);
+  });
+
+  test('⌥-click toggles every session and leaves the list open and the pane alone', async () => {
+    sidebar.setListOpen('agent', true);
+    activate({ altKey: true });
+    await vi.waitFor(() => expect(tree.toggleAllSessions).toHaveBeenCalledWith(undefined));
+    expect(sidebar.isListOpen('agent')).toBe(true);
+    expect(dock.openTerminalPanel).not.toHaveBeenCalled();
+  });
+
+  test('⌥-click on a folded list unfolds it onto every session open', async () => {
+    sidebar.setListOpen('agent', false);
+    activate({ altKey: true });
+    await vi.waitFor(() => expect(tree.toggleAllSessions).toHaveBeenCalledWith(true));
+    expect(sidebar.isListOpen('agent')).toBe(true);
+  });
+
+  test('Enter or Space (a click with no pointer, detail 0) stays a plain click, even with ⌥ held', async () => {
+    sidebar.setListOpen('agent', true);
+    activate({ altKey: true, detail: 0 });
+    expect(sidebar.isListOpen('agent')).toBe(false);
+    await Promise.resolve();
+    expect(tree.toggleAllSessions).not.toHaveBeenCalled();
   });
 });

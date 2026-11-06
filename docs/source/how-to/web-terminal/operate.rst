@@ -553,8 +553,7 @@ sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
 A script run is one row with a dot for **succeeded**, **failed** or **not
 run** (none while it runs); its approval preview, code and outputs are its
 parts. A run that was never run
-opens on its proposed code. **Earlier** holds your artifacts that have no
-session; **More sessions** loads older ones.
+opens on its proposed code. **More sessions** loads older ones.
 
 - Click a session name to switch to it: its layout comes back as you left it
   (panels, tiles, sizes, the Agent pane, and each panel's page where the hub
@@ -562,6 +561,8 @@ session; **More sessions** loads older ones.
   or older session keeps the layout on screen. The sidebar stays as it is.
   Click the current session's name to fold or unfold it. Only the current
   session shows its artifacts; the others stay folded until you switch to them.
+  ⌥-click (Alt+click) a session or **Agent** to expand every session, or
+  collapse them all if all are open.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
