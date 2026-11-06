@@ -372,19 +372,35 @@ def test_the_manifest_is_not_scanned_as_source(monkeypatch):
 # synthetic one, so the check scans only what the control is about; the real
 # sites' green verdict is test_guard_is_green_on_this_tree's.
 
+#: Cheap clean sites to put ahead of a control's synthetic site, as the real
+#: ones were: a root under an absent path (skipped) and then a clean root in
+#: one site, and a clean site after it, so the synthetic site is only reached
+#: by a scan that goes on past a skipped root, a clean root and a clean key.
+_EARLIER_CLEAN_SITES = [
+    {
+        "root": ["src/osprey/connectors", "src/osprey/deployment/host_ports.py"],
+        "regex": "(?!)",
+        "why": "a skipped root, then a clean one",
+    },
+    {"root": "src/osprey/deployment/host_ports.py", "regex": "(?!)", "why": "a clean site"},
+]
+
 
 def test_mode_4_orphan_site_regex_matching_again_goes_red():
     def resurrect_a_code_site(manifest):
+        assert "src/osprey/connectors" in [e["path"] for e in manifest["absent_paths"]]
         manifest["orphan_sites"] = {
+            "earlier": _EARLIER_CLEAN_SITES,
             "synthetic": [
                 {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
-            ]
+            ],
         }
 
     guard = make_guard(resurrect_a_code_site)
     guard.check_orphan_sites()
     assert "orphan-site" in modes(guard)
     assert "synthetic" in details(guard)
+    assert "earlier" not in details(guard)
 
 
 def test_mode_4_scans_every_root_of_a_multi_root_site():
