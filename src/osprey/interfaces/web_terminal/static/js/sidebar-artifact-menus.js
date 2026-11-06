@@ -26,6 +26,7 @@
 /** @returns {Promise<typeof import('./session-model.js')>} */
 const sessionModel = () => import('./session-model.js');
 
+import { withPrefix } from './api.js';
 import { openContextMenu } from './panel-context-menu.js';
 import { ARTIFACTS_BASE, fetchArtifact, readTreeView } from './sidebar-artifact-listing.js';
 import { showConfirm } from './posture-confirm.js';
@@ -109,7 +110,7 @@ export function buildAgentRowMenuItems() {
  */
 export async function putTitle(transcriptId, title) {
   try {
-    await fetch(`/api/sessions/${encodeURIComponent(transcriptId)}/title`, {
+    await fetch(withPrefix(`/api/sessions/${encodeURIComponent(transcriptId)}/title`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
@@ -155,7 +156,7 @@ export function startRename(row, transcriptId) {
 /** Download a session's transcript (GET /api/sessions/{id}/transcript.md). @param {string} id */
 export function exportTranscript(id) {
   const a = document.createElement('a');
-  a.href = `/api/sessions/${encodeURIComponent(id)}/transcript.md`;
+  a.href = withPrefix(`/api/sessions/${encodeURIComponent(id)}/transcript.md`);
   a.download = `transcript-${id}.md`;
   document.body.append(a);
   a.click();
@@ -184,7 +185,7 @@ export function confirmDeleteSession(row, transcriptId) {
     focus: 'cancel',
     onConfirm: async (ui) => {
       try {
-        const res = await fetch(`/api/sessions/${encodeURIComponent(transcriptId)}`, {
+        const res = await fetch(withPrefix(`/api/sessions/${encodeURIComponent(transcriptId)}`), {
           method: 'DELETE',
         });
         if (!res.ok) {
@@ -268,7 +269,7 @@ export function groupMenuItems(head) {
 // ---- Artifact and run ----
 
 /** @param {string} id */
-const artifactUrl = (id) => `${ARTIFACTS_BASE}/api/artifacts/${encodeURIComponent(id)}`;
+const artifactUrl = (id) => withPrefix(`${ARTIFACTS_BASE}/api/artifacts/${encodeURIComponent(id)}`);
 
 /**
  * Flip an artifact's pin. The pin is set in the operator's current session,

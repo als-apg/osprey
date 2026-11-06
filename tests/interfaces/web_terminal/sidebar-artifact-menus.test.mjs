@@ -429,3 +429,52 @@ describe('an artifact row', () => {
     expect(ev.defaultPrevented).toBe(false);
   });
 });
+
+describe('behind the hub prefix (/u/alice)', () => {
+  beforeEach(() => {
+    /** @type {any} */ (window).__OSPREY_PREFIX__ = '/u/alice';
+  });
+  afterEach(() => {
+    delete (/** @type {any} */ (window).__OSPREY_PREFIX__);
+  });
+
+  test('rename PUTs the title under the prefix', async () => {
+    await menus.putTitle('t1', 'New name');
+    const [url, init] = /** @type {any} */ (globalThis.fetch).mock.calls[0];
+    expect(url).toBe('/u/alice/api/sessions/t1/title');
+    expect(init.method).toBe('PUT');
+  });
+
+  test('delete DELETEs the session under the prefix', async () => {
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Delete…').click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
+    const ui = { done: vi.fn(), error: document.createElement('div') };
+    await confirm.showConfirm.mock.calls[0][0].onConfirm(ui);
+    expect(globalThis.fetch).toHaveBeenCalledWith('/u/alice/api/sessions/t1', {
+      method: 'DELETE',
+    });
+  });
+
+  test('the transcript export link carries the prefix', () => {
+    let href = '';
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+      href = document.body.querySelector('a[download]')?.getAttribute('href') ?? '';
+    });
+    try {
+      menus.exportTranscript('t1');
+    } finally {
+      click.mockRestore();
+    }
+    expect(href).toBe('/u/alice/api/sessions/t1/transcript.md');
+  });
+
+  test('Pin goes under the prefix', async () => {
+    await rightClick($('[data-id="a1"]'));
+    menuRow('Pin').click();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    expect(/** @type {any} */ (globalThis.fetch).mock.calls[0][0]).toBe(
+      '/u/alice/panel/artifacts/api/artifacts/a1/pin'
+    );
+  });
+});
