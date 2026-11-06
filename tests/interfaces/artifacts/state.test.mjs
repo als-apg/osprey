@@ -40,6 +40,9 @@ import {
   getFilteredArtifacts,
   hasMoreArtifacts,
   inCurrentScope,
+  liveVerdict,
+  followsFocus,
+  getHeldTranscript,
   addArtifact,
   removeArtifact,
   getPickedIds,
@@ -168,20 +171,64 @@ describe('fetchArtifacts', () => {
     expect(byId('error-banner').style.display).toBe('none');
   });
 
-  test('scopes the request to the current session unless showAllSessions is set', async () => {
+  test('in the session view, posts the gallery body to session-list and holds the transcript', async () => {
     setCurrentSessionId('sess-42');
     setShowAllSessions(false);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ artifacts: [], transcript: 'T-1', ledger: 'ok' }),
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     await fetchArtifacts();
-    expect(fetchMock).toHaveBeenCalledWith('/api/artifacts?session_id=sess-42');
+    expect(fetchMock).toHaveBeenCalledWith('/api/artifacts/session-list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'sess-42', search: '', cursor: null, runs: 'grouped' }),
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      key: 'sess-42',
+      search: '',
+      cursor: null,
+      runs: 'grouped',
+    });
+    expect(getHeldTranscript()).toBe('T-1');
 
     setShowAllSessions(true);
     await fetchArtifacts();
     expect(fetchMock).toHaveBeenLastCalledWith('/api/artifacts');
+    expect(getHeldTranscript()).toBeNull();
+    setShowAllSessions(false);
+    setCurrentSessionId(null);
+  });
+
+  test('a key the ledger has no row for holds a null transcript', async () => {
+    setCurrentSessionId('sess-unseen');
+    setShowAllSessions(false);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ artifacts: [], transcript: null, ledger: 'ok' }),
+      })
+    );
+    await fetchArtifacts();
+    expect(getHeldTranscript()).toBeNull();
+    setCurrentSessionId(null);
+  });
+
+  test('with no session id, the page lists all sessions through GET /api/artifacts', async () => {
+    setCurrentSessionId(null);
+    setShowAllSessions(false);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [{ id: 'w1' }] }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchArtifacts();
+    expect(fetchMock).toHaveBeenCalledWith('/api/artifacts');
+    expect(getHeldTranscript()).toBeNull();
+    expect(getArtifacts()).toEqual([{ id: 'w1' }]);
   });
 
   test('on a non-OK response: shows the error banner and fires onHealthChange(false), leaving artifacts untouched', async () => {
@@ -254,7 +301,19 @@ describe('fetchArtifacts', () => {
 
     setCurrentSessionId('sess/1');
     await fetchArtifacts({ search: 'a+b' });
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/artifacts?search=a%2Bb&session_id=sess%2F1');
+    const [url, init] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+    expect(url).toBe('/api/artifacts/session-list');
+    expect(JSON.parse(init.body)).toEqual({
+      key: 'sess/1',
+      search: 'a+b',
+      cursor: null,
+      runs: 'grouped',
+    });
+
+    setShowAllSessions(true);
+    await fetchArtifacts({ search: 'a+b' });
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/artifacts?search=a%2Bb');
+    setShowAllSessions(false);
     setCurrentSessionId(null);
   });
 
@@ -298,6 +357,27 @@ describe('fetchFocus', () => {
   test('is silent (does not throw) on a network failure', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
     await expect(fetchFocus()).resolves.toBeUndefined();
+  });
+
+  test("the session view reads its key's focus; the all-sessions view reads any", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifact: null }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentSessionId('key/1');
+    setShowAllSessions(false);
+    await fetchFocus();
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/focus?session_key=key%2F1');
+
+    setShowAllSessions(true);
+    await fetchFocus();
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/focus');
+
+    setShowAllSessions(false);
+    setCurrentSessionId(null);
+    await fetchFocus();
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/focus');
   });
 });
 
@@ -549,17 +629,121 @@ describe('paging', () => {
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
   });
 
-  test('inCurrentScope admits untagged and matching entries, refuses a foreign one, admits all with all-sessions on', () => {
-    setCurrentSessionId('s1');
+  /**
+   * Load a session-view first page for key `key` whose answer names `transcript`.
+   * @param {string} key @param {string|null} transcript @param {any[]} [list]
+   */
+  async function loadSessionView(key, transcript, list = []) {
+    setCurrentSessionId(key);
     setShowAllSessions(false);
-    expect(inCurrentScope({ id: 'x' })).toBe(true);
-    expect(inCurrentScope({ id: 'x', session_id: '' })).toBe(true);
-    expect(inCurrentScope({ id: 'x', session_id: 's1' })).toBe(true);
-    expect(inCurrentScope({ id: 'x', session_id: 's2' })).toBe(false);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(okResponse({ artifacts: list, transcript, ledger: 'ok' }))
+    );
+    await fetchArtifacts();
+  }
+
+  test('inCurrentScope admits what the held transcript owns, and everything with all-sessions on', async () => {
+    await loadSessionView('k1', 'T1');
+    expect(inCurrentScope({ id: 'x', owner: 'T1', operator_visible: true })).toBe(true);
+    expect(inCurrentScope({ id: 'x', owner: 'T1', operator_visible: false })).toBe(false);
+    expect(inCurrentScope({ id: 'x', owner: 'T2', operator_visible: true })).toBe(false);
+    expect(inCurrentScope({ id: 'x', owner: null, operator_visible: true })).toBe(false);
+    // The key alone does not admit: the transcript that owns it does.
+    expect(inCurrentScope({ id: 'x', session_id: 'k1', owner: 'T2', operator_visible: true })).toBe(
+      false
+    );
     setShowAllSessions(true);
-    expect(inCurrentScope({ id: 'x', session_id: 's2' })).toBe(true);
+    expect(inCurrentScope({ id: 'x', owner: 'T2' })).toBe(true);
     setShowAllSessions(false);
     setCurrentSessionId(null);
+    expect(inCurrentScope({ id: 'x', owner: 'T2' })).toBe(true);
+  });
+
+  test('a held null transcript admits nothing, not even an Earlier artifact', async () => {
+    await loadSessionView('k1', null);
+    expect(inCurrentScope({ id: 'e', owner: null, operator_visible: true })).toBe(false);
+    expect(inCurrentScope({ id: 'e', operator_visible: true })).toBe(false);
+    expect(
+      liveVerdict({ id: 'e', owner: null, operator_visible: true, session_id: '' }, 'new')
+    ).toBe('out');
+    setCurrentSessionId(null);
+  });
+
+  describe('liveVerdict (session view)', () => {
+    test("a new artifact whose exec_id matches a held entry's is refetch, even when it would be in", async () => {
+      await loadSessionView('k1', 'T1', [{ id: 'head', exec_id: 'run-1', owner: 'T1' }]);
+      const result = { id: 'res', exec_id: 'run-1', owner: 'T1', operator_visible: true };
+      expect(liveVerdict(result, 'new')).toBe('refetch');
+      setCurrentSessionId(null);
+    });
+
+    test('an empty exec_id never matches', async () => {
+      await loadSessionView('k1', 'T1', [{ id: 'head', exec_id: '', owner: 'T1' }]);
+      expect(
+        liveVerdict({ id: 'n', exec_id: '', owner: 'T1', operator_visible: true }, 'new')
+      ).toBe('in');
+      setCurrentSessionId(null);
+    });
+
+    test('an artifact the held transcript owns and the operator sees is in', async () => {
+      await loadSessionView('k1', 'T1');
+      expect(
+        liveVerdict({ id: 'n', owner: 'T1', operator_visible: true, session_id: 'k1' }, 'new')
+      ).toBe('in');
+      expect(liveVerdict({ id: 'n', owner: 'T1', operator_visible: true }, 'updated')).toBe('in');
+      setCurrentSessionId(null);
+    });
+
+    test('a new artifact carrying the current key while the held transcript is null or another is refetch', async () => {
+      await loadSessionView('k1', null);
+      expect(
+        liveVerdict({ id: 'n', session_id: 'k1', owner: 'T9', operator_visible: true }, 'new')
+      ).toBe('refetch');
+      await loadSessionView('k1', 'T1');
+      expect(
+        liveVerdict({ id: 'n', session_id: 'k1', owner: 'T2', operator_visible: true }, 'new')
+      ).toBe('refetch');
+      setCurrentSessionId(null);
+    });
+
+    test('an updated frame never refetches', async () => {
+      await loadSessionView('k1', null, [{ id: 'head', exec_id: 'run-1' }]);
+      expect(
+        liveVerdict({ id: 'n', session_id: 'k1', exec_id: 'run-1', owner: 'T9' }, 'updated')
+      ).toBe('out');
+      setCurrentSessionId(null);
+    });
+
+    test('anything else is out', async () => {
+      await loadSessionView('k1', 'T1');
+      expect(
+        liveVerdict({ id: 'n', session_id: 'k2', owner: 'T2', operator_visible: true }, 'new')
+      ).toBe('out');
+      expect(liveVerdict({ id: 'n', owner: 'T1', operator_visible: false }, 'new')).toBe('out');
+      setCurrentSessionId(null);
+    });
+
+    test('outside the session view every frame is in', async () => {
+      await loadFirstPage({ artifacts: [{ id: 'head', exec_id: 'run-1' }] });
+      expect(liveVerdict({ id: 'n', exec_id: 'run-1', owner: 'T2' }, 'new')).toBe('in');
+    });
+  });
+
+  test('followsFocus: the session view follows its held transcript only; all-sessions follows every focus', async () => {
+    await loadSessionView('k1', 'T1');
+    expect(followsFocus('T1')).toBe(true);
+    expect(followsFocus('T2')).toBe(false);
+    expect(followsFocus(null)).toBe(false);
+    await loadSessionView('k1', null);
+    expect(followsFocus(null)).toBe(false);
+    expect(followsFocus('T1')).toBe(false);
+    setShowAllSessions(true);
+    expect(followsFocus(null)).toBe(true);
+    expect(followsFocus('T2')).toBe(true);
+    setShowAllSessions(false);
+    setCurrentSessionId(null);
+    expect(followsFocus('T2')).toBe(true);
   });
 
   test('addArtifact returns false while a search is active and leaves the list alone', async () => {
@@ -575,17 +759,49 @@ describe('paging', () => {
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
   });
 
-  test('addArtifact returns true without adding a foreign-session entry', async () => {
+  test('addArtifact returns true without adding an entry another transcript owns', async () => {
+    await loadSessionView('s1', 'T1', [{ id: 'a1', owner: 'T1' }]);
+
+    expect(
+      addArtifact({ id: 'foreign', session_id: 's2', owner: 'T2', operator_visible: true })
+    ).toBe(true);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
+    expect(addArtifact({ id: 'mine', owner: 'T1', operator_visible: true })).toBe(true);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'mine']);
+    setCurrentSessionId(null);
+  });
+
+  test('fetchMoreArtifacts in the session view posts the held cursor in the same body', async () => {
     setCurrentSessionId('s1');
     setShowAllSessions(false);
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a1' }], total: 1 }))
+      vi
+        .fn()
+        .mockResolvedValue(
+          okResponse({ artifacts: [{ id: 'a1' }], next_cursor: 'c1', transcript: 'T1' })
+        )
     );
-    await fetchArtifacts();
+    await fetchArtifacts({ search: 'orbit' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        okResponse({ artifacts: [{ id: 'a2' }], next_cursor: null, transcript: 'T1' })
+      );
+    vi.stubGlobal('fetch', fetchMock);
 
-    expect(addArtifact({ id: 'foreign', session_id: 's2' })).toBe(true);
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
+    await fetchMoreArtifacts();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/artifacts/session-list');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({
+      key: 's1',
+      search: 'orbit',
+      cursor: 'c1',
+      runs: 'grouped',
+    });
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
+    expect(getHeldTranscript()).toBe('T1');
     setCurrentSessionId(null);
   });
 
