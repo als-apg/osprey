@@ -25,7 +25,6 @@ const HTML = `
     <div class="sidebar-group" data-group="workspace">
       <div class="osprey-section-label sidebar-group-head">
         <span class="sidebar-group-name" id="n1">Workspace</span>
-        <button type="button" data-group-menu>m</button>
         <input type="text" id="field">
       </div>
       <div class="sidebar-row"><button id="sidebar-agent-row">Agent</button></div>
@@ -33,7 +32,6 @@ const HTML = `
     <div class="sidebar-group" data-group="tools">
       <div class="osprey-section-label sidebar-group-head">
         <span class="sidebar-group-name" id="n2">Tools</span>
-        <button type="button" data-group-menu>m</button>
       </div>
     </div>
   </div>`;

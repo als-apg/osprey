@@ -584,8 +584,8 @@ Arrange the groups
 
 You can rename the groups, add your own groups, and move rows between them.
 
-To change a group, put the pointer on its name and click **⋯**. The menu has
-these items:
+To change a group, right-click its heading (or focus its name and press
+Shift+F10). The menu has these items:
 
 - **Rename**. Type the new name and press Enter. Press Escape to keep the old
   name. A name can have up to 40 characters. An empty name keeps the old one.

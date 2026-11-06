@@ -210,7 +210,7 @@ describe('createRail', () => {
       expect(heading.classList.contains('osprey-section-label')).toBe(true);
       const name = /** @type {HTMLElement} */ (heading.querySelector('.sidebar-group-name'));
       expect(g.getAttribute('aria-labelledby')).toBe(name.id);
-      expect(heading.querySelector('button.osprey-mini[data-group-menu]')).not.toBeNull();
+      expect(heading.querySelector('button')).toBeNull();
     }
     expect(groups.map((g) => g.querySelector('.sidebar-group-name')?.textContent)).toEqual([
       'Workspace',

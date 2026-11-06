@@ -151,13 +151,13 @@ export function initSidebarFold(rail) {
 
   /**
    * The id of the group whose heading an event landed on, or null when it
-   * landed on the ⋯ button or a rename field, or the sidebar shows icons only.
+   * landed on a rename field, or the sidebar shows icons only.
    * @param {Event} event
    * @returns {string | null}
    */
   const groupIdOf = (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (!target || target.closest('[data-group-menu], input')) return null;
+    if (!target || target.closest('input')) return null;
     const group = target.closest('.sidebar-group-head')?.closest('.sidebar-group');
     if (!group || !rail.contains(group)) return null;
     if (document.documentElement.getAttribute('data-sidebar') === 'collapsed') return null;

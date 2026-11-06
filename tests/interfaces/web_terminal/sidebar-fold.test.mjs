@@ -22,7 +22,6 @@ const HTML = `
     <div class="sidebar-group" data-group="workspace">
       <div class="osprey-section-label sidebar-group-head">
         <span class="sidebar-group-name" id="n1">Workspace</span>
-        <button type="button" data-group-menu>m</button>
         <input type="text" id="field">
       </div>
       <div class="sidebar-row"><button id="sidebar-agent-row">Agent</button></div>
@@ -30,7 +29,6 @@ const HTML = `
     <div class="sidebar-group" data-group="tools">
       <div class="osprey-section-label sidebar-group-head">
         <span class="sidebar-group-name" id="n2">Tools</span>
-        <button type="button" data-group-menu>m</button>
       </div>
     </div>
   </div>`;
@@ -165,9 +163,8 @@ describe('folding a group', () => {
     expect(group('tools').hasAttribute('data-folded')).toBe(false);
   });
 
-  test('the ⋯ button and a rename field do not fold', async () => {
+  test('a rename field does not fold', async () => {
     await boot();
-    dbl(qs(head('workspace'), '[data-group-menu]'));
     dbl(byId('field'));
     expect(group('workspace').hasAttribute('data-folded')).toBe(false);
     expect(localStorage.getItem(FOLDED)).toBeNull();

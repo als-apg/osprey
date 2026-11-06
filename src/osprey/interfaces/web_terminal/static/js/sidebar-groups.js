@@ -34,20 +34,21 @@
  * listeners; panel-rail.js listens and moves the rows into their groups.
  *
  * HEADINGS. Each group's heading (`.osprey-section-label`) holds its name
- * (`span.sidebar-group-name`, also the group's accessible name) and a ⋯
- * button (`button.osprey-mini[data-group-menu]`, shown on hover and on focus)
- * that opens the group's menu: Rename, New group below, Move up, Move down,
- * and Delete group for a group the operator added. The menu is one
- * body-level `.osprey-popover[role=menu]` (`#sidebar-group-menu`), placed
- * beside the sidebar and dismissed by the design system's popover.js. Rename
+ * (`span.sidebar-group-name`, also the group's accessible name). A
+ * right-click anywhere across the heading's full width, or Shift+F10 / the
+ * menu key on its focused name, opens the group's menu: Rename, New group
+ * below, Move up, Move down, and Delete group for a group the operator added.
+ * The menu is the hub's shared context menu (panel-context-menu.js). Rename
  * swaps the name for a text field in place: Enter, or leaving the field,
  * keeps the new name; Escape keeps the old one, and so does an empty name.
  */
 
-import { icon } from '/design-system/js/icons.js';
-import { closePopover, openPopover } from '/design-system/js/popover.js';
+import { isContextMenuKey } from '/design-system/js/context-menu.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
+import { openContextMenu } from './panel-context-menu.js';
+
+/** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 
 /**
  * @typedef {object} SidebarGroup
@@ -436,27 +437,19 @@ export function onGroupsChange(callback) {
 /** The class of a heading's name, which is also the group's accessible name. */
 const NAME_CLASS = 'sidebar-group-name';
 
-/** Marks the ⋯ button that opens a group's menu. */
-const MENU_BUTTON_ATTR = 'data-group-menu';
-
 /** The class of the field that renames a group in place. */
 const RENAME_CLASS = 'sidebar-group-rename';
 
-/** The body-level menu that every group's ⋯ button opens. */
-const MENU_ID = 'sidebar-group-menu';
-
-/** ⋯ buttons already wired, so a repaint never adds a second listener.
+/** Headings already wired, so a repaint never adds a second listener.
  *  @type {WeakSet<Element>} */
-const wiredMenuButtons = new WeakSet();
-
-/** The ⋯ button the group menu was last opened from. @type {Element | null} */
-let menuOpener = null;
+const wiredHeadings = new WeakSet();
 
 /**
  * Give a group element its heading: the `.osprey-section-label` that holds
- * the group's name and its ⋯ button. A heading the page shipped with both
- * parts is adopted as it is; any other heading gets both built. The group is
- * labelled by its name.
+ * the group's name. A heading the page shipped with its name is adopted as it
+ * is; any other heading gets one built. The group is labelled by its name. A
+ * right-click anywhere on the heading, or Shift+F10 / the menu key while
+ * focus is in it, opens the group's menu.
  * @param {HTMLElement} groupEl - a `.sidebar-group[data-group]`
  * @param {SidebarGroup} group
  * @param {string} nameId - the id the name takes when it has none yet
@@ -473,55 +466,53 @@ export function paintGroupHeading(groupEl, group, nameId) {
   }
   heading.classList.add('sidebar-group-head');
   let name = /** @type {HTMLElement | null} */ (heading.querySelector(`.${NAME_CLASS}`));
-  let button = /** @type {HTMLButtonElement | null} */ (
-    heading.querySelector(`[${MENU_BUTTON_ATTR}]`)
-  );
-  if (!name || !button) {
+  if (!name) {
     name = document.createElement('span');
     name.className = NAME_CLASS;
-    button = buildMenuButton();
-    heading.replaceChildren(name, button);
+    heading.replaceChildren(name);
   }
   if (!name.id) name.id = nameId;
   name.textContent = group.label;
   groupEl.setAttribute('aria-labelledby', name.id);
-  button.setAttribute('aria-label', `${group.label} group options`);
-  button.setAttribute(
-    'data-tip-detail',
-    isBuiltinGroup(group.id) ? 'Rename or move this group' : 'Rename, move or delete this group'
-  );
-  if (!wiredMenuButtons.has(button)) {
-    wiredMenuButtons.add(button);
-    const opener = button;
-    opener.addEventListener('click', () => toggleGroupMenu(opener));
+  if (!wiredHeadings.has(heading)) {
+    wiredHeadings.add(heading);
+    wireHeading(heading);
   }
   return heading;
 }
 
-/** @returns {HTMLButtonElement} a group's ⋯ button, unlabelled */
-function buildMenuButton() {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'osprey-mini';
-  button.setAttribute(MENU_BUTTON_ATTR, '');
-  button.setAttribute('aria-haspopup', 'menu');
-  button.setAttribute('aria-expanded', 'false');
-  button.append(icon('more'));
-  return button;
-}
-
-/** @returns {HTMLElement} the group menu, made on first use */
-function groupMenu() {
-  let menu = document.getElementById(MENU_ID);
-  if (!menu) {
-    menu = document.createElement('div');
-    menu.id = MENU_ID;
-    menu.className = 'osprey-popover sidebar-group-menu';
-    menu.setAttribute('role', 'menu');
-    menu.hidden = true;
-    document.body.append(menu);
-  }
-  return menu;
+/**
+ * The group menu's listeners on a heading: a right-click anywhere on it, and
+ * Shift+F10 or the menu key while focus is in it (macOS fires no
+ * `contextmenu` for those keys, so they are handled here). A rename field
+ * keeps the browser's own menu, and so does the sidebar collapsed to icons,
+ * where a heading is a hairline.
+ * @param {HTMLElement} heading
+ */
+function wireHeading(heading) {
+  /** @param {Event} event @returns {{railEl: HTMLElement, id: string} | null} */
+  const targetOf = (event) => {
+    if (event.target instanceof Element && event.target.closest(`.${RENAME_CLASS}`)) return null;
+    if (document.documentElement.getAttribute('data-sidebar') === 'collapsed') return null;
+    const groupEl = heading.closest('.sidebar-group[data-group]');
+    const railEl = groupEl?.parentElement;
+    const id = groupEl?.getAttribute('data-group');
+    return railEl && id ? { railEl, id } : null;
+  };
+  heading.addEventListener('contextmenu', (event) => {
+    const at = targetOf(event);
+    if (at && openGroupMenu(at.railEl, at.id, event.clientX, event.clientY, heading)) {
+      event.preventDefault();
+    }
+  });
+  heading.addEventListener('keydown', (event) => {
+    if (!isContextMenuKey(event)) return;
+    const at = targetOf(event);
+    const rect = heading.getBoundingClientRect();
+    if (at && openGroupMenu(at.railEl, at.id, rect.left + 8, rect.bottom, heading)) {
+      event.preventDefault();
+    }
+  });
 }
 
 /**
@@ -537,114 +528,78 @@ function groupElement(railEl, groupId) {
 }
 
 /**
- * Put focus on a group's ⋯ button: after the menu changed that group, the
+ * Put focus on a group's name: after the menu changed that group, the
  * keyboard continues from the group it was working on.
  * @param {HTMLElement} railEl
  * @param {string} groupId
  */
-function focusMenuButton(railEl, groupId) {
+function focusGroupName(railEl, groupId) {
   /** @type {HTMLElement | null | undefined} */ (
-    groupElement(railEl, groupId)?.querySelector(`[${MENU_BUTTON_ATTR}]`)
+    groupElement(railEl, groupId)?.querySelector(`.${NAME_CLASS}`)
   )?.focus();
 }
 
 /**
- * Open the menu of the group that `button` heads, or close the menu when this
- * button opened it. A menu open from another group's button moves here.
- * @param {HTMLButtonElement} button
+ * Open a group's menu at a viewport position: Rename, New group below, Move
+ * up, Move down, and Delete group for a group the operator added.
+ * @param {HTMLElement} railEl - the rail the group's element is in
+ * @param {string} id
+ * @param {number} x
+ * @param {number} y
+ * @param {HTMLElement} [anchorEl] - the heading the menu belongs to
+ * @returns {boolean} whether the menu opened (not for an unknown group)
  */
-function toggleGroupMenu(button) {
-  const menu = groupMenu();
-  if (!menu.hidden && menuOpener === button) {
-    closePopover(menu);
-    return;
-  }
-  const groupEl = /** @type {HTMLElement | null} */ (button.closest('.sidebar-group[data-group]'));
-  const railEl = groupEl?.parentElement;
-  const id = groupEl?.getAttribute('data-group');
-  if (!railEl || !id) return;
+export function openGroupMenu(railEl, id, x, y, anchorEl) {
   const { groups } = loadGroups();
   const at = groups.findIndex((group) => group.id === id);
-  if (at < 0) return;
+  if (at < 0) return false;
 
-  /** @type {HTMLElement[]} */
-  const rows = [
-    menuItem('Rename', () => {
-      startGroupRename(railEl, id);
-    }),
-    menuItem('New group below', () => {
-      startGroupRename(railEl, addGroup(NEW_GROUP_LABEL, id));
-    }),
-    menuItem(
-      'Move up',
-      () => {
+  /** @type {MenuItem[]} */
+  const items = [
+    { label: 'Rename', run: () => startGroupRename(railEl, id) },
+    {
+      label: 'New group below',
+      run: () => startGroupRename(railEl, addGroup(NEW_GROUP_LABEL, id)),
+    },
+    {
+      label: 'Move up',
+      disabled: at === 0,
+      run: () => {
         reorderGroup(id, 'up');
-        focusMenuButton(railEl, id);
+        focusGroupName(railEl, id);
       },
-      { disabled: at === 0 }
-    ),
-    menuItem(
-      'Move down',
-      () => {
+    },
+    {
+      label: 'Move down',
+      disabled: at === groups.length - 1,
+      run: () => {
         reorderGroup(id, 'down');
-        focusMenuButton(railEl, id);
+        focusGroupName(railEl, id);
       },
-      { disabled: at === groups.length - 1 }
-    ),
+    },
   ];
   if (!isBuiltinGroup(id)) {
-    const sep = document.createElement('div');
-    sep.className = 'osprey-popover-sep';
-    sep.setAttribute('role', 'separator');
-    rows.push(
-      sep,
-      menuItem(
-        'Delete group',
-        () => {
+    items.push(
+      { divider: true },
+      {
+        label: 'Delete group',
+        danger: true,
+        run: () => {
           removeGroup(id);
-          focusMenuButton(railEl, FALLBACK_GROUP);
+          focusGroupName(railEl, FALLBACK_GROUP);
         },
-        { danger: true }
-      )
+      }
     );
   }
-  menu.setAttribute('aria-label', `${groups[at].label} group`);
-  menu.replaceChildren(...rows);
-  menuOpener = button;
-  openPopover(menu, button, {
-    place: 'beside-right',
-    edge: button.closest('#sidebar') ?? railEl,
-  });
-}
-
-/**
- * One row of the group menu. The menu closes before the row's action runs,
- * so an action that moves focus (the rename field) keeps it.
- * @param {string} text
- * @param {() => void} run
- * @param {{disabled?: boolean, danger?: boolean}} [flags]
- * @returns {HTMLButtonElement}
- */
-function menuItem(text, run, { disabled = false, danger = false } = {}) {
-  const item = document.createElement('button');
-  item.type = 'button';
-  item.className = 'osprey-popover-item';
-  item.classList.toggle('danger', danger);
-  item.setAttribute('role', 'menuitem');
-  item.textContent = text;
-  item.disabled = disabled;
-  item.addEventListener('click', () => {
-    closePopover(groupMenu());
-    run();
-  });
-  return item;
+  openContextMenu({ x, y, anchorEl, ariaLabel: `${groups[at].label} group`, items });
+  return true;
 }
 
 /**
  * Swap a group's name for a text field that holds it, and focus the field.
  * Enter, or leaving the field, renames the group; Escape keeps the old name,
  * and so does an empty field. After Enter or Escape, focus goes to the
- * group's ⋯ button, where the keyboard was working; leaving the field with
+ * group's name, where the keyboard was working; leaving the field with
  * the pointer moves focus to wherever the pointer went.
  *
  * A collapsed sidebar shows no names, so it opens no field: a group made
@@ -682,7 +637,7 @@ export function startGroupRename(railEl, groupId) {
     field.remove();
     name.hidden = false;
     if (keep) renameGroup(groupId, value);
-    if (refocus) focusMenuButton(railEl, groupId);
+    if (refocus) focusGroupName(railEl, groupId);
   };
   field.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== 'Escape') return;

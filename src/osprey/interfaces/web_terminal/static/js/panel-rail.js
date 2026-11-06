@@ -65,7 +65,6 @@
  *          aria-labelledby="panel-rail-workspace-label">
  *       <div class="osprey-section-label sidebar-group-head">
  *         <span class="sidebar-group-name" id="panel-rail-workspace-label">Workspace</span>
- *         <button class="osprey-mini" type="button" data-group-menu …>…</button>
  *       </div>
  *       <div class="osprey-list-empty sidebar-group-empty" data-group-empty hidden>…</div>
  *       <button class="osprey-nav-row panel-rail-button disabled" data-panel-id="events"
