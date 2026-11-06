@@ -187,8 +187,8 @@ jobs:
         # tests/mcp_server, tests/deployment, tests/hooks and
         # tests/infrastructure. `rest-b` is everything else, spelled as ignores
         # in "Run unit tests" so a new test directory lands there rather than
-        # in no shard. cli-a carries about half the cli test time and rest-a a
-        # little under half the rest (the measured figures are in
+        # in no shard. cli-a carries about half the cli test time and rest-a about
+        # half the rest (the measured figures are in
         # docs/source/contributing/workflow.rst, "Measured CI Figures"), so
         # each pair finishes together and each shard stays well under the step
         # cap below on the slowest runner in the pool. A shard is a set of

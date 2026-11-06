@@ -12209,7 +12209,7 @@ def test_the_unit_macos_cells_are_one_job_each__mutation_puts_macos_on_the_axis(
 def test_the_unit_macos_cells_are_one_job_each__mutation_runs_a_shard() -> None:
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
-    matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli"', 1)
+    matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli-a"', 1)
     assert any("is not one macOS 'macos' job" in p for p in _macos_cell_problems(mutated))
 
 
