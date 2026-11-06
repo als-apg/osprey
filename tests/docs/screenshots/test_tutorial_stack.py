@@ -19,10 +19,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from docs.screenshots import capture, recipes
+import yaml
+from docs.screenshots import capture, recipes, videos
 from docs.screenshots.capture import ScreenshotSkip, assert_hero_structural
 from docs.screenshots.recipes import DocShot
 from PIL import Image
+
+from osprey.cli.build_profile_resolve import preset_authored_config
 
 # Tokens that must NEVER appear in any assembled command — a destructive or
 # system-wide container operation would violate the project-scoped safety rule.
@@ -135,15 +138,12 @@ def test_command_assembly_is_exact_and_project_scoped(monkeypatch, tmp_path) -> 
     assert "--dev" in _cmd_of(up_call)
     assert up_call.kwargs["cwd"] == proj
 
-    # sim apply nominal --yes --now <ANCHOR>, cwd == project dir.
+    # sim apply nominal --yes, cwd == project dir. Captures run on real time:
+    # no frozen instant is passed.
     seed_call = next(c for c in run.call_args_list if "sim" in _cmd_of(c))
     seed = _cmd_of(seed_call)
-    assert seed[:3] == ["osprey", "sim", "apply"]
-    assert "nominal" in seed
-    assert "--yes" in seed
-    assert "--now" in seed
-    assert recipes.ANCHOR in seed
-    assert seed[seed.index("--now") + 1] == recipes.ANCHOR
+    assert seed == ["osprey", "sim", "apply", "nominal", "--yes"]
+    assert "--now" not in seed
     assert seed_call.kwargs["cwd"] == proj
 
     # Teardown is `osprey reset --yes`, repo-scoped to the temp dir: it removes
@@ -152,6 +152,81 @@ def test_command_assembly_is_exact_and_project_scoped(monkeypatch, tmp_path) -> 
     down_call = next(c for c in run.call_args_list if _cmd_of(c)[:2] == ["osprey", "reset"])
     assert _cmd_of(down_call) == ["osprey", "reset", "--yes"]
     assert down_call.kwargs["cwd"] == proj
+
+
+_SCENARIO_KEY = "config.simulation.default_scenarios"
+
+
+def _scenario_pins(init: list[str]) -> list[str]:
+    """Every ``--set`` value in *init* that pins the default scenario set."""
+    return [
+        init[i + 1]
+        for i, token in enumerate(init[:-1])
+        if token == "--set" and init[i + 1].startswith(f"{_SCENARIO_KEY}=")
+    ]
+
+
+def _pinned_names(pair: str) -> list[str]:
+    """The scenario list a pin pair carries, parsed the way ``osprey init`` does."""
+    value = yaml.safe_load(pair.split("=", 1)[1])
+    assert isinstance(value, list), f"the pin must carry a list, got {value!r}"
+    return value
+
+
+def test_init_pins_the_preset_default_scenarios_minus_demo_history(monkeypatch, tmp_path) -> None:
+    run = Mock(return_value=_ok_result())
+    _drive_stack(monkeypatch, tmp_path, run=run)
+
+    with capture.tutorial_stack():
+        pass
+    init = next(_cmd_of(c) for c in run.call_args_list if "init" in _cmd_of(c))
+
+    pins = _scenario_pins(init)
+    assert len(pins) == 1, f"exactly one scenario pin expected, got {pins!r}"
+    names = _pinned_names(pins[0])
+    assert "demo-history" not in names, "no docs capture lays down history"
+
+    # The list is the preset's own default, read off the preset file (not copied).
+    authored = preset_authored_config("control-assistant")["simulation.default_scenarios"]
+    assert names == [n for n in authored if n != "demo-history"]
+    # The web-terminals switch stays the init's first --set.
+    assert init[init.index("--set") + 1] == "config.modules.web_terminals.enabled=false"
+
+
+def test_pin_drops_demo_history_from_the_preset_default(monkeypatch) -> None:
+    monkeypatch.setattr(
+        capture,
+        "preset_authored_config",
+        lambda preset: {"simulation.default_scenarios": ["rf-thermal", "demo-history", "x"]},
+    )
+    assert _pinned_names(capture._default_scenarios_pin()) == ["rf-thermal", "x"]
+    assert capture._default_scenarios_pin().startswith(f"{_SCENARIO_KEY}=")
+
+
+def test_video_init_sets_carry_no_scenario_pin_of_their_own() -> None:
+    for video in videos.VIDEOS:
+        for pair in getattr(video, "init_sets", ()):
+            assert not pair.startswith(f"{_SCENARIO_KEY}="), (
+                f"{video!r} pins scenarios itself; the shared stack init owns the pin"
+            )
+
+
+def test_video_stack_init_carries_the_pin(monkeypatch, tmp_path) -> None:
+    run = Mock(return_value=_ok_result())
+    _drive_stack(monkeypatch, tmp_path, run=run)
+
+    with capture.tutorial_stack(sets=("some.key=1",)):
+        pass
+    init = next(_cmd_of(c) for c in run.call_args_list if "init" in _cmd_of(c))
+    pins = _scenario_pins(init)
+    assert len(pins) == 1
+    assert "demo-history" not in _pinned_names(pins[0])
+    # A video's own sets come after the shared ones.
+    assert init.index(pins[0]) < init.index("some.key=1")
+
+
+def test_recipes_carry_no_frozen_anchor() -> None:
+    assert not hasattr(recipes, "ANCHOR")
 
 
 def test_provider_override_is_baked_into_init(monkeypatch, tmp_path) -> None:

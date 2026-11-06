@@ -13,9 +13,9 @@ from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.simulation.apply import resolve_default_scenarios
 
 
-def test_the_control_assistant_preset_starts_in_rf_thermal() -> None:
+def test_the_control_assistant_preset_starts_in_rf_thermal_with_example_sessions() -> None:
     config = _expand_dotted(resolve_build_document(None, "control-assistant").profile.config)
-    assert resolve_default_scenarios(config) == ("rf-thermal",)
+    assert resolve_default_scenarios(config) == ("rf-thermal", "demo-history")
 
 
 @pytest.mark.parametrize("preset", ["hello-world"])
