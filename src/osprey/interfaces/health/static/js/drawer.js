@@ -291,6 +291,7 @@ export function closeDrawer() {
   }
   S.band = null;
   S.key = null;
+  placed = { band: null, key: null, left: 0 };
   store.drawerSig = '';
   markSel();
   setHash();
@@ -339,6 +340,13 @@ export function selTarget() {
     : document.getElementById('tile-' + S.key);
 }
 
+/** Where the caret last stood, so the next tile in the same band can slide from it. */
+let placed = {
+  band: /** @type {string | null} */ (null),
+  key: /** @type {string | null} */ (null),
+  left: 0,
+};
+
 export function placeCaret() {
   if (!S.band) return;
   const dr = document.getElementById('drawer-' + S.band);
@@ -347,7 +355,16 @@ export function placeCaret() {
   if (!dr || !car || !target) return;
   const x = target.getBoundingClientRect();
   const d = dr.getBoundingClientRect();
-  car.style.left = x.left + x.width / 2 - d.left + 'px';
+  const left = x.left + x.width / 2 - d.left;
+  // Slide only from the previous tile of this same open drawer; every other
+  // placement (fresh open, other band, poll re-render, resize) just lands.
+  const from = placed.band === S.band && placed.key !== S.key ? placed.left : left;
+  car.style.transition = 'none';
+  car.style.left = from + 'px';
+  void car.offsetWidth;
+  car.style.transition = '';
+  car.style.left = left + 'px';
+  placed = { band: S.band, key: S.key, left };
 }
 
 export function keepInView() {
