@@ -1,0 +1,30 @@
+{
+  "entries": [
+    {
+      "entry_id": "12345",
+      "source_system": "Generic JSON",
+      "timestamp": "2025-01-15T08:30:00-08:00",
+      "author": "J. Smith",
+      "raw_text": "RF cavity trip at 08:15...",
+      "attachments": [],
+      "metadata": {},
+      "created_at": "2025-01-15T08:31:12-08:00",
+      "updated_at": "2025-01-15T08:31:12-08:00",
+      "summary": "RF cavity fault requiring manual reset",
+      "keywords": ["RF", "cavity", "trip"],
+      "score": 0.92,
+      "highlights": ["<b>RF cavity</b> trip at 08:15"],
+      "matched_via": [],
+      "matched_attachment_ids": [],
+      "facility_references": null
+    }
+  ],
+  "answer": null,
+  "sources": ["12345"],
+  "search_modes_used": ["keyword"],
+  "reasoning": "Keyword search: 1 results",
+  "total_results": 1,
+  "execution_time_ms": 340,
+  "diagnostics": [],
+  "expanded_terms": []
+}

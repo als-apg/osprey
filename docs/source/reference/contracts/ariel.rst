@@ -427,24 +427,21 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
          An entry-field failure on any of these endpoints returns one of three
          envelopes:
 
-         .. code-block:: json
-
-            {"detail": "...", "code": "invalid_entry_field", "field": "book"}
+         .. literalinclude:: examples/ariel-entry-field-invalid.json
+            :language: json
 
          is 422: a submitted value (or an options query's parent value) is
          invalid and the author can correct it.
 
-         .. code-block:: json
-
-            {"detail": "...", "code": "entry_field_options_unavailable", "field": "scan"}
+         .. literalinclude:: examples/ariel-entry-field-options-unavailable.json
+            :language: json
 
          is 502: the adapter failed or took longer than 10 seconds to list a
          ``dynamic_select``'s choices. The detail is a generic message, not the
          adapter's error text.
 
-         .. code-block:: json
-
-            {"detail": "...", "code": "entry_fields_misdeclared"}
+         .. literalinclude:: examples/ariel-entry-fields-misdeclared.json
+            :language: json
 
          is 500: the adapter declares its fields wrongly, and only a change to
          the adapter fixes it.
@@ -459,106 +456,31 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
 
          **HealthResponse:**
 
-         .. code-block:: json
-
-            {
-              "status": "healthy",
-              "message": "ARIEL service healthy",
-              "config_status": "ok",
-              "service": {
-                "entry_count": 48291,
-                "last_ingestion": "2026-09-30T08:00:00Z",
-                "enabled_search_modules": ["keyword"],
-                "enabled_enhancement_modules": ["text_embedding"]
-              }
-            }
+         .. literalinclude:: examples/ariel-health-response.json
+            :language: json
 
          **SearchResponse:**
 
-         .. code-block:: json
+         Every field is present, at its default when the search left it empty.
+         ``search_modes_used`` names the one mode the search ran; it is empty when the
+         search timed out or the requested mode is unavailable.
 
-            {
-              "entries": [
-                {
-                  "entry_id": "12345",
-                  "source_system": "ALS eLog",
-                  "timestamp": "2025-01-15T08:30:00Z",
-                  "author": "J. Smith",
-                  "raw_text": "RF cavity trip at 08:15...",
-                  "summary": "RF cavity fault requiring manual reset",
-                  "keywords": ["RF", "cavity", "trip"],
-                  "score": 0.92,
-                  "highlights": ["<b>RF cavity</b> trip at 08:15"]
-                }
-              ],
-              "search_modes_used": ["keyword", "semantic"],
-              "total_results": 1,
-              "execution_time_ms": 340
-            }
+         .. literalinclude:: examples/ariel-search-response.json
+            :language: json
 
          **StatusResponse:**
 
-         .. code-block:: json
-
-            {
-              "healthy": true,
-              "database_connected": true,
-              "database_uri": "postgresql://localhost:5432/ariel",
-              "entry_count": 15230,
-              "embedding_tables": [
-                {"table_name": "text_embeddings_nomic_embed_text", "entry_count": 15230, "dimension": 768, "is_active": true}
-              ],
-              "active_embedding_model": "nomic-embed-text",
-              "enabled_search_modules": ["keyword", "semantic"],
-              "enabled_enhancement_modules": ["text_embedding", "semantic_processor"],
-              "last_ingestion": "2025-01-15T06:00:00Z",
-              "errors": []
-            }
+         .. literalinclude:: examples/ariel-status-response.json
+            :language: json
 
          See :mod:`osprey.interfaces.ariel.api.schemas` for the full Pydantic model definitions.
 
       .. tab-item:: Capabilities
 
-         The ``/api/capabilities`` endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single ``direct`` category), along with shared parameters:
+         The ``/api/capabilities`` endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single ``direct`` category), along with shared parameters, the default search mode, the vocabulary state and the ``attachments`` block. This is the whole response for a deployment with the ``keyword`` and ``semantic`` modes enabled and no vocabulary; with a vocabulary, ``expand_query`` joins the shared parameters:
 
-         .. code-block:: json
-
-            {
-              "categories": {
-                "direct": {
-                  "label": "Direct",
-                  "modes": [
-                    {
-                      "name": "keyword",
-                      "label": "Keyword",
-                      "description": "Full-text PostgreSQL search...",
-                      "parameters": [
-                        {
-                          "name": "fuzzy_fallback",
-                          "label": "Fuzzy Fallback",
-                          "type": "bool",
-                          "default": true,
-                          "section": "Options"
-                        }
-                      ]
-                    },
-                    {
-                      "name": "semantic",
-                      "label": "Semantic",
-                      "description": "Embedding-based similarity search...",
-                      "parameters": []
-                    }
-                  ]
-                }
-              },
-              "shared_parameters": [
-                {"name": "max_results", "type": "int", "default": 10},
-                {"name": "start_date", "type": "date"},
-                {"name": "author", "type": "text"},
-                {"name": "source_system", "type": "dynamic_select",
-                 "options_endpoint": "/api/filter-options/source_systems"}
-              ]
-            }
+         .. literalinclude:: examples/ariel-capabilities.json
+            :language: json
 
          **How it works:** The ``get_capabilities()`` function in :mod:`osprey.services.ariel_search.capabilities` iterates over enabled search modules from the registry. Each module provides a ``get_tool_descriptor()`` (for its description) and optionally ``get_parameter_descriptors()`` (for its tunable parameters).
 
