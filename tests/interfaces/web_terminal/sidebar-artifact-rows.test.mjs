@@ -224,6 +224,18 @@ describe('a session row', () => {
     expect(row.textContent).not.toContain('naming…');
   });
 
+  test('data-count only once the summary counted the session (the Delete… dialog reads it)', () => {
+    const unknown = rows.sessionRow(session(), { active: false, open: false, count: 0 });
+    expect(unknown.dataset.count).toBeUndefined();
+    const known = rows.sessionRow(session(), {
+      active: false,
+      open: false,
+      count: 0,
+      summarized: true,
+    });
+    expect(known.dataset.count).toBe('0');
+  });
+
   test('the active session is tinted; a live one has a filled dot', () => {
     const active = rows.sessionRow(session({ state: 'live' }), {
       active: true,
@@ -236,6 +248,20 @@ describe('a session row', () => {
     const idle = rows.sessionRow(session(), { active: false, open: false, count: 0 });
     expect(cls(idle)).not.toContain('active');
     expect(cls(/** @type {Element} */ (idle.querySelector('.osprey-dot')))).toContain('hollow');
+  });
+
+  test('only the active session has a disclosure; another keeps an empty slot of its width', () => {
+    const active = rows.sessionRow(session(), { active: true, open: false, count: 0 });
+    expect(active.querySelector('[data-tree-disc]')).not.toBeNull();
+    const other = rows.sessionRow(session(), { active: false, open: false, count: 0 });
+    expect(other.querySelector('[data-tree-disc]')).toBeNull();
+    const slot = /** @type {Element} */ (other.firstElementChild);
+    expect(cls(slot)).toContain('osprey-tree-disc');
+    expect(slot.getAttribute('aria-hidden')).toBe('true');
+    expect(slot.childElementCount).toBe(0);
+    expect(
+      rows.earlierRow({ count: 1, open: false }).querySelector('[data-tree-disc]')
+    ).not.toBeNull();
   });
 
   test('shows "naming…" while the name is pending', () => {
@@ -425,36 +451,24 @@ describe('an artifact row', () => {
   });
 });
 
-describe('the highlight', () => {
-  test('marks the row page load points at, without selecting it', () => {
+describe('the selection', () => {
+  test('no row is selected without a shown artifact', () => {
     const plain = rows.artifactRow(entry('a', 'markdown', '2026-10-30T10:00:00Z'), {
       shownId: null,
-      highlightId: 'a',
     });
-    expect(plain.dataset.highlight).toBe('');
-    expect(cls(plain)).toContain('osprey-tree-highlight');
     expect(plain.getAttribute('aria-selected')).toBe('false');
-    const other = rows.artifactRow(entry('b', 'markdown', '2026-10-30T10:00:00Z'), {
-      shownId: null,
-      highlightId: 'a',
-    });
-    expect(other.hasAttribute('data-highlight')).toBe(false);
   });
 
-  test('reaches a run head and a run part', () => {
+  test('reaches a run head and a run part, one row at a time', () => {
     const parts = [{ id: 'p', role: 'preview', title: 'x', form: 'documents' }];
-    const headHit = rows.runTreeRows(head('h', 'succeeded', parts), {
-      shownId: null,
-      highlightId: 'h',
-      open: false,
-    });
-    expect(/** @type {HTMLElement} */ (headHit[0]).dataset.highlight).toBe('');
-    const partHit = rows.runTreeRows(head('h', 'succeeded', parts), {
-      shownId: null,
-      highlightId: 'p',
-      open: true,
-    });
-    expect(/** @type {HTMLElement} */ (partHit[1]).dataset.highlight).toBe('');
+    const selected = (/** @type {HTMLElement[]} */ list) =>
+      list.filter((r) => r.getAttribute('aria-selected') === 'true').map((r) => r.dataset.id);
+    expect(
+      selected(rows.runTreeRows(head('h', 'succeeded', parts), { shownId: 'h', open: true }))
+    ).toEqual(['h']);
+    expect(
+      selected(rows.runTreeRows(head('h', 'succeeded', parts), { shownId: 'p', open: true }))
+    ).toEqual(['p']);
   });
 });
 
@@ -541,6 +555,38 @@ describe('Activity mode', () => {
       .map((n) => n.textContent);
     expect(bands).toEqual(['Today', 'Yesterday', 'Older']);
     expect(bands).not.toContain('Earlier');
+  });
+
+  const bandsOf = (/** @type {any[]} */ list) =>
+    rows
+      .activityRows(list, { shownId: null, openRuns: new Set() })
+      .filter((n) => n instanceof HTMLElement && n.classList.contains('osprey-tree-day'))
+      .map((n) => n.textContent);
+
+  test('a session whose rows all fall on one day shows no day heading', () => {
+    const today = [
+      entry('a', 'markdown', '2026-10-30T10:00:00Z', { form: 'documents' }),
+      entry('b', 'markdown', '2026-10-30T09:00:00Z', { form: 'documents' }),
+    ];
+    expect(bandsOf(today)).toEqual([]);
+    expect(
+      bandsOf([entry('o', 'markdown', '2026-10-01T10:00:00Z', { form: 'documents' })])
+    ).toEqual([]);
+  });
+
+  test('two days show headings for both, and a live row from a new day adds them', () => {
+    const one = [entry('a', 'markdown', '2026-10-30T10:00:00Z', { form: 'documents' })];
+    expect(bandsOf(one)).toEqual([]);
+    const two = [...one, entry('y', 'markdown', '2026-10-29T10:00:00Z', { form: 'documents' })];
+    expect(bandsOf(two)).toEqual(['Today', 'Yesterday']);
+  });
+
+  test('two older days share one band, so they show no heading', () => {
+    const older = [
+      entry('a', 'markdown', '2026-10-01T10:00:00Z', { form: 'documents' }),
+      entry('b', 'markdown', '2026-09-20T10:00:00Z', { form: 'documents' }),
+    ];
+    expect(bandsOf(older)).toEqual([]);
   });
 
   test('a run is one row: its outputs and parts are not listed beside it', () => {

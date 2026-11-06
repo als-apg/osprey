@@ -2,7 +2,7 @@
  * The session tree's context menus (sidebar-artifact-menus.js): each row
  * kind's exact items, New session through switchTo, rename in place, the
  * transcript export, a disabled approval preview, and the delete guard on an
- * artifact and on a run head.
+ * artifact, on a run head and on a past session.
  *
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifact-menus.test.mjs
  */
@@ -15,6 +15,7 @@ const sessionModel = vi.hoisted(() => ({
   switchTo: vi.fn(async () => true),
   rows: vi.fn(() => [{ transcript_id: 't1', session_key: 'k1', title: 'Beam study' }]),
   refresh: vi.fn(),
+  forgetSession: vi.fn(),
 }));
 const listing = vi.hoisted(() => ({
   ARTIFACTS_BASE: '/panel/artifacts',
@@ -24,7 +25,7 @@ const listing = vi.hoisted(() => ({
   readTreeView: vi.fn(() => 'kind'),
 }));
 const confirm = vi.hoisted(() => ({ showConfirm: vi.fn() }));
-const controller = vi.hoisted(() => ({ setTreeView: vi.fn() }));
+const controller = vi.hoisted(() => ({ setTreeView: vi.fn(), openInAgent: vi.fn(async () => {}) }));
 
 vi.mock(
   '../../../src/osprey/interfaces/web_terminal/static/js/session-model.js',
@@ -57,7 +58,7 @@ const PLOT = { id: 'a1', title: 'BPM plot', pinned: false };
 function buildTree() {
   document.body.innerHTML = `
     <div data-session-tree>
-      <div class="osprey-tree-session osprey-tree-d0" data-session-id="t1" aria-expanded="false">
+      <div class="osprey-tree-session osprey-tree-d0" data-session-id="t1" data-count="3" aria-expanded="false">
         <span class="osprey-tree-disc" data-tree-disc></span>
         <span class="osprey-tree-title">Beam study</span>
       </div>
@@ -134,19 +135,40 @@ describe('the Agent row', () => {
   });
 });
 
+describe('the Agent row: Expand all', () => {
+  test('never opens a session without a disclosure (that would switch to it)', () => {
+    const other = document.createElement('div');
+    other.className = 'osprey-tree-session osprey-tree-d0';
+    other.dataset.sessionId = 't2';
+    other.setAttribute('aria-expanded', 'false');
+    const clicked = vi.fn();
+    other.addEventListener('click', clicked);
+    $('[data-session-tree]').append(other);
+    const disc = $('[data-session-id="t1"] [data-tree-disc]');
+    disc.addEventListener('click', () => {
+      const row = /** @type {HTMLElement} */ (disc.parentElement);
+      row.setAttribute('aria-expanded', String(row.getAttribute('aria-expanded') !== 'true'));
+    });
+    menus.setAllOpen(true);
+    expect($('[data-session-id="t1"]').getAttribute('aria-expanded')).toBe('true');
+    expect(other.getAttribute('aria-expanded')).toBe('false');
+    expect(clicked).not.toHaveBeenCalled();
+  });
+});
+
 describe('a session row', () => {
   test('offers exactly PROPOSAL’s items', async () => {
     const ev = await rightClick($('.osprey-tree-title'));
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
       'Open in Agent',
-      'Browse',
       'Group by Kind',
       'Group by Activity',
       'Rename…',
       'Use automatic name',
       'Export transcript',
       'Copy ID',
+      'Delete…',
     ]);
     expect(menuRow('Group by Kind').getAttribute('aria-checked')).toBe('true');
   });
@@ -191,6 +213,12 @@ describe('a session row', () => {
     spy.mockRestore();
   });
 
+  test('Open in Agent opens the session through the controller, never as a click that folds', async () => {
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Open in Agent').click();
+    await vi.waitFor(() => expect(controller.openInAgent).toHaveBeenCalledWith('t1'));
+  });
+
   test('Group by Activity applies the mode through the controller', async () => {
     await rightClick($('.osprey-tree-title'));
     menuRow('Group by Activity').click();
@@ -206,6 +234,72 @@ describe('a session row', () => {
     $('.osprey-tree-title').dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
     await vi.waitFor(() => expect(menuLabels()[0]).toBe('Open in Agent'));
+  });
+});
+
+describe('Delete… on a session row', () => {
+  test('a past session: enabled, danger, and asks with the session and its count', async () => {
+    await rightClick($('.osprey-tree-title'));
+    const item = menuRow('Delete…');
+    expect(item.getAttribute('aria-disabled')).toBeNull();
+    expect(item.classList.contains('danger')).toBe(true);
+    item.click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    const spec = confirm.showConfirm.mock.calls[0][0];
+    expect(spec.title).toBe('Delete session?');
+    expect(spec.body).toEqual([
+      ['This deletes the session ', { em: 'Beam study' }, ' and its 3 artifacts.'],
+    ]);
+    expect(spec.confirmLabel).toBe('Delete');
+    expect(spec.focus).toBe('cancel');
+    const ui = { done: vi.fn(), error: document.createElement('div') };
+    await spec.onConfirm(ui);
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/t1', { method: 'DELETE' });
+    expect(ui.done).toHaveBeenCalled();
+    expect(sessionModel.forgetSession).toHaveBeenCalledWith('t1');
+  });
+
+  test('without a summary the dialog says "and its artifacts"', async () => {
+    delete $('.osprey-tree-session').dataset.count;
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Delete…').click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
+    expect(JSON.stringify(confirm.showConfirm.mock.calls[0][0].body)).toContain(
+      ' and its artifacts.'
+    );
+  });
+
+  test('the session the Agent is on: disabled, with the tip', async () => {
+    $('.osprey-tree-session').classList.add('active');
+    await rightClick($('.osprey-tree-title'));
+    const item = menuRow('Delete…');
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+    expect(item.title).toBe('Switch to another session to delete this one');
+    item.click();
+    await Promise.resolve();
+    expect(confirm.showConfirm).not.toHaveBeenCalled();
+  });
+
+  test('a refusal keeps the dialog open with the hub’s reason', async () => {
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Delete…').click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        json: async () => ({ detail: 'A turn is running in this session.' }),
+      }))
+    );
+    const ui = { done: vi.fn(), error: document.createElement('div') };
+    ui.error.hidden = true;
+    await confirm.showConfirm.mock.calls[0][0].onConfirm(ui);
+    expect(ui.done).not.toHaveBeenCalled();
+    expect(ui.error.hidden).toBe(false);
+    expect(ui.error.textContent).toContain('A turn is running');
+    expect(sessionModel.forgetSession).not.toHaveBeenCalled();
   });
 });
 

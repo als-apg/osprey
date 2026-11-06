@@ -326,14 +326,14 @@ const REVEAL_MAX_PAGES = 20;
 /** Base key of the persisted tree mode, scoped per user. */
 export const VIEW_STORAGE_KEY = 'osprey-sidebar-artifacts-view';
 
-/** @returns {'kind' | 'activity'} the persisted tree mode, Kind by default */
+/** @returns {'kind' | 'activity'} the persisted tree mode, Activity by default */
 export function readTreeView() {
   try {
-    return localStorage.getItem(scopedStorageKey(VIEW_STORAGE_KEY)) === 'activity'
-      ? 'activity'
-      : 'kind';
+    return localStorage.getItem(scopedStorageKey(VIEW_STORAGE_KEY)) === 'kind'
+      ? 'kind'
+      : 'activity';
   } catch {
-    return 'kind';
+    return 'activity';
   }
 }
 

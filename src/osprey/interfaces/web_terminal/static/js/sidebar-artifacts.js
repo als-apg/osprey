@@ -2,9 +2,10 @@
 /* OSPREY Web Terminal — the sidebar's session tree
  *
  * The Agent row wraps the tree: the operator's sessions (session-model.js),
- * each expanding to its artifacts grouped by form (Kind mode) or by day
- * (Activity mode), then the Earlier row (artifacts no session owns), "More
- * sessions", and a notice when the session history is cut short or unreadable.
+ * each expanding to its artifacts grouped by day (Activity mode, the default)
+ * or by form (Kind mode), then the Earlier row (artifacts no session owns),
+ * "More sessions", and a notice when the session history is cut short or
+ * unreadable.
  * The rows are drawn by sidebar-artifact-rows.js; this module owns the data,
  * the clicks and the viewer.
  *
@@ -13,22 +14,32 @@
  * {@link initSidebarArtifacts} / {@link teardownSidebarArtifacts} under
  * `whilePanelServed`): one `session-summary` per loaded page of sessions, and
  * each open session's artifacts through `session-list` (`runs=grouped`, paged
- * by the cursor in the ~280 px box; in Kind mode each open group pages on its
- * own).
+ * by the cursor in the box, at whatever height; in Kind mode each open
+ * group pages on its own).
  *
- * CLICKS. A session-name click switches to it (`switchTo`, reopening the
- * Agent pane first), collapses the other sessions, and reveals the session's
- * pick: fetched by id, inserted into its group (its run opened), scrolled to
- * and shown through the open rule. A disclosure (▸) browses additively. An
- * artifact click shows it without changing the session, focusing an already
- * docked Artifacts panel in place, and records it as its owner's last-open
- * artifact.
+ * CLICKS. Only the session in use can show its artifacts; every other
+ * session stays folded and has no disclosure. A click on another session's
+ * name switches to it (`switchTo`, reopening the Agent pane first), which
+ * unfolds it, and reveals the session's pick: fetched by id, inserted into its
+ * group (its run opened), scrolled to and shown, the panels left to the
+ * session's own layout (session-layout.js). A click (or double-click) on the
+ * session in use folds or unfolds it. The fold is this tab's own state, reset
+ * on every switch. An artifact click shows it without changing the session,
+ * focusing an already docked Artifacts panel in place, and records it as its
+ * owner's last-open artifact.
  *
  * PAGE LOAD. Once the listing has the active row, its last-open artifact is
  * revealed once, without the open rule: with the Artifacts panel docked it is
- * shown there; otherwise the layout stays as it is and the artifact is
- * highlighted in the tree, its session, group and run opened. app.js runs it
- * once ({@link revealOnLoad}); a key change ends the highlight.
+ * shown there; otherwise the layout stays as it is and the tree only opens its
+ * session, group and run and scrolls to it. app.js runs it once
+ * ({@link revealOnLoad}).
+ *
+ * THE HIGHLIGHT. At most one artifact row is selected (`aria-selected`): the
+ * one the Artifacts panel shows, and none while that panel is not on view
+ * (no tile, no pop-out window). It is derived on every render from the
+ * session in use and the dock, so a switch, a close and a re-render all redraw
+ * it from scratch; panel-manager's `osprey-dock-view-changed` re-renders the
+ * tree when the panel comes on or goes off view.
  *
  * THE VIEWER. The artifacts iframe shows ONE artifact, told with
  * `osprey-artifact-select`; this module forwards the shown artifact's update
@@ -55,10 +66,12 @@ import { contributeLocal } from './tile-header-contrib.js';
 import * as iframeSync from './panel-iframe-sync.js';
 import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
+import { isPoppedOut } from './popout.js';
 import { setServiceMenuExtras } from './panel-menu-policy.js';
 import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
 import * as store from './sidebar-artifact-listing.js';
 import * as rows from './sidebar-artifact-rows.js';
+import { createBoxPager } from './sidebar-artifact-paging.js';
 import { headerItems, menuItems, openArtifact, saveArtifact } from './artifacts-pane-header.js';
 import * as model from './session-model.js';
 
@@ -77,17 +90,16 @@ const EVENTS_PATH = `${store.ARTIFACTS_BASE}/api/events`;
 /** The tree's containers: the sidebar's and the collapsed sidebar's flyout. */
 const TREE_SELECTOR = '[data-session-tree]';
 
-/** How close to the end of a box (two rows) a scroll asks for the next page. */
-const NEAR_END_PX = 52;
-
 /** @typedef {'kind' | 'activity'} TreeView */
 
 function freshState() {
   return {
     /** @type {TreeView} */
-    view: 'kind',
-    /** Open sessions (tree ids; '' = Earlier). @type {Set<string>} */
-    openSessions: new Set(),
+    view: 'activity',
+    /** The session in use folded by the operator (reset on a switch). */
+    activeFolded: false,
+    /** Whether the Earlier row is open. */
+    earlierOpen: false,
     /** Open form groups per session. @type {Map<string, Set<string>>} */
     openGroups: new Map(),
     /** Open runs, by run key. @type {Set<string>} */
@@ -96,8 +108,6 @@ function freshState() {
     focusId: null,
     /** @type {string | null} */
     shownId: null,
-    /** @type {string | null} */
-    highlightId: null,
   };
 }
 
@@ -107,6 +117,12 @@ const data = store.createTreeData({ onChange: () => render() });
 /** @type {import('./sidebar-artifact-rows.js').TreeForm[]} */
 let forms = rows.treeForms(null);
 let served = false;
+
+const pager = createBoxPager({
+  isServed: () => served,
+  loadMore: (treeId) => data.loadMoreOf(treeId, state.view, openGroupsOf(treeId)),
+  boxes: () => document.querySelectorAll(`${TREE_SELECTOR} [data-session-box]`),
+});
 let treeStarted = false;
 let abort = new AbortController();
 /** The tree's own document listeners (removed only by a test reset). */
@@ -115,6 +131,8 @@ let treeAbort = new AbortController();
 let stream = null;
 let streamOpened = false;
 let lastHeader = '';
+/** Whether the Artifacts panel was on view at the last render. */
+let panelWasOnView = false;
 
 // ---- Ids ----
 
@@ -152,9 +170,12 @@ function initSessionTree() {
   state.view = store.readTreeView();
   const signal = treeAbort.signal;
   document.addEventListener('click', onClick, { signal });
-  document.addEventListener('scroll', onScroll, { capture: true, passive: true, signal });
+  document.addEventListener('scroll', pager.onScroll, { capture: true, passive: true, signal });
   document.addEventListener('osprey-sidebar-rendered', render, { signal });
   document.addEventListener('osprey-artifact-opened', onArtifactOpened, { signal });
+  // panel-manager.js's DOCK_VIEW_EVENT (not imported: tests mock that module).
+  document.addEventListener('osprey-dock-view-changed', onDockView, { signal });
+  pager.watch(document.querySelectorAll(TREE_SELECTOR), signal);
   model.subscribe(onModelChange);
   onSurfaceChange(() => render());
   void model.initSessionModel();
@@ -180,8 +201,6 @@ export function initSidebarArtifacts({ served: withArtifacts = true } = {}) {
     forms = rows.treeForms(registry);
     render();
   });
-  const active = activeTreeId();
-  if (active) state.openSessions.add(active);
   void summarize(true);
   void restoreFocus();
   render();
@@ -222,17 +241,9 @@ async function summarize(all = false) {
 
 /** @param {{reason: string}} change */
 function onModelChange({ reason }) {
-  const row = model.activeRow();
-  if (reason === 'pointer' || reason === 'switched') state.highlightId = null;
-  if (reason === 'rows') {
-    void summarize();
-    // The synthesized row the tree had open became a listed one: keep it open.
-    if (row?.transcript_id && state.openSessions.delete(`key:${row.session_key}`)) {
-      state.openSessions.add(row.transcript_id);
-    }
-  }
-  // A brand-new key opens, so its first artifacts show as they arrive.
-  if (reason === 'pointer' && served && row?.synthesized) state.openSessions.add(treeIdOf(row));
+  // The session switched to always opens; the fold was the previous one's.
+  if (reason === 'pointer' || reason === 'switched') state.activeFolded = false;
+  if (reason === 'rows') void summarize();
   render();
 }
 
@@ -441,6 +452,14 @@ function menuExtras() {
   );
 }
 
+/** Whether the Artifacts panel is on view: docked in a tile, or in its own window. */
+const panelOnView = () => hasDockedTile(ARTIFACTS_PANEL_ID) || isPoppedOut(ARTIFACTS_PANEL_ID);
+
+/** The dock changed: redraw the highlight when the panel came on or went off view. */
+function onDockView() {
+  if (served && panelOnView() !== panelWasOnView) render();
+}
+
 /** Show the Artifacts panel through the open rule: a docked one is focused in place. */
 function showArtifactsPanel() {
   if (!hasDockedTile(ARTIFACTS_PANEL_ID)) activateTab(ARTIFACTS_PANEL_ID, { userInitiated: true });
@@ -465,8 +484,7 @@ function openGroupsOf(treeId) {
  */
 function boxRows(treeId) {
   const common = {
-    shownId: state.shownId,
-    highlightId: state.highlightId,
+    shownId: panelWasOnView ? state.shownId : null,
     openRuns: state.openRuns,
   };
   const open = openGroupsOf(treeId);
@@ -485,18 +503,20 @@ function treeNodes() {
     const treeId = treeIdOf(row);
     const count = data.totals.counts[treeId]?.total ?? 0;
     loadedTotal += row.transcript_id ? count : 0;
-    const open = served && state.openSessions.has(treeId);
+    const isActive = treeId === active;
+    const open = served && isActive && !state.activeFolded;
     const node = rows.sessionRow(/** @type {any} */ (row), {
-      active: treeId === active,
+      active: isActive,
       open,
       count,
+      summarized: treeId in data.totals.counts,
     });
     node.dataset.sessionId = treeId;
     nodes.push(node);
     if (open) nodes.push(rows.sessionBox(treeId, boxRows(treeId)));
   }
   if (served && data.totals.earlier.total > 0) {
-    const open = state.openSessions.has(store.EARLIER);
+    const open = state.earlierOpen;
     nodes.push(rows.earlierRow({ count: data.totals.earlier.total, open }));
     if (open) nodes.push(rows.sessionBox(store.EARLIER, boxRows(store.EARLIER)));
   }
@@ -513,6 +533,7 @@ function render() {
   const shown = served ? resolveShown() : null;
   const changed = (shown?.id ?? null) !== state.shownId;
   state.shownId = shown?.id ?? null;
+  panelWasOnView = served && panelOnView();
   for (const tree of document.querySelectorAll(TREE_SELECTOR)) {
     const el = document.activeElement;
     const focusedId = el instanceof HTMLElement && tree.contains(el) ? el.dataset.id : null;
@@ -529,6 +550,7 @@ function render() {
       rows.rowIn(/** @type {HTMLElement} */ (tree), focusedId)?.focus({ preventScroll: true });
   }
   if (!served) return;
+  pager.fill();
   const current = activeListing();
   if (current) data.ensureLoaded(current);
   const header = headerItems(shown, pagerPosition(shown));
@@ -554,7 +576,7 @@ function scrollToShown(id = state.shownId) {
 
 /**
  * Page load (OR-3): reveal the active row's last-open artifact without the
- * open rule, shown in a docked Artifacts panel or else highlighted in the tree
+ * open rule, shown in a docked Artifacts panel or else scrolled to in the tree
  * with the layout untouched. app.js calls it once the listing has the row.
  * @returns {boolean} whether it ran (not before the row is listed and served)
  */
@@ -569,14 +591,16 @@ export function revealOnLoad() {
  * Reveal an artifact of a session: fetch it, put it into its group (its run
  * opened), scroll to it and show it. On page load (`onLoad`) the open rule is
  * not called, and without a docked Artifacts panel the artifact is only
- * highlighted, the layout left as it is.
+ * scrolled to, the layout left as it is. `keepLayout` skips the open rule
+ * too: after a switch the panels are the session's layout's to decide.
  * @param {string} treeId
  * @param {string | null} id  the pick, or null for the session's newest
  * @param {boolean} [onLoad]
+ * @param {boolean} [keepLayout]
  */
-async function reveal(treeId, id, onLoad = false) {
+async function reveal(treeId, id, onLoad = false, keepLayout = false) {
   if (!served) return;
-  state.openSessions.add(treeId);
+  if (treeId === activeTreeId()) state.activeFolded = false;
   let entry = id ? (held(id) ?? (await store.fetchArtifact(id))) : null;
   if (!entry) {
     const listing = data.listingOf(treeId);
@@ -590,11 +614,11 @@ async function reveal(treeId, id, onLoad = false) {
     if (form) openGroupsOf(treeId).add(form);
     if (runKey) state.openRuns.add(runKey);
   }
-  if (onLoad && !hasDockedTile(ARTIFACTS_PANEL_ID)) state.highlightId = entry.id;
-  else if (!model.pick()) model.setPick(entry.id);
+  const onlyScroll = onLoad && !hasDockedTile(ARTIFACTS_PANEL_ID);
+  if (!onlyScroll && !model.pick()) model.setPick(entry.id);
   render();
-  scrollToShown(state.highlightId ?? state.shownId);
-  if (!onLoad) showArtifactsPanel();
+  scrollToShown(onlyScroll ? entry.id : state.shownId);
+  if (!onLoad && !keepLayout) showArtifactsPanel();
 }
 
 // ---- Input ----
@@ -608,12 +632,21 @@ function onClick(event) {
   const earlier = target.closest('[data-tree-earlier]');
   const disc = target.closest('[data-tree-disc]');
   if (session instanceof HTMLElement) {
+    // A double-click's second click is the same gesture: it never undoes the
+    // first (a fold, or the switch it started).
+    if (event.detail > 1) return;
     const treeId = session.dataset.sessionId ?? '';
-    if (disc) toggleSession(treeId);
-    else void onSessionClick(treeId);
+    // The session in use folds or unfolds; another is entered, never browsed.
+    if (treeId === activeTreeId()) {
+      state.activeFolded = !state.activeFolded;
+      render();
+    } else void openInAgent(treeId);
     return;
   }
-  if (earlier) return toggleSession(store.EARLIER);
+  if (earlier) {
+    state.earlierOpen = !state.earlierOpen;
+    return render();
+  }
   if (target.closest('[data-tree-more]')) return void model.loadMore();
   const head = target.closest('[data-group-head]');
   if (head instanceof HTMLElement) {
@@ -640,23 +673,20 @@ function splitGroup(value) {
   return [value.slice(0, at), value.slice(at + 1)];
 }
 
-/** @param {string} treeId */
-function toggleSession(treeId) {
-  flip(state.openSessions, treeId);
-  render();
-}
-
 /** Toggle a key's membership. @param {Set<string>} set @param {string} key */
 function flip(set, key) {
   if (!set.delete(key)) set.add(key);
 }
 
 /**
- * A session-name click: switch to it (the Agent pane reopened first), keep
- * only it open, and reveal its pick.
+ * Open a session in the Agent (another session's name, the session menu's
+ * "Open in Agent"): switch to it (the Agent pane reopened first), unfold it,
+ * and reveal its pick. After a switch the session's own layout says whether
+ * the Artifacts panel is open (session-layout.js); on the session in use the
+ * panel is brought up.
  * @param {string} treeId
  */
-async function onSessionClick(treeId) {
+export async function openInAgent(treeId) {
   const row = model.rows().find((r) => treeIdOf(r) === treeId);
   if (!row) return;
   if (!isTerminalPanelOpen()) openTerminalPanel();
@@ -664,9 +694,9 @@ async function onSessionClick(treeId) {
   const moved = wasActive ? false : await model.switchTo(row, { reason: 'gesture' });
   if (!wasActive && !moved) return;
   const now = activeTreeId() ?? treeId;
-  state.openSessions = new Set([now]);
+  state.activeFolded = false;
   render();
-  await reveal(now, model.pick() ?? row.last_artifact_id ?? null);
+  await reveal(now, model.pick() ?? row.last_artifact_id ?? null, false, !wasActive);
 }
 
 /**
@@ -675,21 +705,10 @@ async function onSessionClick(treeId) {
  * @param {string} id
  */
 function pickArtifact(id) {
-  state.highlightId = null;
   model.setPick(id);
   model.recordLastArtifact(held(id));
   render();
   showArtifactsPanel();
-}
-
-/** A scroll near the end of a box loads its next page. @param {Event} event */
-function onScroll(event) {
-  const box =
-    event.target instanceof HTMLElement ? event.target.closest('[data-session-box]') : null;
-  if (!(box instanceof HTMLElement) || !served) return;
-  if (box.scrollHeight - box.scrollTop - box.clientHeight > NEAR_END_PX) return;
-  const treeId = box.dataset.sessionBox ?? '';
-  data.loadMoreOf(treeId, state.view, openGroupsOf(treeId));
 }
 
 /** @returns {TreeView} the tree mode in force */
@@ -716,5 +735,6 @@ export function resetSidebarArtifacts() {
   treeStarted = false;
   forms = rows.treeForms(null);
   state = freshState();
+  panelWasOnView = false;
   model.resetSessionModel();
 }
