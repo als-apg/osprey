@@ -169,6 +169,7 @@ def _session_row(
         "title_source": title_source,
         "naming": naming,
         "last_artifact_id": meta["last_artifact_id"],
+        "pinned": meta["pinned"],
         "state": "live" if current and key in live else "idle",
         "message_count": message_count if isinstance(message_count, int) else 0,
         "first_ts": record_row.get("first_ts"),
@@ -291,12 +292,35 @@ def _session_listing(
             continue
         placed.append((at, tid, _session_row(app, tid, None, ledger, live)))
     placed.sort(key=lambda p: (p[0], p[1]), reverse=True)
-    return {
+    body: dict[str, Any] = {
         "sessions": [row for _, _, row in placed],
         "more": more,
         "next_cursor": next_cursor,
         **session_record.record_fields(record, reason),
     }
+    if before is None:
+        body["pinned_sessions"] = _pinned_rows(app, placed, record_rows, ledger, live)
+    return body
+
+
+def _pinned_rows(
+    app,
+    placed: list[tuple[datetime, str, dict[str, Any]]],
+    record_rows: list[Mapping[str, Any]],
+    ledger: session_ledger.Ledger,
+    live: set[str],
+) -> list[dict[str, Any]]:
+    """Every pinned session's row, first pinned first, wherever it is in the pages.
+
+    The first page carries them so the sidebar's pinned group is whole before the
+    later pages load. A pinned session not on this page is drawn from the meta alone.
+    """
+    listed = {tid: row for _, tid, row in placed}
+    by_id = {r["session_id"]: r for r in record_rows}
+    return [
+        listed.get(tid) or _session_row(app, tid, by_id.get(tid), ledger, live)
+        for tid in session_meta.pinned_ids(app)
+    ]
 
 
 @router.get("/api/sessions")
@@ -384,6 +408,21 @@ async def put_title(request: Request, transcript_id: str, body: _TitleBody):
     """Set the operator's title; an empty one reverts to the auto title."""
     tid = _uuid_id(transcript_id, "transcript_id")
     entry = await asyncio.to_thread(session_meta.set_title, request.app, tid, body.title)
+    return {"transcript_id": tid, **entry}
+
+
+class _PinBody(BaseModel):
+    pinned: bool
+
+
+@router.put("/api/sessions/{transcript_id}/pin")
+async def put_pin(request: Request, transcript_id: str, body: _PinBody):
+    """Pin or unpin the session in the operator's sidebar; 404 for a deleted session."""
+    tid = _uuid_id(transcript_id, "transcript_id")
+    try:
+        entry = await asyncio.to_thread(session_meta.set_pinned, request.app, tid, body.pinned)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such session.") from None
     return {"transcript_id": tid, **entry}
 
 

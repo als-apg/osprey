@@ -8,7 +8,7 @@ the ledger across two ``/clear``-s, title precedence user > auto > shortened
 first prompt > "Untitled session", ``naming`` and ``state``; the record states
 (capped with ``more``/``next_cursor``, incomplete, unavailable with the ledger's
 transcripts still listed, and a refused ``before`` as incomplete); only
-``drain=1`` waits on a drain. Then the title, last-artifact, last-active and
+``drain=1`` waits on a drain. Then the title, pin, last-artifact, last-active and
 ``enter`` endpoints: rename and revert, PUTs for a just-minted key and after a
 restart, ``enter`` then a spawn of the new key resuming the transcript, and a
 non-UUID id answered 422.
@@ -449,6 +449,46 @@ LAYOUT = {
     "panels": {"knowledge": {"title": "Knowledge"}},
     "pages": {"knowledge": "/panel/knowledge/page/beam"},
 }
+
+
+class TestPins:
+    def test_pin_shows_in_the_rows_and_unpin_clears_it(self, client, record):
+        record.answers["list_sessions"] = _answer([_row(T1, 20), _row(T2, 10)])
+        resp = client.put(f"/api/sessions/{T2}/pin", json={"pinned": True})
+        assert resp.status_code == 200 and resp.json()["pinned"]
+        body = client.get("/api/sessions").json()
+        rows = _by_id(body)
+        assert rows[T2]["pinned"] == resp.json()["pinned"] and rows[T1]["pinned"] is None
+        assert [r["transcript_id"] for r in body["pinned_sessions"]] == [T2]
+        assert (
+            client.put(f"/api/sessions/{T2}/pin", json={"pinned": False}).json()["pinned"] is None
+        )
+        body = client.get("/api/sessions").json()
+        assert body["pinned_sessions"] == [] and _by_id(body)[T2]["pinned"] is None
+
+    def test_the_first_page_carries_pins_from_later_pages(self, client, record):
+        session_meta.set_auto_title(client.app, T3, "Old one", "done")
+        client.put(f"/api/sessions/{T3}/pin", json={"pinned": True})
+        _listing(record, _answer([_row(T1, 30)], more=True), _answer([_row(T3, 10)]))
+        first = client.get("/api/sessions").json()
+        assert T3 not in _by_id(first)
+        assert [(r["transcript_id"], r["title"]) for r in first["pinned_sessions"]] == [
+            (T3, "Old one")
+        ]
+        later = client.get("/api/sessions", params={"cursor": first["next_cursor"]}).json()
+        assert "pinned_sessions" not in later
+
+    def test_a_deleted_session_cannot_be_pinned_and_loses_its_pin(self, client, record):
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        client.put(f"/api/sessions/{T2}/pin", json={"pinned": True})
+        session_meta.mark_deleted(client.app, T2)
+        assert client.put(f"/api/sessions/{T2}/pin", json={"pinned": True}).status_code == 404
+        record.answers["list_sessions"] = _answer([_row(T1, 10)])
+        assert client.get("/api/sessions").json()["pinned_sessions"] == []
+
+    def test_a_non_uuid_or_bodyless_pin_is_422(self, client):
+        assert client.put("/api/sessions/not-a-uuid/pin", json={"pinned": True}).status_code == 422
+        assert client.put(f"/api/sessions/{T1}/pin", json={}).status_code == 422
 
 
 class TestLayout:
