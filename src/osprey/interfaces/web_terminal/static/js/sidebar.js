@@ -37,7 +37,7 @@
  *     that adds it.
  *
  *   - GROUPS. A double-click folds a group to its heading (sidebar-fold.js);
- *     a divider below the Workspace group sets its height (sidebar-divider.js).
+ *     a divider below the Sessions group sets its height (sidebar-divider.js).
  *
  * Changing the width closes every sidebar popover and the tooltip, since each
  * is placed against a sidebar edge that is about to move.

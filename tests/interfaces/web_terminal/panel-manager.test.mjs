@@ -2965,7 +2965,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Focus Logbook',
       'Open in a new tile',
       'Open in new window',
-      'Move to Workspace',
+      'Move to Sessions',
       'Move to System',
       'Move to new group…',
       'Remove from rail',
@@ -3506,7 +3506,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
       JSON.stringify({
         version: 1,
         groups: [
-          { id: 'workspace', label: 'Workspace' },
+          { id: 'workspace', label: 'Sessions' },
           { id: 'tools', label: 'Tools' },
         ],
         placement: { okf: 'workspace' },
@@ -3620,10 +3620,10 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
     localStorage.clear();
   });
 
-  test('"Move to Workspace" moves the row there, in this browser only', async () => {
+  test('"Move to Sessions" moves the row there, in this browser only', async () => {
     const { calls } = await bootWorkspace();
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Move to Workspace')).click();
+    /** @type {HTMLElement} */ (menuRow('Move to Sessions')).click();
 
     expect(sidebarGroup('workspace').contains(entry('ariel'))).toBe(true);
     const stored = JSON.parse(localStorage.getItem('osprey-sidebar-groups') ?? '{}');
@@ -3634,7 +3634,7 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
     // The moved row offers the way back.
     rightClick(entry('ariel'));
     expect(menuLabels()).toContain('Move to Tools');
-    expect(menuLabels()).not.toContain('Move to Workspace');
+    expect(menuLabels()).not.toContain('Move to Sessions');
   });
 
   test('"Move to new group…" makes a group below the row’s own and opens its name', async () => {

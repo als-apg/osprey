@@ -6,9 +6,9 @@
  * The model: the per-user groups kept in this browser under the scoped
  * `osprey-sidebar-groups` key — the defaults and the default placement,
  * rename, add, delete, reorder, moving a panel, the stored round trip, and
- * the reset of a stored value that is not a model. The headings: the ⋯ menu
- * each heading opens through the real popover.js, its rows and what they do,
- * and the rename field.
+ * the reset of a stored value that is not a model. The headings: the menu a
+ * right-click (or Shift+F10 / the menu key) on a heading opens through the
+ * real shared context menu, its rows and what they do, and the rename field.
  *
  * The heading tests draw a real rail (panel-rail.js createRail), because the
  * menu acts on the group elements the rail renders and the rail moves its
@@ -23,11 +23,13 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 import { byId, qs } from '../_support/dom.mjs';
 import {
   GROUPS_STORAGE_KEY,
+  HEADLESS_GROUP,
   NEW_GROUP_LABEL,
   addGroup,
   defaultModel,
   groupOf,
   isBuiltinGroup,
+  isHeadlessGroup,
   loadGroups,
   moveToGroup,
   onGroupsChange,
@@ -77,7 +79,7 @@ describe('the default model', () => {
     expect(defaultModel()).toEqual({
       version: 3,
       groups: [
-        { id: 'workspace', label: 'Workspace' },
+        { id: 'workspace', label: 'Sessions' },
         { id: 'tools', label: 'Tools' },
         { id: 'system', label: 'System' },
       ],
@@ -112,10 +114,10 @@ describe('the default model', () => {
     expect(groupOf('a-custom-panel')).toBe('tools');
   });
 
-  test('the Agent row is in the first group, whichever group that is', () => {
+  test('the Agent row is in the headless first group, and no group moves above it', () => {
     expect(groupOf('terminal')).toBe('workspace');
-    reorderGroup('tools', 'up');
-    expect(groupOf('terminal')).toBe('tools');
+    expect(reorderGroup('tools', 'up')).toBe(false);
+    expect(groupOf('terminal')).toBe('workspace');
   });
 
   test('the built-in groups are workspace, tools and system', () => {
@@ -153,7 +155,7 @@ describe('a value of an older version', () => {
 
   test('an untouched old default gains System holding Events and Health', () => {
     localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
-    expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
     expect(groupOf('events')).toBe('system');
     expect(groupOf('system-health')).toBe('system');
     expect(groupOf('ariel')).toBe('tools');
@@ -183,7 +185,7 @@ describe('a value of an older version', () => {
       JSON.stringify({
         version: 2,
         groups: [
-          { id: 'workspace', label: 'Workspace' },
+          { id: 'workspace', label: 'Sessions' },
           { id: 'tools', label: 'Tools' },
           custom,
           { id: 'system', label: 'System' },
@@ -206,7 +208,7 @@ describe('a value of an older version', () => {
         placement: { ...legacy.placement, ariel: custom.id },
       })
     );
-    expect(groupIds()).toEqual(['tools', 'workspace', custom.id, 'system']);
+    expect(groupIds()).toEqual(['workspace', 'tools', custom.id, 'system']);
     expect(groupOf('ariel')).toBe(custom.id);
   });
 
@@ -227,9 +229,10 @@ describe('a value of an older version', () => {
     expect(stored().placement).not.toHaveProperty('events');
   });
 
-  test('keeps the arrangement and gains System as the last group', () => {
+  test('keeps the arrangement below Sessions and gains System as the last group', () => {
     localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
-    expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
+    expect(labelOf('workspace')).toBe('Sessions');
     expect(labelOf('tools')).toBe('Instruments');
     expect(labelOf('system')).toBe('System');
     expect(groupOf('ariel')).toBe('tools');
@@ -249,8 +252,8 @@ describe('rename', () => {
 
   test('an empty name keeps the old one', () => {
     for (const blank of ['', '   ']) {
-      expect(renameGroup('workspace', blank)).toBe(false);
-      expect(labelOf('workspace')).toBe('Workspace');
+      expect(renameGroup('tools', blank)).toBe(false);
+      expect(labelOf('tools')).toBe('Tools');
     }
   });
 
@@ -271,6 +274,61 @@ describe('rename', () => {
     expect(renameGroup('nope', 'Anything')).toBe(false);
     stop();
     expect(seen).not.toHaveBeenCalled();
+  });
+});
+
+describe('the headless Sessions group', () => {
+  test('is the workspace group, and only it', () => {
+    expect(HEADLESS_GROUP).toBe('workspace');
+    expect(isHeadlessGroup('workspace')).toBe(true);
+    expect(isHeadlessGroup('tools')).toBe(false);
+    expect(isHeadlessGroup(addGroup('Mine'))).toBe(false);
+  });
+
+  test('is never renamed, moved, or deleted', () => {
+    const seen = vi.fn();
+    const stop = onGroupsChange(seen);
+    expect(renameGroup('workspace', 'Operations')).toBe(false);
+    expect(reorderGroup('workspace', 'down')).toBe(false);
+    expect(reorderGroup('tools', 'up')).toBe(false);
+    expect(removeGroup('workspace')).toBe(false);
+    stop();
+    expect(seen).not.toHaveBeenCalled();
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
+    expect(labelOf('workspace')).toBe('Sessions');
+  });
+
+  test('takes panels like any group, and is what a move menu calls Sessions', () => {
+    expect(moveToGroup('ariel', 'workspace')).toBe(true);
+    expect(groupOf('ariel')).toBe('workspace');
+    expect(groupLabels()[0]).toBe('Sessions');
+  });
+
+  test('a current-version value that renamed or lowered it reads with its name and place back', () => {
+    const custom = { id: 'g-0a1b2c3d', label: 'Beamline' };
+    localStorage.setItem(
+      GROUPS_STORAGE_KEY,
+      JSON.stringify({
+        version: 3,
+        groups: [
+          { id: 'tools', label: 'Instruments' },
+          custom,
+          { id: 'workspace', label: 'Operations' },
+          { id: 'system', label: 'System' },
+        ],
+        placement: { ariel: 'workspace', bluesky: custom.id },
+      })
+    );
+    expect(groupIds()).toEqual(['workspace', 'tools', custom.id, 'system']);
+    expect(groupLabels()).toEqual(['Sessions', 'Instruments', 'Beamline', 'System']);
+    expect(groupOf('ariel')).toBe('workspace');
+    expect(groupOf('bluesky')).toBe(custom.id);
+    expect(groupOf('terminal')).toBe('workspace');
+  });
+
+  test('a custom group may still be called Workspace: names were never unique', () => {
+    const id = addGroup('Workspace');
+    expect(labelOf(id)).toBe('Workspace');
   });
 });
 
@@ -319,13 +377,12 @@ describe('add, delete and reorder', () => {
   });
 
   test('a group moves one place up or down, built-in ones too, never past an end', () => {
-    const id = addGroup('Beamline', 'workspace');
+    const id = addGroup('Beamline');
     expect(reorderGroup(id, 'up')).toBe(true);
-    expect(groupIds()).toEqual([id, 'workspace', 'tools', 'system']);
-    expect(reorderGroup(id, 'up')).toBe(false);
+    expect(groupIds()).toEqual(['workspace', 'tools', id, 'system']);
     expect(reorderGroup('system', 'down')).toBe(false);
-    expect(reorderGroup('workspace', 'down')).toBe(true);
-    expect(groupIds()).toEqual([id, 'tools', 'workspace', 'system']);
+    expect(reorderGroup('tools', 'down')).toBe(true);
+    expect(groupIds()).toEqual(['workspace', id, 'tools', 'system']);
     expect(reorderGroup('nope', 'up')).toBe(false);
   });
 });
@@ -362,7 +419,7 @@ describe('persistence', () => {
     expect(stored()).toEqual({
       version: 3,
       groups: [
-        { id: 'workspace', label: 'Workspace' },
+        { id: 'workspace', label: 'Sessions' },
         { id, label: 'Beamline' },
         { id: 'tools', label: 'Instruments' },
         { id: 'system', label: 'System' },
@@ -389,12 +446,12 @@ describe('persistence', () => {
   test('a value another tab stored is the base of the next change here', () => {
     renameGroup('tools', 'Mine');
     const other = defaultModel();
-    other.groups[0].label = 'Theirs';
+    other.groups[2].label = 'Theirs';
     localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(other));
 
     renameGroup('tools', 'Instruments');
 
-    expect(groupLabels()).toEqual(['Theirs', 'Instruments', 'System']);
+    expect(groupLabels()).toEqual(['Sessions', 'Instruments', 'Theirs']);
   });
 
   const valid = defaultModel();
@@ -493,8 +550,8 @@ describe('onGroupsChange', () => {
     renameGroup('tools', 'Tools');
 
     expect(seen).toEqual([
-      ['Workspace', 'Instruments', 'System'],
-      ['Workspace', 'Instruments', 'System', 'Beamline'],
+      ['Sessions', 'Instruments', 'System'],
+      ['Sessions', 'Instruments', 'System', 'Beamline'],
     ]);
   });
 });
@@ -522,11 +579,30 @@ function mountRail() {
 /** @param {HTMLElement} rail @param {string} id @returns {HTMLElement} */
 const groupEl = (rail, id) => qs(rail, `:scope > .sidebar-group[data-group="${id}"]`);
 
-/** @param {HTMLElement} rail @param {string} id @returns {HTMLButtonElement} */
-const menuButton = (rail, id) => qs(groupEl(rail, id), '[data-group-menu]', HTMLButtonElement);
+/** @param {HTMLElement} rail @param {string} id @returns {HTMLElement} */
+const headingOf = (rail, id) => qs(groupEl(rail, id), ':scope > .sidebar-group-head');
 
-/** @returns {HTMLElement | null} the group menu, when it has been made */
-const menu = () => document.getElementById('sidebar-group-menu');
+/** @param {HTMLElement} rail @param {string} id @returns {HTMLElement} */
+const nameOf = (rail, id) => qs(groupEl(rail, id), '.sidebar-group-name');
+
+/** @returns {HTMLElement | null} the open group menu */
+const menu = () => document.querySelector('.rail-context-menu');
+
+/**
+ * Right-click a group's heading at `target` (the heading itself by default).
+ * @param {HTMLElement} rail @param {string} id @param {Element} [target]
+ * @returns {MouseEvent} the event, to read whether the native menu was suppressed
+ */
+function rightClick(rail, id, target = headingOf(rail, id)) {
+  const event = new MouseEvent('contextmenu', {
+    bubbles: true,
+    cancelable: true,
+    clientX: 40,
+    clientY: 50,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
 
 /** @returns {HTMLButtonElement[]} the rows of the open menu */
 function menuItems() {
@@ -534,17 +610,20 @@ function menuItems() {
   return /** @type {HTMLButtonElement[]} */ ([...rows]);
 }
 
+/** @param {Element} row @returns {string} a menu row's words */
+const rowLabel = (row) => qs(row, '.rail-context-label').textContent ?? '';
+
 /** The rows of the open menu, as `label`, `label (disabled)` or `label (danger)`. */
 function menuRows() {
   return menuItems().map((row) => {
-    if (row.disabled) return `${row.textContent} (disabled)`;
-    return row.classList.contains('danger') ? `${row.textContent} (danger)` : row.textContent;
+    if (row.getAttribute('aria-disabled') === 'true') return `${rowLabel(row)} (disabled)`;
+    return row.classList.contains('danger') ? `${rowLabel(row)} (danger)` : rowLabel(row);
   });
 }
 
 /** @param {string} label @returns {HTMLButtonElement} the open menu's row reading `label` */
 function menuRow(label) {
-  const row = menuItems().find((el) => el.textContent === label);
+  const row = menuItems().find((el) => rowLabel(el) === label);
   if (!row) throw new Error(`no menu row ${label}`);
   return row;
 }
@@ -561,58 +640,79 @@ function press(el, key) {
 }
 
 afterEach(() => {
-  // Close whatever a test left open: the dismissal listeners are popover.js's.
+  // Close whatever a test left open: the dismissal listeners are context-menu.js's.
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  document.documentElement.removeAttribute('data-sidebar');
 });
 
 describe('group headings', () => {
-  test('each heading holds the group name and a ⋯ button, and names its group', () => {
+  test('each heading holds only the group name, and names its group: no ⋯ button', () => {
     const rail = mountRail();
     for (const [id, label] of [
-      ['workspace', 'Workspace'],
+      ['workspace', 'Sessions'],
       ['tools', 'Tools'],
       ['system', 'System'],
     ]) {
       const group = groupEl(rail, id);
-      const heading = qs(group, ':scope > .osprey-section-label');
+      const heading = headingOf(rail, id);
       expect(heading).toBe(group.firstElementChild);
-      const name = qs(heading, '.sidebar-group-name');
+      expect(heading.classList.contains('osprey-section-label')).toBe(true);
+      const name = nameOf(rail, id);
       expect(name.textContent).toBe(label);
+      expect([...heading.children]).toEqual([name]);
+      expect(heading.querySelector('button')).toBeNull();
       expect(group.getAttribute('aria-labelledby')).toBe(name.id);
-      const button = menuButton(rail, id);
-      expect(button.classList.contains('osprey-mini')).toBe(true);
-      expect(button.getAttribute('aria-label')).toBe(`${label} group options`);
-      expect(button.getAttribute('aria-haspopup')).toBe('menu');
+      expect(heading.hidden).toBe(id === 'workspace');
     }
+  });
+
+  test('the Sessions heading is hidden and opens no menu, no fold and no rename', () => {
+    const rail = mountRail();
+    const event = rightClick(rail, 'workspace');
+    expect(event.defaultPrevented).toBe(false);
+    expect(menu()).toBeNull();
+    expect(startGroupRename(rail, 'workspace')).toBe(false);
+    expect(renameField(rail, 'workspace')).toBeNull();
+    // The Agent row still leads it.
+    expect(groupEl(rail, 'workspace').querySelector('[data-panel-id="terminal"]')).not.toBeNull();
   });
 
   test('a renamed group shows its new name at once', () => {
     const rail = mountRail();
     renameGroup('tools', 'Instruments');
-    expect(qs(groupEl(rail, 'tools'), '.sidebar-group-name').textContent).toBe('Instruments');
-    expect(menuButton(rail, 'tools').getAttribute('aria-label')).toBe('Instruments group options');
+    expect(nameOf(rail, 'tools').textContent).toBe('Instruments');
   });
 });
 
 describe('the group menu', () => {
-  test('⋯ opens a body-level menu: a built-in group has no Delete', () => {
+  test('a right-click on the heading opens a body-level menu: a built-in group has no Delete', () => {
     const rail = mountRail();
-    menuButton(rail, 'workspace').click();
+    const event = rightClick(rail, 'system');
 
+    expect(event.defaultPrevented).toBe(true);
     const opened = /** @type {HTMLElement} */ (menu());
-    expect(opened.hidden).toBe(false);
     expect(opened.parentElement).toBe(document.body);
-    expect(opened.classList.contains('osprey-popover')).toBe(true);
     expect(opened.getAttribute('role')).toBe('menu');
-    expect(opened.getAttribute('aria-label')).toBe('Workspace group');
-    expect(menuButton(rail, 'workspace').getAttribute('aria-expanded')).toBe('true');
+    expect(opened.getAttribute('aria-label')).toBe('System group');
+    expect(menuRows()).toEqual(['Rename', 'New group below', 'Move up', 'Move down (disabled)']);
+  });
+
+  test('the group below Sessions cannot move up past it', () => {
+    const rail = mountRail();
+    rightClick(rail, 'tools');
     expect(menuRows()).toEqual(['Rename', 'New group below', 'Move up (disabled)', 'Move down']);
+  });
+
+  test('the whole heading answers, not only its name: a right-click on the name opens it too', () => {
+    const rail = mountRail();
+    rightClick(rail, 'tools', nameOf(rail, 'tools'));
+    expect(menu()?.getAttribute('aria-label')).toBe('Tools group');
   });
 
   test('the last group cannot move down, and a group the operator added can be deleted', () => {
     const rail = mountRail();
     const id = addGroup('Beamline');
-    menuButton(rail, id).click();
+    rightClick(rail, id);
     expect(menuRows()).toEqual([
       'Rename',
       'New group below',
@@ -622,53 +722,76 @@ describe('the group menu', () => {
     ]);
   });
 
-  test('a second click closes the menu; another group’s ⋯ moves it there', () => {
+  test('a right-click on another heading moves the menu there', () => {
     const rail = mountRail();
-    menuButton(rail, 'workspace').click();
-    menuButton(rail, 'workspace').click();
-    expect(menu()?.hidden).toBe(true);
-
-    menuButton(rail, 'workspace').click();
-    menuButton(rail, 'tools').click();
-    expect(menu()?.hidden).toBe(false);
+    rightClick(rail, 'system');
+    rightClick(rail, 'tools');
+    expect(document.querySelectorAll('.rail-context-menu')).toHaveLength(1);
     expect(menu()?.getAttribute('aria-label')).toBe('Tools group');
-    expect(menuButton(rail, 'workspace').getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('Move down moves the group, closes the menu and keeps focus on its ⋯', () => {
+  for (const [what, init] of /** @type {const} */ ([
+    ['Shift+F10', { key: 'F10', shiftKey: true }],
+    ['the menu key', { key: 'ContextMenu' }],
+  ])) {
+    test(`${what} on the focused name opens the same menu`, () => {
+      const rail = mountRail();
+      const name = nameOf(rail, 'tools');
+      const event = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });
+      name.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(menu()?.getAttribute('aria-label')).toBe('Tools group');
+      expect(menuRows()).toEqual(['Rename', 'New group below', 'Move up (disabled)', 'Move down']);
+    });
+  }
+
+  test('a rename field and the collapsed sidebar keep the browser menu', () => {
     const rail = mountRail();
-    menuButton(rail, 'workspace').click();
+    startGroupRename(rail, 'tools');
+    const field = /** @type {HTMLInputElement} */ (renameField(rail, 'tools'));
+    expect(rightClick(rail, 'tools', field).defaultPrevented).toBe(false);
+    expect(menu()).toBeNull();
+    press(field, 'Escape');
+
+    document.documentElement.setAttribute('data-sidebar', 'collapsed');
+    expect(rightClick(rail, 'tools').defaultPrevented).toBe(false);
+    expect(menu()).toBeNull();
+  });
+
+  test('Move down moves the group, closes the menu and keeps focus on its name', () => {
+    const rail = mountRail();
+    rightClick(rail, 'tools');
     menuRow('Move down').click();
 
-    expect(menu()?.hidden).toBe(true);
-    expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
+    expect(menu()).toBeNull();
+    expect(groupIds()).toEqual(['workspace', 'system', 'tools']);
     const order = [...rail.children].map((el) => el.getAttribute('data-group'));
-    expect(order).toEqual(['tools', 'workspace', 'system']);
-    expect(document.activeElement).toBe(menuButton(rail, 'workspace'));
+    expect(order).toEqual(['workspace', 'system', 'tools']);
+    expect(document.activeElement).toBe(nameOf(rail, 'tools'));
   });
 
   test('Delete group removes it, and its rows go back to Tools', () => {
     const rail = mountRail();
     const id = addGroup('Beamline');
     moveToGroup('ariel', id);
-    menuButton(rail, id).click();
+    rightClick(rail, id);
     menuRow('Delete group').click();
 
     expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
     expect(rail.querySelector(`[data-group="${id}"]`)).toBeNull();
     const ariel = rail.querySelector('[data-panel-id="ariel"]');
     expect(groupEl(rail, 'tools').contains(ariel)).toBe(true);
-    expect(document.activeElement).toBe(menuButton(rail, 'tools'));
+    expect(document.activeElement).toBe(nameOf(rail, 'tools'));
   });
 
   test('New group below adds an empty group under this one and opens its name', () => {
     const rail = mountRail();
-    menuButton(rail, 'workspace').click();
+    rightClick(rail, 'tools');
     menuRow('New group below').click();
 
     const ids = groupIds();
     expect(ids).toHaveLength(4);
-    const id = ids[1];
+    const id = ids[2];
     expect(labelOf(id)).toBe(NEW_GROUP_LABEL);
     const field = renameField(rail, id);
     expect(field).not.toBeNull();
@@ -680,7 +803,7 @@ describe('the group menu', () => {
 describe('rename in place', () => {
   test('Rename swaps the name for a field holding it, focused', () => {
     const rail = mountRail();
-    menuButton(rail, 'tools').click();
+    rightClick(rail, 'tools');
     menuRow('Rename').click();
 
     const field = renameField(rail, 'tools');
@@ -692,7 +815,7 @@ describe('rename in place', () => {
     expect(document.activeElement).toBe(field);
   });
 
-  test('Enter keeps the trimmed name and puts focus back on the ⋯ button', () => {
+  test('Enter keeps the trimmed name and puts focus back on the name', () => {
     const rail = mountRail();
     expect(startGroupRename(rail, 'tools')).toBe(true);
     const field = /** @type {HTMLInputElement} */ (renameField(rail, 'tools'));
@@ -704,7 +827,7 @@ describe('rename in place', () => {
     const name = qs(groupEl(rail, 'tools'), '.sidebar-group-name');
     expect(name.hidden).toBe(false);
     expect(name.textContent).toBe('Instruments');
-    expect(document.activeElement).toBe(menuButton(rail, 'tools'));
+    expect(document.activeElement).toBe(name);
   });
 
   test('Escape keeps the old name', () => {
@@ -716,18 +839,18 @@ describe('rename in place', () => {
 
     expect(labelOf('tools')).toBe('Tools');
     expect(renameField(rail, 'tools')).toBeNull();
-    expect(document.activeElement).toBe(menuButton(rail, 'tools'));
+    expect(document.activeElement).toBe(nameOf(rail, 'tools'));
   });
 
   test('leaving the field keeps the new name', () => {
     const rail = mountRail();
-    startGroupRename(rail, 'workspace');
-    const field = /** @type {HTMLInputElement} */ (renameField(rail, 'workspace'));
+    startGroupRename(rail, 'tools');
+    const field = /** @type {HTMLInputElement} */ (renameField(rail, 'tools'));
     field.value = 'Operations';
     field.dispatchEvent(new FocusEvent('blur'));
 
-    expect(labelOf('workspace')).toBe('Operations');
-    expect(renameField(rail, 'workspace')).toBeNull();
+    expect(labelOf('tools')).toBe('Operations');
+    expect(renameField(rail, 'tools')).toBeNull();
   });
 
   test('an empty field keeps the old name', () => {
