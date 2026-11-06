@@ -131,12 +131,21 @@ TEST_MIRRORS: tuple[tuple[str, str], ...] = (
 )
 
 #: The test directories of the ``rest-a`` shard.
-_REST_A = (
-    "tests/facility",
+_REST_A = ("tests/facility", "tests/deployment")
+
+#: The test directories of the ``rest-c`` shard. None of them uses a session
+#: container another shard uses (agent_record's ClickHouse is its own; the
+#: shared Mongo, Neo4j and Postgres sessions stay in ``rest-b``), so no
+#: container is started in two jobs.
+_REST_C = (
+    "tests/interfaces",
     "tests/mcp_server",
-    "tests/deployment",
+    "tests/scripts",
     "tests/hooks",
+    "tests/agent_record",
     "tests/infrastructure",
+    "tests/docs",
+    "tests/templates",
 )
 
 #: The tests/cli modules of the ``cli-a`` shard, by the first letter of the name
@@ -613,7 +622,11 @@ UNIT_SELECTION = UnitSelection(
         "cli-a": (("tests/cli",), (f"tests/cli/test_[!{_CLI_A_LETTERS}]*",)),
         "cli-b": (("tests/cli",), ("tests/cli/templates", f"tests/cli/test_[{_CLI_A_LETTERS}]*")),
         "rest-a": (_REST_A, ()),
-        "rest-b": (("tests/", "packages/osprey-connectors/tests"), ("tests/cli", *_REST_A)),
+        "rest-b": (
+            ("tests/", "packages/osprey-connectors/tests"),
+            ("tests/cli", *_REST_A, *_REST_C),
+        ),
+        "rest-c": (_REST_C, ()),
     },
     subsets={"macos": _MACOS_RUNS},
     # A dead worker ends the sweep with its report instead of being replaced.
