@@ -56,6 +56,12 @@ _DIVIDER = "#panel-rail > .sidebar-divider"
 
 #: Fills the live tree with ``past`` closed sessions under an open current
 #: session holding ``arts`` artifact rows, then reports the layout one frame on.
+#:
+#: The tree is the app's: while the page boots, sidebar-artifacts.js redraws it
+#: from the session model (the rail's render, the artifact half starting, the
+#: type registry arriving) and a redraw replaces the seed. The layout is read
+#: only once a seed has stood for the two frames, so it is the seed's layout;
+#: a seed the boot replaced is laid again.
 _SEED_JS = """async ([past, arts]) => {
   const rows = await import('/static/js/sidebar-artifact-rows.js');
   const tree = document.getElementById('sidebar-session-tree');
@@ -73,9 +79,14 @@ _SEED_JS = """async ([past, arts]) => {
   ];
   for (let i = 1; i <= past; i++)
     nodes.push(rows.sessionRow(session(i, 'idle'), { active: false, open: false, count: 2 }));
-  tree.replaceChildren(...nodes);
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  return window.__dividerLayout();
+  const standing = () =>
+    tree.children.length === nodes.length && nodes.every((n, i) => tree.children[i] === n);
+  for (let laid = 0; laid < 100; laid++) {
+    tree.replaceChildren(...nodes);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    if (standing()) return window.__dividerLayout();
+  }
+  throw new Error('the app redrew the session tree over every seed');
 }"""
 
 #: The measurements every case reads.
@@ -253,9 +264,13 @@ def test_an_earlier_builds_pixels_become_a_fraction_once(tmp_path, chromium_brow
         assert abs(float(lay["stored"]) * _rail_room(page) - 300) <= 1
 
         # The fraction is rewritten until the sidebar's late blocks (the control
-        # target, the footer) have rendered, so the one the next load reads is
-        # whatever is stored when this page goes.
-        written = page.evaluate(f"localStorage.getItem('{_KEY}')")
+        # target, the footer) have rendered, up to the moment this page goes, so
+        # the one the next load reads is the one stored as the page is hidden.
+        # The tab's sessionStorage carries it across the reload.
+        page.evaluate(
+            "addEventListener('pagehide', () => sessionStorage.setItem("
+            f"'written', localStorage.getItem('{_KEY}')))"
+        )
         page.reload(wait_until="domcontentloaded")
         expect(page.locator(f"{_DIVIDER}[aria-valuetext]")).to_be_attached(timeout=10_000)
         page.evaluate(_LAYOUT_JS)
@@ -264,4 +279,4 @@ def test_an_earlier_builds_pixels_become_a_fraction_once(tmp_path, chromium_brow
         page.wait_for_function("window.__dividerLayout().height === 300", timeout=10_000)
         again = _layout(page)
         assert again["height"] == 300, again
-        assert again["stored"] == written
+        assert again["stored"] == page.evaluate("sessionStorage.getItem('written')")
