@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.interfaces.web_terminal import session_meta, transcript_map
 from osprey.stores import session_ledger
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactStore
@@ -246,12 +247,14 @@ def _lay_down_session(
 
 
 def _write_transcript(target: Path, lines: list[dict[str, Any]]) -> None:
-    """Write *lines* to *target* atomically, its mtime set to the last line's time."""
+    """Write *lines* to *target* whole, its mtime set to the last line's time.
+
+    Owner-only, as the agent CLI keeps its own transcripts.
+    """
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f".{target.name}.tmp")
-    tmp.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    data = "".join(json.dumps(line) + "\n" for line in lines).encode("utf-8")
+    atomic_replace(target, data, mode=0o600, sync="best_effort")
     stamps = [line["timestamp"] for line in lines if isinstance(line.get("timestamp"), str)]
     if stamps:
         moment = datetime.fromisoformat(stamps[-1]).timestamp()
-        os.utime(tmp, (moment, moment))
-    os.replace(tmp, target)
+        os.utime(target, (moment, moment))
