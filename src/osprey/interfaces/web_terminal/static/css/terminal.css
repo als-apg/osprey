@@ -227,35 +227,14 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > [data-sessi
 
 /* ---- Group headings (sidebar-groups.js) ----
 
-   The group's name, then its ⋯ button, shown on hover and on focus (and
-   always on a screen with no hover). Rename swaps the name for a field in
+   The group's name, across the full width of the row: a right-click anywhere
+   on the heading opens the group's menu. Rename swaps the name for a field in
    place. */
-.sidebar-group-head {
-  gap: var(--space-1);
-  padding-right: var(--space-1);
-}
-
 .sidebar-group-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.sidebar-group-head [data-group-menu] {
-  opacity: 0;
-  transition: opacity var(--duration-fast);
-}
-
-.sidebar-group-head:is(:hover, :focus-within) [data-group-menu],
-.sidebar-group-head [data-group-menu][aria-expanded="true"] {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .sidebar-group-head [data-group-menu] {
-    opacity: 1;
-  }
 }
 
 /* Folding (sidebar-fold.js): a double-click on the heading leaves only the
@@ -364,7 +343,6 @@ html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-sized]:no
 
 /* Icons only: no names to edit, and no empty line to read. */
 html[data-sidebar="collapsed"] .sidebar :is(
-  [data-group-menu],
   .sidebar-group-rename,
   .sidebar-group-empty,
   .osprey-nav-trail
@@ -955,12 +933,6 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 .panel-add-submit {
   justify-self: end;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-group-head [data-group-menu] {
-    transition: none;
-  }
 }
 
 /* ---- Control-target chip + its popover ----

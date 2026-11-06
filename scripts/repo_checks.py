@@ -59,6 +59,7 @@ class UnitSelection:
     marker: str
     quick_marker: str
     #: Shard name to (paths, extra ignores); the shards cover the roots exactly once.
+    #: An ignore holding a glob character is passed as ``--ignore-glob``.
     shards: dict[str, tuple[tuple[str, ...], tuple[str, ...]]]
     dist: tuple[str, ...]
     #: Subset name to the test files and node IDs it runs in place of the
@@ -130,7 +131,29 @@ TEST_MIRRORS: tuple[tuple[str, str], ...] = (
 )
 
 #: The test directories of the ``rest-a`` shard.
-_REST_A = ("tests/facility", "tests/mcp_server", "tests/deployment")
+_REST_A = ("tests/facility", "tests/deployment")
+
+#: The test directories of the ``rest-c`` shard. None of them uses a session
+#: container another shard uses (agent_record's ClickHouse is its own; the
+#: shared Mongo, Neo4j and Postgres sessions stay in ``rest-b``), so no
+#: container is started in two jobs.
+_REST_C = (
+    "tests/interfaces",
+    "tests/mcp_server",
+    "tests/scripts",
+    "tests/hooks",
+    "tests/agent_record",
+    "tests/infrastructure",
+    "tests/docs",
+    "tests/templates",
+)
+
+#: The tests/cli modules of the ``cli-a`` shard, by the first letter of the name
+#: after ``test_``: a-h with tests/cli/templates is about half the directory's
+#: test time. ``cli-b`` takes every other top-level module, so a new module
+#: lands in one shard by its name; tests/deployment/test_ci_workflow_wiring.py
+#: holds that every tests/cli module is in exactly one.
+_CLI_A_LETTERS = "a-h"
 
 #: What the macOS cell runs: the test files, and the tests of a file (a node
 #: ID, ``path::name`` or ``path::Class::name``, every parametrization of it),
@@ -596,9 +619,14 @@ UNIT_SELECTION = UnitSelection(
     marker="not pty and not wallclock and not canopy",
     quick_marker="not pty and not wallclock and not canopy and not slow",
     shards={
-        "cli": (("tests/cli",), ()),
+        "cli-a": (("tests/cli",), (f"tests/cli/test_[!{_CLI_A_LETTERS}]*",)),
+        "cli-b": (("tests/cli",), ("tests/cli/templates", f"tests/cli/test_[{_CLI_A_LETTERS}]*")),
         "rest-a": (_REST_A, ()),
-        "rest-b": (("tests/", "packages/osprey-connectors/tests"), ("tests/cli", *_REST_A)),
+        "rest-b": (
+            ("tests/", "packages/osprey-connectors/tests"),
+            ("tests/cli", *_REST_A, *_REST_C),
+        ),
+        "rest-c": (_REST_C, ()),
     },
     subsets={"macos": _MACOS_RUNS},
     # A dead worker ends the sweep with its report instead of being replaced.
@@ -785,6 +813,11 @@ def _select_vitest(
 # Commands
 
 
+def ignore_flag(path: str) -> str:
+    """The pytest flag that leaves *path* out: ``--ignore-glob`` for a pattern."""
+    return f"--ignore-glob={path}" if any(c in path for c in "*?[") else f"--ignore={path}"
+
+
 def unit_argv(
     tier: str,
     targets: Sequence[str] = (),
@@ -802,7 +835,7 @@ def unit_argv(
     marker = unit.quick_marker if tier == "quick" else unit.marker
     return [
         *(targets or roots),
-        *(f"--ignore={path}" for path in ignores),
+        *(ignore_flag(path) for path in ignores),
         "-m",
         marker,
     ]

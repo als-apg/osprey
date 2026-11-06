@@ -670,8 +670,7 @@ function flip(set, key) {
 }
 
 /**
- * Open a session in the Agent (another session's name, the session menu's
- * "Open in Agent"): switch to it (the Agent pane reopened first), unfold it,
+ * Open a session in the Agent (another session's name): switch to it (the Agent pane reopened first), unfold it,
  * and reveal its pick. After a switch the session's own layout says whether
  * the Artifacts panel is open (session-layout.js); on the session in use the
  * panel is brought up.

@@ -50,7 +50,7 @@ The window has a sidebar on the left and two panes:
 - **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
-  **Workspace**, **Tools** and **System** sections, and a footer with **Docs**,
+  **Agent** row, the **Tools** and **System** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
@@ -554,17 +554,16 @@ The sidebar is on the left. From top to bottom, it shows:
   :ref:`control-target popover <web-terminal-session-posture>`.
 - **Search**. It opens the command palette. The shortcut is ⌘K on macOS and
   Ctrl+K on other systems.
-- The groups of panel rows. At first there are three, **Workspace**, **Tools** and
-  **System**:
+- The groups of panel rows. At first there are three:
 
-  - **Workspace** starts with these rows:
+  - **Sessions**, the first group, has no heading. It starts with this row:
 
     - **Agent** opens the agent pane and your session tree below it
       (`Sessions and artifacts`_); with the pane open, it folds or unfolds
       the tree. When the pane
       is closed, the row is dimmed. When the agent waits for your
       answer, the row shows the number of open questions. **Agent** is always
-      the first row of the first group.
+      the first row of the sidebar.
 
   - **Tools** starts with all other panels that this deployment enables.
   - **System** starts with **Events** (only when the deployment enables the
@@ -628,8 +627,8 @@ Arrange the groups
 
 You can rename the groups, add your own groups, and move rows between them.
 
-To change a group, put the pointer on its name and click **⋯**. The menu has
-these items:
+To change a group, right-click its heading (or focus its name and press
+Shift+F10). The menu has these items:
 
 - **Rename**. Type the new name and press Enter. Press Escape to keep the old
   name. A name can have up to 40 characters. An empty name keeps the old one.
@@ -637,12 +636,13 @@ these items:
   its name for editing.
 - **Move up** and **Move down**. These move the group in the sidebar.
 - **Delete group**. This item shows only for a group that you added. The
-  rows of the group go back to **Tools**. You cannot delete **Workspace**,
-  **Tools** or **System**, but you can rename them.
+  rows of the group go back to **Tools**. You cannot delete **Tools** or
+  **System**, but you can rename them.
 
 Double-click a group's name to fold it down to its heading, and double-click
-again to unfold it. To make **Workspace** taller, drag the faint line below it;
-double-click the line to go back to automatic height.
+again to unfold it. **Sessions**, the group that holds **Agent**, has no
+heading, so it has no menu and always stays first. To make it taller, drag the
+faint line below it; double-click the line to go back to automatic height.
 
 To move a row to a different group, do one of these:
 

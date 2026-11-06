@@ -211,7 +211,8 @@ Measured CI Figures
 
    "``test`` coverage", "tests/{registry,connectors,mcp_server,cli} on 3.12: bare / ctrace / sysmon", "150 s / 283 s / 130 s", "developer host", "2026-08-21"
    "``test`` coverage", "CI cells: 3.12 (sysmon) / 3.11 (ctrace)", "14.6 min / 36.1 min", "GHA", "2026-08-21"
-   "``test`` unit shards", "rest-a share of non-cli test time", "43–51 %", "GHA per-test event logs", "2026-10-16"
+   "``test`` unit shards", "rest-a / rest-b / rest-c share of non-cli test time", "32–35 / 33–37 / 31–32 %", "GHA per-test event logs", "2026-11-06"
+   "``test`` unit shards", "cli-a share of tests/cli test time", "51 %", "GHA per-test event logs", "2026-11-06"
    "``scan-agentic-e2e``", "whole cycle, cold / warm", "~33 min / ~7.5 min", "Apple Silicon host", "2026-08-11"
    "``terminal-auth-multiuser-e2e``", "whole module, warm layer cache", "6 min 55 s", "developer host", "2026-08-27"
    "single-build auth lanes", "one cold image build", "7–11 min", "runner", "2026-08-26"

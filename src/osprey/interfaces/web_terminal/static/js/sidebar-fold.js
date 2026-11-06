@@ -2,8 +2,10 @@
 /* OSPREY Web Terminal — folding a sidebar group
  *
  * A double-click on a group's heading folds the group to its heading; another
- * unfolds it. Enter / Space on the group's name do the same. Any group folds,
- * built-in or the operator's; membership and order are untouched, and the
+ * unfolds it. Enter / Space on the group's name do the same. Any group with a
+ * heading folds, built-in or the operator's; the headless group
+ * (sidebar-groups.js) never does, whatever is stored. Membership and order
+ * are untouched, and the
  * Agent row's own session-list fold (sidebar.js) is a separate thing.
  *
  * Folded group ids are kept per user under
@@ -17,6 +19,7 @@
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
+import { isHeadlessGroup } from './sidebar-groups.js';
 
 /** The folded-groups storage key (a JSON array of group ids). */
 export const FOLDED_STORAGE_KEY = 'osprey-sidebar-folded';
@@ -53,7 +56,7 @@ let folded = new Set();
  * @returns {boolean} whether group `id` is folded
  */
 export function isGroupFolded(id) {
-  return folded.has(id);
+  return folded.has(id) && !isHeadlessGroup(id);
 }
 
 /**
@@ -64,7 +67,7 @@ function paint(rail) {
   for (const group of rail.querySelectorAll(':scope > .sidebar-group')) {
     const head = group.querySelector(':scope > .sidebar-group-head');
     if (!head) continue;
-    const isFolded = folded.has(group.getAttribute('data-group') ?? '');
+    const isFolded = isGroupFolded(group.getAttribute('data-group') ?? '');
     group.toggleAttribute('data-folded', isFolded);
     head.querySelector(':scope > .sidebar-group-chevron')?.remove();
     const name = head.querySelector('.sidebar-group-name');
@@ -123,6 +126,7 @@ function holdScroll(rail, scrollTop) {
  * @param {string} id
  */
 function toggle(rail, id) {
+  if (isHeadlessGroup(id)) return;
   if (folded.has(id)) folded.delete(id);
   else folded.add(id);
   writeFolded(folded);
@@ -151,13 +155,13 @@ export function initSidebarFold(rail) {
 
   /**
    * The id of the group whose heading an event landed on, or null when it
-   * landed on the ⋯ button or a rename field, or the sidebar shows icons only.
+   * landed on a rename field, or the sidebar shows icons only.
    * @param {Event} event
    * @returns {string | null}
    */
   const groupIdOf = (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (!target || target.closest('[data-group-menu], input')) return null;
+    if (!target || target.closest('input')) return null;
     const group = target.closest('.sidebar-group-head')?.closest('.sidebar-group');
     if (!group || !rail.contains(group)) return null;
     if (document.documentElement.getAttribute('data-sidebar') === 'collapsed') return null;

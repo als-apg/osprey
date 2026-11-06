@@ -3127,7 +3127,7 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
             "Focus Data Viz",
             "Open in a new tile",
             "Open in new window",
-            "Move to Workspace",
+            "Move to Sessions",
             "Move to System",
             "Move to new group…",
             "Remove from rail",
@@ -3374,7 +3374,7 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
             "Focus Data Viz",
             "Open in a new tile",
             "Open in new window",
-            "Move to Workspace",
+            "Move to Sessions",
             "Move to System",
             "Move to new group…",
             "Remove from rail",
@@ -3496,7 +3496,7 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             ]
             assert tile_rows == [
                 "Open in a new tile",
-                "Move to Workspace",
+                "Move to Sessions",
                 "Move to System",
                 "Move to new group…",
                 "Pop out",

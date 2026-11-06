@@ -179,23 +179,29 @@ jobs:
         python-version: ['3.11', '3.12', '3.14']
         # macOS cells come from `include` below, not from this axis.
         os: [ubuntu-latest]
-        # Each ubuntu cell runs as three jobs, one per directory set. `cli` is
-        # tests/cli alone, the heaviest single directory (its ~120 tests that
-        # run a real `osprey build` are most of that). `rest-a` is
-        # tests/facility, tests/mcp_server and tests/deployment. `rest-b` is
-        # everything else, spelled as ignores in "Run unit tests" so a new test
-        # directory lands there rather than in no shard. rest-a carries about
-        # half the non-cli test time (the measured figures are in
-        # docs/source/contributing/workflow.rst, "Measured CI Figures"), so
-        # the two rest shards finish together and each stays near
-        # half the step cap below on the slowest runner in the pool. A shard
-        # is a set of directories, not a duration file or a hash: nothing to
-        # regenerate, and the balance is re-checked by reading `--durations`
-        # when one side drifts far from half. test_ci_workflow_wiring.py holds
-        # that the three sets cover tests/ exactly once.
+        # Each ubuntu cell runs as five jobs. tests/cli, the heaviest single
+        # directory (its ~120 tests that run a real `osprey build` are most of
+        # that), is split by module name: `cli-a` is tests/cli/test_[a-h]* and
+        # tests/cli/templates, `cli-b` every other tests/cli module, so a new
+        # module lands in one of them by its name. `rest-a` is tests/facility
+        # and tests/deployment. `rest-c` is tests/interfaces, tests/mcp_server,
+        # tests/scripts, tests/hooks, tests/agent_record, tests/infrastructure,
+        # tests/docs and tests/templates. `rest-b` is everything else, the
+        # directories behind the shared Mongo, Neo4j and Postgres sessions
+        # included, spelled as ignores in "Run unit tests" so a new test
+        # directory lands there rather than in no shard. cli-a carries about
+        # half the cli test time and each rest shard about a third of the rest
+        # (the measured figures are in docs/source/contributing/workflow.rst,
+        # "Measured CI Figures"), so the shards finish together and each stays
+        # well under the step cap below on the slowest runner in the pool. A
+        # shard is a set of directories or a name glob, not a duration file or
+        # a hash: nothing to regenerate, and the balance is re-checked by
+        # reading `--durations` when one shard drifts far from its share.
+        # test_ci_workflow_wiring.py holds that the five selections cover
+        # tests/ exactly once, tests/cli module by module.
         #
-        # Runner-minutes are unchanged by the split.
-        shard: [cli, rest-a, rest-b]
+        # Runner-minutes grow only by each extra job's setup and collection.
+        shard: [cli-a, cli-b, rest-a, rest-b, rest-c]
         # A macOS cell is ONE job, `shard: macos`: exactly the test files and
         # tests repo_checks.py lists in _MACOS_RUNS, those whose outcome can
         # differ on macOS through a named mechanism (a darwin branch, real
@@ -289,7 +295,7 @@ jobs:
         # This lane's ~120 real `osprey build`s each install the full
         # dependency tree into a project venv under pytest's basetemp, and
         # uv's cache lives on the disk, so on tmpfs every venv is a ~2 GB copy
-        # rather than a set of hardlinks: the cli shard hit EDQUOT ten minutes
+        # rather than a set of hardlinks: the cli job hit EDQUOT ten minutes
         # in. runner.temp is the same filesystem as the uv cache, so the venvs
         # are hardlinked again and cost next to nothing. Inherited by every
         # build the suite spawns.
@@ -435,11 +441,14 @@ jobs:
         # which is after tee has to open its file.
         mkdir -p ci-diag
         set -o pipefail
-        # The shard is named by the matrix and defined by the check: `cli` is
-        # tests/cli alone, `rest-a` is tests/facility, tests/mcp_server and
-        # tests/deployment, and `rest-b` is everything else, the connectors
+        # The shard is named by the matrix and defined by the check: `cli-a` is
+        # tests/cli/test_[a-h]* and tests/cli/templates, `cli-b` the rest of
+        # tests/cli, `rest-a` is tests/facility and tests/deployment, `rest-c`
+        # is tests/interfaces, tests/mcp_server, tests/scripts, tests/hooks,
+        # tests/agent_record, tests/infrastructure, tests/docs and
+        # tests/templates, and `rest-b` is everything else, the connectors
         # package's own suite included; tests/deployment/test_ci_workflow_wiring.py
-        # holds that the three cover tests/ exactly once. `macos` is outside
+        # holds that the five cover tests/ exactly once. `macos` is outside
         # that partition: only the files and tests the check lists for macOS.
         #
         # The check leaves three integration modules out of the sweep by name.
@@ -1592,6 +1601,7 @@ jobs:
           tests/interfaces/web_terminal/test_sidebar_divider_browser.py \
           tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
           tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_group_headings_browser.py \
           tests/interfaces/web_terminal/test_attached_popout_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
