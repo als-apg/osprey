@@ -44,6 +44,7 @@ from __future__ import annotations
 import ast
 import copy
 import dataclasses
+import fnmatch
 import functools
 import importlib.util
 import itertools
@@ -401,7 +402,7 @@ def _resolved(call: list[str]) -> list[list[str]]:
     """The command lines *call* resolves to on a GitHub runner, without running them.
 
     A shard named by a matrix expression is dropped, so the unit sweep resolves
-    to the selection all three shards add up to; ``$COV_ARGS`` is the empty
+    to the selection all five shards add up to; ``$COV_ARGS`` is the empty
     string every cell but one sets.
     """
     words: list[str] = []
@@ -1669,7 +1670,8 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
     """Whether *command* collects *test_file*.
 
     A path argument covers the file when the file is it or lies under it; a
-    ``--ignore=`` argument takes it back out. An invocation whose only path is
+    ``--ignore=`` argument takes it back out, and so does an ``--ignore-glob=``
+    pattern that matches it or a directory above it. An invocation whose only path is
     a bare variable (``$E2E_FILTER``) is an operator-chosen debug path on a
     manual dispatch, not a lane, and reaches nothing here; an invocation with
     no path at all collects ``testpaths``, which is ``tests`` and the
@@ -1681,6 +1683,7 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
         tokens = command.split()
     paths = [t for t in tokens if t == "tests" or t.startswith(("tests/", "packages/"))]
     ignores = [t.removeprefix("--ignore=") for t in tokens if t.startswith("--ignore=")]
+    globs = [t.removeprefix("--ignore-glob=") for t in tokens if t.startswith("--ignore-glob=")]
     if not paths:
         if any(t.startswith("$") for t in tokens):
             return False
@@ -1690,7 +1693,17 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
         path = path.split("::", 1)[0].rstrip("/")
         return test_file == path or test_file.startswith(f"{path}/")
 
-    return any(_covers(p) for p in paths) and not any(_covers(i) for i in ignores)
+    def _globbed(pattern: str) -> bool:
+        parts = test_file.split("/")
+        return any(
+            fnmatch.fnmatchcase("/".join(parts[:n]), pattern) for n in range(1, len(parts) + 1)
+        )
+
+    return (
+        any(_covers(p) for p in paths)
+        and not any(_covers(i) for i in ignores)
+        and not any(_globbed(g) for g in globs)
+    )
 
 
 def _carriers(row: LaneLeavingMarker, sources: dict[str, str]) -> list[str]:
@@ -4409,23 +4422,40 @@ def test_workflow_on_key_parses_to_bool_true_not_string(workflow: dict[str, Any]
 # ---------------------------------------------------------------------------
 
 BROWSER_JOB = "visual-theming"
+#: The browser lane's second job, run beside the first: the watchdog suite and
+#: the visual-regression suite with its baseline steps.
+BROWSER_AGENT_JOB = "visual-theming-agent"
+BROWSER_JOBS = (BROWSER_JOB, BROWSER_AGENT_JOB)
 BROWSER_RUN_STEP = "Run behavioral theming suite"
+#: The serial step of the browser lane's second job: the suites that start
+#: containers, kept out of the parallel run step (see (h3b)).
+BROWSER_CONTAINER_STEP = "Run the container-backed browser suites"
 AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
 
 
-#: What makes a step of the browser job one that runs suites. The lane runs
-#: its suites in more than one step — the visual-regression step stands apart
-#: so its baseline upload and commit steps can follow it — so a suite named by
-#: any of them is run by the lane, and matching the invocation rather than
-#: listing step names keeps a further step from being named by the lane and
-#: invisible to every guard below.
+def _browser_step_naming(wf: dict[str, Any], test_file: str) -> dict[str, Any]:
+    """The browser-lane step whose pytest invocation names *test_file* on a line of its own."""
+    for job in BROWSER_JOBS:
+        for step in _jobs(wf)[job]["steps"]:
+            if f"{test_file} \\\n" in step.get("run", ""):
+                return step
+    raise AssertionError(f"no browser-lane step names {test_file}")
+
+
+#: What makes a step of the browser jobs one that runs suites. The lane runs
+#: its suites in more than one step and more than one job — the
+#: visual-regression step stands apart so its baseline upload and commit steps
+#: can follow it — so a suite named by any of them is run by the lane, and
+#: matching the invocation rather than listing step names keeps a further step
+#: from being named by the lane and invisible to every guard below.
 _BROWSER_PYTEST_INVOCATION = "uv run pytest "
 
 
 def _browser_lane_files(wf: dict[str, Any]) -> str:
     return "\n".join(
         step["run"]
-        for step in _jobs(wf)[BROWSER_JOB]["steps"]
+        for job in BROWSER_JOBS
+        for step in _jobs(wf)[job]["steps"]
         if _BROWSER_PYTEST_INVOCATION in step.get("run", "")
     )
 
@@ -4447,16 +4477,17 @@ _STEP_OUTPUT_CONDITION = re.compile(r"steps\.[A-Za-z0-9_-]+\.outputs")
 _CACHE_SAVE_ACTION = "actions/cache/save@"
 
 
-def _browser_steps_gated_on_outputs(wf: dict[str, Any]) -> list[str | None]:
+def _browser_steps_gated_on_outputs(wf: dict[str, Any], job: str = BROWSER_JOB) -> list[str | None]:
     return [
         step.get("name")
-        for step in _jobs(wf)[BROWSER_JOB]["steps"]
+        for step in _jobs(wf)[job]["steps"]
         if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
         and not str(step.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
     ]
 
 
-def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None:
+@pytest.mark.parametrize("browser_job", BROWSER_JOBS)
+def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any], browser_job: str) -> None:
     """Three ways this lane could stop running, all of them silent.
 
     A job-level ``if:`` skips the job; a paths-filter step lets a later step
@@ -4465,17 +4496,17 @@ def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None
     ``all-checks-passed`` requires this lane to be ``success``, so any of the
     three turns the browser proof off at exactly the moment a reviewer is
     reading a green check."""
-    job = _jobs(workflow)[BROWSER_JOB]
-    assert "if" not in job, f"the '{BROWSER_JOB}' lane carries a job-level condition"
+    job = _jobs(workflow)[browser_job]
+    assert "if" not in job, f"the '{browser_job}' lane carries a job-level condition"
     filters = [
         step.get("name")
         for step in job["steps"]
         if str(step.get("uses", "")).startswith("dorny/paths-filter")
     ]
-    assert filters == [], f"the '{BROWSER_JOB}' lane computes a paths filter: {filters}"
-    gated = _browser_steps_gated_on_outputs(workflow)
+    assert filters == [], f"the '{browser_job}' lane computes a paths filter: {filters}"
+    gated = _browser_steps_gated_on_outputs(workflow, browser_job)
     assert gated == [], (
-        f"steps of the '{BROWSER_JOB}' lane gated on another step's output, which would "
+        f"steps of the '{browser_job}' lane gated on another step's output, which would "
         f"report the lane green having run nothing: {gated}"
     )
 
@@ -4550,7 +4581,7 @@ def test_browser_test_runs_in_the_browser_lane__mutation_drops_the_file(test_fil
     """Removing the file from the invocation must fail the guard — the exact
     vacuous-green shape above."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step = _browser_step_naming(mutated, test_file)
     step["run"] = step["run"].replace(f"{test_file} \\\n", "")
     assert test_file not in _browser_lane_files(mutated)
 
@@ -4698,10 +4729,49 @@ def test_every_browser_suite_on_disk_is_named_in_the_browser_lane(
 
 def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step = _browser_step_naming(mutated, AUTH_BROWSER_TEST_FILE)
     step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
     named = _browser_lane_named_files(mutated)
     assert [s for s in _browser_suites_on_disk() if s not in named] == [AUTH_BROWSER_TEST_FILE]
+
+
+# ---------------------------------------------------------------------------
+# (h3b) no suite that starts a container runs in the parallel run step: a
+# container's veth interface coming or going is a network change to every
+# Chromium on the host, which fails its in-flight requests with
+# ERR_NETWORK_CHANGED, so a page another worker is loading never boots
+# ---------------------------------------------------------------------------
+
+#: What a suite that starts containers imports: the repo's docker helpers or
+#: testcontainers itself.
+_CONTAINER_IMPORT = re.compile(
+    r"^\s*(?:from|import)\s+(?:tests\._container_support|testcontainers)\b", re.MULTILINE
+)
+
+
+def _parallel_step_container_suites(wf: dict[str, Any]) -> list[str]:
+    run = _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
+    return sorted(
+        tok
+        for tok in set(run.split())
+        if tok.endswith(".py") and _CONTAINER_IMPORT.search((REPO_ROOT / tok).read_text())
+    )
+
+
+def test_no_container_backed_suite_runs_in_the_parallel_step(workflow: dict[str, Any]) -> None:
+    assert _parallel_step_container_suites(workflow) == []
+    container_step = _find_named_step(workflow, BROWSER_AGENT_JOB, BROWSER_CONTAINER_STEP)
+    assert AUTH_BROWSER_TEST_FILE in container_step["run"]
+    assert " -n " not in container_step["run"]
+
+
+def test_no_container_backed_suite_runs_in_the_parallel_step__mutation_moves_one_back() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(
+        "--dist loadfile \\\n", f"--dist loadfile \\\n  {AUTH_BROWSER_TEST_FILE} \\\n", 1
+    )
+    assert _parallel_step_container_suites(mutated) == [AUTH_BROWSER_TEST_FILE]
 
 
 # ---------------------------------------------------------------------------
@@ -4833,6 +4903,34 @@ def _browser_cache_problems(wf: dict[str, Any]) -> list[str]:
 
 def test_the_playwright_cache_brackets_the_installs(workflow: dict[str, Any]) -> None:
     assert _browser_cache_problems(workflow) == []
+
+
+def _playwright_cache_writers(wf: dict[str, Any]) -> list[str]:
+    return [
+        name
+        for name, job in _jobs(wf).items()
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
+        and "ms-playwright" in str(step.get("with", {}).get("path", ""))
+    ]
+
+
+def test_one_job_writes_the_playwright_cache(workflow: dict[str, Any]) -> None:
+    """The other browser lanes only restore it: two writers would store a
+    second copy under the same key prefix, and a writer that installs one engine
+    would save a cache missing the other."""
+    assert _playwright_cache_writers(workflow) == [BROWSER_JOB]
+
+
+def test_one_job_writes_the_playwright_cache__mutation_adds_a_second_save() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    save = next(
+        s
+        for s in _jobs(mutated)[BROWSER_JOB]["steps"]
+        if str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
+    )
+    _jobs(mutated)[BROWSER_AGENT_JOB]["steps"].append(copy.deepcopy(save))
+    assert _playwright_cache_writers(mutated) == [BROWSER_JOB, BROWSER_AGENT_JOB]
 
 
 def test_the_playwright_cache_brackets_the_installs__mutation_saves_after_the_suites() -> None:
@@ -12153,7 +12251,9 @@ def test_the_two_uid_log_case_is_a_docker_group_case__mutation_drops_the_group()
 # costs a slow runner its margin under the step cap; a directory no shard names
 # runs nowhere with every check green. The last shard is spelled as ignores of
 # every directory another shard names, so a new directory falls into it; what
-# is pinned here is that the spellings still partition the tree.
+# is pinned here is that the spellings still partition the tree. tests/cli is
+# split between two shards by module name (an ``--ignore-glob`` each), so that
+# directory is checked module by module.
 
 
 def _unit_shards(unit: Any = None) -> dict[str, str]:
@@ -12162,7 +12262,7 @@ def _unit_shards(unit: Any = None) -> dict[str, str]:
     lane, not the partition."""
     unit = unit or framework_checks.UNIT_SELECTION
     return {
-        name: " ".join(["pytest", *paths, *(f"--ignore={path}" for path in ignores)])
+        name: " ".join(["pytest", *paths, *map(framework_checks.ignore_flag, ignores)])
         for name, (paths, ignores) in unit.shards.items()
     }
 
@@ -12188,34 +12288,54 @@ def _test_tree_entries(root: Path = TESTS_ROOT) -> list[str]:
     return sorted(entries)
 
 
+def _split_entries(shards: dict[str, str]) -> set[str]:
+    """The top-level entries a shard names a path or ignore below: an ignore
+    one level deeper takes files out of the shard that names the directory, and
+    only a file-by-file check sees whether another shard picks them up."""
+    split = set()
+    for command in shards.values():
+        for token in command.split()[1:]:
+            path = re.sub(r"^--ignore(-glob)?=", "", token).rstrip("/")
+            if path.startswith("tests/") and path.count("/") > 1:
+                split.add("/".join(path.split("/")[:2]))
+    return split
+
+
+def _probes(entry: str, split: set[str]) -> list[str]:
+    """The files that stand for *entry*: a probe file below a directory entry
+    (a root module is its own probe), and every test module of a split one."""
+    if entry.endswith(".py"):
+        return [entry]
+    probes = [f"{entry}/test_probe.py"]
+    if entry in split:
+        root = REPO_ROOT / entry
+        probes += sorted(
+            path.relative_to(REPO_ROOT).as_posix()
+            for pattern in ("test_*.py", "*_test.py")
+            for path in root.rglob(pattern)
+            if "__pycache__" not in path.parts
+        )
+    return probes
+
+
 def _shard_coverage_problems(wf: dict[str, Any], entries: list[str], unit: Any = None) -> list[str]:
     """Why the shards do not partition *entries* (empty = each entry in exactly
     one shard, and the declared shards are the matrix's shards).
 
-    The partition is checked at the top level of ``tests/``, so it holds only
-    while every shard path and ignore is a top-level entry: an ignore one level
-    deeper takes its files out of the shard that names the directory while no
-    other shard picks them up. A shard that reaches below the top level is
-    refused outright rather than checked file by file."""
+    The partition is checked at the top level of ``tests/``, with a probe file
+    standing for each directory. A directory a shard reaches below (tests/cli,
+    split by module name) is checked over every test module it holds as well."""
     shards = _unit_shards(unit)
     matrix = sorted(_jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"]["shard"])
     problems = []
     if sorted(shards) != matrix:
         problems.append(f"declared shards {sorted(shards)} are not the matrix shards {matrix}")
-    for name, command in shards.items():
-        for token in command.split()[1:]:
-            path = token.removeprefix("--ignore=").rstrip("/")
-            if path.startswith("tests/") and path.count("/") > 1:
-                problems.append(
-                    f"shard '{name}' names {token}, below a top-level test directory; "
-                    f"a shard is a set of whole tests/<dir> entries"
-                )
+    split = _split_entries(shards)
     for entry in entries:
-        # A probe file below a directory entry; a root module is its own probe.
-        probe = entry if entry.endswith(".py") else f"{entry}/test_probe.py"
-        holders = [name for name, command in shards.items() if _invocation_reaches(command, probe)]
-        if len(holders) != 1:
-            problems.append(f"{entry} is in {len(holders)} shards: {holders}")
+        for probe in _probes(entry, split):
+            holders = [n for n, command in shards.items() if _invocation_reaches(command, probe)]
+            if len(holders) != 1:
+                problems.append(f"{probe} is in {len(holders)} shards: {holders}")
     return problems
 
 
@@ -12224,6 +12344,7 @@ def test_the_unit_shards_cover_the_test_tree_exactly_once(
 ) -> None:
     entries = _test_tree_entries()
     assert "tests/cli" in entries and len(entries) > 10, f"test tree scan broke: {entries}"
+    assert "tests/cli" in _split_entries(_unit_shards(unit)), "tests/cli is no longer split"
     assert set(PACKAGE_TEST_ROOTS) <= set(entries), f"package suite scan broke: {entries}"
     problems = _shard_coverage_problems(workflow, entries, unit)
     assert problems == [], "the unit lane's shards do not partition tests/:\n" + "\n".join(problems)
@@ -12239,7 +12360,7 @@ def _with_shard(shard: str, paths: tuple[str, ...], ignores: tuple[str, ...]) ->
 def _last_shard() -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     """The shard spelled by exclusion: its name, paths and ignored directories."""
     for name, (paths, ignores) in framework_checks.UNIT_SELECTION.shards.items():
-        if ignores:
+        if "tests/" in paths:
             return name, paths, ignores
     raise AssertionError("no unit shard is spelled by exclusion")
 
@@ -12249,7 +12370,7 @@ def test_the_unit_shards_cover_the_test_tree__mutation_drops_an_ignore() -> None
     name, paths, ignores = _last_shard()
     dropped = ignores[-1]
     mutated = _with_shard(name, paths, ignores[:-1])
-    with pytest.raises(AssertionError, match=rf"{re.escape(dropped)} is in 2 shards"):
+    with pytest.raises(AssertionError, match=rf"{re.escape(dropped)}/test_probe.py is in 2 shards"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
 
 
@@ -12344,7 +12465,7 @@ def test_the_unit_macos_cells_are_one_job_each__mutation_puts_macos_on_the_axis(
 def test_the_unit_macos_cells_are_one_job_each__mutation_runs_a_shard() -> None:
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
-    matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli"', 1)
+    matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli-a"', 1)
     assert any("is not one macOS 'macos' job" in p for p in _macos_cell_problems(mutated))
 
 
@@ -12393,7 +12514,28 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
     deeper = "tests/deployment/web_terminals"
     assert "tests/deployment" in paths, "rest-a no longer names tests/deployment"
     mutated = _with_shard(TWO_UID_LOG_SHARD, paths, (*ignores, deeper))
-    with pytest.raises(AssertionError, match="below a top-level test directory"):
+    with pytest.raises(AssertionError, match=rf"{deeper}/test_\w+\.py is in 0 shards"):
+        test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_cli_b_keeps_templates() -> None:
+    """cli-b stops ignoring tests/cli/templates: those modules run in both cli shards."""
+    paths, ignores = framework_checks.UNIT_SELECTION.shards["cli-b"]
+    kept = tuple(i for i in ignores if i != "tests/cli/templates")
+    assert len(kept) == len(ignores) - 1, "cli-b no longer ignores templates; mutation is stale"
+    mutated = _with_shard("cli-b", paths, kept)
+    with pytest.raises(AssertionError, match=r"tests/cli/templates/test_\w+\.py is in 2 shards"):
+        test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_cli_globs_disagree() -> None:
+    """cli-b's glob takes one letter more than cli-a's complement leaves it:
+    the modules of that letter run in no shard."""
+    paths, ignores = framework_checks.UNIT_SELECTION.shards["cli-b"]
+    widened = tuple(i.replace("[a-h]", "[a-i]") for i in ignores)
+    assert widened != ignores, "cli-b's glob is not [a-h]; mutation is stale"
+    mutated = _with_shard("cli-b", paths, widened)
+    with pytest.raises(AssertionError, match=r"tests/cli/test_i\w*\.py is in 0 shards"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(_load_workflow(), mutated)
 
 

@@ -78,6 +78,7 @@ from osprey.interfaces._serving import run_app_server
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
+from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import (
     UNSERVED,
@@ -3065,7 +3066,7 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
             "Focus Data Viz",
             "Open in a new tile",
             "Open in new window",
-            "Move to Workspace",
+            "Move to Sessions",
             "Move to System",
             "Move to new group…",
             "Remove from rail",
@@ -3312,7 +3313,7 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
             "Focus Data Viz",
             "Open in a new tile",
             "Open in new window",
-            "Move to Workspace",
+            "Move to Sessions",
             "Move to System",
             "Move to new group…",
             "Remove from rail",
@@ -3358,6 +3359,9 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         arm_terminal_tab(page)
         page.goto(base_url, wait_until="domcontentloaded")
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
+        # The Agent tile's header is re-parented while the dock boots; a press
+        # landing between the two moves opens no menu.
+        wait_for_dock_settled(page)
 
         _open_agent_header_menu(page)
         assert _menu_labels(page) == [
@@ -3424,7 +3428,7 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
                 "Open in a new tile",
                 "Pop out",
                 "Open in new window",
-                "Move to Workspace",
+                "Move to Sessions",
                 "Move to System",
                 "Move to new group…",
                 "Remove from rail",

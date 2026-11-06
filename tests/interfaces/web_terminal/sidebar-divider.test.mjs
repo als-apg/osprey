@@ -25,7 +25,6 @@ const HTML = `
     <div class="sidebar-group" data-group="workspace">
       <div class="osprey-section-label sidebar-group-head">
         <span class="sidebar-group-name" id="n1">Workspace</span>
-        <button type="button" data-group-menu>m</button>
         <input type="text" id="field">
       </div>
       <div class="sidebar-row"><button id="sidebar-agent-row">Agent</button></div>
@@ -33,7 +32,6 @@ const HTML = `
     <div class="sidebar-group" data-group="tools">
       <div class="osprey-section-label sidebar-group-head">
         <span class="sidebar-group-name" id="n2">Tools</span>
-        <button type="button" data-group-menu>m</button>
       </div>
     </div>
   </div>`;
@@ -196,7 +194,7 @@ describe('the Workspace divider', () => {
     expect(divider().children.length).toBe(0);
     expect(divider().hasAttribute('data-tip')).toBe(false);
     expect(divider().hasAttribute('data-tip-detail')).toBe(false);
-    expect(divider().getAttribute('aria-label')).toBe('Workspace height');
+    expect(divider().getAttribute('aria-label')).toBe('Sessions height');
     ptr('pointerdown', 100);
     ptr('pointermove', 150);
     expect(height()).toBe('250px');
@@ -294,11 +292,9 @@ describe('the Workspace divider', () => {
     }
   });
 
-  test('is hidden while the group is folded and while the sidebar is collapsed', async () => {
+  test('stays under the Sessions group, which never folds, and hides while the sidebar is collapsed', async () => {
     await boot({ withFold: true });
     expect(divider().hidden).toBe(false);
-    dbl(name('workspace'));
-    expect(divider().hidden).toBe(true);
     dbl(name('workspace'));
     expect(divider().hidden).toBe(false);
     document.documentElement.setAttribute('data-sidebar', 'collapsed');

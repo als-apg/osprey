@@ -863,15 +863,39 @@ SWEEP_IGNORES = [
 
 #: The sweep each shard selects: its paths, then everything it ignores.
 SHARD_SELECTIONS = {
-    "cli": ["tests/cli", *SWEEP_IGNORES],
-    "rest-a": ["tests/facility", "tests/mcp_server", "tests/deployment", *SWEEP_IGNORES],
+    "cli-a": ["tests/cli", "--ignore-glob=tests/cli/test_[!a-h]*", *SWEEP_IGNORES],
+    "cli-b": [
+        "tests/cli",
+        "--ignore=tests/cli/templates",
+        "--ignore-glob=tests/cli/test_[a-h]*",
+        *SWEEP_IGNORES,
+    ],
+    "rest-a": ["tests/facility", "tests/deployment", *SWEEP_IGNORES],
     "rest-b": [
         "tests/",
         "packages/osprey-connectors/tests",
         "--ignore=tests/cli",
         "--ignore=tests/facility",
-        "--ignore=tests/mcp_server",
         "--ignore=tests/deployment",
+        "--ignore=tests/interfaces",
+        "--ignore=tests/mcp_server",
+        "--ignore=tests/scripts",
+        "--ignore=tests/hooks",
+        "--ignore=tests/agent_record",
+        "--ignore=tests/infrastructure",
+        "--ignore=tests/docs",
+        "--ignore=tests/templates",
+        *SWEEP_IGNORES,
+    ],
+    "rest-c": [
+        "tests/interfaces",
+        "tests/mcp_server",
+        "tests/scripts",
+        "tests/hooks",
+        "tests/agent_record",
+        "tests/infrastructure",
+        "tests/docs",
+        "tests/templates",
         *SWEEP_IGNORES,
     ],
 }
@@ -1141,10 +1165,24 @@ def test_the_shards_cover_the_sweep_roots_exactly_once() -> None:
             name
             for name, (paths, ignores) in unit.shards.items()
             if any(relative == p.rstrip("/") or relative.startswith(p) for p in paths)
-            and not any(relative == i or relative.startswith(i + "/") for i in ignores)
+            and not any(
+                relative == i or relative.startswith(i + "/") or fnmatch.fnmatch(relative, i)
+                for i in ignores
+            )
         ]
 
-    assert {top: owners(top) for top in tops if len(owners(top)) != 1} == {}
+    # A directory two shards split by file name holds each of its test files once.
+    split = {top for top in tops if len(owners(top)) > 1}
+    files = [
+        path.as_posix()
+        for top in split
+        for path in Path(top).rglob("test_*.py")
+        if "__pycache__" not in path.parts
+    ]
+    assert "tests/cli" in {Path(top).relative_to(REPO_ROOT).as_posix() for top in split}
+    assert {
+        path: owners(path) for path in [*files, *(set(tops) - split)] if len(owners(path)) != 1
+    } == {}
     assert fw.unit_argv("full") == [*unit.roots, *SWEEP_IGNORES, *SWEEP_MARKER]
 
 
@@ -1909,6 +1947,21 @@ class Recorder:
 
     def ran(self, text: str) -> bool:
         return any(text in shlex.join(argv) for argv in self.calls)
+
+
+#: The connectors checks module. Its ``connectors-public-names`` check is a
+#: ``builtin=``, so a ``check.main`` run calls it in process (``recorder`` does
+#: not stand in for it), and it sweeps the real tree from the module's own
+#: ``ROOT``, not ``kit.ROOT``.
+_connectors_checks = check.DECLARED.modules["packages/osprey-connectors/repo_checks.py"]
+#: The sweep, run once per worker for each root: every ``check.main`` here
+#: is about the runner, and the real tree does not change during a session.
+_cached_stray_exports = functools.cache(_connectors_checks.stray_exports)
+
+
+@pytest.fixture(autouse=True)
+def _one_public_names_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_connectors_checks, "stray_exports", _cached_stray_exports)
 
 
 @pytest.fixture

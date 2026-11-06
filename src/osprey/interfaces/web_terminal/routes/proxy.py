@@ -2234,6 +2234,11 @@ async def _forward_to_panel(
             content=f"Upstream connection failed: {exc}",
             status_code=502,
         )
+    except BaseException:
+        # Anything else that escapes still leaves each observed call its row.
+        if observer is not None:
+            observer.close()
+        raise
 
     # Filter response headers (see _filter_response_headers); fill in the
     # no-cache default when the upstream made no caching decision of its own
