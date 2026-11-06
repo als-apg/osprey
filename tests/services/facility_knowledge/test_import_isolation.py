@@ -426,6 +426,50 @@ class TestIsolationDetectorsFire:
         assert "neo4j leaked into sys.modules" in stderr, stderr
 
 
+_ALL_IMPORTED_TEMPLATE = """\
+import importlib
+import json
+import sys
+for _module in {modules!r}:
+    importlib.import_module(_module)
+_leaked = [
+    m for m in sys.modules for p in {packages!r} if m == p or m.startswith(p + ".")
+]
+print(json.dumps(_leaked))
+"""
+
+
+@functools.cache
+def _all_graph_modules_clean() -> bool:
+    """Whether one interpreter imports every graph MCP module and holds neither driver.
+
+    A module's own imports do not shrink because others ran first, so a clean
+    run here means each module imported alone leaves both drivers out. Only a
+    module that imported a driver when some other module was ABSENT could hide
+    here; nothing in ``osprey.mcp_server.graph`` imports conditionally like that.
+    """
+    code = _ALL_IMPORTED_TEMPLATE.format(modules=GRAPH_MCP_MODULES, packages=_DRIVERS)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=SUBPROCESS_TIMEOUT_S,
+    )
+    return result.returncode == 0 and json.loads(result.stdout.strip().splitlines()[-1]) == []
+
+
+def _graph_module_check(package: str, module: str) -> tuple[bool, str]:
+    """Whether *package* stayed out after ``import module``.
+
+    Answered by :func:`_all_graph_modules_clean` while that run is clean; once
+    it is not, each module gets its own interpreter, so a failure names the
+    module that leaked and only that one.
+    """
+    if _all_graph_modules_clean():
+        return True, ""
+    return _run_driver_check(package, f"import {module}")
+
+
 class TestGraphMcpServerDriverIsolation:
     """The graph MCP server must import neither driver until a query is issued.
 
@@ -441,13 +485,13 @@ class TestGraphMcpServerDriverIsolation:
     @pytest.mark.parametrize("module", GRAPH_MCP_MODULES)
     def test_graph_module_does_not_import_neo4j(self, module: str):
         """Importing any graph MCP module must leave neo4j out of sys.modules."""
-        ok, stderr = _run_neo4j_isolation_check(f"import {module}")
+        ok, stderr = _graph_module_check("neo4j", module)
         assert ok, f"neo4j leaked after importing {module}:\n{stderr}"
 
     @pytest.mark.parametrize("module", GRAPH_MCP_MODULES)
     def test_graph_module_does_not_import_rdflib(self, module: str):
         """Importing any graph MCP module must leave rdflib out of sys.modules."""
-        ok, stderr = _run_isolation_check(f"import {module}")
+        ok, stderr = _graph_module_check("rdflib", module)
         assert ok, f"rdflib leaked after importing {module}:\n{stderr}"
 
     def test_create_server_does_not_import_neo4j(self, minimal_config_env):
