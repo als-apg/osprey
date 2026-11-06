@@ -929,6 +929,7 @@ def build_layers(
     config: Mapping[str, Any] | None,
     *,
     mcp_configured: Sequence[str] = (),
+    mcp_answered: tuple[int, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Annotate *results* in place and return the panel's ``layers`` structure.
 
@@ -937,6 +938,9 @@ def build_layers(
         config: The expanded config the suite ran against, for provider roles.
         mcp_configured: Server names from the rendered ``.mcp.json``; when any,
             the MCP tile is drawn even if no row reports on a server.
+        mcp_answered: ``(answered, stdio)`` from the introspection cache, or
+            ``None`` when nothing has been introspected: the tile is then not
+            probed (``skip``), never passing on configuration alone.
 
     Returns:
         One dict per drawn layer, in :data:`LAYERS` order, each with its
@@ -958,7 +962,7 @@ def build_layers(
         if layer.id == "facility":
             ids = [cid for cid in by_component if cid.startswith("facility.")]
         components = [
-            _component(cid, by_component[cid], results, mcp_configured)
+            _component(cid, by_component[cid], results, mcp_configured, mcp_answered)
             for cid in ids
             if cid in by_component
         ]
@@ -976,7 +980,11 @@ def build_layers(
 
 
 def _component(
-    cid: str, indices: list[int], results: list[Row], mcp_configured: Sequence[str]
+    cid: str,
+    indices: list[int],
+    results: list[Row],
+    mcp_configured: Sequence[str],
+    mcp_answered: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     spec = COMPONENTS.get(cid) or Component("facility", cid.split(".", 1)[1].replace("_", " "))
     unused = [i for i in indices if results[i].get("value") == NOT_USED]
@@ -993,11 +1001,16 @@ def _component(
             direct.append(i)
 
     status = _worst(shown_rows) if shown_rows else "skip"
-    if cid == "mcp-servers" and not shown_rows and mcp_configured:
-        status = "ok"
     issue = _issue(shown_rows)
     if cid == "mcp-servers":
         fact = f"{len(mcp_configured)} servers"
+        if mcp_answered is None:
+            fact += " · not probed"
+        else:
+            answered, stdio = mcp_answered
+            probed = "ok" if answered == stdio else "warning" if answered else "error"
+            if stdio:
+                status = _worst([{"status": status}, {"status": probed}])
     elif issue:
         fact = issue
     elif spec.fact is not None:

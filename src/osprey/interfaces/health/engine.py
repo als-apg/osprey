@@ -210,8 +210,12 @@ class HealthCheckEngine:
         for row in base["results"]:
             row["probed_at"] = self._probed_at.get(row["name"], self._scanned_at)
         servers = self._mcp_configured()
-        base["layers"] = build_layers(base["results"], self._expanded, mcp_configured=servers)
-        base["mcp"] = self._mcp_summary(servers)
+        mcp = self._mcp_summary(servers)
+        answered = None if mcp["answered"] is None else (mcp["answered"], mcp["stdio"])
+        base["layers"] = build_layers(
+            base["results"], self._expanded, mcp_configured=servers, mcp_answered=answered
+        )
+        base["mcp"] = mcp
         return base
 
     # -- MCP introspection cache (read-only here) ------------------------------

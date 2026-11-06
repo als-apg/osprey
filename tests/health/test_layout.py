@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from osprey.health.layout import COMPONENTS, LAYERS, RULES, build_layers
 from osprey.health.models import NOT_USED, CheckResult, Status
 
@@ -104,12 +106,22 @@ def test_an_undeclared_category_gets_its_own_facility_tile():
     assert tile["name"] == "beamline x"
 
 
-def test_mcp_tile_is_drawn_from_the_configured_servers():
+def test_mcp_tile_is_not_probed_until_introspection_has_answered():
     tile = _components(build_layers([], {}, mcp_configured=["controls", "workspace"]))[
         "mcp-servers"
     ]
-    assert tile["fact"] == "2 servers"
-    assert tile["status"] == "ok"
+    assert tile["status"] == "skip"
+    assert tile["fact"] == "2 servers · not probed"
+
+
+@pytest.mark.parametrize(
+    ("answered", "status"), [((2, 2), "ok"), ((1, 2), "warning"), ((0, 2), "error")]
+)
+def test_mcp_tile_status_follows_the_introspection(answered, status):
+    tile = _components(build_layers([], {}, mcp_configured=["a", "b", "c"], mcp_answered=answered))[
+        "mcp-servers"
+    ]
+    assert tile["status"] == status
 
 
 def test_used_by_of_folded_rows_reaches_the_tile():
