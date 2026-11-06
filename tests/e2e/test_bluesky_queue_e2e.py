@@ -119,8 +119,7 @@ not inherit their state -- the queue itself lives in a Redis named volume.
 Gating: needs Docker. Lives in ``tests/e2e/`` so the fast lane
 (``pytest tests/ --ignore=tests/e2e``) never collects this ~20-minute
 build+deploy; run it by name --
-``uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v`` -- never with
-``-m e2e`` (the marker selection leaks registries; see the repo convention).
+``uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v``.
 """
 
 from __future__ import annotations
@@ -153,8 +152,8 @@ from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
     REASON_EXECUTABLE,
+    REASON_SESSION_PLAN_UNVALIDATED,
 )
-from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
 from tests.e2e import _facility_select, _orm_stack
 from tests.e2e._deploy_support import (
     docker_inspect,
@@ -167,7 +166,7 @@ from tests.e2e._deploy_support import (
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
-# The nine keys every pre-flight answer carries, success or not: the approval
+# The ten keys every pre-flight answer carries, success or not: the approval
 # gate reads `ok` and never a status code, so the shape cannot vary with the
 # outcome.
 _PREVIEW_KEYS = {
@@ -180,6 +179,7 @@ _PREVIEW_KEYS = {
     "move_cap",
     "reason",
     "detail",
+    "retryable",
 }
 
 # The six keys of a data read's analysis block, present whether or not the
@@ -298,7 +298,6 @@ def _auth_headers() -> dict[str, str]:
 
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
@@ -1417,7 +1416,9 @@ class _BridgeHopHandler(http.server.BaseHTTPRequestHandler):
 def _recording_bridge_hop() -> Iterator[_RecordingBridgeHop]:
     """Serve the recording hop for one block, then close it."""
     hop = _RecordingBridgeHop(_BridgeHopHandler)
-    serving = threading.Thread(target=hop.serve_forever, daemon=True)
+    serving = threading.Thread(
+        target=hop.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     serving.start()
     try:
         yield hop
@@ -1874,7 +1875,7 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
                 "the analysis chose an x axis the plan never declared movable "
                 f"(expected the swept corrector {expected_axis!r}): {analysis}"
             )
-            assert analysis["x_column"] in data["columns"], (
+            assert analysis["x_column"] in [column["name"] for column in data["columns"]], (
                 f"the analysis names an x column that is not in the table: {analysis}"
             )
             assert analysis["points"] == data["row_count"]
@@ -1948,7 +1949,7 @@ logger = logging.getLogger(__name__)
 class PARAMS(BaseModel):
     correctors: MovableChannels = Field(..., min_length=1)
     readbacks: ReadableChannels = Field(..., min_length=1)
-    span_a: float = Field(..., gt=0, le=10.0)
+    span: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
@@ -1963,8 +1964,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
     bpm_devices = [devices[name] for name in params.readbacks]
-    step = (2 * params.span_a) / (params.num - 1)
-    currents = [-params.span_a + i * step for i in range(params.num)]
+    step = (2 * params.span) / (params.num - 1)
+    setpoints = [-params.span + i * step for i in range(params.num)]
     all_devices = corrector_devices + bpm_devices
 
     @bpp.stage_decorator(all_devices)
@@ -1978,8 +1979,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     def _sweep():
         for name, corrector in correctors:
             try:
-                for current in currents:
-                    yield from bps.mv(corrector, current)
+                for setpoint in setpoints:
+                    yield from bps.mv(corrector, setpoint)
                     yield from bps.trigger_and_read(all_devices)
             finally:
                 try:
@@ -2000,13 +2001,13 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     bytes that were validated are exercised with the parameters they will
     actually run with.
 
-    The plan body sweeps ``-span_a .. span_a`` absolutely and restores to 0.0,
+    The plan body sweeps ``-span .. span`` absolutely and restores to 0.0,
     so the device must be one whose own limits record contains that range -- a
     bipolar corrector. The staged device set is every channel of the facility
     file (dipoles and all), so the first settable is not that device; pick the
     first one whose record proves it is.
     """
-    span_a = 1.0
+    span = 1.0
     corrector = next(
         (
             name
@@ -2014,19 +2015,19 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
             if isinstance(entry := stack.limits.get(sp_address), dict)
             and "min_value" in entry
             and "max_value" in entry
-            and float(entry["min_value"]) <= -span_a
-            and float(entry["max_value"]) >= span_a
+            and float(entry["min_value"]) <= -span
+            and float(entry["max_value"]) >= span
         ),
         None,
     )
     assert corrector is not None, (
         f"no staged settable has a limits record covering "
-        f"[-{span_a}, {span_a}] -- the session sweep needs a bipolar corrector"
+        f"[-{span}, {span}] -- the session sweep needs a bipolar corrector"
     )
     return {
         "correctors": [corrector],
         "readbacks": [next(iter(stack.bpms))],
-        "span_a": span_a,
+        "span": span,
         "num": 3,
     }
 
@@ -2151,19 +2152,19 @@ def test_5_session_plan_with_stale_validation_is_refused_at_enqueue(stack: Queue
     if _S.session_plan_name is None:
         pytest.skip("stage 5's authoring step never produced a validated session plan")
 
-    revision = _patch_draft(_SESSION_PLAN_NAME, {**_session_plan_args(stack), "span_a": 2.0})
+    revision = _patch_draft(_SESSION_PLAN_NAME, {**_session_plan_args(stack), "span": 2.0})
 
     # Same name, different bytes -> the recorded hash no longer matches disk.
     _author_session_plan(
         _SESSION_PLAN_NAME,
         _SESSION_PLAN_BODY.replace(
-            "span_a: float = Field(..., gt=0, le=10.0)", "span_a: float = Field(..., gt=0, le=9.0)"
+            "span: float = Field(..., gt=0, le=10.0)", "span: float = Field(..., gt=0, le=9.0)"
         ),
     )
 
     status, body = _enqueue(revision, token=stack.token)
     assert status == 409, f"an unvalidated session plan must be refused: {status} {body}"
-    assert _code_of(body) == REASON_UNVALIDATED, (
+    assert _code_of(body) == REASON_SESSION_PLAN_UNVALIDATED, (
         f"wrong refusal code for a stale validation record: {body}"
     )
 

@@ -26,11 +26,13 @@ import pytest
 
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.figure import (
+    _MIXED_UNITS_NOTE,
     BarsMark,
     Figure,
     HeatmapMark,
     LinesMark,
     RowWindow,
+    bind_units,
 )
 from osprey.services.bluesky_bridge.orm_analysis import (
     DegenerateFitError,
@@ -43,13 +45,13 @@ from osprey.services.bluesky_bridge.plans_core import orm
 # =========================================================================
 
 
-def _currents(span_a: float, num: int, *, sweep: str) -> list[float]:
+def _currents(span: float, num: int, *, sweep: str) -> list[float]:
     """The currents `build_plan` sweeps, by the same arithmetic."""
     if sweep == "monodirectional":
-        step = span_a / (num - 1)
+        step = span / (num - 1)
         return [i * step for i in range(num)]
-    step = (2 * span_a) / (num - 1)
-    return [-span_a + i * step for i in range(num)]
+    step = (2 * span) / (num - 1)
+    return [-span + i * step for i in range(num)]
 
 
 def _rows(
@@ -99,17 +101,23 @@ def _params(**overrides) -> orm.PARAMS:
     defaults = {
         "correctors": ["hcm1", "hcm2"],
         "readbacks": ["bpm1", "bpm2", "bpm3"],
-        "span_a": 1.0,
+        "span": 1.0,
         "num": 7,
     }
     return orm.PARAMS(**{**defaults, **overrides})
 
 
-def _window(rows: list[dict[str, float]], *, total_seen: int | None = None) -> RowWindow:
+def _window(
+    rows: list[dict[str, float]],
+    *,
+    total_seen: int | None = None,
+    units: dict[str, str] | None = None,
+) -> RowWindow:
     """The `RowWindow` a figure source would hand `render`.
 
     Complete by default -- pass `total_seen` above `len(rows)` to build the
-    prefix a capped live buffer produces.
+    prefix a capped live buffer produces, and `units` for the units the run
+    declared for its columns.
     """
     seen = len(rows) if total_seen is None else total_seen
     return RowWindow(
@@ -117,6 +125,7 @@ def _window(rows: list[dict[str, float]], *, total_seen: int | None = None) -> R
         columns=list(rows[0]) if rows else [],
         rows_complete=seen == len(rows),
         total_seen=seen,
+        units=units or {},
     )
 
 
@@ -200,18 +209,110 @@ def test_the_matrix_panel_names_its_regressor() -> None:
     readback_figure = orm.render(_window(rows), params.model_copy(update={"regressor": "readback"}))
 
     assert (
-        "Slopes are per ampere of commanded current (the corrector setpoint)."
+        "Slopes are per unit of commanded setpoint (the corrector setpoint)."
         in _panel(setpoint_figure, "Response matrix").annotations
     )
     assert (
-        "Slopes are per ampere of measured current (the corrector readback)."
+        "Slopes are per unit of measured readback (the corrector readback)."
         in _panel(readback_figure, "Response matrix").annotations
     )
     setpoint_trace = _panel(setpoint_figure, "hcm1 sweep")
     readback_trace = _panel(readback_figure, "hcm1 sweep")
     assert setpoint_trace.x_label == "Corrector setpoint"
     assert readback_trace.x_label == "Corrector readback"
-    assert setpoint_trace.x_units == readback_trace.x_units == "A"
+
+
+# =========================================================================
+# Units -- the ones the run declared, never typed into the plan
+# =========================================================================
+
+
+def _unit_rows() -> tuple[orm.PARAMS, list[dict[str, float]]]:
+    correctors, readbacks = ["hcm1", "hcm2"], ["bpm1", "bpm2"]
+    truth = _truth(len(readbacks), len(correctors))
+    rows = _rows(
+        correctors,
+        readbacks,
+        truth,
+        _currents(1.0, 7, sweep="bidirectional"),
+        readback_error=(0.98, 0.3),
+    )
+    return _params(correctors=correctors, readbacks=readbacks), rows
+
+
+def _declared(params: orm.PARAMS) -> dict[str, str]:
+    """BPMs in one unit; each corrector's demand in another, its readback in a third."""
+    units = dict.fromkeys(params.readbacks, "unit-of-bpm")
+    for name in params.correctors:
+        units[f"{name}_setpoint"] = "unit-of-demand"
+        units[name] = "unit-of-readback"
+    return units
+
+
+@pytest.mark.parametrize("regressor", ["setpoint", "readback"])
+def test_every_panel_states_the_units_the_run_declared(regressor: str) -> None:
+    params, rows = _unit_rows()
+    params = params.model_copy(update={"regressor": regressor})
+    units = _declared(params)
+    bpm = units[params.readbacks[0]]
+    corrector = units[
+        f"{params.correctors[0]}_setpoint" if regressor == "setpoint" else params.correctors[0]
+    ]
+
+    window = _window(rows, units=units)
+    figure = bind_units(orm.render(window, params), window)
+
+    trace = _panel(figure, "hcm1 sweep")
+    assert (trace.x_units, trace.y_units) == (corrector, bpm)
+    assert _panel(figure, "Response by BPM").y_units == f"{bpm} / {corrector}"
+    heatmap = _panel(figure, "Response matrix").mark
+    assert isinstance(heatmap, HeatmapMark)
+    assert heatmap.value_units == f"{bpm} / {corrector}"
+
+
+def test_a_run_that_declared_no_units_states_none() -> None:
+    params, rows = _unit_rows()
+
+    window = _window(rows)
+    figure = bind_units(orm.render(window, params), window)
+
+    trace = _panel(figure, "hcm1 sweep")
+    assert (trace.x_units, trace.y_units) == (None, None)
+    assert _panel(figure, "Response by BPM").y_units is None
+    heatmap = _panel(figure, "Response matrix").mark
+    assert isinstance(heatmap, HeatmapMark)
+    assert heatmap.value_units is None
+    assert all(_MIXED_UNITS_NOTE not in panel.annotations for panel in figure.panels)
+
+
+def test_bpms_declaring_two_units_state_none_and_say_so() -> None:
+    params, rows = _unit_rows()
+    units = {**_declared(params), params.readbacks[-1]: "another-unit"}
+
+    window = _window(rows, units=units)
+    figure = bind_units(orm.render(window, params), window)
+
+    matrix = _panel(figure, "Response matrix")
+    assert isinstance(matrix.mark, HeatmapMark)
+    assert matrix.mark.value_units is None
+    disagreeing = [matrix, _panel(figure, "Response by BPM"), _panel(figure, "hcm1 sweep")]
+    assert [panel.y_units for panel in disagreeing[1:]] == [None, None]
+    for panel in disagreeing:
+        assert panel.annotations.count(_MIXED_UNITS_NOTE) == 1, panel.title
+
+
+def test_each_sweep_panel_states_its_own_correctors_regressor_unit() -> None:
+    params, rows = _unit_rows()
+    units = {
+        **_declared(params),
+        **{f"{name}_setpoint": f"unit-of-{name}" for name in params.correctors},
+    }
+    window = _window(rows, units=units)
+
+    figure = bind_units(orm.render(window, params), window)
+
+    for name in params.correctors:
+        assert _panel(figure, f"{name} sweep").x_units == units[f"{name}_setpoint"]
 
 
 # =========================================================================
@@ -696,7 +797,7 @@ def test_the_shipped_orm_spec_carries_this_render() -> None:
             {
                 "correctors": correctors,
                 "readbacks": readbacks,
-                "span_a": 1.0,
+                "span": 1.0,
                 "num": 7,
             }
         )

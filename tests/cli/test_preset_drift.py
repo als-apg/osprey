@@ -263,7 +263,7 @@ def test_absence_is_silenced_by_a_marker_that_names_it(repo: Path) -> None:
     """A line the profile lacks has nothing to write a marker above, so the
     marker names what is missing instead — anywhere in the file."""
     profile = repo / PROFILE
-    _edit(profile, "  - system-health   # SYSTEM tab, a framework health dashboard\n", "")
+    _edit(profile, "  - system-health   # Health tab, a framework health dashboard\n", "")
     with profile.open("a", encoding="utf-8") as fh:
         fh.write("\n# DEVIATION: facility — no system-health tab; the SYSTEM view is elsewhere\n")
 

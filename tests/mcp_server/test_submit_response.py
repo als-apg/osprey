@@ -5,8 +5,7 @@ Covers:
   - Markdown artifact file created on disk with correct content
   - entry_ids persisted in artifact metadata
   - Validation: empty title, empty content
-  - Custom data_type passed through
-  - source_agent / category mapping
+  - no data_type / category: answers group by form and source_agent
   - skip_artifact mode
 """
 
@@ -112,21 +111,20 @@ class TestSubmitResponse:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
-    async def test_submit_response_custom_data_type(self):
+    async def test_submit_response_writes_no_data_type(self):
         raw = await _fn(
             title="BPM Channels",
             content="Found BPM channels.",
-            data_type="channel_addresses",
         )
         data = extract_response_dict(raw)
 
         assert data["status"] == "success"
 
-        # Verify data_type is persisted in artifact metadata
+        # Categories are retired: nothing records a data_type
         store = get_artifact_store()
         entry = store.get_entry(data["artifact_id"])
         assert entry is not None
-        assert entry.metadata["data_type"] == "channel_addresses"
+        assert "data_type" not in entry.metadata
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
@@ -172,7 +170,6 @@ class TestSubmitResponse:
         raw = await _fn(
             title="Test Title",
             content="Test markdown content",
-            data_type="logbook_research",
             entry_ids=["e1"],
         )
         data = extract_response_dict(raw)
@@ -190,7 +187,7 @@ class TestSubmitResponse:
         assert file_path.read_text() == "Test markdown content"
 
         # Structured metadata is on the entry, not in the file
-        assert entry.metadata["data_type"] == "logbook_research"
+        assert "data_type" not in entry.metadata
         assert entry.metadata["entry_ids"] == ["e1"]
 
     # ---- Artifact auto-registration tests ----
@@ -214,7 +211,6 @@ class TestSubmitResponse:
         raw = await _fn(
             title="BPM Calibration Logbook Review",
             content="## Summary\n\nFound 5 relevant entries.",
-            data_type="logbook_research",
             source_agent="logbook-search",
         )
         data = extract_response_dict(raw)
@@ -240,7 +236,6 @@ class TestSubmitResponse:
         raw = await _fn(
             title="BPM Channel Addresses",
             content="Found 12 BPM channels.",
-            data_type="channel_addresses",
             source_agent="channel-finder",
             entry_ids=["SR:BPM:01", "SR:BPM:02"],
         )
@@ -248,7 +243,7 @@ class TestSubmitResponse:
 
         entry = get_artifact_store().get_entry(data["artifact_id"])
         assert entry is not None
-        assert entry.metadata["data_type"] == "channel_addresses"
+        assert "data_type" not in entry.metadata
         assert entry.metadata["source_agent"] == "channel-finder"
         assert entry.metadata["entry_ids"] == ["SR:BPM:01", "SR:BPM:02"]
         # source_agent is also a top-level field on the entry
@@ -266,14 +261,9 @@ class TestSubmitResponse:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
-    async def test_unnamed_category_falls_back_to_uncategorized(self):
-        """A hand-in that names no category files under the generic fallback.
-
-        The fallback is deliberately unhelpful — it shows as "Uncategorized" in
-        the gallery — because an agent that names nothing has told the operator
-        nothing about what its answer holds. Agent templates are gated on
-        naming one (tests/registry/test_agent_submit_categories.py).
-        """
+    async def test_a_hand_in_carries_no_category(self):
+        """Categories are retired: an answer is a markdown document grouped by
+        its form and its source_agent, never by a category."""
         raw = await _fn(
             title="AR Optics Summary",
             content="Tunes and beta functions computed from the design lattice.",
@@ -284,7 +274,7 @@ class TestSubmitResponse:
         entry = get_artifact_store().get_entry(data["artifact_id"])
         assert entry is not None
         assert entry.artifact_type == "markdown"
-        assert entry.category == "agent_response"
+        assert entry.category == ""
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
@@ -299,7 +289,6 @@ class TestSubmitResponse:
         raw = await _fn(
             title="AR optics",
             content="| quantity | value |\n|---|---|\n| nu_x | 0.2345 |",
-            data_type="lattice_analysis",
             source_agent="pyat-specialist",
         )
         data = extract_response_dict(raw)
@@ -310,55 +299,40 @@ class TestSubmitResponse:
         entries = get_artifact_store().list_entries()
         assert len(entries) == 1
         assert entries[0].artifact_type == "markdown"
-        assert entries[0].category == "lattice_analysis"
+        assert entries[0].category == ""
         assert entries[0].source_agent == "pyat-specialist"
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
-    async def test_description_carries_the_label_not_the_key(self):
-        """The description is operator-facing, so it reads as words.
-
-        Storing the raw key put plumbing in front of the user
-        ("channel_addresses from channel-finder").
-        """
+    async def test_description_names_the_answering_agent(self):
+        """The description is operator-facing: the agent that answered."""
         raw = await _fn(
             title="BPM Channel Addresses",
             content="Found 12 BPM channels.",
-            data_type="channel_addresses",
             source_agent="channel-finder",
         )
         data = extract_response_dict(raw)
 
         entry = get_artifact_store().get_entry(data["artifact_id"])
         assert entry is not None
-        assert entry.description == "Channel Addresses — channel-finder"
+        assert entry.description == "channel-finder"
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
-    async def test_description_without_an_agent_is_the_bare_label(self):
+    async def test_description_without_an_agent_is_generic(self):
         raw = await _fn(
             title="Ad-hoc note",
             content="Some prose.",
-            data_type="document",
         )
         data = extract_response_dict(raw)
 
         entry = get_artifact_store().get_entry(data["artifact_id"])
         assert entry is not None
-        assert entry.description == "Document"
+        assert entry.description == "Agent response"
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
-    async def test_explicit_data_type_drives_the_category(self):
-        """An explicit data_type is the category — the agent name never overrides it."""
-        raw = await _fn(
-            title="BPM Channel Addresses",
-            content="Found 12 BPM channels.",
-            data_type="channel_addresses",
-            source_agent="channel-finder",
-        )
-        data = extract_response_dict(raw)
-
-        entry = get_artifact_store().get_entry(data["artifact_id"])
-        assert entry is not None
-        assert entry.category == "channel_addresses"
+    async def test_data_type_is_not_a_parameter(self):
+        """The retired category parameter is refused, not silently dropped."""
+        with pytest.raises(TypeError):
+            await _fn(title="T", content="C", data_type="channel_addresses")

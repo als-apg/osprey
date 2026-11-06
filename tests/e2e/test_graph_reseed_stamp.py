@@ -50,7 +50,6 @@ from osprey.services.facility_knowledge.seeder import graph_seeder
 from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, graphdb_store_published_port
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: a real Neo4j store under testcontainers -- runs in the
     # dedicated graph-reseed-e2e CI job, never the shared e2e-tests lane (the

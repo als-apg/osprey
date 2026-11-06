@@ -26,11 +26,12 @@
  *
  * TWO SURFACES, ONE VERB SET
  * --------------------------
- * A panel's sidebar row and its tile header offer identical rows, built by the
- * same {@link buildServiceMenuItems} / {@link buildTerminalMenuItems}, so the
- * two can never drift apart. They differ in exactly one place, deliberately:
- * the sidebar applies an enabled gate (see openRailContextMenu) and the tile
- * header does not. A module that owns a panel's content can add rows to both
+ * A service panel's sidebar row and its tile header offer identical rows,
+ * built by the same {@link buildServiceMenuItems}, so the two can never drift
+ * apart. They differ in exactly one place, deliberately: the sidebar applies
+ * an enabled gate (see openRailContextMenu) and the tile header does not. The
+ * Agent is the exception: its sidebar row heads the session tree and gets the
+ * tree's menu, its tile header the pane verbs ({@link buildTerminalMenuItems}). A module that owns a panel's content can add rows to both
  * through {@link setServiceMenuExtras}.
  *
  * DECLINE BY EMPTY LIST
@@ -52,11 +53,15 @@ import {
 } from './dock-workspace.js';
 import { isTerminalSurface } from './agent-surface.js';
 import { focusTerminal, restartTerminal, startTerminal } from './terminal.js';
-import { startNewSession } from './sessions.js';
+import { buildAgentRowMenuItems, initTreeMenus } from './sidebar-artifact-menus.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
 import { getEntry, entryIds } from './panel-rail.js';
+import { isListOpen, setListOpen, toggleEverySession } from './sidebar.js';
 import { showUndoNotice } from './undo-notice.js';
 import { bringBackPanel, canPopOut, focusPopout, isPoppedOut, popOutPanel } from './popout.js';
+import { bringBackAttached, canAttach, isAttached, popOutAttached } from './attached-popout.js';
+import { exportConversation } from './chat-export.js';
+import { isPanelDocked } from './dock-iframe.js';
 import {
   NEW_GROUP_LABEL,
   addGroup,
@@ -65,6 +70,9 @@ import {
   moveToGroup,
   startGroupRename,
 } from './sidebar-groups.js';
+
+/** The Agent row's list (sidebar.js's disclosure id for the session tree). */
+const AGENT_LIST = 'agent';
 
 /**
  * The panel-manager state and actions this module's closures act through. Every
@@ -91,6 +99,8 @@ let deps = null;
  */
 export function initMenuPolicy(menuPolicyDeps) {
   deps = menuPolicyDeps;
+  // The session tree's rows open their menus (sidebar-artifact-menus.js).
+  initTreeMenus();
 }
 
 /**
@@ -110,17 +120,17 @@ function ctx() {
  * indistinguishable downstream (both hit activateTab / setPanelVisibility).
  *
  * Every row is a member, so a click is always an activation: show this panel
- * as a tab in front of the service tile used last, or bring its tab forward
+ * in the service tile used last, replacing the panel it showed, or focus it
  * where it is (the open rule, dock-open.js). The placement happens in the dock
- * adapter and is purely local — the covered tab keeps its row. The Agent row
- * routes to the dock instead (its open/closed state is layout state, not
- * membership — see TERMINAL_RAIL_ID).
+ * adapter and is purely local — the replaced panel keeps its row. The Agent row
+ * routes to the dock and its session list instead (its open/closed state is
+ * layout state, not membership — see TERMINAL_RAIL_ID and activateAgentRow).
  */
 export function railOptions() {
   return {
-    onActivate: (/** @type {string} */ id) => {
+    onActivate: (/** @type {string} */ id, /** @type {MouseEvent | undefined} */ event) => {
       if (id === TERMINAL_RAIL_ID) {
-        showAgentPane();
+        activateAgentRow(event);
         return;
       }
       // A failed sidecar's row has one verb: start it again.
@@ -137,11 +147,9 @@ export function railOptions() {
       // Clicking the row whose tile is ALREADY surfaced retires that tile — a
       // toggle shortcut equivalent to the tile header's own "×". It stays a
       // LOCAL layout change: membership survives, so a second click brings
-      // the tile back. A parent row (Artifacts) is the exception: the same
-      // click opens its list, which is what the operator reached for, so it
-      // only ever brings its tile forward.
+      // the tile back.
       if (ctx().isMember(id)) {
-        if (ctx().getActiveTabId() === id && !isParentRow(id)) {
+        if (ctx().getActiveTabId() === id) {
           ctx().retireTile(id);
           return;
         }
@@ -172,8 +180,34 @@ export function railOptions() {
 }
 
 /**
- * The Agent row's click: open the Agent pane when it is closed, or bring the
- * open one forward, then put the caret where the operator types — the chat
+ * The Agent row's click. With the Agent pane closed it opens the pane and
+ * unfolds the session list; with the pane open it folds or unfolds the list
+ * and leaves the pane as it is — the pane closes only from its own header.
+ * A ⌥-click (altKey, from a pointer: Enter and Space stay a plain click)
+ * expands every session, or collapses them all when the list shows them all
+ * open (sidebar-artifacts.js, imported lazily: it imports this module),
+ * and leaves the pane as it is.
+ * The one place that decides: sidebar.js handles only the collapsed
+ * sidebar's flyout, and stops the click before it reaches here.
+ * @param {MouseEvent} [event]
+ */
+function activateAgentRow(event) {
+  if (event?.altKey && event.detail > 0) {
+    // A folded list unfolds onto every session open, never onto a collapse.
+    const force = isListOpen(AGENT_LIST) ? undefined : true;
+    toggleEverySession(force);
+    return;
+  }
+  if (isTerminalPanelOpen()) {
+    setListOpen(AGENT_LIST, !isListOpen(AGENT_LIST));
+    return;
+  }
+  setListOpen(AGENT_LIST, true);
+  showAgentPane();
+}
+
+/**
+ * Open the Agent pane, then put the caret where the operator types — the chat
  * composer, or the terminal when that is the surface showing.
  */
 function showAgentPane() {
@@ -185,15 +219,6 @@ function showAgentPane() {
       document.querySelector('#operator-container textarea')
     )?.focus();
   }
-}
-
-/**
- * Whether a panel's row discloses a list (`.parent`, the Artifacts row).
- * @param {string} id
- * @returns {boolean}
- */
-function isParentRow(id) {
-  return getEntry(ctx().getRailEl(), id)?.classList.contains('parent') ?? false;
 }
 
 /**
@@ -256,8 +281,7 @@ function isFailed(id) {
 }
 
 // Tooltip suffix advertising the context menu on every service row. The
-// Agent row gets none: its verb set changes with the surface showing (see
-// buildTerminalMenuItems), so one fixed promise would misinform one of them.
+// Agent row gets none: it is the session tree's head, not a panel row.
 export const RAIL_MENU_HINT = 'right-click for actions';
 
 /**
@@ -279,6 +303,18 @@ export function openRailContextMenu(id, x, y) {
   const entry = getEntry(ctx().getRailEl(), id);
   if (!entry || entry.classList.contains('disabled') || entry.classList.contains('failed')) {
     return false;
+  }
+  // The Agent row heads the session tree, so its menu is the tree's (New
+  // session, Expand/Collapse all), not the Agent tile header's pane verbs.
+  if (id === TERMINAL_RAIL_ID) {
+    openContextMenu({
+      x,
+      y,
+      anchorEl: entry,
+      ariaLabel: `${TERMINAL_RAIL_LABEL} actions`,
+      items: buildAgentRowMenuItems(),
+    });
+    return true;
   }
   // The row is the anchor: it scopes the menu's scroll dismissal, so the menu
   // survives a panel scrolling its own content underneath it.
@@ -352,10 +388,12 @@ export function setServiceMenuExtras(panelId, fn) {
  * the panel's tile header so the two surfaces cannot drift apart, and followed
  * by the rows registered through {@link setServiceMenuExtras}.
  *
- * "Pop out" stays inert until the panel can open in a window of its own: its
- * standalone URL has resolved, and it is not an opaque-origin panel. A
- * popped-out panel offers "Bring back" in its place and no "Open in a new
- * tile", because the panel has no tile while its window is open.
+ * A panel with a tile offers "Pop out", the tile button's attached window
+ * (attached-popout.js), and "Reattach" while it is out. "Open in new
+ * window" stays inert until the panel can open its standalone page
+ * (popout.js): its URL has resolved, and it is not an opaque-origin panel. A
+ * panel in that window offers "Bring back" in its place and no "Open in a
+ * new tile", because the panel has no tile while its window is open.
  *
  * A member's rows also move its sidebar row between the sidebar's groups:
  * "Move to <group>" for every other group, then "Move to new group…".
@@ -382,10 +420,14 @@ export function buildServiceMenuItems(id) {
     // Off the rail it is focused without the report a member's focus sends.
     { label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) },
     ...(popped ? [] : [newTile]),
+    // Pop out is the tile's own button, attached, so it is offered while the
+    // panel has a tile; Open in new window is the panel's standalone page
+    // (popout.js).
+    ...(!popped && (isPanelDocked(id) || isAttached(id)) ? [attachedRow(id)] : []),
     popped
       ? { label: 'Bring back', glyph: '⊟', run: () => bringBackPanel(id) }
       : {
-          label: 'Pop out',
+          label: 'Open in new window',
           glyph: '↗',
           // False until the config resolves a URL, and for an opaque-origin panel.
           disabled: !canPopOut(id),
@@ -446,21 +488,46 @@ function moveToNewGroup(id) {
 }
 
 /**
- * The Agent pane's menu rows — the Agent row and the pane's tile header,
- * which share one verb set.
+ * The attached pop-out's row (the tile header's Pop out button,
+ * attached-popout.js): Pop out, or Reattach while the content is in its
+ * window.
+ * @param {string} id  service panel id, or TERMINAL_RAIL_ID
+ * @returns {import('./panel-context-menu.js').MenuItem}
+ */
+function attachedRow(id) {
+  return isAttached(id)
+    ? { label: 'Reattach', glyph: '⊟', run: () => bringBackAttached(id) }
+    : { label: 'Pop out', glyph: '⧉', disabled: !canAttach(id), run: () => popOutAttached(id) };
+}
+
+/**
+ * The Agent tile header's menu rows: Pop out (or Reattach), Export
+ * conversation in chat, Restart terminal on the terminal, Reset layout, Close
+ * Agent pane. The Agent row in the sidebar heads the session tree and has
+ * its own menu (buildAgentRowMenuItems, sidebar-artifact-menus.js), which is
+ * where New session lives.
  *
- * In chat the tile hosts the operator console, so the two PTY verbs would act
- * on a surface the operator cannot see and are withheld (the palette never
- * offers them). The layout rows are the same on both surfaces.
+ * In chat the tile hosts the operator console, so the PTY verb would act on a
+ * surface the operator cannot see and is withheld (the palette never offers
+ * it). The layout rows are the same on both surfaces.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalMenuItems() {
   const layout = [
+    { divider: true },
     { label: 'Reset layout', run: () => resetDockLayout() },
     { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
   ];
-  if (!isTerminalSurface()) return layout;
+  if (!isTerminalSurface()) {
+    return [
+      attachedRow(TERMINAL_RAIL_ID),
+      // The conversation as a Markdown file (chat-export.js).
+      { label: 'Export conversation', run: () => void exportConversation() },
+      ...layout,
+    ];
+  }
   return [
+    attachedRow(TERMINAL_RAIL_ID),
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
     // palette's "Restart terminal" runs the identical pair.
@@ -471,13 +538,6 @@ export function buildTerminalMenuItems() {
         startTerminal();
       },
     },
-    {
-      label: 'New session',
-      run: () => {
-        startNewSession();
-      },
-    },
-    { divider: true },
     ...layout,
   ];
 }

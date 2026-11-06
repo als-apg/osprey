@@ -104,9 +104,8 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
-  - lattice         # LATTICE tab, optics of the simulator's served models
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
-  - system-health   # SYSTEM tab, a framework health dashboard
+  - system-health   # Health tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
   - canopy          # CANOPY tab, the operator GUI: machine screens and Trace, one per terminal
   # The events and bluesky panels are added by the write-armed tiers
@@ -547,6 +546,9 @@ config:
   # below, so moving the database stays a one-place edit. Set it only to point
   # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
   # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+  # With an authored uri, the agent's SQL tool is served only through this
+  # SELECT-only login; without it the tool is not offered.
+  # ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
   # No `ariel.ingestion` block: the logbook is seeded from the simulation
   # scenario bundles by `osprey sim apply NAME...`. For production, add
   # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your
@@ -558,9 +560,6 @@ config:
   # Links from the agent's answers to each entry's page in your logbook: one
   # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
   # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
-  # The ARIEL tab inside the web terminal offers Browse and New Entry; the
-  # agent searches the logbook. true adds the Search view there and opens on it.
-  # ariel.embedded_search: false
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -872,8 +871,7 @@ config:
   # ── Web terminal ───────────────────────────────────────────────────────────
   # Every panel tab is served by its own small web server, configured under its
   # own section: WORKSPACE `artifact_server`, ARIEL `ariel.web`, CHANNELS
-  # `channel_finder.web`, LATTICE `lattice_dashboard`, KNOWLEDGE
-  # `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
+  # `channel_finder.web`, KNOWLEDGE `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
   # `deployment.port_base`; the panel's env var wins, then its `port` key.
   # Multi-user deployments export the env var per user. The reference guide's
   # ports page prints the table.
@@ -893,23 +891,13 @@ config:
   # It fetches more as the list is scrolled.
   # Lowering it suits a slow link; raising it suits a small store.
   # artifact_server.page_size: 20
-  # Extra artifact categories on top of the ones the gallery ships, so a badge
-  # reads in this facility's own vocabulary. One dotted line per category, each
-  # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
-  # category nobody declared is still stored — it just keeps the default badge,
-  # and the save logs a warning naming this key.
-  # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-  # Seed one shipped example (an interactive plot, synthetic data) into an
-  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
-  artifact_server.example_artifact: true
-  # osprey:panel-port lattice_dashboard
-  # The LATTICE tab needs no section: with `lattice` in `web_panels:` it
-  # binds its slot. Uncomment only to move it or switch it off.
-  # lattice_dashboard.host: 127.0.0.1
-  # lattice_dashboard.port: <a port outside this deployment's block>
-  # lattice_dashboard.auto_launch: true
+  # Facility artifact kinds on top of the gallery's base forms, so a listing
+  # reads in this facility's own vocabulary. One dotted line per type, each
+  # value a `label` and the `base_form` it is listed under (plots, trends,
+  # tables, documents, dashboards, images, data).
+  # artifact_server.extension_types.beam_diagnostics: {label: Beam Diagnostics, base_form: plots}
   # osprey:panel-port system_health
-  # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
+  # The Health tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.
   # health.web.host: 127.0.0.1
   # health.web.port: <a port outside this deployment's block>
@@ -1010,10 +998,6 @@ config:
   # A colour theme for CANOPY, as a path relative to the project root
   # (absolute accepted). Unset keeps CANOPY's own theme.
   # web.panels.canopy.theme_file: data/canopy/theme/colors.json
-  # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
-  # the command palette open it, and `+ Add panel` can also pin it there.
-  # Delete this line to give it a sidebar row from the first load.
-  web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy

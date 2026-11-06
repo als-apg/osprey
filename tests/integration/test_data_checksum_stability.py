@@ -23,10 +23,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
-from osprey.cli.init_cmd import init
 from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey.interfaces.channel_finder.app import feedback_dir
 from osprey_connectors.config import ConfigBuilder
@@ -34,9 +31,9 @@ from osprey_connectors.config import (
     _runtime_write_paths_under_data as find_runtime_write_paths_under_data,
 )
 from osprey_connectors.workspace import agent_data_base_dir
+from tests._builds import BuiltProject, copy_build
 
 PRESET = "control-assistant"
-PROJECT_NAME = "checksum-stability"
 
 
 def _data_checksums(project: Path) -> dict[str, str]:
@@ -49,23 +46,19 @@ def _data_checksums(project: Path) -> dict[str, str]:
 
 
 @pytest.fixture(scope="module")
-def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def built_project(
+    tmp_path_factory: pytest.TempPathFactory, built_control_assistant: BuiltProject
+) -> Path:
     """A real render, shared by every test here.
 
     The RENDER, not the repo: ``data/`` is build output, and what these tests
     watch is whether anything writes back into it after the build.
 
-    Built once. The writers below are only ever supposed to touch the agent-data
-    root, so they cannot interfere with each other's ``data/`` assertions, and a
-    per-test rebuild would pay the build cost for nothing.
+    A copy of the run's shared build, because the writers below write into it.
+    Copied once: they are only ever supposed to touch the agent-data root, so
+    they cannot interfere with each other's ``data/`` assertions.
     """
-    repo = tmp_path_factory.mktemp("projects") / PROJECT_NAME
-
-    created = CliRunner().invoke(init, [str(repo), "--preset", PRESET, "--no-git"])
-    assert created.exit_code == 0, created.output
-
-    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-    assert result.exit_code == 0, result.output
+    repo = copy_build(built_control_assistant.repo, tmp_path_factory.mktemp("projects"))
     return repo / "build"
 
 

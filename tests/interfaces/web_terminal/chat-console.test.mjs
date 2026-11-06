@@ -39,13 +39,13 @@ describe('Agent bar', () => {
     expect(newBtn.textContent).toBe('');
   });
 
-  test('the ⋯ is built but not in the bar, and announces its menu', () => {
-    const { bar, moreBtn } = buildConsole();
-    expect(bar.contains(moreBtn)).toBe(false);
-    expect(moreBtn.classList.contains('op-session-more')).toBe(true);
-    expect(moreBtn.getAttribute('aria-label')).toBe('Earlier conversations');
-    expect(moreBtn.getAttribute('aria-haspopup')).toBe('menu');
-    expect(moreBtn.getAttribute('aria-expanded')).toBe('false');
+  test('builds no ⋯: the bar holds the label the session switcher attaches to', () => {
+    const built = buildConsole();
+    expect('moreBtn' in built).toBe(false);
+    expect(built.bar.querySelector('.op-session-more')).toBeNull();
+    expect(built.label.classList.contains('op-session-label')).toBe(true);
+    expect(built.label.textContent).toBe('Agent');
+    expect(built.bar.contains(built.label)).toBe(true);
   });
 
   test('no "+ New" and no Connected strip: only the dot, the name and buttons', () => {

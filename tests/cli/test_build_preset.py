@@ -30,7 +30,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.build_profile import list_presets, resolve_build_profile
-from osprey.cli.build_profile_presets import _presets_dir
+from osprey.cli.build_profile_presets import _presets_dir, resolve_service_template
 from osprey.cli.init_cmd import init
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
@@ -305,11 +305,11 @@ def test_preset_name_normalization(
 def test_preset_drift_guard() -> None:
     """Bundled presets must NOT depend on profile-dir-relative paths.
 
-    A service template path and env.file resolve relative to profile_dir,
+    A service template path resolves relative to profile_dir,
     which for presets is the wheel-installed package directory. Any preset
-    adding these will silently fail at install time. Catch it here. A service
-    that names a bundled template (``template: osprey.<name>``) carries no path
-    and is resolved from the framework's own templates.
+    adding these will silently fail at install time. Catch it here. Every
+    preset service is checked against the rule the build applies: its
+    template resolves to a bundled template OSPREY ships.
     """
     import importlib.resources
 
@@ -321,14 +321,11 @@ def test_preset_drift_guard() -> None:
         raw = yaml.safe_load(yml.read_text(encoding="utf-8")) or {}
         for name, service in (raw.get("services") or {}).items():
             template = (service or {}).get("template", "")
-            assert str(template).startswith("osprey."), (
-                f"{yml.name}: service {name!r} must name a bundled template "
-                f"(a template path would break in the wheel)"
+            source = resolve_service_template(presets_dir, str(template))
+            assert source.bundled and source.exists, (
+                f"{yml.name}: service {name!r} template {template!r} must name a "
+                f"bundled template OSPREY ships (a template path would break in the wheel)"
             )
-        env = raw.get("env", {}) or {}
-        assert env.get("file") is None, (
-            f"{yml.name}: env.file must be unset (path would break in the wheel)"
-        )
 
 
 def test_unknown_profile_key_fails_the_build(
@@ -660,32 +657,34 @@ def test_a_render_without_web_terminals_leaves_the_mcp_health_address_to_the_run
     assert "auto" not in (_config_yaml(_project(tmp_path, "smoke")).get("health") or {})
 
 
-def test_profile_categories_persisted_to_config(tmp_path: Path) -> None:
-    """A profile's custom artifact categories land in the built config.yml."""
+def test_profile_extension_types_persisted_to_config(tmp_path: Path) -> None:
+    """A profile's artifact extension types land in the built config.yml."""
     profile = tmp_path / "repo" / "profile.yml"
     profile.parent.mkdir()
     _facility_data(profile.parent)
     profile.write_text(
-        "name: CatTest\n"
+        "name: ExtTest\n"
         "project_name: repo\n"
         "extends: hello-world\n"
         "data: data\n"
         "provider: anthropic\n"
         "artifact_server:\n"
-        "  categories:\n"
+        "  extension_types:\n"
         "    diagnostics:\n"
         "      label: Diagnostics\n"
-        "      color: '#ff0066'\n"
+        "      base_form: tables\n"
     )
     result = _render_from(str(profile))
     assert result.exit_code == 0, result.output
     config = _config_yaml(_project(tmp_path, "repo"))
-    cats = config.get("artifact_server", {}).get("categories", {})
-    assert "diagnostics" in cats, f"artifact_server.categories in config: {list(cats.keys())}"
-    assert cats["diagnostics"]["label"] == "Diagnostics"
-    assert cats["diagnostics"]["color"].lower() == "#ff0066"
+    block = config.get("artifact_server", {})
+    ext = block.get("extension_types", {})
+    assert "diagnostics" in ext, f"artifact_server.extension_types in config: {list(ext)}"
+    assert ext["diagnostics"]["label"] == "Diagnostics"
+    assert ext["diagnostics"]["base_form"] == "tables"
+    assert "categories" not in block
     # Rendered defaults from the template survive the merge.
-    assert "port" in config.get("artifact_server", {})
+    assert "port" in block
 
 
 def test_profile_md_files_registered_as_user_owned(tmp_path: Path) -> None:
@@ -1293,13 +1292,13 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
         "hooks: [memory-guard, writes-check, approval]\n"
-        "web_panels: [okf, lattice, grafana]\n"
-        "config:\n" + _POSTURE_FLOOR + "  web.panels.lattice.label: LATTICE\n"
+        "web_panels: [okf, system-health, grafana]\n"
+        "config:\n" + _POSTURE_FLOOR + "  web.panels.system-health.label: SYSTEM\n"
         "  web.panels.grafana.label: GRAFANA\n"
         "  web.panels.grafana.url: http://grafana.local:3000\n"
     )
     (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
-        "name: Narrow\nexclude:\n  web_panels:\n    - lattice\n    - grafana\n"
+        "name: Narrow\nexclude:\n  web_panels:\n    - system-health\n    - grafana\n"
     )
 
     result = _render_from(str(root / "profile.yml"))
@@ -1308,7 +1307,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
     narrow = _config_yaml(_render_project(root, "narrow"))["web"]["panels"]
     # The inherited facts are still there — a render cannot subtract config —
     # and each block now says it is not a tab of this render.
-    assert narrow["lattice"] == {"label": "LATTICE", "enabled": False}
+    assert narrow["system-health"] == {"label": "SYSTEM", "enabled": False}
     assert narrow["grafana"]["url"] == "http://grafana.local:3000"
     assert narrow["grafana"]["enabled"] is False
     assert narrow["okf"]["enabled"] is True
@@ -1322,7 +1321,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
 
     # Control: the deployment's own render, from the same build, shows all three.
     wide = _config_yaml(root / "build")["web"]["panels"]
-    assert wide["lattice"]["enabled"] is True
+    assert wide["system-health"]["enabled"] is True
     assert wide["grafana"]["enabled"] is True
     assert wide["okf"]["enabled"] is True
 

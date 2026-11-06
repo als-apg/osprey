@@ -22,6 +22,7 @@ import { initDockDrop } from './dock-drop.js';
 import { closeKey, defaultLayout, reopenTerminal } from './dock-open.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { onPopoutChange } from './popout.js';
+import { focusAttached, isAttached, onAttachedChange } from './attached-window.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { subscribe } from '/design-system/js/theme-manager.js';
@@ -64,7 +65,7 @@ let layoutHolder = null;
 const STORE_VERSION = 2;
 
 /** Panel records the last restore brought in, by bare key: the title and
- *  params a restored tab is built with until dockview holds its own entry.
+ *  params a restored panel is built with until dockview holds its own entry.
  *  @type {Record<string, PanelRecord>} */
 let restoredPanels = {};
 
@@ -74,13 +75,28 @@ let serverPanelIds = null;
 
 const PANEL_TERMINAL = TERMINAL_KEY;
 
-/** Attribute on <html> present exactly while the Agent pane is absent from
- *  the dock (`data-agent="closed"`); the sidebar's Agent row reads it. */
+/** Attribute on <html> present exactly while the Agent pane is not in its
+ *  tile: `closed` while it is absent from the dock, `popped` while its
+ *  content is in an attached window (attached-popout.js) and its tile shows
+ *  the stand-in. The sidebar's Agent row reads it. */
 const AGENT_ATTRIBUTE = 'data-agent';
 
-/** Whether the Agent pane was open at the last {@link syncAgentPane}, or null
- *  before the first sync. @type {boolean | null} */
-let agentPaneOpen = null;
+/** The Agent pane's state at the last {@link syncAgentPane}, or null before
+ *  the first sync. @type {'open' | 'closed' | 'popped' | null} */
+let agentPaneState = null;
+
+/** The Agent pane's live subtree (the `.terminal-panel`) once the dock has
+ *  adopted it. @type {HTMLElement | null} */
+let agentContent = null;
+
+/**
+ * The Agent pane's live subtree, the node attached-popout.js moves into a
+ * window; null before the dock adopted it (and in fallback mode).
+ * @returns {HTMLElement | null}
+ */
+export function agentPaneContent() {
+  return agentContent;
+}
 
 /** localStorage key prefix; the per-project key from GET /api/panels is appended
  *  so one browser origin persists a separate layout per project. */
@@ -114,9 +130,10 @@ let persistHandle = null;
 /**
  * Callback the iframe adapter registers (the managed-iframe set lives there),
  * invoked after EVERY whole-layout apply — default rebuild, stored-layout
- * restore. It re-docks any visible service placeholder the applied
- * layout lacks and prunes placeholders whose service no longer exists, so no
- * apply can strand a visible panel or leave a dead tab.
+ * restore. It settles the managed set against the applied layout: a panel
+ * the layout lacks is concealed (its iframe cached for its sidebar row) and
+ * placeholders whose service no longer exists are pruned, so no apply leaves
+ * a stray iframe or a dead tile.
  * @type {(() => void) | null}
  */
 let redockServices = null;
@@ -256,6 +273,10 @@ export function initDockWorkspace() {
   if (workspaceSource instanceof HTMLElement) workspaceSource.style.display = 'none';
 
   const terminalRenderer = adoptSubtree(terminalSource);
+  agentContent = terminalSource;
+  onAttachedChange((key) => {
+    if (key === PANEL_TERMINAL) syncAgentPane();
+  });
   dockApi = dockview.createDockview(root, {
     // Without an explicit theme dockview stamps its DEFAULT (abyss) class on
     // the .dv-shell it creates inside #dock-root — a closer ancestor than the
@@ -267,13 +288,12 @@ export function initDockWorkspace() {
       if (options.name === PANEL_TERMINAL) return terminalRenderer;
       return { element: document.createElement('div'), init() {} };
     },
-    // Every tile's tab renders as the host header bar (identity, tabs,
-    // actions) — see dock-tab.js. defaultTabComponent routes panels with no
-    // explicit tabComponent (i.e. all of them, including restored layouts)
-    // through createTabComponent. Of a tile's tabs only the showing one is on
-    // screen (dockview-overrides.css hides the inactive ones), so the bar
-    // spans its tile and the close control anchors at the tile's right edge;
-    // with one tab dockview's own full-width mode does the same stretching
+    // Every tile's tab renders as the host header bar (identity, contributed
+    // controls, actions) — see dock-tab.js. defaultTabComponent routes panels
+    // with no explicit tabComponent (i.e. all of them, including restored
+    // layouts) through createTabComponent. A tile holds one panel
+    // (dock-policy.js), so dockview's own full-width single-tab mode stretches
+    // the bar over its tile, with the close control at the tile's right edge,
     // and collapses the void container (its empty-space drag surface).
     createTabComponent: (/** @type {{ id: string }} */ options) => createTileTab(options.id),
     defaultTabComponent: OSPREY_TAB_COMPONENT,
@@ -282,7 +302,7 @@ export function initDockWorkspace() {
 
   // The holder applies every layout inside dock-sync's echo guard, so the
   // rebuild's own focus changes are never reported as a person's click. A
-  // restored tab is built with the record its store carried.
+  // restored panel is built with the record its store carried.
   layoutHolder = initLayoutHolder({
     api: dockApi,
     guard: withEchoSuppressed,
@@ -325,7 +345,7 @@ export function initDockWorkspace() {
  * too, as the same tree it just wrote, and changes nothing; a tree of another
  * shape is dockview mid-rebuild and says nothing.
  *
- * The focused tile follows dockview's active panel (a tab click, the focus of
+ * The focused tile follows dockview's active panel (a click in a tile, the focus of
  * a rebuilt group), and a panel moving to or from its own pop-out window is
  * recorded on the holder, which is the layout the agent reads.
  * @param {any} api
@@ -356,9 +376,9 @@ function wireHolderSync(api, holder) {
 
 /**
  * Hand a whole layout to the holder, which validates it and applies it with
- * one `fromJSON`, then let the iframe adapter re-sync: it re-docks any visible
- * service placeholder the layout lacks and prunes placeholders whose service
- * no longer exists, so no apply strands a visible panel or leaves a dead tab.
+ * one `fromJSON`, then let the iframe adapter settle: it conceals any managed
+ * panel the layout lacks and prunes placeholders whose service no longer
+ * exists, so no apply leaves a stray iframe or a dead tile.
  * False (nothing changes) for an invalid layout.
  * @param {Layout|null} layout
  * @returns {boolean}
@@ -386,7 +406,7 @@ function arrangeDefaultLayout() {
  * nothing during a live sash drag; the continuous refit while a sash is dragged
  * comes from terminal.js's ResizeObserver on .terminal-body, whose observed
  * parent is preserved by this shell). onDidActivePanelChange covers the terminal
- * card being revealed after it was hidden behind another tab in its group.
+ * card being revealed after its tile was rebuilt.
  * @param {any} api
  */
 function wireTerminalRefit(api) {
@@ -445,24 +465,29 @@ export function isTerminalPanelOpen() {
 }
 
 /**
- * Publish the Agent pane's presence: `html[data-agent="closed"]` is present
- * exactly while the pane is absent from the dock, and `osprey-agent-pane`
- * `{detail: {open}}` is dispatched on `document` whenever that changes (and
- * once at boot). Called at the end of every path that adds or removes the
- * pane — open, close, the default arrangement, and a stored-layout restore.
+ * Publish the Agent pane's presence: `html[data-agent]` is `closed` while the
+ * pane is absent from the dock, `popped` while its content is in an attached
+ * window, and absent while it shows in its tile; `osprey-agent-pane`
+ * `{detail: {open, poppedOut}}` is dispatched on `document` whenever that
+ * changes (and once at boot). Called at the end of every path that adds or
+ * removes the pane — open, close, the default arrangement, a stored-layout
+ * restore — and on every pop-out and return.
  */
 function syncAgentPane() {
   const open = isTerminalPanelOpen();
-  if (open === agentPaneOpen) return;
-  agentPaneOpen = open;
-  if (open) document.documentElement.removeAttribute(AGENT_ATTRIBUTE);
-  else document.documentElement.setAttribute(AGENT_ATTRIBUTE, 'closed');
-  document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open } }));
+  const poppedOut = isAttached(PANEL_TERMINAL);
+  const state = !open ? 'closed' : poppedOut ? 'popped' : 'open';
+  if (state === agentPaneState) return;
+  agentPaneState = state;
+  if (state === 'open') document.documentElement.removeAttribute(AGENT_ATTRIBUTE);
+  else document.documentElement.setAttribute(AGENT_ATTRIBUTE, state);
+  document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open, poppedOut } }));
 }
 
 /**
- * Surface the Agent pane: focus it when present, re-create it when closed
- * (the sidebar Agent row's activate path). Re-adding by the same component
+ * Surface the Agent pane: focus it when present (its attached window, while
+ * it is popped out), re-create it when closed (the sidebar Agent row's
+ * activate path). Re-adding by the same component
  * re-adopts the live terminal subtree — createComponent still holds the
  * source element, so the running xterm/chat state survives close → reopen
  * (the same mechanism resetDockLayout relies on). A reopened tile docks at
@@ -471,6 +496,11 @@ function syncAgentPane() {
 export function openTerminalPanel() {
   const holder = layoutHolder;
   if (!dockApi || !holder) return;
+  // Its content is in a window: that window is where the pane shows.
+  if (isAttached(PANEL_TERMINAL) && isTerminalPanelOpen()) {
+    focusAttached(PANEL_TERMINAL);
+    return;
+  }
   const result = holder.run((layout, ctx) => reopenTerminal(layout, ctx.dock));
   if (!result.changed) {
     // Already in its tile: dockview only has to bring the tile forward.
@@ -500,7 +530,7 @@ export function closeTerminalPanel() {
  * panel-manager's vacate first, in the capture phase). A key not in the dock
  * changes nothing.
  * @param {string} serviceId  the panel's bare id
- * @returns {boolean} whether a tab was closed
+ * @returns {boolean} whether a tile was closed
  */
 export function closeDockPanel(serviceId) {
   const holder = layoutHolder;
@@ -512,9 +542,9 @@ export function closeDockPanel(serviceId) {
 
 /**
  * The per-panel record reopening a stored layout in a new session needs, by
- * bare key: the title and params each service tab carries (the terminal is
+ * bare key: the title and params each service panel carries (the terminal is
  * the page's own and needs none). Read off the live dock, falling back to the
- * record a restore brought in for a tab dockview has not built yet.
+ * record a restore brought in for a panel dockview has not built yet.
  * @param {Layout|null} layout
  * @returns {Record<string, PanelRecord>}
  */
@@ -638,20 +668,103 @@ function safeKeys(value) {
  * @returns {boolean}
  */
 function applyStoredLayout() {
-  const holder = layoutHolder;
   const stored = readStored();
-  if (!holder || !stored) return false;
+  if (!stored) return false;
+  const applied = applyRepaired(stored, { keepTerminal: true });
+  if (applied === false) forgetStored();
+  return applied === true;
+}
+
+/**
+ * Repair a stored layout against what the dock can build and apply it with
+ * its panel records. `keepTerminal` gives a layout without the terminal its
+ * tile back, as a reload's restore does.
+ * @param {{ layout: unknown, panels: Record<string, PanelRecord> }} stored
+ * @param {{ keepTerminal: boolean }} options
+ * @returns {boolean | null} whether it applied; null when nothing was left to apply
+ */
+function applyRepaired(stored, { keepTerminal }) {
+  const holder = layoutHolder;
+  if (!holder) return null;
+  measureDock();
   let layout = reconcile(stored.layout, buildableKeys(stored.layout));
-  if (!layout) return false;
-  if (!keysOf(layout).includes(PANEL_TERMINAL)) {
+  if (!layout) return null;
+  if (keepTerminal && !keysOf(layout).includes(PANEL_TERMINAL)) {
     layout = reopenTerminal(layout, holder.dock()).layout;
   }
   const previous = restoredPanels;
   restoredPanels = { ...stored.panels };
   if (applyHeld(layout)) return true;
   restoredPanels = previous;
-  forgetStored();
   return false;
+}
+
+/**
+ * Size dockview to #dock-root now, when it has not measured the root yet.
+ *
+ * dockview learns its size from a ResizeObserver, whose first callback comes
+ * at a rendering step; until then it lays out at its 100 × 100 px default. A
+ * stored layout applied in that window is laid out at 100 px: its tiles are
+ * clamped to their 40 px minimums, the read-back in onDidLayoutChange hands
+ * those clamped fractions to the holder as a size change, and the next persist
+ * overwrites the stored sizes with them. The restore runs as soon as
+ * GET /api/panels answers, which can be before that first callback, so the
+ * dock is measured here first. A root with no size yet (hidden) is left to
+ * the observer.
+ */
+function measureDock() {
+  const root = document.getElementById('dock-root');
+  if (!dockApi || !root) return;
+  const style = getComputedStyle(root);
+  const width = root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  const height = root.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+  if (!(width > 0 && height > 0)) return;
+  if (width === dockApi.width && height === dockApi.height) return;
+  dockApi.layout(width, height);
+}
+
+/** True while {@link applyDock} applies. @type {boolean} */
+let sessionApply = false;
+
+/**
+ * The arrangement on screen in the stored form — what a session keeps as its
+ * layout (session-layout.js). Null before the dock exists.
+ * @returns {StoredDock|null}
+ */
+export function currentDock() {
+  return dockApi ? storedValue() : null;
+}
+
+/**
+ * Apply a session's stored arrangement live, as it was left: panels the dock
+ * cannot build any more are dropped, and an Agent pane the session had closed
+ * stays closed. False (nothing changes) for a value that is not a stored dock
+ * or has nothing left to show.
+ * @param {any} value
+ * @returns {boolean}
+ */
+export function applyDock(value) {
+  if (!dockApi || !value || typeof value !== 'object' || value.version !== STORE_VERSION) {
+    return false;
+  }
+  const panels = value.panels && typeof value.panels === 'object' ? value.panels : {};
+  sessionApply = true;
+  try {
+    return applyRepaired({ layout: value.layout, panels }, { keepTerminal: false }) === true;
+  } finally {
+    sessionApply = false;
+  }
+}
+
+/**
+ * Whether the apply under way is a session's own layout. The iframe adapter
+ * hands it to panel-manager's settle: a dock a session left with no service
+ * tile stays that way,
+ * where a reset fills the slot again.
+ * @returns {boolean}
+ */
+export function applyingSessionLayout() {
+  return sessionApply;
 }
 
 /** Drop the stored value, so the next reload starts from the default. */
@@ -693,8 +806,10 @@ function schedulePersist() {
 }
 
 /**
- * Write a pending debounced persist now. A reload or a closed tab inside the
- * debounce window would otherwise drop the last change.
+ * Write a persist still waiting in its debounce window now. Bound to
+ * `pagehide` (a reload, a closed tab, a navigation away) and to the page going
+ * out of sight, the last event a tab the browser discards is sure to get: a
+ * change made in the window before either would otherwise never be stored.
  */
 function flushPersist() {
   if (persistHandle == null) return;
@@ -706,9 +821,10 @@ function flushPersist() {
 /**
  * Resolve the per-project storage key and the panels the dock can build, apply
  * any stored layout over the default, then wire settled-change persistence
- * (layout changes and tab switches). The listeners are subscribed AFTER the
- * stored layout is applied so the restore itself doesn't trigger a redundant
- * write-back.
+ * (layout changes; a focus move changes nothing stored), with a write still
+ * waiting flushed when the page goes away or out of sight. The listener is
+ * subscribed AFTER the stored layout is applied so the restore itself doesn't
+ * trigger a redundant write-back.
  *
  * Every exit announces the boot layout as final through the layoutRestored hook
  * — including the no-project-key early return, where the default arrangement IS
@@ -743,6 +859,9 @@ async function initPersistence(api) {
   api.onDidLayoutChange(schedulePersist);
   api.onDidActivePanelChange(schedulePersist);
   window.addEventListener('pagehide', flushPersist);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPersist();
+  });
 }
 
 /**
@@ -791,7 +910,7 @@ export function resetDockLayout() {
  * `.terminal-header` is hidden there, operator.css), the header on the terminal.
  *
  * The bar reuses the docked bar's `.tile-tab` markup so it renders with the
- * same styles; the inline layout only adapts that full-height tab to a row
+ * same styles; the inline layout only adapts that full-height bar to a row
  * above #panel-content. Idempotent per host.
  * @param {HTMLElement} host  the fallback iframe host (#right-panel)
  * @returns {HTMLElement | null} the bar, or null when the host has no #panel-content

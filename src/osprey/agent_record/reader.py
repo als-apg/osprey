@@ -78,8 +78,9 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -90,6 +91,7 @@ from osprey.agent_record.contract import (
     KIND_ANSWER,
     KIND_AUDIT,
     KIND_BRIDGE_TURN,
+    KIND_DEBUG,
     KIND_DECISION,
     KIND_PROMPT,
     KIND_RUN,
@@ -99,6 +101,7 @@ from osprey.agent_record.contract import (
     ORDER_NEWEST_FIRST,
     ROUTE_KINDS,
     ROUTE_SPOOL,
+    ROUTE_TRANSCRIPT,
     RUN_ACCEPT,
     RUN_KEY_PREFIX,
     RUN_TERMINAL,
@@ -153,8 +156,10 @@ __all__ = [
     "RecordReader",
     "TimelineNode",
     "build_timeline",
+    "is_bookkeeping_prompt",
     "is_queue_submit",
     "match_preflight",
+    "title_source",
     "visible_preflight",
 ]
 
@@ -190,6 +195,76 @@ SOURCE_FIELD = "source"
 PREFLIGHT_MATCH_SECONDS = 60
 #: The tool calls that put a plan in front of a queueserver.
 QUEUE_SUBMIT_TOOLS = frozenset({QUEUE_ADD, QUEUE_START})
+
+#: The kinds a session's activity is read from: what its transcript says. The
+#: OTLP and audit rows a chat child writes carry the session *key*, which after a
+#: ``/clear`` names an older transcript, so they never move a session's activity
+#: time, its sort place or a ``before`` page boundary.
+ACTIVITY_KINDS = ROUTE_KINDS[ROUTE_TRANSCRIPT] - {KIND_DEBUG}
+#: The kinds a session's ``message_count`` counts.
+_MESSAGE_KINDS = frozenset({KIND_PROMPT, KIND_ANSWER})
+
+# Claude Code writes this marker as a synthetic user entry when a turn is
+# cancelled, and wraps slash-command echoes and their captured output in these
+# tags: the TUI's own bookkeeping, not conversation.
+INTERRUPT_MARKER = "[Request interrupted by user"
+BOOKKEEPING_PREFIXES = (
+    "<command-name>",
+    "<command-message>",
+    "<local-command-stdout>",
+    "<local-command-stderr>",
+)
+
+
+def _prompt_text(body: Mapping[str, Any]) -> str:
+    text = body.get("text")
+    return text if isinstance(text, str) else ""
+
+
+def is_bookkeeping_prompt(body: Mapping[str, Any]) -> bool:
+    """Whether a prompt is the TUI's own accounting rather than the operator's words."""
+    if body.get("is_meta"):
+        return True
+    text = _prompt_text(body).strip()
+    return bool(text) and text.startswith((INTERRUPT_MARKER, *BOOKKEEPING_PREFIXES))
+
+
+#: What else Claude Code writes into the main stream as a user prompt that the
+#: operator never typed: a background task's completion notice, a message from
+#: another session (a subagent's hand-back), a reminder, a skill's expansion.
+#: The transcript still shows them; they are only never a session's title.
+NOT_OPERATOR_PREFIXES = (
+    "<task-notification>",
+    "Another Claude session sent a message:",
+    "<agent-message",
+    "<system-reminder>",
+    "Base directory for this skill:",
+)
+_COMMAND_NAME = re.compile(r"<command-name>\s*([^<\s]+)\s*</command-name>")
+_COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
+
+
+def title_source(body: Mapping[str, Any]) -> str:
+    """What a prompt says that a session may be titled by; ``""`` for nothing.
+
+    The operator's own words, stripped; a slash-command echo as the command and
+    its arguments (``/demo-gallery``); nothing for the rest of the TUI's
+    bookkeeping and for what :data:`NOT_OPERATOR_PREFIXES` names.
+    """
+    if body.get("is_meta"):
+        return ""
+    text = _prompt_text(body).strip()
+    if not text or text.startswith((INTERRUPT_MARKER, *NOT_OPERATOR_PREFIXES)):
+        return ""
+    if not text.startswith(BOOKKEEPING_PREFIXES):
+        return text
+    name = _COMMAND_NAME.search(text)
+    if name is None:
+        return ""
+    command = name.group(1) if name.group(1).startswith("/") else f"/{name.group(1)}"
+    args = _COMMAND_ARGS.search(text)
+    return f"{command} {args.group(1).strip()}".rstrip() if args else command
+
 
 #: The kinds an entry can carry a ``run_id`` in: the spool's.
 _RUN_NAMING_KINDS = ROUTE_KINDS[ROUTE_SPOOL]
@@ -673,6 +748,8 @@ class _Ctx:
         self.view: _SourceView | None = None
         self.next: str | None = None
         self.newer = False
+        # The scan or time limit cut the read short (``_select``, ``_out_of_time``).
+        self.cut = False
 
     def incomplete(self, reason: str) -> None:
         if reason not in self.reasons:
@@ -849,6 +926,7 @@ class RecordReader:
 
     def _out_of_time(self, ctx: _Ctx) -> bool:
         if self._clock() > ctx.read_deadline:
+            ctx.cut = True
             ctx.incomplete(f"the read reached its time limit of {self.limits.seconds:g} s")
             return True
         return False
@@ -892,6 +970,7 @@ class RecordReader:
             query = replace(query, order=ORDER_NEWEST_FIRST)
         rows = self.backend.select(scope_filter, replace(query, limit=limit))
         if len(rows) > cap:
+            ctx.cut = True
             ctx.incomplete(f"the read reached its scan limit of {cap} rows")
             rows = rows[:cap]
         if flip:
@@ -1231,20 +1310,56 @@ class RecordReader:
         scope: Scope,
         *,
         since: datetime | None = None,
+        before: datetime | None = None,
         limit: int | None = None,
+        session_ids: Collection[str] | None = None,
         wait: WaitMark | None = None,
     ) -> ReadAnswer:
-        """Every session the scope sees, newest activity first, promptless runs included."""
+        """Every session the scope sees, newest activity first, promptless runs included.
+
+        A row's activity (``last_ts``, its sort place) is read from the
+        :data:`ACTIVITY_KINDS` rows only, falling back to all of its rows for a
+        session that has none (a promptless run). ``prompt`` is the first main
+        stream prompt with a :func:`title_source` (the first slash command when
+        the operator typed no words of their own), ``message_count``
+        counts its main-stream prompts (readable, not bookkeeping) and answers,
+        and ``truncated`` says the read was cut (scan, time) before it reached
+        the session's first prompt, or that its first prompt is unreadable.
+        *session_ids* lists only those sessions (which of them the record
+        knows); an empty collection lists none. *before* pages back: only sessions whose activity ends before
+        it are listed, read through a backend bound (``until``), so a page
+        reaches sessions older than the newest :data:`SCAN_ROWS` rows.
+        """
+
+        only = None if session_ids is None else frozenset(s for s in session_ids if s)
 
         def build(ctx: _Ctx) -> tuple[Any, bool]:
-            rows = self._sessions(ctx, since)
-            return self._page(ctx, rows, self._rows(limit, self.limits.sessions))
+            if only is not None and not only:
+                return [], False
+            rows, idle = self._sessions(ctx, since, before, only)
+            wanted = self._rows(limit, self.limits.sessions)
+            if before is not None:
+                rows = self._ended_before(ctx, rows, idle, before, wanted + 1)
+            return self._page(ctx, rows, wanted)
 
         return self._answer(scope, wait, build)
 
-    def _sessions(self, ctx: _Ctx, since: datetime | None) -> list[dict[str, Any]]:
+    def _sessions(
+        self,
+        ctx: _Ctx,
+        since: datetime | None,
+        before: datetime | None = None,
+        only: frozenset[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], frozenset[str]]:
+        """The session rows, sorted, and the sessions read with no activity rows."""
         groups: dict[str, dict[str, Any]] = {}
-        for item in self._collect(ctx, ScopeFilter(), Query(since=since), newest=True):
+        # (is a command, ts) of the prompt chosen per session; a session whose
+        # first main prompt arrived without its body cannot name its prompt.
+        prompt_at: dict[str, tuple[int, datetime]] = {}
+        unread_prompt: set[str] = set()
+        scope_filter = ScopeFilter() if only is None else ScopeFilter(session_ids=only)
+        items = self._collect(ctx, scope_filter, Query(since=since, until=before), newest=True)
+        for item in items:
             if self._out_of_time(ctx):
                 break
             e = item.entry
@@ -1259,8 +1374,10 @@ class RecordReader:
                     "identities": set(),
                     "first_ts": e.ts,
                     "last_ts": e.ts,
-                    "entries": 0,
+                    "activity_ts": None,
+                    "message_count": 0,
                     "prompt": None,
+                    "truncated": False,
                     "run_ids": set(),
                     "terminal_session": "",
                 }
@@ -1269,30 +1386,91 @@ class RecordReader:
             row["identities"].add(e.identity)
             row["first_ts"] = min(row["first_ts"], e.ts)
             row["last_ts"] = max(row["last_ts"], e.ts)
-            row["entries"] += 1
+            if item.kind in ACTIVITY_KINDS:
+                activity = row["activity_ts"]
+                row["activity_ts"] = e.ts if activity is None else max(activity, e.ts)
             run_id = run_id_of(e)
             if run_id:
                 row["run_ids"].add(run_id)
             if not row["terminal_session"] and e.terminal_session:
                 row["terminal_session"] = e.terminal_session
+            if item.kind not in _MESSAGE_KINDS or e.agent_id:
+                continue
             body = item.body
-            if (
-                row["prompt"] is None
-                and item.kind == KIND_PROMPT
-                and not e.agent_id
-                and body is not None
-                and isinstance(body.get("text"), str)
-                and not body.get("is_meta")
-            ):
-                row["prompt"] = body["text"]
+            if body is None:
+                # An unreadable prompt may be bookkeeping: it is not counted,
+                # and the session is flagged (``truncated``) instead.
+                if item.kind == KIND_PROMPT:
+                    unread_prompt.add(session)
+                else:
+                    row["message_count"] += 1
+                continue
+            if item.kind == KIND_PROMPT:
+                source = title_source(body)
+                if source:
+                    # The operator's first words, else the first slash command.
+                    command = _prompt_text(body).strip().startswith(BOOKKEEPING_PREFIXES)
+                    place = (int(command), e.ts)
+                    if session not in prompt_at or place < prompt_at[session]:
+                        prompt_at[session] = place
+                        row["prompt"] = source
+                if is_bookkeeping_prompt(body):
+                    continue
+            row["message_count"] += 1
+        # Cut short (scan limit, time limit): a session with no prompt in what
+        # was read may have one before the cut. It is listed, never dropped.
+        cut = ctx.cut
+        idle = frozenset(s for s, row in groups.items() if row["activity_ts"] is None)
         rows = []
         for row in groups.values():
+            session = row["session_id"]
+            row["truncated"] = row["prompt"] is None and (cut or session in unread_prompt)
+            if row["activity_ts"] is not None:
+                row["last_ts"] = row["activity_ts"]
+            del row["activity_ts"]
             row["persons"] = sorted(row["persons"])
             row["identities"] = sorted(row["identities"])
             row["run_ids"] = sorted(row["run_ids"])
             rows.append(row)
         rows.sort(key=lambda r: (r["last_ts"], r["session_id"]), reverse=True)
-        return rows
+        return rows, idle
+
+    def _ended_before(
+        self,
+        ctx: _Ctx,
+        rows: list[dict[str, Any]],
+        idle: frozenset[str],
+        before: datetime,
+        wanted: int,
+    ) -> list[dict[str, Any]]:
+        """*rows* (read under ``until=before``) without the sessions whose
+        activity continues at or after *before*: an earlier page listed those.
+
+        Checked in batches, in sort order, until *wanted* rows survive, so a
+        check never names more sessions than a page holds.
+        """
+        kept: list[dict[str, Any]] = []
+        position = 0
+        while position < len(rows) and len(kept) < wanted:
+            batch = rows[position : position + wanted]
+            position += len(batch)
+            later = self._select(
+                ctx,
+                ScopeFilter(session_ids=frozenset(r["session_id"] for r in batch)),
+                Query(since=before),
+            )
+            active_later = {e.session_id for e in later if e.kind in ACTIVITY_KINDS}
+            seen_later = {e.session_id for e in later}
+            for row in batch:
+                session = row["session_id"]
+                if session in active_later:
+                    continue
+                if session in idle and session in seen_later:
+                    # No activity rows on either side of the bound: the session
+                    # sorts by all of its rows, and some are past the bound.
+                    continue
+                kept.append(row)
+        return kept + rows[position:]
 
     def session_users(
         self, scope: Scope, *, since: datetime | None = None, wait: WaitMark | None = None
@@ -1301,7 +1479,7 @@ class RecordReader:
 
         def build(ctx: _Ctx) -> tuple[Any, bool]:
             users: dict[str, dict[str, Any]] = {}
-            for row in self._sessions(ctx, since):
+            for row in self._sessions(ctx, since)[0]:
                 for person in row["persons"]:
                     user = users.setdefault(
                         person, {"person": person, "sessions": 0, "last_ts": row["last_ts"]}

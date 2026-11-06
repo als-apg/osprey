@@ -59,8 +59,7 @@ export const TOOL_PHRASES = Object.freeze({
   open_panel: 'opening a panel',
   open_panel_set: 'opening panels',
   drop_panel: 'moving a panel',
-  close_panel_tab: 'closing a panel',
-  close_panel_tile: 'closing a tile',
+  close_panel: 'closing a panel',
   arrange_workspace: 'arranging the workspace',
   register_panel: 'adding a panel',
   manage_window: 'arranging a window',
@@ -68,7 +67,6 @@ export const TOOL_PHRASES = Object.freeze({
 
   // Workspace artifacts (plots, documents and stored datasets alike).
   artifact_register: 'registering an artifact',
-  artifact_get: 'opening an artifact',
   artifact_list: 'listing saved artifacts',
   artifact_read: 'reading a saved artifact',
   artifact_focus: 'showing an artifact',
@@ -143,14 +141,6 @@ export const TOOL_PHRASES = Object.freeze({
   list_concepts: 'browsing facility knowledge',
   read_concept: 'reading facility knowledge',
   draft_concept: 'drafting a facility note',
-
-  // Lattice model. The mutators are phrased; the getters fall back.
-  lattice_state: 'reading the lattice',
-  lattice_set_param: 'changing a lattice parameter',
-  lattice_set_baseline: 'setting the lattice baseline',
-  lattice_clear_baseline: 'clearing the lattice baseline',
-  lattice_update_settings: 'changing lattice settings',
-  lattice_refresh: 'refreshing the lattice view',
 
   // Health.
   health_check: 'checking system health',

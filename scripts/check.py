@@ -7,7 +7,7 @@ from there::
 
     check.py quick [--changed BASE [--worktree] | --base BASE] [--fix] [-- PATH...]
     check.py full  [--changed BASE [--worktree] | --base BASE]         [-- PATH...]
-    check.py run ID... [--base BASE] [--shard cli|rest-a|rest-b] [-- EXEC-FLAGS...]
+    check.py run ID... [--base BASE] [--shard cli-a|cli-b|rest-a|rest-b|rest-c|macos] [-- EXEC-FLAGS...]
     check.py list [--tier quick|full] [--changed BASE] [--json]
 
 An owner declares its checks in a ``repo_checks.py`` module beside its code:
@@ -29,7 +29,8 @@ Four kinds of check:
   the rule that no tracked file is gitignored, the secret scan, and the tests
   that pin this declaration.
 * ``static`` -- one per language or rule: mypy, the import contracts, the
-  private-name imports, tsc, eslint, prettier, actionlint.
+  private-name imports, the connectors public names, tsc, eslint, prettier,
+  actionlint.
 * ``tests`` -- one per runner: the parallel pytest sweep, the serial
   real-terminal and wall-clock suites, the live Channel Access gate and Vitest.
 * ``build`` -- the documentation and its links, and the packages.
@@ -1039,12 +1040,13 @@ def _list(tier: str | None, as_json: bool, changed: str | None = None) -> int:
             data["touched"] = hit
         print(json.dumps(data, indent=2))
         return CLEAN
+    width = max(len(check.id) for check in CHECKS) + 2
     for check in CHECKS:
         if tier is None or tier in check.tiers:
             owner = DECLARED.owners.get(check.id, FRAMEWORK_MODULE)
             spelling = shlex.join(check.argv) if check.argv else f"(in {owner})"
             tiers = ",".join(t for t in TIERS if t in check.tiers)
-            print(f"{check.id:<20}{check.kind:<11}{tiers:<12}{spelling}")
+            print(f"{check.id:<{width}}{check.kind:<11}{tiers:<12}{spelling}")
     if hit is not None:
         print(f"touched: {', '.join(hit)}")
     return CLEAN

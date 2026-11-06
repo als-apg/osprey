@@ -26,7 +26,7 @@ to it with a canned PTY (no live agent, no provider, no hardware).
 :func:`capture_contact_sheet` drives a headless browser over that stack once per
 entry in :data:`VARIANTS` (plus the :data:`EXTRA_VARIANTS` showcase cards),
 then boots every supported subpanel's real app
-(:data:`PANEL_SURFACES` — ARIEL, channels, lattice, knowledge, events, and the
+(:data:`PANEL_SURFACES` — ARIEL, channels, knowledge, events, and the
 Bluesky scan panel) and captures each in dark and light — always through the
 hub's own iframe URL shape (``embedded=true`` + theme), so each card is the panel exactly as the
 terminal embeds it — writing one viewport PNG per card.
@@ -43,6 +43,7 @@ imported only where used).
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import os
@@ -52,10 +53,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import uuid
 from contextlib import ExitStack, contextmanager, suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from unittest import mock
 
 if TYPE_CHECKING:
@@ -363,39 +366,514 @@ class HermeticHub(NamedTuple):
     for session transcripts (``~/.claude/projects/<encoded>/``), so the capture
     step writes its one fake session record there for the terminal to
     resume and confirm. All four are torn down when :func:`hermetic_hub` exits.
+
+    The e2e seams ride along: ``record`` is the hub's agent record (the real
+    reader over what the real tailer ingested from ``session_dir``), ``chat``
+    the scripted chat child's controls and turn log, and ``naming`` the stubbed
+    naming call's controls and call log.
     """
 
     base_url: str
     artifact_url: str
     project_dir: Path
     session_dir: Path
+    record: HermeticRecord | None = None
+    chat: FakeChat | None = None
+    naming: NamingSeam | None = None
 
 
-class _TranscriptRecord:
-    """The hub's agent record, served from the session transcripts in one directory.
+# ---------------------------------------------------------------------------
+# The agent record: the real reader over rows the real tailer ingested
+# ---------------------------------------------------------------------------
 
-    The hub reads a session's conversation from the agent record. This record
-    answers a session's timeline with what the agent record's own transcript
-    parser and timeline builder make of ``<session_dir>/<session_id>.jsonl``,
-    so the chat replays the seeded session exactly as a deployed record
-    would serve it, without a record service.
+#: Days of transcript the hermetic record ingests. The capture's demo session
+#: is dated 2024, far behind a deployment's retention floor, and must still be
+#: read back; nothing here is ever retained beyond the hub's life anyway.
+_HERMETIC_RETENTION_DAYS = 365 * 100
+
+
+def _client_answer(answer: Any) -> Any:
+    """A reader's ``ReadAnswer`` as the record client hands it back over the wire."""
+    from osprey.agent_record.client import ClientAnswer
+
+    body = answer.to_json()
+    if body.get("status") != "ok":
+        return ClientAnswer.failed(body.get("reason") or "the record is unavailable")
+    return ClientAnswer(
+        data=json.loads(json.dumps(body["data"])),
+        complete=body["complete"],
+        next=body["next"],
+        newer=body["newer"],
+        more=body["more"],
+        reason=body["reason"],
+    )
+
+
+class HermeticRecord:
+    """The hub's agent record: the record's own reader over its own ingest path.
+
+    An embedded record store is filled by the record's
+    :class:`~osprey.agent_record.ingest.tailer.TranscriptTailer` from the
+    session directory, filed as this terminal user's transcript root, and
+    answered by :class:`~osprey.agent_record.reader.RecordReader` in the
+    record's whole view (the hub keeps its own identity's rows itself; a
+    person scope would need the deployment roster this project has none of)
+    -- the rows, prompts, ``message_count`` and timelines a deployed
+    record serves, with no record service. Each read first polls the tailer
+    once, which is what a drain waits for in a deployment, so a transcript the
+    chat child just wrote is read back at once. The answers have the record
+    client's shape (``ClientAnswer``, JSON data); an argument the reader
+    refuses answers as the service's 400 does (``rejected``).
     """
 
-    def __init__(self, session_dir: Path) -> None:
-        self._session_dir = session_dir
+    def __init__(self, backend: Any, session_dir: Path, identity: str) -> None:
+        from osprey.agent_record.contract import All
+        from osprey.agent_record.identities import TERMINAL_TRANSCRIPT_VOLUME_SUFFIX
+        from osprey.agent_record.ingest.tailer import TranscriptTailer
+        from osprey.agent_record.reader import RecordReader
 
-    def timeline(self, session_id: str, **_kwargs):
+        root = f"{identity}{TERMINAL_TRANSCRIPT_VOLUME_SUFFIX}"
+        self.identity = identity
+        self._lock = threading.Lock()
+        self._tailer = TranscriptTailer(
+            backend,
+            {root: session_dir},
+            None,
+            retention_days=_HERMETIC_RETENTION_DAYS,
+            prefixes={root: f"{session_dir.name}/"},
+        )
+        self._reader = RecordReader(backend, None)
+        self._scope = All()
+
+    def ingest(self) -> Any:
+        """Poll the session directory once; the tailer's report."""
+        with self._lock:
+            return self._tailer.poll_once()
+
+    def _read(self, method: str, *args: Any, **kwargs: Any) -> Any:
         from osprey.agent_record.client import ClientAnswer
-        from osprey.interfaces.web_terminal.routes.session import _transcript_nodes
 
-        path = self._session_dir / f"{session_id}.jsonl"
-        nodes = _transcript_nodes(path) if path.is_file() else []
-        return ClientAnswer(data=nodes, complete=True)
+        # The drain and the narrowing are the service's; the poll below is the drain.
+        for name in ("wait", "narrow_session", "narrow_runs"):
+            kwargs.pop(name, None)
+        with self._lock:
+            self._tailer.poll_once()
+            try:
+                answer = getattr(self._reader, method)(self._scope, *args, **kwargs)
+            except ValueError as exc:
+                return ClientAnswer.rejected(f"agent-record refused the read (400): {exc}")
+        return _client_answer(answer)
 
-    def agent_timeline(self, *_args, **_kwargs):
-        from osprey.agent_record.client import ClientAnswer
+    def list_sessions(self, **kwargs: Any) -> Any:
+        return self._read("list_sessions", **kwargs)
 
-        return ClientAnswer(data=[], complete=True)
+    def session_users(self, **kwargs: Any) -> Any:
+        return self._read("session_users", **kwargs)
+
+    def timeline(self, session_id: str, **kwargs: Any) -> Any:
+        return self._read("timeline", session_id, **kwargs)
+
+    def agent_timeline(self, session_id: str, agent_id: str, **kwargs: Any) -> Any:
+        return self._read("agent_timeline", session_id, agent_id, **kwargs)
+
+    def full_entry(self, key: str, **kwargs: Any) -> Any:
+        return self._read("full_entry", key, **kwargs)
+
+    def run(self, run_id: str, **kwargs: Any) -> Any:
+        return self._read("run", run_id, **kwargs)
+
+    def run_timeline(self, run_id: str, **kwargs: Any) -> Any:
+        return self._read("run_timeline", run_id, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Transcript lines, as the Claude Code CLI writes them
+# ---------------------------------------------------------------------------
+
+
+def _transcript_line(role: str, transcript_id: str, content: Any, when: datetime) -> str:
+    """One ``user``/``assistant`` line of ``<transcript_id>.jsonl``."""
+    message: dict[str, Any] = {"role": role, "content": content}
+    if role == "assistant":
+        message["model"] = "claude-hermetic"
+    return json.dumps(
+        {
+            "type": role,
+            "uuid": str(uuid.uuid4()),
+            "sessionId": transcript_id,
+            "timestamp": when.isoformat(),
+            "message": message,
+        }
+    )
+
+
+def _append_transcript(session_dir: Path, transcript_id: str, lines: list[str]) -> None:
+    session_dir.mkdir(parents=True, exist_ok=True)
+    with (session_dir / f"{transcript_id}.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write("".join(f"{line}\n" for line in lines))
+
+
+def _exchange(transcript_id: str, prompt: str, reply: str, when: datetime) -> list[str]:
+    """A prompt and its answer, one second apart."""
+    return [
+        _transcript_line("user", transcript_id, prompt, when),
+        _transcript_line(
+            "assistant",
+            transcript_id,
+            [{"type": "text", "text": reply}],
+            when + timedelta(seconds=1),
+        ),
+    ]
+
+
+def _clear_lines(transcript_id: str, when: datetime) -> list[str]:
+    """What ``/clear`` opens its new transcript with: the command echo and its output."""
+    return [
+        _transcript_line(
+            "user",
+            transcript_id,
+            "<command-name>/clear</command-name>\n<command-message>clear</command-message>",
+            when,
+        ),
+        _transcript_line(
+            "user", transcript_id, "<local-command-stdout></local-command-stdout>", when
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# The scripted chat child
+# ---------------------------------------------------------------------------
+
+#: An attachment line the composer writes under a prompt (``- <path> (<size>)``).
+_UPLOAD_LINE = re.compile(r"^- (?P<path>\S+) \(", re.MULTILINE)
+
+
+class ChatTurn(NamedTuple):
+    """One turn the scripted chat child ran."""
+
+    prompt: str
+    session_key: str
+    #: The transcript the turn was written to (the new one for a ``/clear``).
+    transcript_id: str
+    #: The artifact the turn saved; ``None`` for a ``/clear``.
+    artifact_id: str | None
+    #: The uploaded files the prompt carried that the child read, by path.
+    uploads: tuple[str, ...] = ()
+
+
+class FakeChat:
+    """The scripted chat child the hermetic hub's operator chat runs on.
+
+    It stands in for the Claude Code CLI at the one seam the agent runner
+    constructs it (``ClaudeSDKClient``), so the hub's real chat route,
+    hand-off door, turn guard, transcript map, ledger writes and upload stamp
+    all run as deployed. Per prompt it answers like the CLI: an ``init`` naming
+    the transcript it is on, then
+
+    - for ``/clear``: a fresh transcript opened with the command's echo, and a
+      result naming it -- the move the route then records in the ledger;
+    - otherwise: the prompt and a reply appended to the transcript, the
+      prompt's uploads read (each ``- <path> (`` line that names a file), and
+      one markdown artifact saved through the real :class:`ArtifactStore`
+      under the session key, as the agent's tools save theirs.
+
+    ``replies`` overrides the reply per exact prompt; ``delay_s`` holds every
+    turn open that long before it answers, so a test can see the streaming
+    guard hold. ``turns`` lists what ran.
+    """
+
+    def __init__(self, project_dir: Path, session_dir: Path) -> None:
+        self.project_dir = project_dir
+        self.session_dir = session_dir
+        self.replies: dict[str, str] = {}
+        self.delay_s = 0.0
+        self.turns: list[ChatTurn] = []
+
+    def client(self, *args: Any, **kwargs: Any) -> _FakeChatClient:
+        """The factory patched in for ``ClaudeSDKClient``."""
+        return _FakeChatClient(self, kwargs.get("options"))
+
+    def _reply(self, prompt: str, uploads: list[Path]) -> str:
+        if prompt in self.replies:
+            return self.replies[prompt]
+        first = prompt.strip().splitlines()[0] if prompt.strip() else ""
+        reply = f"Done: {first[:80]}"
+        for path in uploads:
+            reply += f"\n\nRead {path.name} ({path.stat().st_size} bytes)."
+        return reply
+
+    def run_turn(self, key: str, transcript_id: str, prompt: str) -> str:
+        """Write one ordinary turn (blocking file and index I/O); its reply."""
+        from osprey.stores.artifact_store import ArtifactStore
+
+        uploads = [Path(m["path"]) for m in _UPLOAD_LINE.finditer(prompt)]
+        uploads = [p for p in uploads if p.is_file()]
+        reply = self._reply(prompt, uploads)
+        _append_transcript(
+            self.session_dir, transcript_id, _exchange(transcript_id, prompt, reply, _now())
+        )
+        entry = ArtifactStore(workspace_root=self.project_dir, auto_launch=False).save_file(
+            reply.encode("utf-8"),
+            "reply.md",
+            "markdown",
+            title=f"Reply: {prompt.strip()[:48]}",
+            mime_type="text/markdown",
+            tool_source="hermetic_chat",
+            session_id=key,
+        )
+        self.turns.append(
+            ChatTurn(prompt, key, transcript_id, entry.id, tuple(str(p) for p in uploads))
+        )
+        return reply
+
+    def clear(self, key: str, prompt: str) -> str:
+        """Open the transcript a ``/clear`` moves the child to; its id."""
+        transcript_id = str(uuid.uuid4())
+        _append_transcript(self.session_dir, transcript_id, _clear_lines(transcript_id, _now()))
+        self.turns.append(ChatTurn(prompt, key, transcript_id, None))
+        return transcript_id
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _is_clear(prompt: str) -> bool:
+    words = prompt.strip().split()
+    return bool(words) and words[0] == "/clear"
+
+
+class _FakeChatClient:
+    """One chat child: the ``ClaudeSDKClient`` slice the agent runner drives."""
+
+    def __init__(self, chat: FakeChat, options: Any) -> None:
+        self._chat = chat
+        self.options = options
+        env = dict(getattr(options, "env", None) or {})
+        session_id = getattr(options, "session_id", None)
+        self._key = (
+            env.get("OSPREY_SESSION_ID")
+            or env.get("OSPREY_TELEMETRY_SESSION_ID")
+            or session_id
+            or ""
+        )
+        # A resume continues the named transcript; a fresh child writes under its key.
+        self._transcript = getattr(options, "resume", None) or session_id or str(uuid.uuid4())
+        self._pending: asyncio.Queue[str] = asyncio.Queue()
+        self._interrupted = asyncio.Event()
+
+    async def __aenter__(self) -> _FakeChatClient:
+        return self
+
+    async def __aexit__(self, *exc: Any) -> bool:
+        return False
+
+    async def query(self, prompt: str) -> None:
+        self._interrupted.clear()
+        self._pending.put_nowait(prompt)
+
+    async def interrupt(self) -> None:
+        self._interrupted.set()
+
+    async def stop_task(self, task_id: str) -> None:  # noqa: ARG002
+        return None
+
+    async def get_context_usage(self) -> dict[str, Any]:
+        return {"totalTokens": 1200, "rawMaxTokens": 200_000, "percentage": 1}
+
+    async def receive_response(self):
+        from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, TextBlock
+
+        prompt = await self._pending.get()
+        yield SystemMessage(subtype="init", data={"session_id": self._transcript})
+        if self._chat.delay_s > 0:
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._interrupted.wait(), self._chat.delay_s)
+        if _is_clear(prompt):
+            self._transcript = await asyncio.to_thread(self._chat.clear, self._key, prompt)
+        else:
+            reply = await asyncio.to_thread(
+                self._chat.run_turn, self._key, self._transcript, prompt
+            )
+            yield AssistantMessage(content=[TextBlock(reply)], model="claude-hermetic")
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=10,
+            duration_api_ms=10,
+            is_error=False,
+            num_turns=1,
+            session_id=self._transcript,
+            total_cost_usd=0.0,
+        )
+
+
+# ---------------------------------------------------------------------------
+# The naming seam
+# ---------------------------------------------------------------------------
+
+
+class NamingSeam:
+    """The stubbed ``aget_chat_completion`` the hub's session namer calls.
+
+    The real :func:`~osprey.services.session_naming.name_session` and
+    :class:`~osprey.services.session_naming.SessionNamer` run; only the model
+    call is replaced. Each call waits ``delay_s`` (settable at any time), then
+    answers ``titles[prompt]`` when given, else ``"Named: <first words>"``;
+    with ``fail`` set it raises instead, as an unreachable provider does.
+    ``calls`` lists the prompts asked about.
+    """
+
+    def __init__(self) -> None:
+        self.delay_s = 0.0
+        self.fail = False
+        self.titles: dict[str, str] = {}
+        self.calls: list[str] = []
+
+    async def complete(self, *, chat_request: Any, **kwargs: Any) -> str:
+        prompt = chat_request.messages[-1].content
+        self.calls.append(prompt)
+        if self.delay_s > 0:
+            await asyncio.sleep(self.delay_s)
+        if self.fail:
+            raise RuntimeError("the hermetic naming seam was told to fail")
+        return self.titles.get(prompt) or "Named: " + " ".join(prompt.split()[:4])
+
+
+# ---------------------------------------------------------------------------
+# The e2e seeds: session transcripts, ledger, meta and an extension type
+# ---------------------------------------------------------------------------
+
+
+class SeededSession(NamedTuple):
+    """One seeded transcript: its session key, id and first prompt."""
+
+    session_key: str
+    transcript_id: str
+    prompt: str
+
+
+#: The seeded conversations, oldest first. The RF key was ``/clear``-ed once,
+#: so it has two transcripts; its first is the key itself, as for any key.
+SEEDED_SESSIONS: tuple[SeededSession, ...] = (
+    SeededSession(
+        "5b1e0c3a-7d42-4f19-8a6e-2c9d4b7f1a01",
+        "5b1e0c3a-7d42-4f19-8a6e-2c9d4b7f1a01",
+        "Check the RF cavity temperatures in sector 3.",
+    ),
+    SeededSession(
+        "5b1e0c3a-7d42-4f19-8a6e-2c9d4b7f1a01",
+        "8c2f1d4b-9e53-4a2a-9b7f-3d0e5c8a2b02",
+        "Summarise the orbit response measurement.",
+    ),
+    SeededSession(
+        "9d3a2e5c-0f64-4b3b-8c80-4e1f6d9b3c03",
+        "9d3a2e5c-0f64-4b3b-8c80-4e1f6d9b3c03",
+        "Show the beam profile at the injection screen.",
+    ),
+)
+
+#: The extension type the e2e seeds declare, and its stub viewer module.
+BEAM_PROFILE_KIND = "beam_profile"
+#: What the stub viewer renders: a marker element naming the viewer and ``ctx.theme``.
+BEAM_PROFILE_MARKER_CLASS = "hermetic-beam-profile-viewer"
+_BEAM_PROFILE_VIEWER_JS = f"""\
+// Hermetic stub viewer for the {BEAM_PROFILE_KIND!r} extension type.
+// It renders one marker naming itself and the theme it was handed, and throws
+// for an artifact whose metadata asks it to (the fallback path).
+export function render(container, artifact, ctx) {{
+  if (artifact && artifact.metadata && artifact.metadata.viewer_throws) {{
+    throw new Error("hermetic beam_profile viewer was told to throw");
+  }}
+  const marker = document.createElement("div");
+  marker.className = "{BEAM_PROFILE_MARKER_CLASS}";
+  marker.dataset.viewer = "{BEAM_PROFILE_KIND}";
+  marker.dataset.theme = String(ctx && ctx.theme);
+  marker.textContent = `{BEAM_PROFILE_KIND} viewer (theme: ${{marker.dataset.theme}})`;
+  container.replaceChildren(marker);
+}}
+"""
+
+
+def seed_e2e(
+    project_dir: Path, session_dir: Path, *, now: datetime | None = None
+) -> dict[str, Any]:
+    """Seed the sessions the e2e suite reads, through the writers that make them.
+
+    Writes each :data:`SEEDED_SESSIONS` transcript (a prompt and its answer,
+    the second RF transcript opened by its ``/clear``) where the CLI files
+    them, appends their ledger rows, stamps the session meta's
+    ``naming_since`` a day before the oldest one (so every seeded row is one
+    the namer may name), writes the :data:`BEAM_PROFILE_KIND` stub viewer
+    under ``viewers/`` and saves one ``beam_profile`` artifact under its
+    session key through the real store. Must run with the agent-data root
+    already stamped, as :func:`hermetic_hub` calls it.
+
+    Returns:
+        The ``artifact_server`` config block declaring the extension type.
+    """
+    from osprey.interfaces.web_terminal import session_meta
+    from osprey.stores import session_ledger
+    from osprey.stores.artifact_store import ArtifactStore
+
+    now = now or _now()
+    first = now - timedelta(hours=2 * len(SEEDED_SESSIONS))
+    state_dir = session_meta.ledger_state_dir()
+    keys_seen: set[str] = set()
+    for n, seeded in enumerate(SEEDED_SESSIONS):
+        when = first + timedelta(hours=2 * n)
+        lines = (
+            [] if seeded.session_key not in keys_seen else _clear_lines(seeded.transcript_id, when)
+        )
+        keys_seen.add(seeded.session_key)
+        lines += _exchange(
+            seeded.transcript_id,
+            seeded.prompt,
+            f"Done: {seeded.prompt}",
+            when + timedelta(seconds=5),
+        )
+        _append_transcript(session_dir, seeded.transcript_id, lines)
+        session_ledger.append(state_dir, seeded.session_key, seeded.transcript_id, when)
+
+    meta_path = session_meta.store_path()
+    if meta_path is not None:
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "sessions": {},
+                    "last_active": None,
+                    "naming_since": (first - timedelta(days=1)).isoformat(),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    viewer = project_dir / "viewers" / f"{BEAM_PROFILE_KIND}.js"
+    viewer.parent.mkdir(parents=True, exist_ok=True)
+    viewer.write_text(_BEAM_PROFILE_VIEWER_JS, encoding="utf-8")
+    profile_session = SEEDED_SESSIONS[-1]
+    ArtifactStore(workspace_root=project_dir, auto_launch=False).save_file(
+        json.dumps({"sigma_x_um": 112.0, "sigma_y_um": 9.4}).encode("utf-8"),
+        "beam_profile.json",
+        "json",
+        title="Injection screen beam profile",
+        mime_type="application/json",
+        tool_source="hermetic_seed",
+        session_id=profile_session.session_key,
+        kind=BEAM_PROFILE_KIND,
+    )
+    return {
+        "artifact_server": {
+            "extension_types": {
+                BEAM_PROFILE_KIND: {
+                    "label": "Beam Profile",
+                    "base_form": "plots",
+                    "viewer": f"viewers/{BEAM_PROFILE_KIND}.js",
+                }
+            }
+        }
+    }
 
 
 def _replay_shell_command(transcript_path: Path) -> list[str]:
@@ -413,7 +891,9 @@ def _replay_shell_command(transcript_path: Path) -> list[str]:
 
 
 @contextmanager
-def hermetic_hub() -> Iterator[HermeticHub]:
+def hermetic_hub(
+    *, seed: Callable[[Path, Path], None] | None = None, e2e: bool = False
+) -> Iterator[HermeticHub]:
     """Boot the full hermetic capture stack; yield a :class:`HermeticHub`.
 
     Creates a throwaway project directory, seeds it with the demo artifact store
@@ -429,14 +909,38 @@ def hermetic_hub() -> Iterator[HermeticHub]:
     the visual-regression harness uses (``_load_web_config`` → the seeded
     watch_dir, ``_load_panel_config`` → artifacts-only, ``_launch_panel_server``
     → the already-running backend URL), so no extra server is spawned and no live
-    agent is involved. Its session reads go to a :class:`_TranscriptRecord` over
-    the session directory, so no record service runs either. On exit both
-    servers stop and both the project directory and its
+    agent is involved. Three seams stand in for what a deployment runs beside the
+    hub, each at the narrowest point the product reaches it through:
+
+    - the agent record is a :class:`HermeticRecord` -- the record's own tailer
+      and reader over an embedded store under the project -- so session rows,
+      prompts and timelines are what a deployed record makes of the
+      transcripts in ``session_dir``;
+    - the operator chat's child is a :class:`FakeChat` patched in for
+      ``ClaudeSDKClient``, so a chat turn runs the real route end to end;
+    - the session namer's model call is a :class:`NamingSeam` patched in for
+      ``aget_chat_completion`` (and the namer is installed even though the throwaway
+      project has no config to resolve a provider from).
+
+    On exit both servers stop and both the project directory and its
     ``~/.claude/projects/<encoded>/`` session directory are removed.
+
+    ``seed``, when given, is called as ``seed(project_dir, session_dir)`` after
+    the demo seed and the agent-data-root stamp but before either server boots,
+    so a caller can grow the store (or write transcripts and their key map
+    under the stamped root) and have the backend load it at start-up. It adds
+    no record rows of its own: the record ingests whatever transcripts it
+    writes. ``e2e`` adds :func:`seed_e2e`'s sessions, ledger rows, naming
+    cutoff and ``beam_profile`` extension type (off for the contact sheet,
+    whose cards must stay byte-stable).
     """
+    from osprey.agent_record.backends.embedded import EmbeddedBackend
     from osprey.agent_runner.project_paths import encode_claude_project_path
     from osprey.interfaces._serving import run_app_server
     from osprey.registry.web import panel_url_state_attr
+    from osprey.stores import type_registry
+    from osprey_connectors import posture_store
+    from osprey_connectors.identity import acting_identity
 
     project_dir = Path(tempfile.mkdtemp(prefix="osprey-contact-sheet-")).resolve()
     session_dir = Path.home() / ".claude" / "projects" / encode_claude_project_path(project_dir)
@@ -458,10 +962,50 @@ def hermetic_hub() -> Iterator[HermeticHub]:
                     {"OSPREY_AGENT_DATA_ROOT": str(project_dir / "var" / "agent_data")},
                 )
             )
+            # The stores' location is cached per process; read it under the stamp.
+            posture_store.invalidate_cache()
+            stack.callback(posture_store.invalidate_cache)
+            if e2e:
+                # The hub sites its server-side stores (the uploads' artifact
+                # store among them) under the shared data root; a deployment's
+                # artifacts backend serves that same root. Pointed at the
+                # backend's store here, so what the real writers save -- the
+                # composer's uploads, the approval hook, the executor -- is
+                # what the tree lists.
+                stack.enter_context(
+                    mock.patch(
+                        "osprey_connectors.workspace.resolve_shared_data_root",
+                        return_value=project_dir,
+                    )
+                )
+            extension_config = seed_e2e(project_dir, session_dir) if e2e else None
+            if not e2e:
+                # The demo artifacts carry DEMO_SESSION_ID, but nothing here gives
+                # the ledger a row for it (a deployment gets one from the spawn, a
+                # turn end or the startup backfill; the capture runs none of them),
+                # so no session would list them. Append the row a resumed
+                # pre-feature session has: (key, key, epoch).
+                from osprey.interfaces.web_terminal import session_meta
+                from osprey.stores import session_ledger
+
+                state_dir = session_meta.ledger_state_dir()
+                state_dir.mkdir(parents=True, exist_ok=True)
+                session_ledger.append(
+                    state_dir, DEMO_SESSION_ID, DEMO_SESSION_ID, session_ledger.EPOCH
+                )
+            if seed is not None:
+                seed(project_dir, session_dir)
 
             from osprey.interfaces.artifacts.app import create_app as create_artifacts_app
 
             artifacts_app = create_artifacts_app(workspace_root=project_dir)
+            if extension_config is not None:
+                # Installed after the backend's own config priming, which would
+                # otherwise reload the registry from whatever config the cwd has.
+                registry = type_registry.load_extension_types(
+                    config=extension_config, project_root=project_dir, entry_points=()
+                )
+                stack.enter_context(mock.patch.object(type_registry, "_EXTENSION_TYPES", registry))
             artifact_url = stack.enter_context(run_app_server(artifacts_app))
 
             # Wire the hub to the already-running backend without spawning
@@ -484,23 +1028,60 @@ def hermetic_hub() -> Iterator[HermeticHub]:
                 )
             )
 
+            session_dir.mkdir(parents=True, exist_ok=True)
+            backend = stack.enter_context(EmbeddedBackend(project_dir / "var" / "record.duckdb"))
+            record = HermeticRecord(backend, session_dir, acting_identity())
             stack.enter_context(
                 mock.patch(
                     "osprey.interfaces.web_terminal.routes.session.record_client",
-                    new=lambda record=_TranscriptRecord(session_dir): record,
+                    new=lambda: record,
+                )
+            )
+
+            chat = FakeChat(project_dir, session_dir)
+            seam = "osprey.interfaces.web_terminal.operator_session"
+            for target, value in (
+                (f"{seam}.HAS_SDK", True),
+                ("osprey.interfaces.web_terminal.routes.chat.HAS_SDK", True),
+                ("osprey.agent_runner.session.ClaudeSDKClient", chat.client),
+                (f"{seam}.validate_project_directory", lambda _cwd: []),
+                (f"{seam}.get_facility_timezone", lambda: None),
+            ):
+                stack.enter_context(mock.patch(target, value))
+            stack.enter_context(
+                mock.patch(
+                    f"{seam}.build_system_prompt",
+                    return_value={"type": "preset", "preset": "claude_code"},
+                )
+            )
+
+            naming = NamingSeam()
+            stack.enter_context(
+                mock.patch("osprey.models.completion.aget_chat_completion", naming.complete)
+            )
+            stack.enter_context(
+                mock.patch(
+                    "osprey.services.session_naming._naming_route",
+                    return_value=("hermetic", "fast-model", {}),
                 )
             )
 
             from osprey.interfaces.web_terminal.app import create_app as create_hub_app
+            from osprey.services.session_naming import SessionNamer
 
             hub_app = create_hub_app(shell_command=shell_command, project_dir=project_dir)
             base_url = stack.enter_context(run_app_server(hub_app))
+            if getattr(hub_app.state, "session_namer", None) is None:
+                hub_app.state.session_namer = SessionNamer(hub_app, project_dir=project_dir)
 
             yield HermeticHub(
                 base_url=base_url,
                 artifact_url=artifact_url,
                 project_dir=project_dir,
                 session_dir=session_dir,
+                record=record,
+                chat=chat,
+                naming=naming,
             )
     finally:
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -698,10 +1279,34 @@ def _wait_for_resumed_session(page, agent: str, *, variant: str) -> None:
         ) from exc
 
 
-#: The demo plot's row in the hub sidebar's artifact list. The shell owns the
-#: list, and a row click shows that artifact in the artifacts
-#: tile (opening the tile when it is not on screen).
-_PLOT_ROW_SELECTOR = f'#sidebar-artifacts-list .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
+#: The demo plot's row in the hub sidebar's session tree. The shell owns the
+#: tree, and a row click shows that artifact in the artifacts tile (opening
+#: the tile when it is not on screen).
+_PLOT_ROW_SELECTOR = f'#sidebar-session-tree .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
+
+#: One poll of :func:`open_tree_to_row`: true once the artifact's row is in
+#: the tree, else one closed node opened (a form group, then a session's
+#: disclosure). A row exists only under an open session and an
+#: open form group, and both start closed.
+OPEN_TREE_TO_ROW_JS = """(id) => {
+  const tree = document.querySelector('#sidebar-session-tree');
+  if (!tree) return false;
+  if (tree.querySelector(`.osprey-list-row[data-id="${CSS.escape(id)}"]`)) return true;
+  const closed = tree.querySelector('[data-group-head][aria-expanded="false"]')
+    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]');
+  closed?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  return false;
+}"""
+
+
+def open_tree_to_row(page: Any, artifact_id: str, *, timeout_ms: int = 30_000) -> None:
+    """Open the session tree until ``artifact_id``'s row is rendered.
+
+    Raises:
+        playwright.sync_api.TimeoutError: The row never appeared.
+    """
+    page.wait_for_function(OPEN_TREE_TO_ROW_JS, arg=artifact_id, timeout=timeout_ms, polling=250)
+
 
 #: The preview iframe the embedded artifacts viewer renders the shown plot
 #: into. Embedded, the gallery is a viewer of one artifact, and
@@ -1109,12 +1714,13 @@ def capture_hub_view(
             _assert_fits_columns(fitted_cols)
 
         # Reveal the beam-current plot so every variant shows a real Plotly
-        # figure: a click on its row in the hub sidebar's artifact list shows
+        # figure: a click on its row in the hub sidebar's session tree shows
         # it in the artifacts tile, in either view. The row carries the
         # artifact's stable ``data-id``.
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
         try:
+            open_tree_to_row(page, DEMO_PLOT_ARTIFACT_ID, timeout_ms=_NAV_TIMEOUT_MS)
             page.locator(_PLOT_ROW_SELECTOR).first.click(timeout=_NAV_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             raise RuntimeError(
@@ -1182,13 +1788,6 @@ def _boot_channel_finder(workspace: Path):
     return run_app_server(create_app(project_cwd=str(workspace)))
 
 
-def _boot_lattice(workspace: Path):
-    from osprey.interfaces._serving import run_app_server
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    return run_app_server(create_app(workspace_root=workspace / "lattice_ws"))
-
-
 def _boot_okf(workspace: Path):
     from osprey.interfaces._serving import run_app_server
     from osprey.interfaces.okf_panel.app import create_app
@@ -1228,7 +1827,6 @@ def _boot_bluesky_web(_workspace: Path):
 _PANEL_BOOTS = {
     "ariel": _boot_ariel,
     "channel_finder": _boot_channel_finder,
-    "lattice": _boot_lattice,
     "okf": _boot_okf,
     "dispatch": _boot_dispatch_dashboard,
     "bluesky": _boot_bluesky_web,
@@ -1241,7 +1839,6 @@ _PANEL_BOOTS = {
 PANEL_SURFACES: list[PanelSurface] = [
     PanelSurface("ariel", "ARIEL — logbook search", "/", "ariel"),
     PanelSurface("channels", "Channels — channel finder", "/", "channel_finder"),
-    PanelSurface("lattice", "Lattice — machine dashboard", "/", "lattice"),
     PanelSurface("knowledge", "Knowledge — OKF browser", "/", "okf", wait_selector="#tree"),
     PanelSurface("events", "Events — dispatch dashboard", "/", "dispatch"),
     PanelSurface(

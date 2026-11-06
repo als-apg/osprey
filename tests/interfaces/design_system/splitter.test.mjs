@@ -5,7 +5,7 @@
  *
  * This module is the single implementation behind every resizable pane in the
  * product — the OKF sidebar, the artifact gallery's browse split, the PLAN
- * panel's browser split, the LATTICE sidebar, the settings drawer, and the
+ * panel's browser split, the settings drawer, and the
  * event dashboard's three zones — so it carries the tests those call sites
  * would otherwise duplicate.
  *
