@@ -260,3 +260,57 @@ async def test_ping_needs_a_provider_and_reports_one_without_a_block(tmp_path: P
         body = (await client.post("/ping", json={"provider": "nope"})).json()
     assert body["provider"] == "nope"
     assert body["status"] == "error"
+
+
+async def test_mcp_tags_tools_from_the_render_hook_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from osprey.mcp_server import introspect
+
+    app = create_app(_write_config(tmp_path))
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {"controls": {"command": "x"}}}')
+    hooks = tmp_path / ".claude" / "hooks"
+    hooks.mkdir(parents=True)
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "write_tools": ["mcp__controls__channel_write", "mcp__controls__set_mode"],
+                "governed_tools": ["mcp__controls__channel_write"],
+            }
+        )
+    )
+    tools = [{"name": n} for n in ("channel_write", "set_mode", "channel_read")]
+
+    async def fake(*_a, **_k):
+        return [{"name": "controls", "transport": "stdio", "tools": tools}]
+
+    monkeypatch.setattr(introspect, "get_mcp_servers_cached", fake)
+    async with _asgi_client(app) as client:
+        body = (await client.get("/mcp")).json()
+
+    gates = {t["name"]: t["hooks"] for t in body["servers"][0]["tools"]}
+    assert gates == {
+        "channel_write": {"write": True, "gated": True},
+        "set_mode": {"write": True, "gated": False},
+        "channel_read": {"write": False, "gated": False},
+    }
+
+
+async def test_mcp_sends_no_hook_tags_when_the_contract_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.mcp_server import introspect
+
+    app = create_app(_write_config(tmp_path))
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {"controls": {"command": "x"}}}')
+
+    async def fake(*_a, **_k):
+        return [{"name": "controls", "transport": "stdio", "tools": [{"name": "channel_write"}]}]
+
+    monkeypatch.setattr(introspect, "get_mcp_servers_cached", fake)
+    async with _asgi_client(app) as client:
+        body = (await client.get("/mcp")).json()
+
+    assert "hooks" not in body["servers"][0]["tools"][0]

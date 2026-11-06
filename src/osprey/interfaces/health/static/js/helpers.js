@@ -174,28 +174,34 @@ export function commonMethod(methods) {
   return words.every((w) => w.length - k <= 1) ? words[0].slice(0, k).join(' ') : null;
 }
 
-const GATED =
-  /^channel_write$|^control_target_set$|^queue_(start|stop)$|^stop_run$|^execute(_file)?$|_measure$/;
 const WRITES =
-  /(^|_)(create|delete|register|add|remove|drop|close|open|arrange|manage|submit|draft|clear|patch|export|pin|focus|publish|capture|write|set|to_artifact)(_|$)/;
+  /(^|_)(create|delete|register|add|remove|drop|close|open|arrange|manage|submit|draft|clear|patch|export|pin|focus|publish|capture|write|set|to_artifact|execute|measure|start|stop)(_|$)/;
 
 /**
  * The exception tag of an MCP tool: "" for a read tool (the default carries
- * no tag), "write", or "write · gated". MCP annotations decide when the
- * server publishes them; otherwise the tool name decides (``derived`` true).
+ * no tag), "write", or "write · gated". The render's hook contract decides
+ * when the server sends it (``tool.hooks``, read from hook_config.json): only
+ * it can say a tool is gated. Without it, MCP annotations or the tool name
+ * (``derived`` true) can say a tool writes, never that it is gated.
  *
- * @param {{name: string, annotations?: Record<string, unknown> | null}} tool
- * @returns {{tag: string, derived: boolean}}
+ * @param {{name: string, annotations?: Record<string, unknown> | null,
+ *   hooks?: {write: boolean, gated: boolean}}} tool
+ * @returns {{tag: string, derived: boolean, from: string}}
  */
 export function tagOf(tool) {
+  const g = tool.hooks;
+  if (g && typeof g === 'object') {
+    return {
+      tag: g.gated ? 'write · gated' : g.write ? 'write' : '',
+      derived: false,
+      from: 'hooks',
+    };
+  }
   const a = tool.annotations;
   if (a && typeof a === 'object' && ('readOnlyHint' in a || 'destructiveHint' in a)) {
-    if (a.readOnlyHint) return { tag: '', derived: false };
-    return { tag: a.destructiveHint ? 'write · gated' : 'write', derived: false };
+    return { tag: a.readOnlyHint ? '' : 'write', derived: false, from: 'annotations' };
   }
-  if (GATED.test(tool.name)) return { tag: 'write · gated', derived: true };
-  if (WRITES.test(tool.name)) return { tag: 'write', derived: true };
-  return { tag: '', derived: true };
+  return { tag: WRITES.test(tool.name) ? 'write' : '', derived: true, from: 'name' };
 }
 
 /**

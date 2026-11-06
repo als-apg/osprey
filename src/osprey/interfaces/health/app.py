@@ -69,8 +69,47 @@ _MCP_TIMEOUT_S = 30.0
 _PRIVATE_MCP_KEYS = ("env", "description")
 
 
-def _public(server: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in server.items() if k not in _PRIVATE_MCP_KEYS}
+#: ``hook_config.json`` lists naming a tool that writes; ``governed_tools`` is
+#: the set the write chain gates.
+_WRITE_LISTS = (
+    "write_tools",
+    "control_system_write_tools",
+    "facility_write_tools",
+    "mixed_read_write_tools",
+)
+
+
+def _public(server: dict[str, Any], hook_config: dict[str, Any] | None) -> dict[str, Any]:
+    """A server as the panel is served it: no env, and each tool's hook coverage.
+
+    With the render's ``hook_config.json`` (the write hooks' own contract),
+    every tool carries ``hooks: {"write", "gated"}`` read from it, so the panel
+    tags a tool as gated only when the chain actually gates it. Without the
+    contract no tool carries ``hooks`` and the panel falls back to the tool's
+    annotations or name.
+    """
+    out = {k: v for k, v in server.items() if k not in _PRIVATE_MCP_KEYS}
+    if hook_config is None or not isinstance(out.get("tools"), list):
+        return out
+    writes = {t for key in _WRITE_LISTS for t in hook_config.get(key) or [] if isinstance(t, str)}
+    gated = {t for t in hook_config.get("governed_tools") or [] if isinstance(t, str)}
+    tools = []
+    for tool in out["tools"]:
+        full = f"mcp__{server.get('name')}__{tool.get('name')}"
+        tools.append({**tool, "hooks": {"write": full in writes, "gated": full in gated}})
+    out["tools"] = tools
+    return out
+
+
+def _hook_config(render: Path) -> dict[str, Any] | None:
+    """The render's ``.claude/hooks/hook_config.json``, or ``None`` when unreadable."""
+    import json
+
+    try:
+        data = json.loads((render / ".claude" / "hooks" / "hook_config.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _build_engine(
@@ -208,7 +247,8 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             logger.warning("system-health: MCP introspection failed", exc_info=True)
             return JSONResponse({"detail": f"introspection failed: {exc}"}, status_code=500)
         _, probed_at = peek_mcp_servers(path)
-        return {"probed_at": probed_at, "servers": [_public(s) for s in servers]}
+        hook_config = _hook_config(path.parent)
+        return {"probed_at": probed_at, "servers": [_public(s, hook_config) for s in servers]}
 
     @app.post("/reprobe", response_model=None)
     async def reprobe(
