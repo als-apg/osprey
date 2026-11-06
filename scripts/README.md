@@ -16,6 +16,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
 | `facility_demo/facility_overview.py` | Generate the control-assistant facility overview, booster and storage-ring sector screens from the example records | < 1 s | After changing the example facility's records or the generated screens' layout |
 | `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
+| `docs/snippet_coverage.py` | Per-page count of docs code blocks a test reads; `--check` is the ratchet | < 1 s | After adding or removing a code block on a docs page, or a test that reads one |
 
 ## Scripts
 
@@ -317,6 +318,35 @@ Needs Docker.
 ```bash
 uv run python scripts/va/capture_nominals.py --out tests/facility/golden/nominal_va.json
 uv run python scripts/va/capture_nominals.py --check tests/facility/golden/nominal_va.json
+```
+
+---
+
+### docs/snippet_coverage.py
+
+**Purpose**: Show, page by page, how many code blocks under `docs/source` a test
+reads, and keep that number from falling. Every `code-block`, `literalinclude`
+and `::` literal block is counted; `scripts/docs/snippet_coverage.yml` is the
+hand-kept ledger of which tests read which pages and languages, and how
+(`runs`, `checks` or `pins`). A claim under `pending:` (a test on an open pull
+request) counts as soon as its test file is on disk, so the pull requests can
+merge in any order. The default output is a Markdown table, the pages with the
+most untested blocks first, with the line of each untested block; `--page`
+narrows it to one page and lists what tests the rest, and `--json` is for
+scripts. `--check` fails when a page has more untested blocks than
+`snippet_coverage_baseline.json` allows, or fewer (shrink the allowance with
+`--update-baseline`; while a pending claim has landed this is only noted), or when a claim
+names a missing test, a page its test never names, or no block;
+`tests/docs/test_snippet_coverage.py` runs the same check in CI.
+
+---
+
+**Usage**:
+```bash
+uv run python scripts/docs/snippet_coverage.py
+uv run python scripts/docs/snippet_coverage.py --page how-to/build-profiles.rst
+uv run python scripts/docs/snippet_coverage.py --check
+uv run python scripts/docs/snippet_coverage.py --update-baseline
 ```
 
 ---
