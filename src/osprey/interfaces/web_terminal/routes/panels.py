@@ -375,9 +375,11 @@ async def get_panels(request: Request):
       and ``layout_dock: false``. A client is watching but runs without the
       dock shell, so it cannot report tiles.
     - **Known occupancy** — ``layout`` is a tree (possibly holding only the
-      terminal) with a numeric age and ``layout_dock: true``.
+      terminal) with a numeric age and ``layout_dock: true``, or ``null`` with
+      ``layout_dock: true`` for a dock that is empty, its panes in ``popouts``
+      or closed.
 
-    So the age tells the two flavours of a null ``layout`` apart.
+    So ``layout_dock`` tells the flavours of a null ``layout`` apart.
 
     ``docs_url``, ``feedback_trackers`` and ``feedback_email`` are the resolved
     ``web.docs_url`` / ``web.feedback.*`` values that address the two utility
@@ -797,9 +799,12 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     :func:`~osprey.interfaces.web_terminal.dock_layout.layout_refusal`, holds
     one panel per tile (``one_panel_per_tile``,
     :func:`~osprey.interfaces.web_terminal.presets.crowded_tile`) and whose
-    every key other than the terminal is a known panel id; a pop-out is a known
-    panel id that is not in the tree. The layout is stored normalised, its
-    ``client_id`` becomes the current dock client, and a changed layout or
+    every key other than the terminal is a known panel id; a pop-out is the
+    terminal or a known panel id, and is not in the tree. A dock whose panes are
+    all in windows of their own (the Agent pane detached from the default
+    layout) reports ``layout: None`` with those pop-outs, and an empty dock with
+    none left reports ``layout: None`` alone. The layout is stored
+    normalised, its ``client_id`` becomes the current dock client, and a changed layout or
     pop-out set mints the next ``rev``. A client running without the dock
     shell cannot see the layout, so ``dock: false`` records the layout as
     **unknown** (``None``) with no current client while still stamping the
@@ -820,8 +825,8 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
 
     Raises:
         HTTPException: 422 when the layout breaks a dock layout rule, puts
-            several panels in one tile, names an unknown key or pop-out, has a
-            pop-out also in the tree, or a dock report carries no layout.
+            several panels in one tile, names an unknown key or pop-out, or has a
+            pop-out also in the tree.
     """
     layout = _checked_dock_layout(request, body.layout) if body.dock else None
     popouts = _checked_popouts(request, body.popouts, layout) if body.dock else []
@@ -838,19 +843,20 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     }
 
 
-def _checked_dock_layout(request: Request, layout: dict | None) -> dict:
+def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
     """``layout`` normalised, once it passes the dock layout rules and names only known panels.
 
     The same check guards a dock's report (``/api/panel-layout``) and an op's
-    result (``/api/panel-op-result``).
+    result (``/api/panel-op-result``). ``None`` is an empty dock, which passes
+    as it is.
 
     Raises:
-        HTTPException: 422 when the layout is missing, breaks a dock layout rule,
+        HTTPException: 422 when the layout breaks a dock layout rule,
             puts several panels in one tile (``one_panel_per_tile``) or names a
             key that is neither the terminal nor a known panel id.
     """
     if layout is None:
-        raise HTTPException(status_code=422, detail="A dock report must carry its layout")
+        return None
     refusal = layout_refusal(layout)
     if refusal is not None:
         reason, where = refusal
@@ -872,14 +878,17 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict:
 
 
 def _checked_popouts(request: Request, popouts: list[str], layout: dict | None) -> list[str]:
-    """``popouts`` sorted and deduplicated, once each names a known panel outside ``layout``.
+    """``popouts`` sorted and deduplicated, once each names a pane outside ``layout``.
+
+    A pop-out is the terminal (the Agent pane) or a known panel id. ``layout``
+    may be ``None``, an empty dock.
 
     Raises:
-        HTTPException: 422 when a pop-out is the terminal or an unknown id, or is
-            also in the tree (a panel is in a window or in a tile, never both).
+        HTTPException: 422 when a pop-out is an unknown id, or is also in the tree
+            (a pane is in a window or in a tile, never both).
     """
     known = _known_panel_ids(request)
-    bad = [key for key in popouts if key == _TERMINAL_PANEL_ID or key not in known]
+    bad = [key for key in popouts if key != _TERMINAL_PANEL_ID and key not in known]
     if bad:
         raise HTTPException(status_code=422, detail=f"Unknown pop-out panel ids: {bad}")
     docked = set(layout_keys(layout))

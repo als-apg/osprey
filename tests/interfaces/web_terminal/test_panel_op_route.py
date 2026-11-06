@@ -236,6 +236,30 @@ async def test_a_result_may_name_pop_outs_and_the_server_holds_them():
         assert client.get("/api/panels").json()["popouts"] == ["lattice"]
 
 
+async def test_a_result_with_a_null_layout_and_the_agent_detached_is_recorded():
+    """The Agent pane alone left for its window: the dock is empty, and says so."""
+    app = _app(dock_layout=TERMINAL_ONLY)
+    resp, _, result = await _write(
+        app, "/api/panel-op/open", {"member": "lattice"}, _popped_answer(None, ["terminal"])
+    )
+    assert result.status_code == 200
+    assert result.json()["layout"] is None
+    assert result.json()["popouts"] == ["terminal"]
+    assert resp.status_code == 200
+    assert app.state.dock_layout is None
+    assert app.state.dock_popouts == ["terminal"]
+    assert app.state.layout_dock is True
+
+
+async def test_a_result_with_neither_a_layout_nor_pop_outs_nor_a_refusal_is_refused(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    _, _, result = await _write(
+        app, "/api/panel-op/open", {"member": "lattice"}, _popped_answer(None, [])
+    )
+    assert result.status_code == 422
+
+
 async def test_a_pop_out_that_is_also_in_the_layout_is_a_refused_result():
     app = _app()
     resp, _, result = await _write(

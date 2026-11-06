@@ -11,14 +11,18 @@
  * id → the root-relative page its frame showed (panel-lifecycle's
  * `getPanelPage`). A first-party panel's page is read from its frame; an
  * opaque or cross-origin panel's is not readable and it reopens at its start
- * page, and the Artifacts viewer keeps its own per-session last artifact.
+ * page, and the Artifacts viewer keeps its own per-session last artifact. A
+ * detached pane is in that form docked where it was; its page is read from its
+ * frame too (a frame moved to a same-origin window stays readable), else it is
+ * the page the pane left the dock on.
  *
  * The session is the active row's transcript (session-model.js). While the
- * tab is on it, every settled dock change and every panel page load writes its
- * layout (`PUT /api/sessions/{id}/layout`, debounced); leaving it writes once
- * more from the screen it left. Arriving reads the new session's layout
- * (`GET`) and applies it; a session with none yet — an older one, or a new one
- * — keeps the layout on screen, which becomes its own. Changes made while a
+ * tab is on it, every settled dock change, every panel page load and every
+ * change of the detached panes writes its layout (`PUT
+ * /api/sessions/{id}/layout`, debounced); leaving it writes once more from the
+ * screen it left. Arriving reads the new session's layout (`GET`) and applies
+ * it; a session with none yet — an older one, or a new one — keeps the layout
+ * on screen, which becomes its own. Changes made while a
  * layout is applying, and for {@link SETTLE_MS} after, are the apply's own and
  * are never written back.
  *
@@ -29,6 +33,7 @@
 import { fetchJSON, withPrefix } from './api.js';
 import { activeRow, subscribe as subscribeToSessions } from './session-model.js';
 import { applyDock, currentDock, getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
+import { getLayoutHolder } from './dock-apply.js';
 import { getPanelPage, restorePanelPage } from './panel-lifecycle.js';
 
 /** Debounce of a layout write, so a gesture's burst of changes writes once:
@@ -81,6 +86,8 @@ export function initSessionLayout() {
   started = true;
   const disposers = [api.onDidLayoutChange(onDockChange), api.onDidActivePanelChange(onDockChange)];
   teardown.push(() => disposers.forEach((d) => d?.dispose?.()));
+  const offDetached = getLayoutHolder()?.onDetachedChange(onDockChange);
+  if (offDetached) teardown.push(offDetached);
   document.addEventListener('load', onFrameLoad, true);
   window.addEventListener('pagehide', onLeave);
   document.addEventListener('visibilitychange', onVisibility);
@@ -143,9 +150,10 @@ function snapshot() {
   if (!dock) return null;
   /** @type {Record<string, string>} */
   const pages = {};
+  const holder = getLayoutHolder();
   for (const id of Object.keys(dock.panels ?? {})) {
     if (id === ARTIFACTS_PANEL_ID) continue;
-    const page = getPanelPage(id);
+    const page = getPanelPage(id) ?? holder?.detachedEntry(id)?.page ?? null;
     if (page) pages[id] = page;
   }
   return { ...dock, pages };

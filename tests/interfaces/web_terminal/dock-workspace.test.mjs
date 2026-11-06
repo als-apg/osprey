@@ -276,6 +276,58 @@ describe('a change made just before the page goes away is stored', () => {
   });
 });
 
+describe('a change of the detached panes is stored at once, docked where it was', () => {
+  /** A page with ARIEL left of the terminal, its record stored, nothing waiting to write. */
+  async function detachable() {
+    localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL, { ariel: { title: 'ARIEL' } }));
+    const page = await boot(null);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return page;
+  }
+
+  /** The stored value, read with no wait for any debounce. */
+  const storedNow = () => JSON.parse(localStorage.getItem(KEY) ?? 'null');
+
+  // The apply's own layout change arms the debounced write: let it land here,
+  // or this page would write over the next test's stored value.
+  afterEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  });
+
+  test('a detach writes the pane in place with its record, synchronously', async () => {
+    const page = await detachable();
+    localStorage.removeItem(KEY);
+    expect(page.holder.detach('ariel', '/panel/ariel/')).toBe(true);
+    const stored = storedNow();
+    expect(keysOf(stored.layout)).toEqual(['ariel', 'terminal']);
+    expect(rounded(stored.layout).items.map((/** @type {any} */ i) => i.size)).toEqual([0.7, 0.3]);
+    expect(stored.panels.ariel).toMatchObject({ title: 'ARIEL' });
+    // The live layout has left it out, and a session keeps the same stored form.
+    expect(keysOf(page.holder.layout)).toEqual(['terminal']);
+    expect(page.workspace.currentDock()).toEqual(stored);
+  });
+
+  test('a reattach rewrites it, synchronously', async () => {
+    const page = await detachable();
+    page.holder.detach('ariel', null);
+    localStorage.removeItem(KEY);
+    expect(page.holder.reattach('ariel')).toBe(true);
+    expect(keysOf(storedNow().layout)).toEqual(['ariel', 'terminal']);
+    expect(keysOf(page.holder.layout)).toEqual(['ariel', 'terminal']);
+  });
+
+  test('a forget rewrites it without the pane, synchronously', async () => {
+    const page = await detachable();
+    page.holder.detach('ariel', null);
+    localStorage.removeItem(KEY);
+    expect(page.holder.forget('ariel')).toBe(true);
+    const stored = storedNow();
+    expect(keysOf(stored.layout)).toEqual(['terminal']);
+    expect(stored.panels.ariel).toBeUndefined();
+    expect(page.workspace.currentDock()).toEqual(stored);
+  });
+});
+
 describe('a reload restores tiles, the panel each shows and sizes', () => {
   test('the stored tiles come back as stored, with their records', async () => {
     localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL, { ariel: { title: 'ARIEL' } }));

@@ -285,7 +285,14 @@ function buildGroup(root, api, panelIds) {
  */
 function makeHolder(layout, popouts = []) {
   /** @type {any} */
-  const holder = { layout, popouts, dirty: true, ackedRev: null };
+  const holder = { layout, popouts, dirty: true, ackedRev: null, detached: [] };
+  /** The detached-set listeners dock-sync registered. @type {Function[]} */
+  holder.detachedListeners = [];
+  holder.detachedKeys = () => [...holder.detached];
+  holder.onDetachedChange = (/** @type {Function} */ fn) => {
+    holder.detachedListeners.push(fn);
+    return () => {};
+  };
   holder.ack = vi.fn((/** @type {number} */ rev) => {
     holder.ackedRev = rev;
     holder.dirty = false;
@@ -704,6 +711,53 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(3);
     expect(serverReport).toHaveBeenLastCalledWith(row(['ariel'], ['terminal']), [], true);
+  });
+
+  test('a null layout with a detached Agent pane is reported, with the pop-outs', async () => {
+    const { holder } = await wireReporting(row(['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    // The Agent pane leaves the default layout for its window: the dock is empty.
+    holder.layout = null;
+    holder.detached = ['terminal'];
+    holder.popouts = ['terminal'];
+    holder.dirty = true;
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(null, ['terminal'], true);
+    expect(fetchBodies.at(-1)).toMatchObject({ layout: null, popouts: ['terminal'], dock: true });
+    expect(holder.ack).toHaveBeenLastCalledWith(2);
+  });
+
+  test('the last detached pane going reports the empty dock, once, and acks the holder', async () => {
+    const { holder } = await wireReporting(null);
+    holder.detached = ['terminal'];
+    holder.popouts = ['terminal'];
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(null, ['terminal'], true);
+    // Its window closes: the server still names the pop-out until it is told.
+    holder.detached = [];
+    holder.popouts = [];
+    holder.dirty = true;
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(null, [], true);
+    expect(holder.dirty).toBe(false);
+    // Acknowledged: nothing further goes out for the same empty dock.
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+  });
+
+  test('a null layout with nothing detached still reports nothing', async () => {
+    const { api, holder } = await wireReporting(null);
+    holder.popouts = ['ariel'];
+    api.fireLayout();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).not.toHaveBeenCalled();
   });
 
   test('a report that never LANDED is retried, not remembered as sent', async () => {
