@@ -610,12 +610,14 @@ def _remove_artifacts_from_rail(page: Page) -> None:
 def test_the_agent_row_folds_the_tree_and_option_click_expands_every_session(hub, page):
     """With the Agent pane open the Agent row folds and unfolds the whole tree (a
     display rule once outranked ``hidden``, so the tree stayed on screen); ⌥-click
-    expands every session, a second ⌥-click collapses them all."""
+    expands every session, a second ⌥-click collapses them all. The row has no
+    chevron, and its menu's Expand all does what ⌥-click does."""
     _boot(page, hub)
     agent = page.locator("#sidebar-agent-row")
     tree = page.locator(_TREE)
     expect(page.locator("html")).not_to_have_attribute("data-agent", "closed")
     expect(tree).to_be_visible()
+    expect(agent.locator("svg.osprey-nav-disc, [data-disc]")).to_have_count(0)
 
     agent.click()
     expect(agent).to_have_attribute("aria-expanded", "false")
@@ -636,6 +638,19 @@ def test_the_agent_row_folds_the_tree_and_option_click_expands_every_session(hub
     sessions.last.locator(".osprey-tree-title").click(modifiers=["Alt"])
     expect(page.locator(f'{_TREE} .osprey-tree-session[aria-expanded="true"]')).to_have_count(0)
     expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(0)
+
+    # The menu's Expand all is the same gesture: every session opens.
+    _menu(page, agent, "Expand all")
+    expect(folded).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(sessions.count())
+    expect(agent).to_have_attribute("aria-expanded", "true")
+
+    # Keyboard still folds the tree from the row.
+    agent.focus()
+    page.keyboard.press("Enter")
+    expect(agent).to_have_attribute("aria-expanded", "false")
+    page.keyboard.press("Space")
+    expect(agent).to_have_attribute("aria-expanded", "true")
 
 
 def test_a_session_click_while_streaming_asks_and_another_session_never_opens_in_place(hub, page):

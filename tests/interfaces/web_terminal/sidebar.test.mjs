@@ -76,7 +76,6 @@ const SIDEBAR_HTML = `
               <span class="osprey-nav-label">Agent</span>
               <span class="sidebar-open-hint" aria-hidden="true">Open</span>
               <span class="osprey-nav-badge" data-agent-badge hidden></span>
-              <svg class="osprey-ic osprey-nav-disc" data-disc data-icon="chevron-right" aria-hidden="true"></svg>
             </button>
             <div class="sidebar-kids osprey-tree" id="sidebar-session-tree" data-session-tree
                  role="tree" aria-label="Sessions"></div>
@@ -149,13 +148,6 @@ const agentRow = () => byId('sidebar-agent-row');
 const tree = () => byId('sidebar-session-tree');
 const flyout = () => byId('sidebar-sessions-flyout');
 const agentBadge = () => qs(agentRow(), '[data-agent-badge]');
-
-/** Click a row's chevron, which is an svg (no `.click()` of its own). @param {HTMLElement} row */
-function clickDisc(row) {
-  qs(row, '[data-disc]').dispatchEvent(
-    new MouseEvent('click', { bubbles: true, cancelable: true })
-  );
-}
 
 /** @param {HTMLElement} el @param {string} key @returns {KeyboardEvent} */
 function press(el, key) {
@@ -316,7 +308,7 @@ describe('disclosure', () => {
     await boot();
     const key = `${sidebar.OPEN_LISTS_STORAGE_KEY}--alice`;
 
-    clickDisc(agentRow());
+    press(agentRow(), 'ArrowLeft');
     expect(tree().hidden).toBe(true);
     expect(storedOpen(key)).toEqual([]);
     expect(window.localStorage.getItem(sidebar.OPEN_LISTS_STORAGE_KEY)).toBeNull();
@@ -326,7 +318,7 @@ describe('disclosure', () => {
     expect(tree().hidden).toBe(true);
     expect(agentRow().getAttribute('aria-expanded')).toBe('false');
 
-    clickDisc(agentRow());
+    press(agentRow(), 'ArrowRight');
     expect(storedOpen(key)).toEqual(['agent']);
   });
 
@@ -373,21 +365,11 @@ describe('disclosure', () => {
     expect(storedOpen('osprey-sidebar-open')).toEqual(['agent']);
   });
 
-  test("the chevron toggles the tree only, never the row's own click", async () => {
+  test('the Agent row carries no chevron of its own', async () => {
     await boot();
-    const activate = vi.fn();
-    // panel-rail.js's activation (open the Agent pane) listens on the same row.
-    agentRow().addEventListener('click', activate);
-
-    clickDisc(agentRow());
-    expect(tree().hidden).toBe(true);
-    expect(agentRow().getAttribute('aria-expanded')).toBe('false');
-
-    clickDisc(agentRow());
-    expect(tree().hidden).toBe(false);
+    expect(agentRow().querySelector('[data-disc], .osprey-nav-disc')).toBeNull();
     expect(agentRow().getAttribute('aria-expanded')).toBe('true');
-
-    expect(activate).not.toHaveBeenCalled();
+    expect(agentRow().getAttribute('aria-controls')).toBe('sidebar-session-tree');
   });
 
   test('ArrowRight opens and ArrowLeft closes the tree from the keyboard', async () => {

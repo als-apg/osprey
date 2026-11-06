@@ -21,8 +21,8 @@
  *     `["agent"]` by default. A click on the Agent row is the row's activation
  *     (panel-menu-policy.js): with the Agent pane closed it opens the pane and
  *     the tree, with the pane open it folds or unfolds the tree and leaves the
- *     pane alone. A click on its chevron (`[data-disc]`) toggles the tree
- *     only; ArrowRight / ArrowLeft open and close it from the keyboard. While
+ *     pane alone. The row has no chevron of its own; ArrowRight / ArrowLeft
+ *     open and close the tree from the keyboard. While
  *     the sidebar is collapsed the Agent row opens the same tree as a flyout
  *     beside the sidebar (`#sidebar-sessions-flyout`) instead.
  *   - THE AGENT ROW. Its open/closed look comes from `html[data-agent]`
@@ -196,16 +196,27 @@ export function setListOpen(id, open) {
   writeOpenLists(openLists);
 }
 
+/**
+ * Expand or collapse every session in the open tree: what a ⌥-click on the
+ * Agent row does, and what its menu's Expand all / Collapse all do. The list
+ * is opened first; the sessions are sidebar-artifacts.js's, imported lazily.
+ * @param {boolean} [force]  expand (true) or collapse (false) instead of toggling
+ */
+export function toggleEverySession(force) {
+  setListOpen('agent', true);
+  void import('./sidebar-artifacts.js').then((m) => m.toggleAllSessions(force));
+}
+
 /** Paint every row's list from {@link openLists}. */
 function paintAllDisclosures() {
   for (const id of Object.keys(DISCLOSURES)) paintDisclosure(id, openLists.has(id));
 }
 
 /**
- * Wire a disclosing row: `primary` runs on a click on the row itself, a click
- * on its chevron toggles the list only, and ArrowRight / ArrowLeft open and
- * close the list from the keyboard. The expanded row's click is the row's own
- * activation (panel-menu-policy.js), which decides whether it folds the list.
+ * Wire a disclosing row: `primary` runs on a click on the row itself, and
+ * ArrowRight / ArrowLeft open and close the list from the keyboard. The
+ * expanded row's click is the row's own activation (panel-menu-policy.js),
+ * which decides whether it folds the list.
  * @param {string} id
  * @param {(event: MouseEvent) => void} primary
  */
@@ -213,13 +224,6 @@ function wireDisclosure(id, primary) {
   const { toggle } = disclosure(id);
   if (!toggle) return;
   toggle.addEventListener('click', primary);
-  const disc = toggle.querySelector('[data-disc]');
-  disc?.addEventListener('click', (event) => {
-    // The chevron is the list's own control: the row's activation (and its
-    // flyout) never ride along.
-    event.stopPropagation();
-    if (!isCollapsed()) setListOpen(id, !openLists.has(id));
-  });
   toggle.addEventListener('keydown', (event) => {
     if (isCollapsed() || (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft')) return;
     event.preventDefault();

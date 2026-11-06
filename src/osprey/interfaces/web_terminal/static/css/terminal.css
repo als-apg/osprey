@@ -729,7 +729,6 @@ html[data-sidebar="collapsed"] #sidebar-toggle .osprey-ic {
 html[data-sidebar="collapsed"] :is(
   .sidebar-brand-word,
   .sidebar .osprey-nav-label,
-  .sidebar .osprey-nav-disc,
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,

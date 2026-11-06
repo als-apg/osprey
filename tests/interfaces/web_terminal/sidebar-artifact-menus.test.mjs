@@ -26,6 +26,7 @@ const listing = vi.hoisted(() => ({
 }));
 const confirm = vi.hoisted(() => ({ showConfirm: vi.fn() }));
 const controller = vi.hoisted(() => ({ setTreeView: vi.fn(), openInAgent: vi.fn(async () => {}) }));
+const sidebar = vi.hoisted(() => ({ toggleEverySession: vi.fn() }));
 
 vi.mock(
   '../../../src/osprey/interfaces/web_terminal/static/js/session-model.js',
@@ -40,6 +41,8 @@ vi.mock(
   '../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js',
   () => controller
 );
+
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar.js', () => sidebar);
 
 const menus = await import(`${JS}/sidebar-artifact-menus.js`);
 
@@ -135,24 +138,32 @@ describe('the Agent row', () => {
   });
 });
 
-describe('the Agent row: Expand all', () => {
-  test('never opens a session without a disclosure (that would switch to it)', () => {
+describe('the Agent row: Expand all / Collapse all', () => {
+  /** @param {string} name */
+  const item = (name) =>
+    menus.buildAgentRowMenuItems().find((/** @type {any} */ i) => i.label === name);
+
+  test('Expand all is the ⌥-click gesture: it expands every session, never just the current one', async () => {
+    item('Expand all').run();
+    await vi.waitFor(() => expect(sidebar.toggleEverySession).toHaveBeenCalledWith(true));
+  });
+
+  test('the label reads Collapse all only when every session is open, and collapses them all', async () => {
+    $('[data-session-id="t1"]').setAttribute('aria-expanded', 'true');
+    const labels = menus.buildAgentRowMenuItems().map((/** @type {any} */ i) => i.label);
+    expect(labels.filter(Boolean)).toEqual(['New session', 'Collapse all']);
+    item('Collapse all').run();
+    await vi.waitFor(() => expect(sidebar.toggleEverySession).toHaveBeenCalledWith(false));
+  });
+
+  test('one session open among several still offers Expand all', () => {
+    $('[data-session-id="t1"]').setAttribute('aria-expanded', 'true');
     const other = document.createElement('div');
     other.className = 'osprey-tree-session osprey-tree-d0';
     other.dataset.sessionId = 't2';
     other.setAttribute('aria-expanded', 'false');
-    const clicked = vi.fn();
-    other.addEventListener('click', clicked);
     $('[data-session-tree]').append(other);
-    const disc = $('[data-session-id="t1"] [data-tree-disc]');
-    disc.addEventListener('click', () => {
-      const row = /** @type {HTMLElement} */ (disc.parentElement);
-      row.setAttribute('aria-expanded', String(row.getAttribute('aria-expanded') !== 'true'));
-    });
-    menus.setAllOpen(true);
-    expect($('[data-session-id="t1"]').getAttribute('aria-expanded')).toBe('true');
-    expect(other.getAttribute('aria-expanded')).toBe('false');
-    expect(clicked).not.toHaveBeenCalled();
+    expect(item('Expand all')).toBeDefined();
   });
 });
 

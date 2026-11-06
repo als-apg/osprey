@@ -139,27 +139,27 @@ describe('the Agent row', () => {
     );
   });
 
-  test('with a session open it offers Collapse all, which closes every open row', () => {
-    const tree = document.createElement('div');
-    tree.dataset.sessionTree = '';
+  test('with every session open it offers Collapse all, the ⌥-click gesture', async () => {
+    const treeEl = document.createElement('div');
+    treeEl.dataset.sessionTree = '';
     const row = document.createElement('div');
     row.className = 'osprey-tree-session';
     row.dataset.sessionId = 't1';
     row.setAttribute('aria-expanded', 'true');
-    const disc = document.createElement('span');
-    disc.dataset.treeDisc = '';
-    // The controller's toggle, stood in for: a disclosure click flips the row.
-    disc.addEventListener('click', () =>
-      row.setAttribute('aria-expanded', String(row.getAttribute('aria-expanded') !== 'true'))
-    );
-    row.append(disc);
-    tree.append(row);
-    document.body.append(tree);
+    treeEl.append(row);
+    document.body.append(treeEl);
 
     policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1);
     expect(menuLabels()).toEqual(['New session', 'Collapse all']);
     menuRow('Collapse all').click();
-    expect(row.getAttribute('aria-expanded')).toBe('false');
+    await vi.waitFor(() => expect(tree.toggleAllSessions).toHaveBeenCalledWith(false));
+  });
+
+  test('Expand all expands every session through the same path as ⌥-click', async () => {
+    policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1);
+    menuRow('Expand all').click();
+    await vi.waitFor(() => expect(tree.toggleAllSessions).toHaveBeenCalledWith(true));
+    expect(sidebar.isListOpen('agent')).toBe(true);
   });
 
   test('New session goes through switchTo({new: true}), never startNewSession directly', async () => {

@@ -56,7 +56,7 @@ import { focusTerminal, restartTerminal, startTerminal } from './terminal.js';
 import { buildAgentRowMenuItems, initTreeMenus } from './sidebar-artifact-menus.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
 import { getEntry, entryIds } from './panel-rail.js';
-import { isListOpen, setListOpen } from './sidebar.js';
+import { isListOpen, setListOpen, toggleEverySession } from './sidebar.js';
 import { showUndoNotice } from './undo-notice.js';
 import { bringBackPanel, canPopOut, focusPopout, isPoppedOut, popOutPanel } from './popout.js';
 import {
@@ -192,8 +192,7 @@ function activateAgentRow(event) {
   if (event?.altKey && event.detail > 0) {
     // A folded list unfolds onto every session open, never onto a collapse.
     const force = isListOpen(AGENT_LIST) ? undefined : true;
-    setListOpen(AGENT_LIST, true);
-    void import('./sidebar-artifacts.js').then((m) => m.toggleAllSessions(force));
+    toggleEverySession(force);
     return;
   }
   if (isTerminalPanelOpen()) {
