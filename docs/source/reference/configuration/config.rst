@@ -477,10 +477,10 @@ The thresholds are not spelled as a ``file_system`` entry under
 The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the sidebar's two utility controls, bound the feedback
-store, name the deployment, decide who is offered the onboarding tour, choose
-whether the terminal is offered, size the operator-chat pool, bound how
-long a panel's own server gets to start, set how often the file watchers
-re-read the tree, and configure the CANOPY panel.
+store, name the deployment, decide who is offered the onboarding tour, set the
+shared controls of the tile bar, choose whether the terminal is offered, size
+the operator-chat pool, bound how long a panel's own server gets to start, set
+how often the file watchers re-read the tree, and configure the CANOPY panel.
 
 .. _feedback-configuration:
 
@@ -666,13 +666,61 @@ The setting changes what the page shows, not what the agent may do. With it
 off, the sidebar has no control-target block. A value that is not a boolean is
 reported in the log and ``true`` is used.
 
+.. _config-tile-bar-controls:
+
+The shared controls of the tile bar
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   web:
+     tile_bar:
+       controls: [ask_agent]
+
+``web.tile_bar.controls`` sets the shared controls on the bar of each service
+tile (see :ref:`web-terminal-tile-bar`). The bar shows them after the icons of
+the panel, from left to right in the order of the list. The default is
+``[ask_agent]``. Use these ids:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 84
+
+   * - Id
+     - What the control does
+   * - ``ask_agent``
+     - Opens the Agent pane and starts a message about the panel. The message
+       has a link to the panel in its current state. The control is disabled
+       while the Agent pane shows the terminal.
+   * - ``reload``
+     - Reloads the panel.
+   * - ``help``
+     - Opens the page of the panel in the documentation, in a new browser tab.
+       The control is not shown for a panel that has no page, or when
+       ``web.docs_url`` is blank.
+
+``[]`` gives a bar without shared controls. The setting changes what the page
+shows, not what the agent can do.
+
+``osprey build`` and ``osprey validate`` refuse a value that is not a list of
+these ids. The message names the bad id and the ids to use. A value written
+into ``config.yml`` by hand does not stop the terminal: the terminal records a
+warning in the log, leaves out an unknown id, and uses the default for a value
+that is not a list.
+
+The ``control-assistant`` preset shows the key as a comment. Set the list in
+the ``config:`` block of the deployment's ``profile.yml``, for example
+``web.tile_bar.controls: [ask_agent, reload]``. A tier cannot remove a shared
+control, and ``[]`` in a tier has no effect: the build merges the list of a
+tier into the list of the deployment and keeps the ids of both.
+
 .. _config-web-terminal:
 
 Offering the terminal
 ~~~~~~~~~~~~~~~~~~~~~
 
-``web.terminal: false`` removes **Open terminal** from the Agent bar's **⋯**
-menu on every login the render serves, and ``/ws/terminal`` closes with code
+``web.terminal: false`` removes **Open terminal** from the Agent pane's session
+switcher on every login the render serves, and ``/ws/terminal`` closes with code
 ``4403`` before any process starts. The default is ``true``. A value that is
 not a boolean is reported in the log and ``true`` is used; a config file that
 cannot be read closes it. ``osprey build`` refuses a profile that still states

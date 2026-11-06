@@ -1104,6 +1104,9 @@ config:
   # Whether the title bar offers the control-target picker. `false` only for
   # an app that reaches no machine.
   # web.control_target_picker: true
+  # The shared controls on each panel's tile bar, left to right. The ids are
+  # ask_agent, reload and help; [] clears them from the bar.
+  # web.tile_bar.controls: [ask_agent]
   # Target of the Documentation button. Point it at a locally hosted copy of
   # the docs when the control room has no route to the public site. Commented
   # rather than shipped live: a rendered value would put the OSPREY project's

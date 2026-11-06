@@ -1,12 +1,12 @@
 /**
  * OSPREY Channel Finder — Full Stylesheet
  *
- * Themed via the OSPREY design system (tokens.css + base.css, loaded
- * before this file in index.html). Colors/text/borders/spacing resolve to
- * canonical tokens; the block below holds only genuine local extensions
- * with no canonical equivalent (surface/shadow/warning composites built
- * from canonical tokens so they still theme correctly, the info-toast
- * accent, and the corpus-strip height).
+ * Themed via the OSPREY design system (tokens.css, base.css and
+ * primitives.css, loaded before this file in index.html). Colors/text/
+ * borders/spacing resolve to canonical tokens; the block below holds only
+ * genuine local extensions with no canonical equivalent (surface/shadow/
+ * warning composites built from canonical tokens so they still theme
+ * correctly, the info-toast accent, and the corpus-strip height).
  */
 
 /* ================================================================
@@ -32,8 +32,8 @@
   --cf-warning-tint-08: color-mix(in srgb, var(--color-warning) 8%, transparent);
   --cf-warning-tint-30: color-mix(in srgb, var(--color-warning) 30%, transparent);
 
-  /* Height of the fixed bottom corpus strip — content padding and the
-     toast stack both clear it, so they read it from here. */
+  /* Height of the bottom corpus strip — the toast stack clears it, so it
+     reads it from here. */
   --cf-strip-h: 28px;
 
 }
@@ -43,14 +43,6 @@
    ================================================================ */
 
 *, *::before, *::after { box-sizing: border-box; }
-
-/* base.css sets html,body { overflow: hidden } for the hub's fixed-viewport
-   terminal shell. Channel Finder is a normal scrolling page (fixed header +
-   a normal-flow .app-main that grows past one viewport height), so it must
-   override that back to auto or all content below the fold is unreachable. */
-html, body {
-  overflow: auto;
-}
 
 body {
   margin: 0;
@@ -90,106 +82,24 @@ a:hover { color: var(--color-accent-light); }
 }
 
 /* ================================================================
-   App Header
+   Panel Layout
+   The panel root (index.html .cf-panel, the size container named
+   `panel`) is one column, embedded and standalone alike: the panel
+   toolbar, the active view, and the corpus strip. Only the view
+   scrolls, so the toolbar and the strip stay put; base.css keeps the
+   page itself from scrolling.
    ================================================================ */
 
-.app-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 48px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--neutral-tint-10);
+.cf-panel {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-4);
-  z-index: 100;
-}
-
-/* Embedded in web terminal: the hub's tile bar is the panel's only header —
- * it shows the panel name, owns theming, and renders the Explore/Feedback
- * tabs this panel contributes (see js/app.js). So the whole local header
- * goes, along with the body padding that compensated for its fixed 48px. */
-body.embedded .app-header { display: none; }
-body.embedded .app-main { padding-top: 0; }
-body.embedded .app-logo { display: none; }
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.app-logo {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-accent-light);
-}
-
-.logo-icon { flex-shrink: 0; }
-
-.logo-text {
-  font-family: var(--font-display);
-  font-weight: var(--weight-bold);
-  font-size: var(--text-base);
-  letter-spacing: 0.12em;
-  color: var(--text-primary);
-}
-
-/* ================================================================
-   Navigation
-   ================================================================ */
-
-.header-nav {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
+  flex-direction: column;
   height: 100%;
 }
-
-.nav-link {
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  padding: 0 var(--space-3);
-  height: 100%;
-  display: flex;
-  align-items: center;
-  border-bottom: 2px solid transparent;
-  transition: color var(--duration-instant) ease, border-color var(--duration-instant) ease;
-}
-
-.nav-link:hover { color: var(--text-primary); }
-
-.nav-link.active {
-  color: var(--text-accent);
-  border-bottom-color: var(--color-accent);
-}
-
-/* Groups header-nav with the theme switcher so `.app-header`'s two-child
-   space-between layout is preserved (header-left <-> header-right) instead
-   of splitting three items across the header. */
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  height: 100%;
-}
-
-/* ================================================================
-   Main Layout
-   ================================================================ */
 
 .app-main {
-  padding-top: 48px;
-  /* Clears the fixed corpus strip so the last row of content stays readable. */
-  padding-bottom: var(--cf-strip-h);
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .view-container {
@@ -198,22 +108,65 @@ body.embedded .app-logo { display: none; }
   margin: 0 auto;
 }
 
+/* The graph finder fills the view edge to edge: its sidebar, results and
+   inspector start right under the toolbar. */
+.view-container:has(> .explore-content-graph) {
+  height: 100%;
+  max-width: none;
+  padding: 0;
+}
+
 .view-container > * {
   animation: fadeIn 0.25s ease; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 /* ================================================================
+   Panel Toolbar
+   The design system's .osprey-panel-toolbar (primitives.css), built in
+   index.html and driven by js/panel-toolbar.js. Only what is particular
+   to this panel is here.
+   ================================================================ */
+
+/* The result count: the numbers lead, in the face the table's addresses use. */
+#cf-result-count strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+}
+
+/* The placeholder names three fields, so the field takes more than the
+   standard width where the panel has room. Narrow, the shared rule folds it. */
+@container panel (min-width: 561px) {
+  #cf-search-field {
+    width: min(340px, 40cqi);
+  }
+}
+
+/* The / hint: out of the way while typing, and gone where the field folds. */
+#cf-search-field .osprey-kbd {
+  flex: none;
+}
+
+#cf-search-field:focus-within .osprey-kbd {
+  visibility: hidden;
+}
+
+@container panel (max-width: 560px) {
+  #cf-search-field .osprey-kbd {
+    display: none;
+  }
+}
+
+/* ================================================================
    Corpus Strip
-   Slim utility bar pinned to the bottom of the viewport: corpus stats
-   on the left, pipeline switcher on the right. Body chrome, not header
-   chrome, so it reads identically standalone and embedded.
+   Slim utility bar at the bottom of the panel: corpus stats and the
+   store they came from on the left, the pipeline switcher on the right.
+   Body chrome, not toolbar chrome, so it reads identically standalone
+   and embedded.
    ================================================================ */
 
 .corpus-strip {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  flex: none;
   height: var(--cf-strip-h);
   display: flex;
   align-items: center;
@@ -223,13 +176,13 @@ body.embedded .app-logo { display: none; }
   border-top: 1px solid var(--neutral-tint-10);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  z-index: 100;
 }
 
 /* Auto margin rather than space-between: the badges hide on narrow
    viewports and the switcher must stay on the right regardless. */
 .pipeline-switcher {
   position: relative;
+  flex: none;
   margin-left: auto;
 }
 
@@ -1725,9 +1678,6 @@ textarea.form-input {
   .stat-grid {
     grid-template-columns: 1fr;
   }
-  .header-nav {
-    gap: 0;
-  }
   .fb-toolbar {
     flex-direction: column;
     align-items: stretch;
@@ -1792,43 +1742,40 @@ textarea.form-input {
 /* ================================================================
    Graph Explore
    The graph paradigm's explorer, laid out like the fleet's other
-   panels: a full-height frame with a toolbar, the active filters,
-   and three panes — the facet rail, the results, and the device
-   inspector — divided by the shared .osprey-splitter (base.css).
-   Every surface with verbs has a right-click menu (base.css
-   .osprey-context-menu); the table's columns move and resize
-   (base.css .col-resize, design-system js/table-columns.js).
+   panels: under the panel toolbar, three panes — the facets in the
+   shared panel sidebar, the results with the active filters above
+   them, and the device inspector behind its own .osprey-splitter
+   (base.css). Every surface with verbs has a right-click menu
+   (base.css .osprey-context-menu); the table's columns move and
+   resize (base.css .col-resize, design-system js/table-columns.js).
 
    Conventions worth knowing:
 
    - Colour, type, radius and timing are fleet tokens only, so the
      finder themes with every other panel and needs no per-theme
      override of its own.
-   - The frame fills the viewport between the page chrome and the
-     corpus strip; each pane scrolls on its own. --cf-graph-chrome is
-     everything above and below it, and the embedded variant changes
-     only that.
+   - The frame fills the view between the panel toolbar and the
+     corpus strip; each pane scrolls on its own.
    - Class-tree depth arrives as `data-depth` on the facet item,
      mapped below to a `--depth` integer that drives the indent. The
      renderer sets no inline style, so the indent geometry lives here.
-   - The narrow-viewport rules are at the END of this section, not in
-     the shared breakpoint block far above. Media queries add no
-     specificity, so a rule up there would lose on source order to the
-     base rules below and silently do nothing.
+   - The narrow rules are at the END of this section, not in the
+     shared breakpoint block far above. Media and container queries
+     add no specificity, so a rule up there would lose on source order
+     to the base rules below and silently do nothing.
    ================================================================ */
 
 /* --- Frame ---------------------------------------------------------- */
 
+.explore-content-graph,
 .graph-explorer {
-  --cf-graph-chrome: calc(48px + var(--cf-strip-h) + 2 * var(--space-4));
-  display: flex;
-  flex-direction: column;
-  height: calc(100dvh - var(--cf-graph-chrome));
-  min-height: 420px;
+  height: 100%;
 }
 
-body.embedded .graph-explorer {
-  --cf-graph-chrome: calc(var(--cf-strip-h) + 2 * var(--space-4));
+.graph-explorer {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
 }
 
 /* The frame replaces the view's fade-in target, so the panes do not
@@ -1841,161 +1788,24 @@ body.embedded .graph-explorer {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: var(--space-2);
   min-height: 0;
-}
-
-/* --- Toolbar -------------------------------------------------------- */
-
-.cf-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 28px;
-}
-
-/* Embedded, the hub's tile bar carries the search box and the ⋯ menu
-   (header contribution), so the in-body toolbar steps aside. Standalone keeps it. */
-body.embedded .cf-toolbar {
-  display: none;
-}
-
-/* The search pill: the hub's own filter-box idiom, one size up. */
-.cf-search {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex: 0 1 440px;
-  min-width: 160px;
-  height: 28px;
-  padding: 0 var(--space-2);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: text;
-  transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
-}
-
-.cf-search:hover,
-.cf-search:focus-within {
-  border-color: var(--border-accent);
-  background: var(--bg-elevated);
-}
-
-.cf-search svg {
-  flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  color: var(--text-muted);
-}
-
-.cf-search input {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  outline: none;
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  color: var(--text-primary);
-}
-
-.cf-search input::placeholder {
-  color: var(--text-muted);
-}
-
-.cf-search kbd {
-  padding: 1px var(--space-1);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  font-family: var(--font-display);
-  font-size: var(--text-2xs);
-  line-height: var(--leading-none);
-  color: var(--text-muted);
-}
-
-.cf-search:focus-within kbd {
-  visibility: hidden;
-}
-
-.finder-count {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  white-space: nowrap;
-}
-
-.finder-count strong {
-  color: var(--text-primary);
-  font-weight: var(--weight-medium);
-}
-
-.cf-fill {
-  flex: 1;
-}
-
-/* Segmented control: the hub's contrib-nav idiom. */
-.cf-seg {
-  display: inline-flex;
-  gap: 2px;
-  height: 28px;
-  padding: 2px;
-  box-sizing: border-box;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-.cf-seg button,
-.cf-iconbtn {
-  appearance: none;
-  padding: 0 var(--space-2);
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-none);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.cf-seg button {
-  border-radius: var(--radius-xs);
-}
-
-.cf-seg button[aria-pressed="true"],
-.cf-seg button:hover {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-}
-
-.cf-iconbtn {
-  min-width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-lg);
-}
-
-.cf-iconbtn:hover,
-.cf-iconbtn:focus-visible {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-  outline: none;
 }
 
 /* --- Active filters ------------------------------------------------- */
 
-/* Reserve the row's height so adding the first chip does not shift the
-   panes down. */
+/* The filters in force, in one row above the results. With none, the row
+   goes, so the table starts right under the toolbar. */
 .active-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
-  min-height: 22px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--surface-hairline);
+}
+
+.active-filters:empty {
+  display: none;
 }
 
 .active-filter {
@@ -2043,7 +1853,7 @@ body.embedded .cf-toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  margin: var(--space-2) var(--space-3);
   padding: var(--space-2) var(--space-3);
   background: var(--cf-warning-tint-08);
   border: 1px solid var(--cf-warning-tint-30);
@@ -2062,23 +1872,28 @@ body.embedded .cf-toolbar {
   min-height: 0;
 }
 
-/* The splitter's 5px track is the gutter between panes. */
-.finder-layout > .osprey-splitter {
-  margin: 0 var(--space-1);
-}
-
-.finder-layout > [hidden] {
+.finder-layout > [hidden],
+.finder-main > [hidden] {
   display: none;
 }
 
+/* The facets fill the shared panel sidebar (primitives.css
+   .osprey-panel-sidebar), which panel-sidebar.js sizes, opens and closes. */
 .facet-rail {
-  display: flex;
-  flex: 0 0 236px;
-  flex-direction: column;
   gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+/* Right of the sidebar: the results, and under them the device inspector,
+   one wide row behind a horizontal handle. The inspector takes height from
+   the results, which keep scrolling above it, so an open device is always on
+   screen and its bindings have the full width to read in. */
+.finder-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  min-height: 0;
 }
 
 .finder-results {
@@ -2086,7 +1901,7 @@ body.embedded .cf-toolbar {
   flex: 1;
   flex-direction: column;
   min-width: 0;
-  min-height: 0;
+  min-height: 140px;
 }
 
 .finder-table {
@@ -2096,54 +1911,46 @@ body.embedded .cf-toolbar {
   min-height: 0;
 }
 
+/* The inspector's 5px splitter track is the gutter above its card. */
+.finder-results + .osprey-splitter {
+  margin: var(--space-1) 0;
+}
+
 .finder-inspector {
   display: flex;
-  flex: 0 0 340px;
+  flex: 0 0 280px;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  padding: 0 var(--space-2) var(--space-2);
 }
 
 /* --- Facets --------------------------------------------------------- */
 
+/* One group per facet, flat in the sidebar: its heading (a shared
+   .osprey-section-label) folds it. */
 .facet {
   flex-shrink: 0;
-  background: var(--bg-panel);
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-md);
-  overflow: hidden;
 }
 
+/* The heading row: the fold toggle, then the selected count and its ✕. */
 .facet-head {
-  display: flex;
-  align-items: center;
   gap: var(--space-1);
-  padding-right: var(--space-2);
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--neutral-tint-10);
 }
 
-.facet.collapsed .facet-head {
-  border-bottom-color: transparent;
-}
-
-/* The heading is the fold toggle; the count and its ✕ sit beside it. */
+/* The heading is the fold toggle, in the heading's own type. */
 .facet-toggle {
   display: flex;
   flex: 1;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  padding: var(--space-1) var(--space-2);
+  padding: 0;
   border: 0;
   background: none;
-  color: var(--text-secondary);
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.06em;
+  color: inherit;
+  font: inherit;
   text-align: left;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -2182,7 +1989,7 @@ body.embedded .cf-toolbar {
   color: var(--text-primary);
 }
 
-/* The rail is the one place a nested scroller is right inside a pane: a
+/* The sidebar is the one place a nested scroller is right inside a pane: a
    facet with hundreds of values must not push the next facet out of reach. */
 .facet-body {
   max-height: 240px;
@@ -2194,24 +2001,12 @@ body.embedded .cf-toolbar {
   display: none;
 }
 
-/* A facet value is a <button>, so the UA's border, background, centred
-   text and shrunk font are all reset before the row is styled. */
+/* A facet value is a sidebar row (primitives.css .osprey-list-row, which
+   resets the button and gives the hover); the class tree indents it by
+   depth, and it keeps the table's type size. */
 .facet-item {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 2px var(--space-3);
-  padding-left: calc(var(--space-3) + var(--depth, 0) * 14px);
-  border: 0;
-  border-left: 3px solid transparent;
-  background: none;
-  color: inherit;
-  font-family: inherit;
+  padding-left: calc(var(--space-2) + var(--depth, 0) * 14px);
   font-size: var(--text-lg);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--duration-instant) ease;
 }
 
 /* One step per level. CSS cannot read an attribute as a number, so depth
@@ -2238,16 +2033,9 @@ body.embedded .cf-toolbar {
 .facet-item[data-depth="11"] { --depth: 11; }
 .facet-item[data-depth="12"] { --depth: 12; }
 
-.facet-item:hover {
-  background: var(--cf-surface-hover);
-}
-
+/* A selected value: the sidebar's selected row. */
 .facet-item.on {
-  background: var(--accent-tint-08);
-  border-left-color: var(--color-accent-secondary);
-}
-
-.facet-item.on .k {
+  background: var(--surface-selected);
   color: var(--text-primary);
 }
 
@@ -2296,13 +2084,11 @@ body.embedded .cf-toolbar {
 /* --- Results -------------------------------------------------------- */
 
 /* The scroll container the sticky header sticks against; it takes every
-   pixel the pane has, and the footer sits below it. */
+   pixel the pane has, edge to edge, and the footer sits below it. */
 .result-wrap {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-md);
   background: var(--bg-panel);
 }
 
@@ -2530,30 +2316,23 @@ tr:focus-within .copy-btn,
   color: var(--text-accent);
 }
 
+/* One row under the table: the pager, then the selection and its actions. */
 .result-foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--surface-hairline);
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-base);
 }
 
-/* Pushes the selection actions to the trailing edge, leaving the count
-   and pager together on the leading one. */
+/* Pushes the selection and its actions to the trailing edge, leaving the
+   pager on the leading one. */
 .result-foot .spacer {
   flex: 1;
-}
-
-.result-foot strong {
-  color: var(--text-primary);
-  font-weight: var(--weight-medium);
-}
-
-.result-counts {
-  white-space: nowrap;
 }
 
 .pager {
@@ -2685,8 +2464,9 @@ tr:focus-within .copy-btn,
   line-height: var(--leading-snug);
 }
 
-/* One row per binding. Top-aligned because the address and description
-   wrap in a narrow inspector. */
+/* One row per binding. The inspector spans the results' width, so an
+   address stays on one line and only the description wraps; the row is
+   top-aligned for the description's extra lines. */
 .sig-table {
   width: 100%;
   border-collapse: collapse;
@@ -2711,10 +2491,11 @@ tr:focus-within .copy-btn,
 
 .sig-table td.pv {
   font-family: var(--font-mono);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .sig-table td.sub {
+  width: 100%;
   color: var(--text-muted);
   font-size: var(--text-base);
 }
@@ -2722,9 +2503,12 @@ tr:focus-within .copy-btn,
 /* --- Corpus strip provenance --------------------------------------- */
 
 /* The store the strip's numbers came from, beside them, and the tools the
-   assistant reads it with behind the shared info tip. */
+   assistant reads it with behind the shared info tip. The store's name is
+   what gives way: it truncates with an ellipsis, so the strip never runs
+   into the pipeline switcher. */
 .corpus-prov {
-  display: inline-flex;
+  display: flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
@@ -2736,14 +2520,15 @@ tr:focus-within .copy-btn,
   display: none;
 }
 
-.corpus-prov .graph-store-badge code {
-  display: inline-block;
-  max-width: 40ch;
+.corpus-prov .graph-store-badge {
+  min-width: 0;
   overflow: hidden;
-  vertical-align: bottom;
+  text-overflow: ellipsis;
+}
+
+.corpus-prov .graph-store-badge code {
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  text-overflow: ellipsis;
 }
 
 .corpus-prov .osprey-tip {
@@ -2755,58 +2540,8 @@ tr:focus-within .copy-btn,
   font-weight: var(--weight-medium);
 }
 
-/* --- Narrow viewport ----------------------------------------------- */
-
-/* Must stay after the base rules above (see the section note). The
-   panes stack: the rail becomes a wrapping row of short facets above the
-   results, and the inspector docks under the results. The frame keeps
-   its fixed height and each region scrolls inside itself, so an opened
-   device is always on screen: the inspector takes up to half the
-   height and the results give up the room, rather than the card
-   landing below a long table the operator has to find a way to scroll
-   past. This is the common case for a narrow tile beside others, not
-   only a phone. The splitters go; their inline sizes are overridden,
-   not removed: each is parked by its own isEnabled gate and resumes
-   when the viewport widens. */
 @media (max-width: 768px) {
-  .cf-seg,
-  .finder-count,
   .corpus-prov {
     display: none;
-  }
-
-  .finder-layout {
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .finder-layout > .osprey-splitter {
-    display: none;
-  }
-
-  .facet-rail {
-    flex: 0 1 auto !important;
-    flex-direction: row;
-    flex-wrap: wrap;
-    max-width: none !important;
-    max-height: 30%;
-  }
-
-  .facet {
-    flex: 1 1 200px;
-  }
-
-  .facet-body {
-    max-height: 180px;
-  }
-
-  .finder-results {
-    min-height: 140px;
-  }
-
-  .finder-inspector {
-    flex: 0 1 auto !important;
-    max-width: none !important;
-    max-height: 50%;
   }
 }

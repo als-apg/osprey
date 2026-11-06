@@ -7,8 +7,10 @@
  * Covers the receive pipeline (origin check, source→panel-id resolution
  * against live iframes, vocabulary sanitization), the per-panel contribution
  * cache vs. host-registration ordering, rendering (textContent only — no
- * markup injection), the action round-trip back to the iframe, and the
- * hub's own contributions (contributeLocal), whose actions stay in the hub.
+ * markup injection), the action round-trip back to the iframe, the hub's own
+ * contributions (contributeLocal), whose actions stay in the hub, and the
+ * fold ladder, whose fold target is the tile ⋯ ("This panel" rows from
+ * panelMenuRows) rather than a button of the bar's own.
  *
  * The module keeps page-lifetime state (wired listener, contribution cache),
  * matching production where it lives as long as the shell does — tests use
@@ -32,10 +34,10 @@ beforeAll(() => {
 import {
   contributeLocal,
   initHeaderContrib,
+  panelMenuRows,
   registerContribHost,
   unregisterContribHost,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
-import { closeMenu } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-items.js';
 
 /** Monotonic id source so each test gets an isolated panel id. */
 let seq = 0;
@@ -81,7 +83,6 @@ initHeaderContrib();
 initHeaderContrib(); // idempotent — a second call must not double-listen
 
 afterEach(() => {
-  closeMenu();
   document.body.replaceChildren();
 });
 
@@ -409,7 +410,6 @@ describe('local contribution (the hub owns the header)', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
-    document.body.appendChild(host); // the menu popover positions off a real button
     registerContribHost(panelId, host);
     const dispatch = vi.fn();
 
@@ -429,10 +429,11 @@ describe('local contribution (the hub owns the header)', () => {
     /** @type {HTMLButtonElement} */ (host.querySelector('.contrib-nav-link')).click();
     expect(dispatch).toHaveBeenLastCalledWith('view', 'browse');
 
-    const menuBtn = /** @type {HTMLElement} */ (host.querySelector('.contrib-menu-btn'));
-    menuBtn.dispatchEvent(new Event('click', { bubbles: true }));
-    const row = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-item'));
-    row.dispatchEvent(new Event('click', { bubbles: true }));
+    // The menu renders no button; its entry is a tile-⋯ row.
+    expect(host.querySelector('button[data-contrib-key="menu:more"]')).toBeNull();
+    const [row] = panelMenuRows(panelId);
+    expect(row.label).toBe('Print');
+    row.run?.();
     expect(dispatch).toHaveBeenLastCalledWith('more', 'print');
 
     expect(dispatch).toHaveBeenCalledTimes(3);
@@ -458,26 +459,39 @@ describe('local contribution (the hub owns the header)', () => {
   });
 });
 
-describe('overflow ladder', () => {
+describe('fold ladder', () => {
   /**
    * happy-dom does no layout, so crowding is mocked: clientWidth is fixed and
    * scrollWidth derives from the currently-VISIBLE children at deterministic
-   * per-kind widths. Folding/collapsing therefore changes the measurement,
-   * which is exactly the feedback loop the ladder runs on.
+   * per-kind widths. The shared controls sit outside the host, so the width
+   * they free when folded is credited to the host's clientWidth (a visible
+   * shared control costs 36). Folding/collapsing therefore changes the
+   * measurement, which is exactly the feedback loop the ladder runs on.
    * @param {HTMLElement} host
    * @param {number} clientWidth
+   * @param {HTMLElement | null} [controls]
    */
-  function mockCrowding(host, clientWidth) {
-    Object.defineProperty(host, 'clientWidth', { value: clientWidth, configurable: true });
+  function mockCrowding(host, clientWidth, controls = null) {
+    Object.defineProperty(host, 'clientWidth', {
+      configurable: true,
+      get() {
+        if (!controls) return clientWidth;
+        const shown = [...controls.querySelectorAll('[data-control]')].filter(
+          (c) => !c.classList.contains('contrib-hidden') && !c.hasAttribute('hidden')
+        ).length;
+        return clientWidth - 36 * shown;
+      },
+    });
     Object.defineProperty(host, 'scrollWidth', {
       configurable: true,
       get() {
         let w = 0;
         for (const el of host.children) {
-          if (el.classList.contains('contrib-hidden')) continue;
-          else if (el.classList.contains('contrib-search-collapsed')) w += 24;
+          if (el.classList.contains('contrib-hidden') || /** @type {HTMLElement} */ (el).hidden) {
+            continue;
+          } else if (el.classList.contains('contrib-search-collapsed')) w += 24;
           else if (el.classList.contains('contrib-search')) w += 92;
-          else if (el.classList.contains('contrib-overflow-btn')) w += 24;
+          else if (el.classList.contains('contrib-icon')) w += 36;
           else if (el.classList.contains('contrib-text')) w += 40;
           else if (el.classList.contains('osprey-crumb')) w += 60;
           else if (el.classList.contains('osprey-head-sep')) w += 10;
@@ -488,7 +502,43 @@ describe('overflow ladder', () => {
     });
   }
 
-  test('a crowded bar collapses search to its magnifier before folding anything', () => {
+  /**
+   * A tile's shared-controls element as tile-bar-controls.js builds it: the
+   * hairline, then one `[data-control]` button per id.
+   * @param {string[]} ids
+   * @returns {HTMLElement}
+   */
+  function sharedControls(ids) {
+    const el = document.createElement('div');
+    el.className = 'tile-tab-controls';
+    const divider = document.createElement('span');
+    divider.className = 'tile-tab-divider';
+    divider.hidden = true;
+    el.appendChild(divider);
+    for (const id of ids) {
+      const btn = document.createElement('button');
+      btn.dataset.control = id;
+      el.appendChild(btn);
+    }
+    return el;
+  }
+
+  /** @param {string} id @param {number} [priority] */
+  const iconItem = (id, priority = 0) => ({
+    kind: 'icon',
+    id,
+    icon: 'refresh',
+    title: id,
+    priority,
+  });
+
+  /** @param {HTMLElement} host */
+  const hiddenKeys = (host) =>
+    [...host.querySelectorAll('.contrib-hidden')].map(
+      (el) => /** @type {HTMLElement} */ (el).dataset.contribKey
+    );
+
+  test('a crowded bar collapses search to its magnifier before folding a legacy control', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
@@ -507,16 +557,15 @@ describe('overflow ladder', () => {
     expect(search?.classList.contains('contrib-search-collapsed')).toBe(true);
     expect(search?.getAttribute('role')).toBe('button');
     expect(host.querySelector('.contrib-hidden')).toBeNull();
-    expect(host.querySelector('.contrib-overflow-btn')).toBeNull();
+    expect(panelMenuRows(panelId)).toEqual([]);
   });
 
-  test('still-crowded controls fold lowest-priority-first into a bar ⋯ menu that round-trips', () => {
+  test('still-crowded legacy controls fold lowest-priority-first into ⋯ rows that round-trip', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
-    document.body.appendChild(host); // popover positions off a real element
     registerContribHost(panelId, host);
-    mockCrowding(host, 120); // nav(80) + button(80) = 160 > 120; fold nav: 80+24 fits
+    mockCrowding(host, 120); // nav(80) + button(80) = 160 > 120; fold nav: 80 fits
 
     deliverContribution(
       [
@@ -534,25 +583,24 @@ describe('overflow ladder', () => {
       contentWindow
     );
 
-    // The lower-priority nav folded; the button stayed; the ⋯ appeared.
+    // The lower-priority nav folded; the button stayed; no button of the bar's own appeared.
     expect(host.querySelector('.contrib-nav')?.classList.contains('contrib-hidden')).toBe(true);
     expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(false);
-    const more = /** @type {HTMLElement} */ (host.querySelector('.contrib-overflow-btn'));
-    expect(more).toBeTruthy();
+    expect(host.querySelectorAll(':scope > button').length).toBe(1);
 
-    // Open it: the folded nav appears as one row per view, active = checked.
-    more.dispatchEvent(new Event('click', { bubbles: true }));
-    const rows = [...document.querySelectorAll('.contrib-menu-item')];
-    expect(rows.map((r) => r.textContent)).toEqual(['✓Browse', 'Edit']);
-    expect(rows[0].getAttribute('aria-checked')).toBe('true');
+    // The folded nav is one ⋯ row per view, active = checked.
+    const rows = panelMenuRows(panelId);
+    expect(rows.map((r) => [r.label, r.checked])).toEqual([
+      ['Browse', true],
+      ['Edit', false],
+    ]);
 
     // A row dispatches exactly what the unfolded control would have.
-    rows[1].dispatchEvent(new Event('click', { bubbles: true }));
+    rows[1].run?.();
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
       { type: 'canopy-host-header-action', id: 'view', value: 'edit' },
       window.location.origin
     );
-    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
   });
 
   test('subtitle text never folds — controls give way around it', () => {
@@ -572,7 +620,7 @@ describe('overflow ladder', () => {
 
     expect(host.querySelector('.contrib-text')?.classList.contains('contrib-hidden')).toBe(false);
     expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(true);
-    expect(host.querySelector('.contrib-overflow-btn')).toBeTruthy();
+    expect(panelMenuRows(panelId).map((r) => r.label)).toEqual(['Refresh']);
   });
 
   test('a widened tile gets everything back', () => {
@@ -594,8 +642,8 @@ describe('overflow ladder', () => {
     deliverContribution(items, contentWindow);
 
     expect(host.querySelectorAll('.contrib-hidden').length).toBe(0);
-    expect(host.querySelector('.contrib-overflow-btn')).toBeNull();
     expect(host.querySelector('.contrib-search-collapsed')).toBeNull();
+    expect(panelMenuRows(panelId)).toEqual([]);
   });
 
   test('a collapsed search expands for typing on click and re-collapses on blur', () => {
@@ -641,23 +689,18 @@ describe('overflow ladder', () => {
     addPanelIframe(panelId);
     const host = document.createElement('div');
     registerContribHost(panelId, host);
-    // crumb(60) + pager(40) + sep(10) + 4 buttons(320) = 430; with the ⋯(24),
-    // folding open and save (priority 5) leaves 294, which fits in 300.
+    // crumb(60) + pager(40) + sep(10) + 4 buttons(320) = 430; folding open and
+    // save (priority 5) leaves 270, which fits in 300.
     mockCrowding(host, 300);
 
     contributeLocal(panelId, ARTIFACT_HEADER, vi.fn());
-
-    const hiddenKeys = () =>
-      [...host.querySelectorAll('.contrib-hidden')].map(
-        (el) => /** @type {HTMLElement} */ (el).dataset.contribKey
-      );
-    expect(hiddenKeys()).toEqual(['button:open', 'button:save']);
+    expect(hiddenKeys(host)).toEqual(['button:open', 'button:save']);
 
     // Narrower still, every button folds and the rest holds its ground.
     mockCrowding(host, 50);
     contributeLocal(panelId, ARTIFACT_HEADER, vi.fn());
 
-    expect(hiddenKeys()).toEqual(['button:prev', 'button:next', 'button:open', 'button:save']);
+    expect(hiddenKeys(host)).toEqual(['button:prev', 'button:next', 'button:open', 'button:save']);
     expect(host.querySelector('.osprey-crumb')?.classList.contains('contrib-hidden')).toBe(false);
     expect(host.querySelector('.osprey-head-sep')?.classList.contains('contrib-hidden')).toBe(
       false
@@ -665,32 +708,147 @@ describe('overflow ladder', () => {
     expect(host.querySelector('.contrib-text')?.classList.contains('contrib-hidden')).toBe(false);
   });
 
-  test('a folded hub-contributed button dispatches locally from the ⋯ menu', () => {
+  test('a folded hub-contributed button dispatches locally from its ⋯ row', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
-    document.body.appendChild(host); // popover positions off a real element
     registerContribHost(panelId, host);
     mockCrowding(host, 50);
     const dispatch = vi.fn();
 
     contributeLocal(panelId, ARTIFACT_HEADER, dispatch);
 
-    const more = /** @type {HTMLElement} */ (host.querySelector('.contrib-overflow-btn'));
-    more.dispatchEvent(new Event('click', { bubbles: true }));
-    const rows = [...document.querySelectorAll('.contrib-menu-item')];
-    // Rows in fold order; an icon-only button's row reads its title.
-    expect(rows.map((r) => r.textContent)).toEqual([
-      'Open full size',
-      'Save',
+    // Rows in contribution order; an icon-only button's row reads its title.
+    const rows = panelMenuRows(panelId);
+    expect(rows.map((r) => r.label)).toEqual([
       'Previous artifact',
       'Next artifact',
+      'Open full size',
+      'Save',
     ]);
 
-    rows[2].dispatchEvent(new Event('click', { bubbles: true }));
+    rows[0].run?.();
     expect(dispatch).toHaveBeenCalledWith('prev');
     expect(contentWindow.postMessage).not.toHaveBeenCalled();
-    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
+  });
+
+  test('the slot holds three panel icons; the rest fold whatever the width', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    mockCrowding(host, 10_000);
+
+    deliverContribution(
+      [iconItem('a', 2), iconItem('b', 0), iconItem('c', 2), iconItem('d', 1), iconItem('e', 2)],
+      contentWindow
+    );
+
+    // Lowest priority first (b, then d) until three show.
+    expect(hiddenKeys(host)).toEqual(['icon:b', 'icon:d']);
+    expect(host.querySelectorAll('.contrib-icon:not(.contrib-hidden)').length).toBe(3);
+    expect(panelMenuRows(panelId).map((r) => r.label)).toEqual(['b', 'd']);
+  });
+
+  test('crowded, panel icons fold before the shared controls, and those before legacy controls', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    const controls = sharedControls(['ask_agent', 'reload']);
+    registerContribHost(panelId, host, controls);
+    // Two icons (72) + a legacy button (80) = 152 against 230 - 2×36 = 158: fits.
+    mockCrowding(host, 230, controls);
+    const items = [iconItem('x', 1), iconItem('y', 0), { kind: 'button', id: 'go', label: 'Go' }];
+    deliverContribution(items, contentWindow);
+    expect(hiddenKeys(host)).toEqual([]);
+    expect(controls.querySelectorAll('.contrib-hidden').length).toBe(0);
+    // Both sides have a visible control: the hairline shows.
+    expect(controls.querySelector('.tile-tab-divider')?.hasAttribute('hidden')).toBe(false);
+
+    // 150 - 72 = 78 < 152: fold y (priority 0), then x — still 80 > 78 — then
+    // the last configured shared control (reload) frees 36: 80 ≤ 114. (The
+    // helper lists folded keys in DOM order.)
+    mockCrowding(host, 150, controls);
+    deliverContribution(items, contentWindow);
+    expect(hiddenKeys(host)).toEqual(['icon:x', 'icon:y']);
+    expect(
+      [...controls.querySelectorAll('[data-control]')].map((c) =>
+        c.classList.contains('contrib-hidden')
+      )
+    ).toEqual([false, true]);
+    expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(false);
+    // The legacy button still stands left of the hairline, ask_agent right of it.
+    expect(controls.querySelector('.tile-tab-divider')?.hasAttribute('hidden')).toBe(false);
+
+    // Narrower still: ask_agent goes, and only then the legacy button.
+    mockCrowding(host, 70, controls);
+    deliverContribution(items, contentWindow);
+    expect(controls.querySelectorAll('[data-control].contrib-hidden').length).toBe(2);
+    expect(hiddenKeys(host)).toEqual(['icon:x', 'icon:y', 'button:go']);
+    // Nothing on either side: the hairline goes too.
+    expect(controls.querySelector('.tile-tab-divider')?.hasAttribute('hidden')).toBe(true);
+    // Folded icons are rows after the panel's menu entries, in contribution order.
+    expect(panelMenuRows(panelId).map((r) => r.label)).toEqual(['x', 'y', 'Go']);
+  });
+
+  test('a shared control the deployment hid (no help page) neither folds nor shows the hairline', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    const controls = sharedControls(['help']);
+    /** @type {HTMLElement} */ (controls.querySelector('[data-control]')).hidden = true;
+    registerContribHost(panelId, host, controls);
+    mockCrowding(host, 10_000);
+
+    deliverContribution([iconItem('a')], contentWindow);
+
+    expect(controls.querySelector('.tile-tab-divider')?.hasAttribute('hidden')).toBe(true);
+    expect(controls.querySelectorAll('.contrib-hidden').length).toBe(0);
+  });
+
+  test('menu entries are ⋯ rows always, folded or not, with their v3 fields', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    mockCrowding(host, 10_000);
+
+    deliverContribution(
+      [
+        {
+          kind: 'menu',
+          id: 'more',
+          items: [
+            { id: 'compact', label: 'Compact rows', checked: true },
+            { id: 'export', label: 'Export CSV', disabled: true },
+            { id: 'clear', label: 'Clear all', danger: true, separator: true },
+          ],
+        },
+        iconItem('refresh'),
+      ],
+      contentWindow
+    );
+
+    // The menu holds no visible element: an empty hidden holder keeps its key.
+    const holder = /** @type {HTMLElement} */ (
+      host.querySelector('[data-contrib-key="menu:more"]')
+    );
+    expect(holder.hidden).toBe(true);
+    expect(holder.childNodes.length).toBe(0);
+    expect(host.querySelectorAll('[data-contrib-key]').length).toBe(2);
+
+    const rows = panelMenuRows(panelId);
+    expect(rows.every((r) => typeof r.run === 'function')).toBe(true);
+    expect(rows.map((r) => ({ ...r, run: undefined }))).toEqual([
+      { label: 'Compact rows', checked: true, disabled: false, danger: false, separator: false },
+      { label: 'Export CSV', disabled: true, danger: false, separator: false },
+      { label: 'Clear all', disabled: false, danger: true, separator: true },
+    ]);
+    rows[2].run?.();
+    expect(contentWindow.postMessage).toHaveBeenCalledWith(
+      { type: 'canopy-host-header-action', id: 'more', value: 'clear' },
+      window.location.origin
+    );
   });
 });
 

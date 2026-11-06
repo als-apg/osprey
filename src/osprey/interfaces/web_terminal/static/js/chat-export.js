@@ -9,11 +9,12 @@
  * rebuilds it from the lifecycle bus (chat-events.js) as the frames arrive. The
  * rendered text is the fallback when no source was captured.
  *
- * The conversation. Export conversation, a row of the Agent tile's menu
- * (panel-menu-policy.js), downloads the whole transcript through
- * {@link exportConversation}. It is read from the server with fetchHistory, not taken from the
- * log, so it is complete even when the page joined the conversation part-way.
- * Each tool call is one line with its decision and outcome, and no payloads.
+ * The conversation. The "Export conversation (Markdown)" row in the Agent
+ * pane's ⋯ (agent-menu.js) downloads the whole transcript through
+ * {@link exportConversation}. It is read from the server with fetchHistory,
+ * not taken from the log, so it is complete even when the page joined the
+ * conversation part-way. Each tool call is one line with its decision and
+ * outcome, and no payloads.
  *
  * Text from the wire goes in with textContent, and nothing here writes markup.
  *
@@ -22,6 +23,8 @@
 
 import { facilityDayKey } from '/design-system/js/facility-time.js';
 
+import { setAgentMenuRow } from './agent-menu.js';
+import { isTerminalSurface } from './agent-surface.js';
 import { fetchHistory } from './chat-client.js';
 import { endsTurn } from './chat-frames.js';
 import { emitChat, onChat } from './chat-events.js';
@@ -97,9 +100,9 @@ let exporter = null;
 let exporting = false;
 
 /**
- * Download the conversation on screen as Markdown — the Agent tile menu's
- * Export conversation. A failure says so in the log. No-op before the
- * console exists and while an export is under way.
+ * Download the conversation on screen as Markdown — the Agent pane's Export
+ * conversation row. A failure says so in the log. No-op before the console
+ * exists and while an export is under way.
  * @returns {Promise<void>}
  */
 export async function exportConversation() {
@@ -113,8 +116,9 @@ export async function exportConversation() {
 }
 
 /**
- * Start the copy control on finished replies and arm
- * {@link exportConversation}. Called once by initChatFeatures.
+ * Start the copy control on finished replies, arm {@link exportConversation}
+ * and register the export row in the Agent pane's ⋯. Called once by
+ * initChatFeatures.
  * @param {Pick<ChatFeatureContext, 'messages' | 'getKey'>} ctx
  */
 export function initChatExport(ctx) {
@@ -294,6 +298,14 @@ export function initChatExport(ctx) {
   onChat('turn-end', () => finishReply());
 
   // ---- The conversation, as a file ---- //
+
+  // The export reads the chat console's conversation, so the row is inert
+  // while the pane shows the terminal.
+  setAgentMenuRow('export', () => ({
+    label: 'Export conversation (Markdown)',
+    disabled: exporting || isTerminalSurface(),
+    run: () => void exportConversation(),
+  }));
 
   exporter = async () => {
     const key = ctx.getKey();

@@ -9,9 +9,9 @@ has no evidence for, and which sends an operator to debug a trigger file that is
 in fact perfectly healthy.
 
 That is not a cosmetic defect. It is the panel reporting a fact it does not know,
-and it is indistinguishable to the reader from the true empty case. The status
-line and run list already carried an ``authBlocked`` branch; the two trigger
-surfaces did not.
+and it is indistinguishable to the reader from the true empty case. So a 401
+replaces every view with one centred not-authorised state, and the toolbar's
+status chip says "Not authorised".
 
 This suite drives a real browser against a dispatcher stub that answers 401 to
 everything, because the bug lives entirely in client-side render branching —
@@ -20,8 +20,8 @@ asserting on the Python route or on markup presence would not reach it.
 The second axis is *which* advice is honest. A page opened standalone should be
 told to open it from the terminal's EVENTS tab. A page ALREADY inside that tab
 must not be: there the 401 means the terminal has no token to inject, which is a
-deployment fact, and repeating the navigation advice is the failure mode that
-made this bug hard to read in the first place.
+deployment fact. That fact names an env var, so it sits behind the state's Info
+icon as a tooltip, not on the page.
 
 Run:
     .venv/bin/pytest tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py -v
@@ -55,11 +55,8 @@ VIEWPORT = {"width": 1100, "height": 900}
 #: asserting the dispatcher has no triggers while holding no evidence either way.
 FALSE_EMPTY_CLAIM = "No triggers are registered."
 
-#: The two trigger surfaces that branch on `state.triggers.length`. `#lane-list`
-#: renders on the default view; `#trigger-list` needs the Triggers screen, hence
-#: the explicit view in the URLs below.
-LANE_LIST = "#lane-list"
-TRIGGER_LIST = "#trigger-list"
+#: The panel-wide state host: a 401 paints the not-authorised state here.
+PANEL_STATE = "#panel-state"
 
 
 def _create_unauthorized_dashboard_app() -> FastAPI:
@@ -101,60 +98,75 @@ def dashboard_url() -> Iterator[str]:
         yield base_url
 
 
-def _open_and_settle(page: Page, url: str, selector: str) -> str:
-    """Load ``url`` and return ``selector``'s text once the 401 has been handled.
+def _open_and_settle(page: Page, url: str) -> str:
+    """Load ``url`` and return the panel state's visible text once the 401 is handled.
 
-    The page paints twice. ``init()`` renders synchronously from its empty
-    initial state before the first poll is sent, and that paint is an
-    ``.empty-state`` reading ``FALSE_EMPTY_CLAIM`` with nothing read yet; the
-    poll's 401 then repaints it as the authorisation explanation. Waiting for an
-    empty-state to *exist* is satisfied by the first paint, so the condition is
-    an empty-state that is not the pre-poll placeholder. A page that never moves
-    past that placeholder is reported as the false-empty claim it is, not as a
-    bare timeout.
+    Before the first poll answers, the panel state reads "Connecting to the
+    dispatcher…"; the poll's 401 repaints it as the not-authorised state, with
+    the design-system state component (``.osprey-state``) and its Retry. A page
+    that never gets there is reported with what it shows instead of a bare
+    timeout.
     """
     page.goto(url, wait_until="domcontentloaded")
     try:
         page.wait_for_function(
-            "([sel, placeholder]) => { const e = document.querySelector(sel);"
-            "  const s = e && e.querySelector('.empty-state');"
-            "  return s !== null && s.innerText.trim() !== placeholder; }",
-            arg=[selector, FALSE_EMPTY_CLAIM],
+            "sel => { const s = document.querySelector(sel + ' .osprey-state');"
+            "  return s !== null && /authori[sz]ed/i.test(s.innerText); }",
+            arg=PANEL_STATE,
             timeout=15_000,
         )
     except PlaywrightTimeoutError:
-        text = page.evaluate("sel => document.querySelector(sel)?.innerText ?? ''", selector)
+        text = page.evaluate("() => document.querySelector('main')?.innerText ?? ''")
         raise AssertionError(
-            f"{selector} never repainted after the 401 -- still showing the pre-poll "
-            f"placeholder: {text!r}"
+            f"the panel never showed the not-authorised state after the 401: {text!r}"
         ) from None
-    return page.evaluate("sel => document.querySelector(sel).innerText", selector)
+    return page.inner_text(PANEL_STATE)
 
 
-@pytest.mark.parametrize(
-    "path,selector",
-    [
-        ("/", LANE_LIST),
-        ("/?view=triggers", TRIGGER_LIST),
-    ],
-    ids=["timeline-lanes", "trigger-list"],
-)
+@pytest.mark.parametrize("path", ["/", "/?view=triggers"], ids=["activity", "triggers"])
 def test_unauthorized_never_claims_no_triggers_are_registered(
-    chromium_browser: Browser, dashboard_url: str, path: str, selector: str
+    chromium_browser: Browser, dashboard_url: str, path: str
 ) -> None:
-    """Neither trigger surface may report an empty dispatcher when it got a 401."""
+    """A 401 replaces every view with the not-authorised state, never an empty dispatcher."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    text = _open_and_settle(page, f"{dashboard_url}{path}", selector)
+    _open_and_settle(page, f"{dashboard_url}{path}")
+    visible = page.inner_text("main")
+    views_hidden = page.evaluate(
+        "() => [...document.querySelectorAll('main > .view')]"
+        ".every(v => getComputedStyle(v).display === 'none')"
+    )
+    chip = page.get_attribute("#status-chip", "class") or ""
+    chip_text = page.inner_text("#status-chip")
     page.close()
 
-    assert FALSE_EMPTY_CLAIM not in text, (
-        f"{selector} reported {FALSE_EMPTY_CLAIM!r} after a 401 -- the panel is "
+    assert FALSE_EMPTY_CLAIM not in visible, (
+        f"the page reported {FALSE_EMPTY_CLAIM!r} after a 401 -- the panel is "
         "asserting the dispatcher has no triggers when it was never allowed to read it"
     )
-    assert "authorised" in text.lower() or "authorized" in text.lower(), (
-        f"{selector} showed neither the false-empty claim nor an authorization "
-        f"explanation; an operator is left with no account of the blank panel: {text!r}"
+    assert views_hidden, "a view still shows beside the not-authorised state"
+    assert "osprey-chip--warn" in chip, chip
+    assert "Not authorised" in chip_text
+
+
+def test_not_authorised_state_is_centred_with_retry(
+    chromium_browser: Browser, dashboard_url: str
+) -> None:
+    """The state sits in the middle of the pane and offers one Retry."""
+    page = chromium_browser.new_page(viewport=VIEWPORT)
+    _open_and_settle(page, f"{dashboard_url}/")
+    geometry = page.evaluate(
+        "() => { const m = document.querySelector('main').getBoundingClientRect();"
+        "  const s = document.querySelector('#panel-state .osprey-state-message')"
+        "    .getBoundingClientRect();"
+        "  return { main: (m.top + m.bottom) / 2, msg: (s.top + s.bottom) / 2,"
+        "    mainX: (m.left + m.right) / 2, msgX: (s.left + s.right) / 2 }; }"
     )
+    buttons = page.locator("#panel-state button.osprey-btn").all_inner_texts()
+    page.close()
+
+    assert abs(geometry["main"] - geometry["msg"]) < 60, geometry
+    assert abs(geometry["mainX"] - geometry["msgX"]) < 40, geometry
+    assert buttons == ["Retry"]
 
 
 def test_standalone_page_is_told_to_open_the_events_tab(
@@ -162,22 +174,26 @@ def test_standalone_page_is_told_to_open_the_events_tab(
 ) -> None:
     """Opened directly, the actionable advice is to use the tab that injects a token."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    text = _open_and_settle(page, f"{dashboard_url}/", LANE_LIST)
+    text = _open_and_settle(page, f"{dashboard_url}/")
     page.close()
 
     assert "EVENTS tab" in text
 
 
-def test_in_terminal_page_is_not_told_to_open_the_tab_it_is_already_in(
+def test_in_terminal_page_keeps_the_token_name_behind_the_info_icon(
     chromium_browser: Browser, dashboard_url: str
 ) -> None:
-    """Inside the EVENTS tab a 401 means the terminal holds no token, so the page
-    must name that instead of repeating navigation advice already followed."""
+    """Inside the EVENTS tab a 401 means the terminal holds no token. The page
+    must not repeat navigation advice already followed, and the env var name is
+    a technical detail: it is the Info icon's tooltip, not printed on the page."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    text = _open_and_settle(page, f"{dashboard_url}/panel/events/dashboard", LANE_LIST)
+    text = _open_and_settle(page, f"{dashboard_url}/panel/events/dashboard")
+    tip = page.get_attribute(f"{PANEL_STATE} .osprey-state-message .state-tip", "data-tip")
     page.close()
 
-    assert "EVENT_DISPATCHER_TOKEN" in text
+    assert "EVENT_DISPATCHER_TOKEN" not in text
+    assert tip is not None
+    assert "EVENT_DISPATCHER_TOKEN" in tip
     assert "EVENTS tab" not in text, (
         "the in-terminal page told the operator to open the EVENTS tab they are already looking at"
     )

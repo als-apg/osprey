@@ -1,8 +1,8 @@
 /**
  * Unit tests for the embedded viewer's channel to its host (viewer.js): the
  * hub's `osprey-artifact-select` / `osprey-artifact-action` /
- * `osprey-artifact-changed` messages and the `osprey-artifact-ready`
- * announcement.
+ * `osprey-artifact-changed` messages, the `osprey-artifact-ready`
+ * announcement, and the `?artifact=<id>` the page keeps in its own URL.
  *
  * Pure logic guard, happy-dom environment (configured globally):
  *   npx vitest run tests/interfaces/artifacts/viewer.test.mjs
@@ -18,11 +18,13 @@
 import { test, expect, describe, vi } from 'vitest';
 
 import {
+  artifactInUrl,
   createViewer,
   VIEWER_ACTIONS,
 } from '../../../src/osprey/interfaces/artifacts/static/js/viewer.js';
 
 const ORIGIN = 'http://hub.test';
+const EMBEDDED_URL = `${ORIGIN}/panel/artifacts/?embedded=true&theme=dark`;
 
 /**
  * A promise the test settles by hand, so a fetch answers when the test says.
@@ -39,16 +41,25 @@ function deferred() {
 
 /**
  * A window the viewer can listen on. A delivered message goes straight to its
- * listeners; `parent` is a separate frame unless `framed` is false.
- * @param {{framed?: boolean}} [options]
+ * listeners; `parent` is a separate frame unless `framed` is false; `href` is
+ * the page's URL, which `history.replaceState` rewrites.
+ * @param {{framed?: boolean, href?: string}} [options]
  */
-function fakeWindow({ framed = true } = {}) {
+function fakeWindow({ framed = true, href = EMBEDDED_URL } = {}) {
   /** @type {((e: {origin: string, data: any}) => void)[]} */
   const listeners = [];
   const parent = { postMessage: vi.fn() };
   /** @type {any} */
   const win = {
-    location: { origin: ORIGIN },
+    location: { origin: ORIGIN, href },
+    history: {
+      state: null,
+      replaceState: vi.fn(
+        (/** @type {any} */ _state, /** @type {string} */ _title, /** @type {string} */ url) => {
+          win.location.href = url;
+        }
+      ),
+    },
     addEventListener: vi.fn((/** @type {string} */ type, /** @type {any} */ listener) => {
       if (type === 'message') listeners.push(listener);
     }),
@@ -83,10 +94,16 @@ function makeActions() {
 
 /**
  * A viewer over a fake window, with every effect a spy.
- * @param {{held?: any[], fetchEntry?: (id: string) => Promise<any>, framed?: boolean}} [options]
+ * @param {{held?: any[], fetchEntry?: (id: string) => Promise<any>, framed?: boolean,
+ *   href?: string}} [options]
  */
-function setup({ held = [], fetchEntry = () => Promise.resolve(null), framed = true } = {}) {
-  const host = fakeWindow({ framed });
+function setup({
+  held = [],
+  fetchEntry = () => Promise.resolve(null),
+  framed = true,
+  href = EMBEDDED_URL,
+} = {}) {
+  const host = fakeWindow({ framed, href });
   const deps = {
     getHeld: vi.fn(() => held),
     fetchEntry: vi.fn(fetchEntry),
@@ -169,6 +186,56 @@ describe('the ready announcement', () => {
     expect(show).toHaveBeenCalledWith(held);
     expect(post).not.toHaveBeenCalled();
     post.mockRestore();
+    window.history.replaceState(null, '', '/');
+  });
+});
+
+describe('the page URL', () => {
+  test('a select writes the artifact into the URL in place, keeping the frame params', () => {
+    const viewer = setup({ held: [makeArtifact('a 1')] });
+
+    viewer.deliver(select('a 1'));
+
+    expect(viewer.win.history.replaceState).toHaveBeenCalledTimes(1);
+    const url = new URL(viewer.win.location.href);
+    expect(url.searchParams.get('artifact')).toBe('a 1');
+    expect(url.searchParams.get('embedded')).toBe('true');
+    expect(url.searchParams.get('theme')).toBe('dark');
+  });
+
+  test('the empty state takes it out; a repeat select writes nothing', () => {
+    const viewer = setup({ held: [makeArtifact('a1')] });
+
+    viewer.deliver(select('a1'));
+    viewer.deliver(select('a1'));
+    expect(viewer.win.history.replaceState).toHaveBeenCalledTimes(1);
+    viewer.deliver(select(null));
+
+    expect(viewer.win.history.replaceState).toHaveBeenCalledTimes(2);
+    expect(viewer.win.location.href).toBe(EMBEDDED_URL);
+  });
+
+  test('a page that loads naming an artifact shows it before the hub answers', () => {
+    const held = makeArtifact('a1');
+    const viewer = setup({ held: [held], href: `${EMBEDDED_URL}&artifact=a1` });
+
+    expect(viewer.show).toHaveBeenCalledWith(held);
+    expect(viewer.show.mock.invocationCallOrder[0]).toBeLessThan(
+      viewer.parent.postMessage.mock.invocationCallOrder[0]
+    );
+    expect(viewer.win.history.replaceState).not.toHaveBeenCalled();
+  });
+
+  test('a page that names none shows nothing until told', () => {
+    const viewer = setup({ held: [makeArtifact('a1')] });
+
+    expect(viewer.show).not.toHaveBeenCalled();
+  });
+
+  test('artifactInUrl reads the parameter, and null when it is missing or empty', () => {
+    expect(artifactInUrl(`${ORIGIN}/panel/artifacts/?artifact=a%201`)).toBe('a 1');
+    expect(artifactInUrl(`${ORIGIN}/panel/artifacts/?artifact=`)).toBeNull();
+    expect(artifactInUrl(`${ORIGIN}/panel/artifacts/`)).toBeNull();
   });
 });
 

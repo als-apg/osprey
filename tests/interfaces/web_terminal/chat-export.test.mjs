@@ -6,10 +6,11 @@
  *
  * The renderer, the lifecycle bus and the export module are the real ones, so
  * a reply is drawn the way the live chat draws it and the bus carries what the
- * copy control reads. Only the transport (fetchHistory) and the clipboard are
- * doubles. The `marked` double renders a small subset of markdown, so the
- * rendered text differs from the source and a test can tell which one reached
- * the clipboard.
+ * copy control reads. Only the transport (fetchHistory), the clipboard and the
+ * hub's menu are doubles: the export is a row in the Agent pane's ⋯
+ * (agent-menu.js), read and picked here as the menu would. The `marked`
+ * double renders a small subset of markdown, so the rendered text differs from
+ * the source and a test can tell which one reached the clipboard.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -26,17 +27,21 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   fetchHistory: (/** @type {any} */ key) => transport.fetchHistory(key),
 }));
 
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => ({
+  setServiceMenuExtras: () => {},
+}));
+
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js')} */
 let render;
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js')} */
 let bus;
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-export.js')} */
 let exportModule;
+/** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/agent-menu.js')} */
+let menu;
 
 /** @type {HTMLElement} */
 let messages;
-/** @type {HTMLElement} */
-let bar;
 /** @type {ReturnType<typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js').createChatRenderer>} */
 let renderer;
 /** @type {{ writeText: import('vitest').Mock }} */
@@ -72,14 +77,13 @@ beforeEach(async () => {
   document.body.replaceChildren();
   messages = document.createElement('div');
   messages.className = 'op-messages';
-  bar = document.createElement('div');
-  bar.className = 'op-session-bar';
-  document.body.append(bar, messages);
+  document.body.append(messages);
 
   vi.resetModules();
   render = await import(`${DIR}/chat-render.js`);
   bus = await import(`${DIR}/chat-events.js`);
   exportModule = await import(`${DIR}/chat-export.js`);
+  menu = await import(`${DIR}/agent-menu.js`);
   renderer = render.createChatRenderer(messages);
   exportModule.initChatExport({ messages, getKey: () => KEY });
 });
@@ -392,7 +396,13 @@ describe('conversationMarkdown', () => {
   });
 });
 
-describe('export conversation (the Agent tile menu row)', () => {
+describe('the Export conversation row in the Agent pane ⋯', () => {
+  /** The export's row, as the menu reads it now. */
+  const exportRow = () =>
+    menu.agentMenuRows().find((row) => row.label?.startsWith('Export conversation'));
+
+  /** Pick the row, as a click on it does. */
+  const pick = () => exportRow()?.run?.();
   beforeEach(() => {
     transport.fetchHistory.mockReset();
     // Stub the download's three steps so the file's text can be read back.
@@ -400,9 +410,12 @@ describe('export conversation (the Agent tile menu row)', () => {
     URL.revokeObjectURL = vi.fn();
   });
 
-  test('puts no button in the Agent bar: the tile menu is its one entry point', () => {
-    expect(bar.querySelector('.op-export')).toBeNull();
-    expect(bar.children).toHaveLength(0);
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-agent-surface');
+  });
+
+  test('is a row named for the conversation and its format', () => {
+    expect(exportRow()).toMatchObject({ label: 'Export conversation (Markdown)', disabled: false });
   });
 
   test('downloads the conversation read from the server, under the dated file name', async () => {
@@ -426,7 +439,8 @@ describe('export conversation (the Agent tile menu row)', () => {
       }
     );
 
-    await exportModule.exportConversation();
+    pick();
+    await flush();
 
     expect(transport.fetchHistory).toHaveBeenCalledWith(KEY);
     expect(names).toEqual(['osprey-conversation-2026-10-22-abcdef12.md']);
@@ -436,18 +450,40 @@ describe('export conversation (the Agent tile menu row)', () => {
     click.mockRestore();
   });
 
-  test('a failed export says so in the log, publishes the notice, and can be run again', async () => {
+  test('the row waits while an export reads the transcript', async () => {
+    /** @type {(turns: any[]) => void} */
+    let answer = () => {};
+    transport.fetchHistory.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    pick();
+    expect(exportRow()?.disabled).toBe(true);
+    answer([]);
+    await flush();
+    expect(exportRow()?.disabled).toBe(false);
+    click.mockRestore();
+  });
+
+  test('a failed export says so in the log, publishes the notice, and leaves the row usable', async () => {
     transport.fetchHistory.mockRejectedValue(new Error('network down'));
     /** @type {string[]} */
     const published = [];
     bus.onChat('notice', ({ text }) => published.push(text));
 
-    await exportModule.exportConversation();
+    pick();
+    await flush();
 
     const notice = messages.querySelector('.op-system')?.textContent ?? '';
     expect(notice).toMatch(/export/);
     expect(published).toEqual([notice]);
-    await exportModule.exportConversation();
+    expect(exportRow()?.disabled).toBe(false);
+    pick();
+    await flush();
     expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
+  });
+
+  test('the row is inert while the pane shows the terminal', () => {
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
+    expect(exportRow()?.disabled).toBe(true);
   });
 });

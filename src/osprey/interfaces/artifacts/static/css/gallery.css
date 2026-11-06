@@ -122,20 +122,14 @@ body.embedded .logo { display: none; }
 }
 
 /* The preview pane fills the frame as the recessed well inside the hub's
-   card, and the artifact sits on it. The description and meta strip, right
-   under the hub's pane header, take that card's own surface. */
+   card, and the artifact alone sits on it: the hub's tile bar names it and
+   its Info popover holds the details. */
 body.embedded .browse-preview-pane {
   background: var(--surface-well);
 }
 
 body.embedded .preview-viewport {
   background: transparent;
-}
-
-body.embedded .preview-desc,
-body.embedded .preview-meta-strip {
-  background: var(--surface-card);
-  border-bottom-color: var(--surface-hairline);
 }
 
 /* ================================================================
@@ -1396,27 +1390,6 @@ html[data-browse-orient="column"] .sidebar-body {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.preview-empty-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--art-space-3);
-  color: var(--text-muted);
-}
-
-.preview-empty-inner svg {
-  width: 64px;
-  height: 64px;
-  opacity: 0.15;
-}
-
-.preview-empty-inner p {
-  font-family: var(--font-mono);
-  font-size: var(--art-text-xs);
-  color: var(--text-muted);
-  letter-spacing: var(--tracking-wide);
 }
 
 .preview-content {
@@ -2771,6 +2744,31 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   inset: 0;
   overflow: auto;
   padding: var(--art-space-4) var(--art-space-6);
+}
+
+/* Find in note (note-tools.js): the search field and its count in one row
+   of a popover, and the marks on the matches (CSS custom highlights). */
+.note-find {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.note-find-count {
+  min-width: 56px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+::highlight(osprey-note-find) {
+  background-color: var(--accent-tint-25);
+}
+
+::highlight(osprey-note-find-current) {
+  background-color: var(--accent-secondary-tint-25);
 }
 
 .osprey-md-rendered {

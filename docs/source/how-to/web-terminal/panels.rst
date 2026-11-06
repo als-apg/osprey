@@ -73,8 +73,27 @@ To remove a panel row, right-click it or use the **×** of the row. You can
 undo this for a few seconds.
 
 A panel can be open without a sidebar row (``web.panels.<id>.hidden: true``):
-open it from **+ Add panel** or the command palette, and right-click its tile
-to pin it to the sidebar.
+open it from **+ Add panel** or the command palette. To pin it to the sidebar,
+right-click its tile bar and pick **Pin to rail**.
+
+The tile bar
+------------
+
+Each panel tile has one bar. The bar shows the name of the panel and a
+subtitle that the panel can set. Then it shows up to three icons of the panel,
+a thin line, and the shared controls of the deployment. At the right end are
+**⋯**, **Pop out** and **×**. A panel keeps its own toolbars inside the panel,
+below the bar.
+
+The other controls and menu items of a panel are in the **This panel** section
+of the **⋯** menu. A right-click on the bar opens the same menu. The **Tile**
+section of the menu has the items for the tile, such as **Open in new
+window**, **Copy link** and **Pin to rail**. See :ref:`web-terminal-tile-bar`.
+
+``web.tile_bar.controls`` sets the shared controls: **Ask the agent about this
+panel** (``ask_agent``), **Reload panel** (``reload``) and **Help for this
+panel** (``help``). The default is ``[ask_agent]``. See
+:ref:`config-tile-bar-controls`.
 
 When a panel stops answering
 ----------------------------
@@ -250,9 +269,10 @@ The Bluesky panel
 -----------------
 
 One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
-**BLUESKY** (``/bluesky/``) has three views, and the queue's state stays on
-screen across all three as a badge in the status strip — with **Stop** and
-**Abort** beside it whenever a plan is moving or the state is in doubt:
+**BLUESKY** (``/bluesky/``) has three views behind the **Plans** | **Queue** |
+**Results** switch in its toolbar. The queue's state stays on screen in all
+three as a status chip in that toolbar, with **Stop** and **Abort** beside it
+whenever a plan is moving or the state is in doubt:
 
 **Plans** is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
@@ -260,10 +280,12 @@ and a field you change by hand flows back to the agent. **Run** puts the
 exact revision on screen into the plan queue, and on an armed queue that runs
 it at once; on a stopped queue the button reads **Add to queue**.
 
-**Queue** is the control panel: **Start**, **Stop**, **Abort** and **Clear**
-in the strip, the waiting plans with their reorder/remove controls, and the
-runs that have finished, each removable. Picking any run opens it under
-Results. :doc:`/how-to/bluesky/queue` covers what those controls do.
+**Queue** is the control panel: **Start**, **Stop** and **Abort** in the
+toolbar, the waiting plans with their reorder/remove controls, and the runs
+that have finished, each removable. **Clear waiting plans** and **Clear
+history** are in the tile **⋯** menu; each asks you to confirm at the top of
+its card. Picking any run opens it under Results. :doc:`/how-to/bluesky/queue`
+covers what those controls do.
 
 **Results** shows the selected run's record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.

@@ -75,6 +75,12 @@ from osprey.interfaces.web_terminal.sidecar_status import (
     failure_reason,
     write_status,
 )
+from osprey.interfaces.web_terminal.tile_bar import (
+    DEFAULT_TILE_BAR_CONTROLS,
+    TILE_BAR_CONTROLS,
+    TILE_BAR_CONTROLS_KEY,
+    tile_bar_controls_refusal,
+)
 from osprey.interfaces.web_terminal.transcript_map import load as load_transcript_map
 from osprey.port_layout import default_port
 from osprey.profiles.web_panels import (
@@ -566,6 +572,59 @@ def control_target_picker_available(config_path: str | Path | None) -> bool:
         )
         return True
     return coerce_config_flag("web.control_target_picker", raw, True)
+
+
+def tile_bar_controls(config_path: str | Path | None) -> list[str]:
+    """The shared controls each service tile's bar shows, left to right.
+
+    Read from ``web.tile_bar.controls``, default ``["ask_agent"]``. The ids are
+    :data:`~osprey.interfaces.web_terminal.tile_bar.TILE_BAR_CONTROLS`, and
+    ``[]`` gives a bar without shared controls. The order is kept, and a
+    repeated id keeps its first place.
+
+    ``osprey build`` refuses a value the bar cannot draw, so a bad value here
+    was written into ``config.yml`` by hand. It is reported and the page still
+    starts: an unknown id is dropped, and a value that is not a list gives the
+    default. A config that cannot be read gives the default too. Like
+    :func:`control_target_picker_available`, this is a display setting: it
+    grants and removes no access.
+
+    Args:
+        config_path: The project config, or None for the default lookup.
+
+    Returns:
+        The control ids, in bar order.
+    """
+    default = list(DEFAULT_TILE_BAR_CONTROLS)
+    try:
+        tile_bar = _load_web_ui_config(config_path).get("tile_bar")
+    except Exception:
+        logger.warning(
+            "%s could not be read; showing the default controls %s.", TILE_BAR_CONTROLS_KEY, default
+        )
+        return default
+    if tile_bar is None:
+        return default
+    if not isinstance(tile_bar, dict):
+        logger.warning(
+            "web.tile_bar is %r, not a mapping; showing the default controls %s.", tile_bar, default
+        )
+        return default
+    raw = tile_bar.get("controls")
+    refusal = tile_bar_controls_refusal(raw)
+    if not isinstance(raw, list):
+        if refusal is not None:
+            logger.warning(
+                "%s %s Showing the default controls %s.", TILE_BAR_CONTROLS_KEY, refusal, default
+            )
+        return default
+    if refusal is not None:
+        logger.warning("%s %s Each unknown id is left out.", TILE_BAR_CONTROLS_KEY, refusal)
+    controls: list[str] = []
+    for entry in raw:
+        if entry in TILE_BAR_CONTROLS and entry not in controls:
+            controls.append(entry)
+    return controls
 
 
 #: Words a human writes when they mean a boolean but YAML kept a string —
@@ -1894,6 +1953,10 @@ def _create_lifespan(
             resolved_config_path
         )
 
+        # The shared controls of every service tile's bar
+        # (web.tile_bar.controls). root() stamps them on the page.
+        app.state.tile_bar_controls = tile_bar_controls(resolved_config_path)
+
         # ── Tour capabilities ──
         # The "Ask in plain language" tour card lists what THIS deployment's
         # agent can do — derived here, never claimed in the browser. Python
@@ -2209,6 +2272,17 @@ def create_app(
                 "control_target_available": bool(
                     getattr(request.app.state, "control_target_picker_available", True)
                 ),
+                # The shared controls of every service tile's bar, left to
+                # right (web.tile_bar.controls), space-separated. Stamped even
+                # when empty: [] is a bar without shared controls, not an
+                # absent setting.
+                "tile_bar_controls": " ".join(
+                    getattr(request.app.state, "tile_bar_controls", DEFAULT_TILE_BAR_CONTROLS)
+                ),
+                # The documentation root the tile bar's Help control opens a
+                # panel's page under. "" when web.docs_url is blank, and the
+                # template then leaves the attribute out.
+                "docs_url": getattr(request.app.state, "docs_url", "") or "",
                 # The registry's own labels for the built-in panels, stamped so
                 # panel-catalog.js can read them at module load. /api/panels
                 # answers for the ENABLED panels only and resolves after that

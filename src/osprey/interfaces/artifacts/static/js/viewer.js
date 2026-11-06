@@ -3,9 +3,9 @@
  * OSPREY Artifact Gallery — the embedded viewer's channel to its host.
  *
  * Embedded in the Web Terminal hub, the gallery is a viewer of ONE artifact:
- * the hub's sidebar owns the artifact list and the hub renders the pane
- * header, so the hub tells this page which artifact to show, which action to
- * run on it and when it changed, with three postMessage types:
+ * the hub's sidebar owns the artifact list and the hub renders the tile bar,
+ * so the hub tells this page which artifact to show, which action to run on
+ * it and when it changed, with three postMessage types:
  *
  *   - `{type: 'osprey-artifact-select', artifact_id: string | null}` — show
  *     that artifact (null: the empty state). A select never changes the
@@ -33,6 +33,14 @@
  * flight when a newer select arrives is dropped, so a slow response never
  * replaces what the hub selected after it.
  *
+ * The page's own URL names the artifact it shows (`?artifact=<id>`): every
+ * select writes it in place (`history.replaceState`), and a page that loads
+ * with it shows that artifact at once, before the hub answers the ready
+ * message. The hub reads this frame's location for the tile's Reload, Copy
+ * link, Open in browser tab and Pop out (panel-links.js), so each lands on
+ * the artifact shown; the standalone gallery opens on the same parameter
+ * (gallery.js, {@link artifactInUrl}).
+ *
  * `createViewer(deps)` takes every effect injected — the held list, the
  * single-entry fetch, the show, the update and the removal, and one handler
  * per action — and does no DOM work of its own; gallery.js binds it to
@@ -50,6 +58,18 @@ export const VIEWER_ACTIONS = ['pin', 'unpin', 'print', 'logbook', 'delete'];
 
 /** @typedef {'pin'|'unpin'|'print'|'logbook'|'delete'} ViewerAction */
 
+/** The query parameter that names the artifact a gallery page shows. */
+const ARTIFACT_PARAM = 'artifact';
+
+/**
+ * The artifact a gallery URL names, or null when it names none.
+ * @param {string} href
+ * @returns {string | null}
+ */
+export function artifactInUrl(href) {
+  return new URL(href).searchParams.get(ARTIFACT_PARAM) || null;
+}
+
 /**
  * @typedef {object} ViewerDeps
  * @property {() => any[]} getHeld - the artifacts the gallery holds now
@@ -58,12 +78,13 @@ export const VIEWER_ACTIONS = ['pin', 'unpin', 'print', 'logbook', 'delete'];
  * @property {(entry: any) => void} update - take the server's new copy of an artifact, re-rendering it when it is the one shown
  * @property {(id: string) => void} remove - forget a deleted artifact, emptying the viewer when it is the one shown
  * @property {Record<ViewerAction, (entry: any) => void>} actions - the gallery's code path for each action
- * @property {Window} [win] - the window the viewer listens on and announces itself from (default: this page's)
+ * @property {Window} [win] - the window the viewer listens on, announces itself from and keeps the shown artifact in the URL of (default: this page's)
  */
 
 /**
  * Bind the viewer to its host: listen for the hub's select, action and change
- * messages, then tell the parent frame that the viewer is ready.
+ * messages, show the artifact the page's URL names, then tell the parent
+ * frame that the viewer is ready.
  * @param {ViewerDeps} deps
  * @returns {void}
  */
@@ -89,9 +110,21 @@ export function createViewer({ getHeld, fetchEntry, show, update, remove, action
       .then(use);
   }
 
+  /**
+   * Write the shown artifact into the page's URL, without a history entry.
+   * @param {string|null} id
+   */
+  function keepInUrl(id) {
+    const url = new URL(win.location.href);
+    if (id === null) url.searchParams.delete(ARTIFACT_PARAM);
+    else url.searchParams.set(ARTIFACT_PARAM, id);
+    if (url.href !== win.location.href) win.history.replaceState(win.history.state, '', url.href);
+  }
+
   /** @param {string|null} id */
   function select(id) {
     const token = ++generation;
+    keepInUrl(id);
     if (id === null) {
       show(null);
       return;
@@ -147,6 +180,9 @@ export function createViewer({ getHeld, fetchEntry, show, update, remove, action
       if (typeof id === 'string' && id !== '') changed(id, data.change, data.artifact);
     }
   });
+
+  const opened = artifactInUrl(win.location.href);
+  if (opened) select(opened);
 
   if (win.parent !== win) {
     win.parent.postMessage({ type: 'osprey-artifact-ready' }, win.location.origin);

@@ -352,9 +352,9 @@ TARGETS: list[VisualTarget] = [
         wait_selector=_ARIEL_SETTLED,
     ),
     VisualTarget("channel_finder", _channel_finder_server, path="/"),
-    # D14/D15 regression guard: embedded mode must hide the standalone logo +
-    # theme switcher (component self-hides via body.embedded) while keeping
-    # the pipeline switcher + nav usable — see channel-finder-narrowing.
+    # D14/D15 regression guard: embedded mode must hide the standalone theme
+    # control and ⋯ (both are standalone-only) while keeping the panel toolbar
+    # (view switch, search) and the pipeline switcher usable.
     VisualTarget(
         "channel_finder_embedded",
         _channel_finder_server,

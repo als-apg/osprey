@@ -11,6 +11,7 @@
   <script src="/design-system/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
+  <link rel="stylesheet" href="/design-system/css/primitives.css">
 
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css">
@@ -19,35 +20,45 @@
   <link rel="stylesheet" href="/static/css/channel-finder.css">
 </head>
 <body>
-  <header class="app-header" id="app-header">
-    <div class="header-left">
-      <div class="app-logo">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" fill="currentColor" opacity="0.9"/>
-          <path d="M12 5a7 7 0 0 1 7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.7"/>
-          <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.45"/>
-          <path d="M12 8a4 4 0 0 0-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none" opacity="0.55"/>
-          <path d="M12 2a10 10 0 0 0-10 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none" opacity="0.25"/>
-        </svg>
-        <span class="logo-text">CHANNEL FINDER</span>
+  <!-- The panel root: the size container named `panel` that the toolbar's
+       and the sidebar's narrow rules measure. One column, embedded and
+       standalone alike: the panel toolbar, the active view (the only part
+       that scrolls), and the corpus strip. -->
+  <div class="cf-panel" id="cf-panel" data-panel-root>
+    <!-- The panel toolbar (DESIGN.md §12.3), driven by js/panel-toolbar.js.
+         The graph finder claims the toggle, the count and the search while it
+         is mounted; elsewhere they stay in their slots, disabled. The ⋯ at
+         the far right is built standalone only: embedded, the tile's ⋯ is the
+         panel's one menu. -->
+    <header class="osprey-panel-toolbar" id="cf-toolbar">
+      <div class="osprey-panel-toolbar__start">
+        <button class="osprey-icon-btn" id="cf-sidebar-toggle" type="button"
+                aria-label="Show sidebar" disabled></button>
+        <div class="osprey-seg" id="cf-views" role="group" aria-label="View">
+          <button type="button" data-view="explore" aria-pressed="true">Explore</button>
+          <button type="button" data-view="feedback" aria-pressed="false">Feedback</button>
+        </div>
       </div>
-    </div>
-    <div class="header-right">
-      <nav class="header-nav" id="header-nav">
-        <a href="#explore" class="nav-link active" data-view="explore">Explore</a>
-        <a href="#feedback" class="nav-link" data-view="feedback">Feedback</a>
-      </nav>
-      <osprey-display-menu></osprey-display-menu>
-    </div>
-  </header>
+      <div class="osprey-panel-toolbar__end" id="cf-toolbar-end">
+        <span class="osprey-panel-toolbar__text" id="cf-result-count" hidden></span>
+        <label class="osprey-search-field" id="cf-search-field">
+          <input type="search" id="cf-search" placeholder="Search devices, addresses and descriptions"
+                 aria-label="Search devices, addresses and descriptions" autocomplete="off"
+                 spellcheck="false" disabled>
+          <kbd class="osprey-kbd" title="Press / to search" aria-hidden="true">/</kbd>
+        </label>
+        <osprey-display-menu></osprey-display-menu>
+      </div>
+    </header>
 
-  <main class="app-main" id="app-main">
-    <div class="view-container" id="view-container"></div>
+    <main class="app-main" id="app-main">
+      <div class="view-container" id="view-container"></div>
+    </main>
 
-    <!-- Corpus strip: the corpus stats and the pipeline switcher live in the
-         panel body, not the header, so they survive embedded mode (where the
-         hub's tile bar is the only header). Pinned to the bottom edge; the
-         pipeline dropdown therefore opens upward. -->
+    <!-- Corpus strip: the corpus stats, the store they came from and the
+         pipeline switcher, pinned under the view. Its provenance truncates
+         rather than run into the switcher; the pipeline dropdown opens
+         upward. -->
     <div class="corpus-strip" id="corpus-strip">
       <span class="stats-badges" id="stats-badges"></span>
       <!-- Graph paradigm only: the store the numbers came from and the tools
@@ -58,7 +69,7 @@
         <div class="pipeline-dropdown" id="pipeline-dropdown"></div>
       </div>
     </div>
-  </main>
+  </div>
 
   <div class="toast-container" id="toast-container"></div>
 

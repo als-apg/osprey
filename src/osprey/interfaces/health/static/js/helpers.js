@@ -110,3 +110,27 @@ export function byCategory(results) {
   }
   return m;
 }
+
+/**
+ * The expandable text of a check row: its details; otherwise, for a row with
+ * no value, its message, so an informational row (the restart notice: no
+ * value, no details, the message IS the payload) keeps its text. A row that
+ * shows a value and has no details has no expandable text.
+ *
+ * @param {{message?: string, value?: string, details?: string}} check
+ * @returns {string}
+ */
+export function detailText(check) {
+  return check.details || (check.value ? '' : check.message || '');
+}
+
+/**
+ * A key that names one check row across refreshes, so an open detail stays
+ * open when the report is redrawn.
+ *
+ * @param {{name: string, category: string}} check
+ * @returns {string}
+ */
+export function detailKey(check) {
+  return check.category + '\u0000' + check.name;
+}

@@ -3,18 +3,20 @@
  * OSPREY Channel Finder — the graph finder's verbs.
  *
  * Every action the finder offers, written once and reached four ways: a
- * visible control, a right-click menu row, a keyboard shortcut, and the hub's
- * tile bar. The mount (explore-graph.js) owns state, network and rendering and
- * hands this module a {@link FinderHost} — a narrow, live view of itself — so a
- * verb reads the state of the moment it runs and asks the mount to redraw only
- * what it changed.
+ * visible control, a right-click menu row, a keyboard shortcut, and the
+ * panel's ⋯ entries. The mount (explore-graph.js) owns state, network and
+ * rendering and hands this module a {@link FinderHost} — a narrow, live view
+ * of itself — so a verb reads the state of the moment it runs and asks the
+ * mount to redraw only what it changed.
  *
- * Also here: the tile-bar contribution (the search box and the ⋯ menu the
- * finder adds to the hub's bar when embedded) and the routing of its actions,
- * because both are nothing but verbs under other names.
+ * Also here: the ⋯ entries' one handler ({@link runPanelMenu}) and the v3
+ * `menu` contribution that puts them in the hub's tile ⋯ when embedded
+ * ({@link publishMenu}), because both are nothing but verbs under other
+ * names. Standalone, the panel toolbar's ⋯ lists the same entries
+ * (panel-toolbar.js).
  */
 
-import { state } from './state.js';
+import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { openContextMenuAt } from '/design-system/js/context-menu.js';
 import {
   defaultLayout,
@@ -31,14 +33,13 @@ import {
   cycleSort,
   onlyFacet,
   removeChip,
-  setQuery,
   setSort,
   SORT_KEYS,
   toggleFacet,
   toggleSelection,
 } from './graph-finder-state.js';
 import { deviceAddresses } from './graph-finder-render.js';
-import { hasFilters, headerMenu } from './graph-finder-menus.js';
+import { headerMenu, panelMenuEntries } from './graph-finder-menus.js';
 import { COLUMN_SPECS, savePrefs } from './graph-finder-prefs.js';
 
 /** @typedef {import('./graph-finder-state.js').FinderState} FinderState */
@@ -48,7 +49,6 @@ import { COLUMN_SPECS, savePrefs } from './graph-finder-prefs.js';
 /** @typedef {import('./graph-finder-menus.js').MenuContext} MenuContext */
 /** @typedef {import('./graph-finder-prefs.js').ViewPrefs} ViewPrefs */
 /** @typedef {import('/design-system/js/table-columns.js').ColumnLayout} ColumnLayout */
-/** @typedef {import('/design-system/js/splitter.js').SplitterApi} SplitterApi */
 
 /**
  * The mount, as the verbs and the event handlers see it. Every getter is live.
@@ -60,10 +60,9 @@ import { COLUMN_SPECS, savePrefs } from './graph-finder-prefs.js';
  * @property {(layout: ColumnLayout) => void} setLayout
  * @property {() => ViewPrefs} prefs
  * @property {() => boolean} embedded
- * @property {() => SplitterApi|null} railSplit
  * @property {() => HTMLElement|null} pane - the mounted pane, or null
  * @property {(id: string) => HTMLElement|null} part - an element of the drawn finder, by id
- * @property {string} searchInputId
+ * @property {() => HTMLInputElement|null} searchInput - the panel toolbar's search field
  * @property {() => Promise<void>} runSearch
  * @property {() => void} renderTable
  * @property {() => void} renderRail
@@ -80,9 +79,8 @@ import { COLUMN_SPECS, savePrefs } from './graph-finder-prefs.js';
 /** The facet groups, in rail order. */
 const FACET_KEYS = /** @type {Facet[]} */ (['section', 'system', 'cls', 'signal', 'dir']);
 
-/** Header-contribution ids, routed back through {@link onHeaderAction}. */
-export const HEADER_SEARCH = 'graph-search';
-export const HEADER_MENU = 'graph-more';
+/** The id of the panel's ⋯ entries in the hub's tile ⋯, routed back to {@link runPanelMenu}. */
+const PANEL_MENU = 'finder';
 
 /** @param {FinderHost} host @returns {HTMLTableElement|null} */
 function tableOf(host) {
@@ -91,7 +89,7 @@ function tableOf(host) {
 
 /** @param {FinderHost} host @returns {void} */
 function clearSearchBox(host) {
-  const input = /** @type {HTMLInputElement|null} */ (host.part(host.searchInputId));
+  const input = host.searchInput();
   if (input) input.value = '';
 }
 
@@ -103,10 +101,10 @@ function clearSearchBox(host) {
  */
 export function createActions(host) {
   const finder = host.finder();
-  /** A selection change redraws the rows and the tile-bar menu's enablement. */
+  /** A selection change redraws the rows and the ⋯ entries' enablement. */
   const selectionChanged = () => {
     host.renderTable();
-    contributeHeader(host);
+    publishMenu(host);
   };
   return {
     copy: (text, what) => void host.copy(text, what),
@@ -185,14 +183,7 @@ export function createActions(host) {
         .pane()
         ?.querySelector('.graph-explorer')
         ?.classList.toggle('compact', density === 'compact');
-      for (const btn of host.pane()?.querySelectorAll('[data-density]') ?? []) {
-        btn.setAttribute('aria-pressed', String(btn.getAttribute('data-density') === density));
-      }
-      contributeHeader(host);
-    },
-    toggleRail: () => {
-      host.railSplit()?.toggleCollapse();
-      contributeHeader(host);
+      publishMenu(host);
     },
   };
 }
@@ -210,8 +201,6 @@ export function menuContext(host) {
     layout: host.layout(),
     embedded: host.embedded(),
     openDevice: card ? card.uri : null,
-    density: host.prefs().density,
-    railCollapsed: host.railSplit()?.isCollapsed() ?? false,
     actions: createActions(host),
   };
 }
@@ -274,79 +263,56 @@ export function runAction(host, action) {
   }
 }
 
+/** Whether the hub's ⋯ actions reach {@link runPanelMenu} yet: bound once, at the first publish. */
+let menuRouted = false;
+
 /**
- * Publish the search box and the ⋯ menu to the hub's tile bar. A no-op standalone (header-contrib.js ignores it outside a
- * frame), where the in-body toolbar stays.
+ * Offer the panel's ⋯ entries to the hub as one v3 `menu` contribution (the
+ * tile ⋯'s "This panel" section), re-sent whole whenever an entry's check
+ * or enablement can change. The finder sends nothing else to the bar. A
+ * no-op standalone, where header-contrib.js sends nothing.
  * @param {FinderHost} host
  * @returns {void}
  */
-export function contributeHeader(host) {
+export function publishMenu(host) {
   if (!host.pane()) return;
-  const finder = host.finder();
-  const prefs = host.prefs();
-  state.setViewHeader({
-    items: [
-      {
-        kind: 'search',
-        id: HEADER_SEARCH,
-        placeholder: 'Search devices, addresses and descriptions',
-        value: finder.q,
-        priority: 2,
-      },
-      {
-        kind: 'menu',
-        id: HEADER_MENU,
-        label: 'Finder options',
-        priority: 1,
-        items: [
-          {
-            id: 'density-comfortable',
-            label: 'Comfortable rows',
-            checked: prefs.density === 'comfortable',
-          },
-          { id: 'density-compact', label: 'Compact rows', checked: prefs.density === 'compact' },
-          { id: 'columns', label: 'Choose columns…' },
-          { id: 'reset-columns', label: 'Reset columns' },
-          {
-            id: 'toggle-rail',
-            label: host.railSplit()?.isCollapsed() ? 'Show filters' : 'Hide filters',
-          },
-          { id: 'clear-filters', label: 'Clear all filters', disabled: !hasFilters(finder) },
-          { id: 'clear-selection', label: 'Clear selection', disabled: finder.selected.size === 0 },
-        ],
-      },
-    ],
-    onAction: (id, value) => onHeaderAction(host, id, value),
-  });
+  if (!menuRouted) {
+    menuRouted = true;
+    // header-contrib.js has no unsubscribe, so the route lives with the page;
+    // the host is the mount's one live view and refuses when nothing is mounted.
+    onHeaderAction((id, entry) => {
+      if (id === PANEL_MENU && entry && host.pane()) runPanelMenu(host, entry);
+    });
+  }
+  const items = panelMenuEntries(host.finder(), host.prefs().density);
+  contributeHeader([{ kind: 'menu', id: PANEL_MENU, items }]);
 }
 
 /**
- * An action from the hub's tile bar.
- * @param {FinderHost} host
- * @param {string} id - The contributed item's id.
- * @param {string|undefined} value - The search text, or the menu entry's id.
+ * Take the ⋯ entries back out of the hub's tile ⋯: the finder unmounted.
  * @returns {void}
  */
-export function onHeaderAction(host, id, value) {
-  if (id === HEADER_SEARCH) {
-    // The hub debounces its own search box, so the text is final here.
-    const input = /** @type {HTMLInputElement|null} */ (host.part(host.searchInputId));
-    if (input) input.value = value ?? '';
-    setQuery(host.finder(), value ?? '');
-    void host.runSearch();
-    return;
-  }
-  if (id !== HEADER_MENU) return;
+export function withdrawMenu() {
+  contributeHeader([]);
+}
+
+/**
+ * Run one of the panel's ⋯ entries, from the hub's tile ⋯ or the panel
+ * toolbar's standalone ⋯.
+ * @param {FinderHost} host
+ * @param {string} entry - The entry's id (graph-finder-menus.js panelMenuEntries).
+ * @returns {void}
+ */
+export function runPanelMenu(host, entry) {
   const a = createActions(host);
-  if (value === 'density-comfortable') a.setDensity('comfortable');
-  else if (value === 'density-compact') a.setDensity('compact');
-  else if (value === 'reset-columns') a.resetColumns();
-  else if (value === 'toggle-rail') a.toggleRail();
-  else if (value === 'clear-filters') a.clearFilters();
-  else if (value === 'clear-selection') a.clearSelection();
-  else if (value === 'columns') {
-    // The tile bar lives in the hub's document; the column checklist opens
-    // here, against the table header it changes.
+  if (entry === 'density-comfortable') a.setDensity('comfortable');
+  else if (entry === 'density-compact') a.setDensity('compact');
+  else if (entry === 'reset-columns') a.resetColumns();
+  else if (entry === 'clear-filters') a.clearFilters();
+  else if (entry === 'clear-selection') a.clearSelection();
+  else if (entry === 'columns') {
+    // The ⋯ that asked has closed (the hub's lives in another document); the
+    // column checklist opens here, against the table header it changes.
     const head = host.pane()?.querySelector('.result-table thead tr');
     const first = visibleColumns(COLUMN_SPECS, host.layout()).find((c) => !c.pin)?.key ?? 'device';
     if (head instanceof HTMLElement) {

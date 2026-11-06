@@ -55,8 +55,9 @@ The window has a sidebar on the left and two panes:
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
 - **Agent** (right) — the operator chat, or a real terminal running the OSPREY
-  agent when you open one from the pane's **⋯** menu. It survives reconnects,
-  and you can keep a few background conversations alive and hop between them.
+  agent when you open one from the pane's session switcher (the session title
+  at the left of the Agent bar). It survives reconnects, and you can keep a
+  few background conversations alive and hop between them.
   Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
@@ -84,8 +85,9 @@ back to an older browser mechanism that Safari may refuse.
 Tiles
 -----
 
-The work pane is tiles, and a tile shows one panel. Its header shows the
-panel's name, the panel's controls, **Pop out** and **×**.
+The work pane is tiles, and a tile shows one panel. The bar at the top of a
+tile shows the panel's name, its controls, **⋯**, **Pop out** and **×** (see
+`The tile bar`_).
 
 A panel you open — from its sidebar row, from a link, from the **+** menu,
 from a pop-out window coming back, or one the agent opens for you — takes the
@@ -113,13 +115,55 @@ panel each shows, sizes — is remembered by the browser you set it in. A layout
 saved by an earlier release with several panels in one tile comes back
 showing the panel that was in front; the others are in the sidebar.
 
+.. _web-terminal-tile-bar:
+
+The tile bar
+~~~~~~~~~~~~
+
+Each service tile has one bar. From left to right, the bar shows:
+
+- The name of the panel, and a subtitle when the panel sets one.
+- Up to three icons of the panel.
+- A thin line, then the shared controls: **Ask the agent about this panel**,
+  **Reload panel** and **Help for this panel**. The deployment selects them
+  with ``web.tile_bar.controls`` (see :ref:`config-tile-bar-controls`). The
+  default bar has only **Ask the agent about this panel**.
+- **⋯**, the tile menu.
+- **Pop out**, which moves the panel into its own window (see
+  :ref:`web-terminal-pop-out`).
+- **×**, which closes the tile.
+
+The panel keeps its own toolbars inside the panel, below the bar.
+
+Click **⋯**, or right-click the bar, to open the tile menu. A right-click in a
+search field on the bar opens the menu of the browser instead. The tile menu
+has two sections:
+
+- **This panel** shows the menu items of the panel, then the icons and the
+  shared controls that do not fit on the bar. An item that removes or deletes
+  something is last, below a line. When the panel has no items, the menu shows
+  no section headings.
+- **Tile** shows these items: **Open in a new tile**, **Move to** a group,
+  **Move to new group…**, **Pop out** or **Bring back**, **Reload**, **Copy
+  link**, **Open in browser tab**, **Help**, **Remove from rail** or **Pin to
+  rail**, and **Reset layout**. **Help** shows only when the panel has a page
+  in the documentation.
+
+The Agent tile's bar shows the session title with its ▾ switcher and **+** (a
+new conversation; a new session on the terminal), then **⋯** and **×**. It has
+no **Pop out** and no shared controls. Its **⋯** has **This panel**: **Export
+conversation (Markdown)** (inert on the terminal) and **Desktop notifications**
+(a check mark while on); then **Tile**: **Reset layout** and **Close Agent
+pane** (on the terminal, **Restart terminal** first).
+
 .. _web-terminal-one-session:
 
 The chat and the terminal
 -------------------------
 
-The Agent pane is the operator chat. To reach the agent's terminal, open the
-Agent bar's **⋯** menu and pick **Open terminal**; **Back to chat** returns.
+The Agent pane is the operator chat. To reach the agent's terminal, click the
+session title at the left of the Agent bar and pick **Open terminal**, the last
+row; **Back to chat** returns.
 The choice belongs to the browser tab, and a new tab opens on the chat. The
 chat and the terminal are two windows onto one conversation: they share one
 session, one write state and one transcript, and only the one you are looking
@@ -646,8 +690,9 @@ the window closes and the content is back in its tile.
 
 To open a service panel as a page of its own instead, do one of these:
 
-- Right-click its row in the sidebar or its tile header and pick
-  **Open in new window**.
+- Click **⋯** on its tile bar, or right-click the bar, and pick **Open in
+  new window**.
+- Right-click its row in the sidebar and pick **Open in new window**.
 - Open the command palette and run **Open <panel> in new window**.
 
 The panel opens in a new window the size of its tile. Its tile leaves the

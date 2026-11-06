@@ -120,33 +120,30 @@ describe('the Agent tile header', () => {
     );
   });
 
-  test('in chat the PTY verb is withheld and Export conversation is offered', async () => {
+  test('in chat the PTY verb is withheld; Export is a registered This-panel row, not a tile verb', () => {
     surface.terminal = false;
-    /** @type {Item[]} */
-    const items = policy.buildTerminalMenuItems();
-    expect(items.filter((i) => i.label).map((i) => i.label)).toEqual([
-      'Pop out',
-      'Export conversation',
-      'Reset layout',
-      'Close Agent pane',
-    ]);
-    await items.find((i) => i.label === 'Export conversation')?.run?.();
-    expect(chatExport.exportConversation).toHaveBeenCalledTimes(1);
+    expect(
+      policy
+        .buildTerminalTileMenuItems()
+        .filter((/** @type {Item} */ i) => i.label)
+        .map((/** @type {Item} */ i) => i.label)
+    ).toEqual(['Pop out', 'Reset layout', 'Close Agent pane']);
+    expect(chatExport.exportConversation).not.toHaveBeenCalled();
   });
 
   test('Pop out waits for the Agent pane, and runs the attached pop-out once it is there', () => {
     /** @type {any[]} */
-    let items = policy.buildTerminalMenuItems();
+    let items = policy.buildTerminalTileMenuItems();
     expect(items.find((i) => i.label === 'Pop out')?.disabled).toBe(true);
     dock.agentPaneContent.mockReturnValue(document.createElement('div'));
-    items = policy.buildTerminalMenuItems();
+    items = policy.buildTerminalTileMenuItems();
     expect(items.find((i) => i.label === 'Pop out')?.disabled).toBe(false);
     dock.agentPaneContent.mockReturnValue(null);
   });
 
   test('the verbs reach the terminal and the dock', async () => {
     /** @type {Item[]} */
-    const items = policy.buildTerminalMenuItems();
+    const items = policy.buildTerminalTileMenuItems();
     await items.find((i) => i.label === 'Restart terminal')?.run?.();
     expect(term.restartTerminal).toHaveBeenCalled();
     expect(term.startTerminal).toHaveBeenCalled();

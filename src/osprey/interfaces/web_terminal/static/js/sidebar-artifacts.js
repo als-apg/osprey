@@ -51,8 +51,7 @@
  *   - else, in chat, the agent's focus unless it is a run record;
  *   - else the newest of the session (not a shipped example), then any.
  * A non-automatic agent focus (or any focus on the terminal surface) takes the
- * pick and records last-artifact; an automatic one only records the focus. The
- * pane header's ‹ N of M › pages through the shown artifact's own session.
+ * pick and records last-artifact; an automatic one only records the focus.
  *
  * LIVE UPDATES. An `artifact` frame counts once per run (`exec_id`, else id),
  * only when `operator_visible`, by its listed form; a counted run only takes
@@ -75,7 +74,12 @@ import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
 import * as store from './sidebar-artifact-listing.js';
 import * as rows from './sidebar-artifact-rows.js';
 import { createBoxPager } from './sidebar-artifact-paging.js';
-import { headerItems, menuItems, openArtifact, saveArtifact } from './artifacts-pane-header.js';
+import {
+  downloadArtifact,
+  headerItems,
+  menuItems,
+  showArtifactInfo,
+} from './artifacts-pane-header.js';
 import * as model from './session-model.js';
 
 /**
@@ -214,7 +218,7 @@ export function teardownSidebarArtifacts() {
   setServiceMenuExtras(ARTIFACTS_PANEL_ID, null);
   state = { ...freshState(), view: state.view };
   lastHeader = '';
-  contributeLocal(ARTIFACTS_PANEL_ID, headerItems(null, null), onHeaderAction);
+  contributeLocal(ARTIFACTS_PANEL_ID, headerItems(null), onHeaderAction);
   render();
 }
 
@@ -282,33 +286,6 @@ function resolveShown() {
 function activeListing() {
   const row = model.activeRow();
   return row ? data.activeListing(row) : null;
-}
-
-/**
- * The listing the pager walks for an artifact: its own session's, or null for
- * one no session owns (no pager).
- * @param {ArtifactEntry} entry
- * @returns {Listing | null}
- */
-function pagerListing(entry) {
-  if (inActiveSession(entry)) return activeListing();
-  return entry.owner == null ? null : data.listingOf(entry.owner);
-}
-
-/** @param {1 | -1} delta */
-async function step(delta) {
-  const shown = held(state.shownId);
-  const listing = shown ? pagerListing(shown) : null;
-  const target = shown && listing ? await data.stepFrom(listing, shown.id, delta) : null;
-  if (!target || !served) return;
-  model.setPick(target.id);
-  model.recordLastArtifact(target);
-}
-
-/** @param {ArtifactEntry | null} shown */
-function pagerPosition(shown) {
-  const listing = shown ? pagerListing(shown) : null;
-  return shown && listing ? data.position(listing, shown.id) : null;
 }
 
 // ---- Recording ----
@@ -442,9 +419,8 @@ function onHeaderAction(id) {
   if (!served) return;
   const shown = held(state.shownId);
   if (!shown) return;
-  if (id === 'prev' || id === 'next') void step(id === 'prev' ? -1 : 1);
-  else if (id === 'open') openArtifact(shown);
-  else if (id === 'save') saveArtifact(shown);
+  if (id === 'info') showArtifactInfo(shown);
+  else if (id === 'download') downloadArtifact(shown);
 }
 
 function menuExtras() {
@@ -551,7 +527,7 @@ function render() {
   pager.fill();
   const current = activeListing();
   if (current) data.ensureLoaded(current);
-  const header = headerItems(shown, pagerPosition(shown));
+  const header = headerItems(shown);
   const key = JSON.stringify(header);
   if (key !== lastHeader) {
     lastHeader = key;

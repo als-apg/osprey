@@ -52,6 +52,7 @@ import {
 } from './sidebar-artifacts.js';
 import { whilePanelServed } from './panel-availability.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
+import { initJupyterChrome } from './jupyter-chrome.js';
 import { queryAllDocuments } from './attached-window.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -106,6 +107,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // arrive without a listener.
   initHeaderContrib();
   initPanelManager('right-panel');
+  // Before any panel's config read answers, so the notebook tile hears its start.
+  initJupyterChrome();
   attachSessionSwitcher(document.getElementById('terminal-label'));
   // Dock the terminal + workspace panels into the dockview shell (replaces the
   // old fixed resize-handle split). Guarded so a dock init failure can't break

@@ -61,6 +61,11 @@
  * tile returns. In fallback mode the host carries one notice for whichever
  * panel it is showing.
  *
+ * BODY STATE: a panel may also get a `.tile-body-state` sibling, drawn over
+ * its tile body with the same geometry while the hub shows a centred state
+ * for it (setPanelBodyState): opaque and clickable, with the frame hidden
+ * under it. It shows over a restored tile that has no frame yet, too.
+ *
  * ADAPTER API (consumed by panel-manager.js and dock-sync.js)
  * -----------------------------------------------------------
  * All functions are keyed by panel-manager's panel id. See the JSDoc on each
@@ -199,6 +204,7 @@ function ensureOverlay() {
  */
 export function setIframePointerShield(on) {
   for (const e of managed.values()) shownOf(e).style.pointerEvents = on ? 'none' : 'auto';
+  for (const el of bodyStates.values()) el.style.pointerEvents = on ? 'none' : 'auto';
 }
 
 /**
@@ -463,7 +469,8 @@ function applyGeometry() {
     const w = Math.round(r.width);
     const h = Math.round(r.height);
     place(shown, r, base);
-    shown.style.display = '';
+    // A body state (a sidecar starting or failed) stands in for the frame.
+    shown.style.display = bodyStates.has(panelId) ? 'none' : '';
     // The notice spans the whole content rectangle: that is what the wash covers.
     const notice = ensureNoticeEl(panelId, entry, overlayEl);
     place(notice, r, base);
@@ -474,6 +481,20 @@ function applyGeometry() {
       entry.lastH = h;
       dispatchResize(entry.iframe);
     }
+  }
+  for (const [panelId, el] of bodyStates) {
+    const entry = managed.get(panelId);
+    // A restored tile whose panel has no frame yet is a placeholder alone.
+    const panel = !entry || entry.visible ? api.getPanel(placeholderIdFor(panelId)) : null;
+    const group = panel?.group;
+    const content = group?.element?.querySelector('.dv-content-container');
+    if (!panel || !content || group.activePanel !== panel) {
+      el.style.display = 'none';
+      continue;
+    }
+    if (el.parentElement !== overlayEl) overlayEl.appendChild(el);
+    place(el, content.getBoundingClientRect(), base);
+    el.style.display = '';
   }
 }
 
@@ -816,6 +837,7 @@ function paintFallbackNotice() {
   const el = ensureFallbackNotice();
   el.dataset.panel = fallbackShownId ?? '';
   paintNotice(el, fallbackShownId);
+  paintFallbackState();
 }
 
 /**
@@ -827,6 +849,64 @@ function clearFallbackShown(panelId) {
   if (fallbackShownId !== panelId) return;
   fallbackShownId = null;
   paintFallbackNotice();
+}
+
+// ---- Body state ---------------------------------------------------------------
+
+/**
+ * Panel id → the element drawn over its tile body instead of its frame while
+ * the hub shows a state for it (a sidecar starting or failed). Held per panel
+ * id like the notice, so a state set before the tile exists shows when the
+ * tile does, including a restored tile that has no frame yet.
+ * @type {Map<string, HTMLElement>}
+ */
+const bodyStates = new Map();
+
+/**
+ * Show a state over a panel's tile body, or take it away (`paint` null).
+ * `paint` fills the element (renderState from the design system); the
+ * element is opaque and takes pointer events, so its action is clickable,
+ * and in dock mode the frame under it is hidden. In fallback mode it covers
+ * the host while the host shows that panel.
+ * @param {string} panelId
+ * @param {((host: HTMLElement) => void) | null} paint
+ */
+export function setPanelBodyState(panelId, paint) {
+  let el = bodyStates.get(panelId);
+  if (!paint) {
+    el?.remove();
+    bodyStates.delete(panelId);
+  } else {
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'tile-body-state';
+      el.dataset.panel = panelId;
+      Object.assign(el.style, {
+        position: 'absolute',
+        zIndex: '3', // above the notice (2) and the glow (1)
+        pointerEvents: 'auto',
+        background: 'var(--surface-card)',
+        borderRadius: TILE_BODY_RADIUS,
+        overflow: 'hidden',
+        display: 'none',
+      });
+      bodyStates.set(panelId, el);
+    }
+    paint(el);
+  }
+  if (ensureDock() && overlayEl) applyGeometry();
+  else paintFallbackNotice();
+}
+
+/** Fallback mode: cover the host with the state of the panel it shows, if any. */
+function paintFallbackState() {
+  if (!fallbackHostEl) return;
+  for (const [panelId, el] of bodyStates) {
+    const shown = panelId === fallbackShownId;
+    if (shown && el.parentElement !== fallbackHostEl) fallbackHostEl.append(el);
+    el.style.inset = '0';
+    el.style.display = shown ? '' : 'none';
+  }
 }
 
 // ---- Focus exit -------------------------------------------------------------

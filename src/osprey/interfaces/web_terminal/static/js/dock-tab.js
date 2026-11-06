@@ -7,17 +7,22 @@
  * (dock-policy.js), so the bar is that panel's and there is no tab strip:
  * the sidebar is where the operator switches panels.
  *
- *   service tiles — the identity is the panel's name (`.tile-tab-title`); its
- *     contributed controls, Pop out and × sit beside it. The × closes the
+ *   service tiles — the identity is the panel's name (`.tile-tab-title`) and
+ *     the subtitle a panel contributes; then the panel's icons, a hairline,
+ *     the deployment's shared controls (tile-bar-controls.js), and the fixed
+ *     ⋯ / Pop out / × cluster. The ⋯ opens the tile's one menu
+ *     (panel-menu-policy.js), the same menu a right-click on the bar opens.
+ *     Pop out moves the panel into an attached window (attached-popout.js);
+ *     the ⋯ also offers the standalone page (popout.js). The × closes the
  *     tile LOCALLY (the panel keeps its sidebar row; dock-sync routes the
  *     click to a vacate handler).
- *   the Agent tile — an adopted live bar, Pop out and close. In chat it adopts
- *     the console's `.op-session-bar` (status dot, `Agent`, New conversation,
- *     notifications); on the terminal surface it adopts the `.terminal-header`
- *     (session label, session selector, "+ New"). The bar is chosen when the
- *     tab is built and swapped on a change of surface. Its close runs
- *     dock-workspace's closeTerminalPanel, which keeps `html[data-agent]` and
- *     the `osprey-agent-pane` event in step.
+ *   the Agent tile — an adopted live bar + ⋯ + Pop out + close. In chat it
+ *     adopts the console's `.op-session-bar`; on the terminal surface it
+ *     adopts the `.terminal-header`. The bar is chosen when the tab is built
+ *     and swapped on a change of surface. The Agent pane is always its own
+ *     tile and has no shared controls; its close runs dock-workspace's
+ *     closeTerminalPanel, which keeps `html[data-agent]` and the
+ *     `osprey-agent-pane` event in step.
  *
  * Pop out, on every tile, moves the tile's content into an attached window
  * the hub drives (attached-popout.js); the tile stays and shows a stand-in
@@ -36,12 +41,13 @@
  * `{tab}` (rail-drag.js).
  *
  * Both bar kinds are also a right-click surface: the tile header opens the
- * same verb menu as the panel's sidebar row (panel-context-menu.js), routed
- * through the setTileContextMenuHandler registration seam below.
+ * same menu as its ⋯ button (panel-context-menu.js), routed through the
+ * setTileContextMenuHandler registration seam below.
  */
 
 import { TERMINAL_RAIL_ID, titleCase } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
+import { buildSharedControls, unregisterSharedControls } from './tile-bar-controls.js';
 import { PLACEHOLDER_PREFIX, TAB_KEY_ATTRIBUTE, TERMINAL_KEY, keyOfPanelId } from './dock-apply.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { closeDockPanel, closeTerminalPanel } from './dock-workspace.js';
@@ -171,9 +177,10 @@ onSurfaceChange(syncAgentBar);
 const INTERACTIVE = 'button, select, input, a, [role="button"]';
 
 /**
- * Handler a tile-header right-click is routed to, registered by
- * panel-manager.js at init — it owns the whole menu policy (which verbs, and
- * whether the surface has a menu at all), exactly as it does for the rail.
+ * Handler a tile-header menu request (the ⋯ button, a right-click) is routed
+ * to, registered by panel-manager.js at init — it owns the whole menu policy
+ * (which verbs, and whether the surface has a menu at all), exactly as it
+ * does for the rail.
  *
  * A registration seam rather than an import, mirroring dock-sync's
  * setTileCloseHandler: panel-manager imports dock-workspace, which imports
@@ -185,8 +192,10 @@ let tileContextMenuHandler = null;
 /**
  * Where the menu should appear and what it belongs to. `anchorEl` is the
  * header bar: the menu scopes its scroll dismissal to it, so a panel
- * scrolling its own content underneath leaves the menu standing.
- * @typedef {{ x: number, y: number, anchorEl: HTMLElement }} TileMenuRequest
+ * scrolling its own content underneath leaves the menu standing. With
+ * `triggerEl` (the bar's ⋯ button) the menu hangs under that button instead
+ * of opening at x/y, and the button shows `aria-expanded`.
+ * @typedef {{ x: number, y: number, anchorEl: HTMLElement, triggerEl?: HTMLElement }} TileMenuRequest
  */
 
 /**
@@ -221,6 +230,35 @@ function wireTileContextMenu(el, idOf) {
     });
     if (opened) e.preventDefault();
   });
+}
+
+/**
+ * The bar's ⋯: the tile's one menu button. A click asks the registered
+ * handler for the same menu a right-click on the bar opens, hung under the
+ * button (the handler toggles it closed on a second press). Shared with the
+ * fallback bar (dock-workspace.js), which has no Pop out or × but keeps ⋯.
+ * @param {() => string | null} idOf  the panel id the menu's verbs act on
+ * @param {HTMLElement} anchorEl  the header surface, for the menu's scroll scoping
+ * @returns {HTMLButtonElement}
+ */
+export function buildTileMenuButton(idOf, anchorEl) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tile-tab-more osprey-icon-btn';
+  btn.appendChild(icon('more'));
+  btn.title = 'Panel menu';
+  btn.setAttribute('aria-label', 'Panel menu');
+  btn.setAttribute('aria-haspopup', 'menu');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.addEventListener('click', (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    const id = idOf();
+    if (id === null) return;
+    const r = btn.getBoundingClientRect();
+    tileContextMenuHandler?.(id, { x: r.left, y: r.bottom, anchorEl, triggerEl: btn });
+  });
+  return btn;
 }
 
 // --- drag sources -----------------------------------------------------------------
@@ -383,6 +421,8 @@ class TileTab {
     this._titleEl = null;
     /** @type {HTMLElement | null} contribution region (service tiles only) */
     this._contribEl = null;
+    /** @type {HTMLElement | null} shared controls (service tiles only) */
+    this._controlsEl = null;
     /** @type {string | null} service panel id the region is keyed by */
     this._servicePanelId = null;
 
@@ -403,9 +443,9 @@ class TileTab {
       this._titleEl = title;
 
       // Contribution region: the panel-controls slot between the tile's name
-      // and its close button (tile-header-contrib.js renders into it from the
-      // panel's last `canopy-host-header-contribution`). Keyed by the service
-      // panel id, i.e. the dockview placeholder id minus its prefix.
+      // and the shared controls (tile-header-contrib.js renders into it from
+      // the panel's last contribution). Keyed by the service panel id, i.e.
+      // the dockview placeholder id minus its prefix.
       const contrib = document.createElement('div');
       contrib.className = 'tile-tab-contrib';
       // Interactive children act instead of dragging — same guard as the
@@ -418,14 +458,26 @@ class TileTab {
       });
       root.appendChild(contrib);
       this._contribEl = contrib;
-      this._servicePanelId = id.startsWith(PLACEHOLDER_PREFIX)
+      const servicePanelId = id.startsWith(PLACEHOLDER_PREFIX)
         ? id.slice(PLACEHOLDER_PREFIX.length)
         : id;
-      registerContribHost(this._servicePanelId, contrib);
+      this._servicePanelId = servicePanelId;
+      // The deployment's shared controls, behind the hairline. Registered
+      // with the region so the fold ladder measures and folds both together;
+      // the same guard: its buttons act, the hairline and gaps still drag.
+      const controls = buildSharedControls(servicePanelId, () => title.textContent ?? '');
+      controls.addEventListener('pointerdown', (e) => {
+        if (e.target instanceof Element && e.target.closest(INTERACTIVE)) {
+          e.stopPropagation();
+        }
+      });
+      root.appendChild(controls);
+      this._controlsEl = controls;
+      registerContribHost(servicePanelId, contrib, controls);
       // The bar is the panel's second home for its verbs, alongside the
       // sidebar row. Wired per construction because a service tab's root IS
       // rebuilt with the tab — unlike the long-lived adopted Agent bar.
-      wireTileContextMenu(root, () => this._servicePanelId);
+      wireTileContextMenu(root, () => servicePanelId);
     }
 
     const actions = document.createElement('div');
@@ -436,6 +488,11 @@ class TileTab {
       e.preventDefault();
       e.stopPropagation();
     });
+    // Fixed at the right edge, never folded: ⋯ on every tile, Pop out (the
+    // attached window) on every tile, × last.
+    actions.appendChild(
+      buildTileMenuButton(() => (terminal ? TERMINAL_RAIL_ID : this._servicePanelId), root)
+    );
     actions.appendChild(
       buildPopoutButton(terminal ? TERMINAL_RAIL_ID : (this._servicePanelId ?? id))
     );
@@ -502,6 +559,9 @@ class TileTab {
     if (agentTabRoot === this._element) agentTabRoot = null;
     if (this._contribEl && this._servicePanelId) {
       unregisterContribHost(this._servicePanelId, this._contribEl);
+    }
+    if (this._controlsEl && this._servicePanelId) {
+      unregisterSharedControls(this._servicePanelId, this._controlsEl);
     }
   }
 }

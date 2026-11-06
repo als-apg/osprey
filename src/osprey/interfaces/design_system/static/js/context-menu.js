@@ -20,7 +20,9 @@
  * those keydowns itself and calls the same opener with the element's rect.
  *
  * Dismissal contract — the menu closes on:
- *   - pointerdown outside it (capture phase, so the press dismisses first),
+ *   - pointerdown outside it (capture phase, so the press dismisses first);
+ *     a press on the `triggerEl` that opened it is exempt, so that button's
+ *     click can toggle the menu closed (see {@link openContextMenu}),
  *   - Escape or Tab,
  *   - running an item (the menu closes BEFORE the action),
  *   - window `blur` — a click into an iframe never reaches this document,
@@ -76,12 +78,20 @@
  * @property {number} y - viewport y
  * @property {HTMLElement | null} [anchorEl] - the surface the menu belongs to; scopes
  *   the scroll dismissal (omitting it leaves only document scrolls)
+ * @property {HTMLElement | null} [triggerEl] - the button that opened the menu (a ⋯).
+ *   The menu then sits under it, right edges aligned, instead of at x/y; the
+ *   button carries `aria-expanded` while the menu is open; a press on it
+ *   does not count as an outside press, and opening again from the same
+ *   button while its menu is open closes the menu instead (a toggle).
  * @property {string} ariaLabel - the menu's accessible name
  * @property {MenuItem[]} items - the rows, in order
  * @property {string} [classPrefix] - class-name stem, `osprey-context` by default
  */
 
 const DEFAULT_PREFIX = 'osprey-context';
+
+/** Space between a trigger button and the menu hanging under it, in px. */
+const TRIGGER_GAP = 4;
 
 /** @type {HTMLElement | null} the single open menu, or null */
 let menuEl = null;
@@ -91,6 +101,9 @@ let prefix = DEFAULT_PREFIX;
 
 /** @type {HTMLElement | null} the surface the menu belongs to (scroll scoping) */
 let anchorEl = null;
+
+/** @type {HTMLElement | null} the button the open menu hangs under, if any */
+let triggerEl = null;
 
 /** @type {HTMLElement | null} what had focus when the menu opened */
 let previousFocus = null;
@@ -102,7 +115,11 @@ function enabledRows() {
 
 /** @param {MouseEvent} e */
 function onDocPointerDown(e) {
-  if (menuEl && e.target instanceof Node && !menuEl.contains(e.target)) dismiss(false);
+  if (!menuEl || !(e.target instanceof Node) || menuEl.contains(e.target)) return;
+  // The trigger's own press is the toggle's job (see openContextMenu), not an
+  // outside press: dismissing here would reopen the menu on the click.
+  if (triggerEl && triggerEl.contains(e.target)) return;
+  dismiss(false);
 }
 
 /** @param {KeyboardEvent} e */
@@ -166,6 +183,8 @@ function dismiss(restoreFocus) {
   menuEl.remove();
   menuEl = null;
   anchorEl = null;
+  triggerEl?.setAttribute('aria-expanded', 'false');
+  triggerEl = null;
   const restoreTo = previousFocus;
   previousFocus = null;
   document.removeEventListener('pointerdown', onDocPointerDown, true);
@@ -246,13 +265,19 @@ function buildRow(item) {
  *
  * Every child is assembled through DOM APIs (never innerHTML). After insertion
  * the menu is clamped so it never overflows the viewport (opened near an edge
- * it flips inward), and the first enabled row takes focus.
+ * it flips inward), and the first enabled row takes focus. With `triggerEl`
+ * the menu hangs under that button instead, right edges aligned, and a
+ * second open from the same button closes it.
  *
  * @param {OpenOptions} opts
  * @returns {void}
  */
 export function openContextMenu(opts) {
-  const { x, y, ariaLabel, items } = opts;
+  const { ariaLabel, items } = opts;
+  if (menuEl && opts.triggerEl && opts.triggerEl === triggerEl) {
+    dismiss(false);
+    return;
+  }
   // Capture the focus to hand back BEFORE tearing down any open menu — when
   // one menu replaces another the active element is the old menu's row, so
   // the earlier capture is the one worth keeping.
@@ -261,6 +286,7 @@ export function openContextMenu(opts) {
   dismiss(false);
   previousFocus = held instanceof HTMLElement ? held : null;
   anchorEl = opts.anchorEl ?? null;
+  triggerEl = opts.triggerEl ?? null;
   prefix = opts.classPrefix || DEFAULT_PREFIX;
 
   const menu = document.createElement('div');
@@ -273,16 +299,10 @@ export function openContextMenu(opts) {
 
   for (const item of items) menu.appendChild(buildRow(item));
 
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
   document.body.appendChild(menu);
   menuEl = menu;
-
-  // Clamp into the viewport: near the right/bottom edge the menu flips to
-  // sit on the cursor's other side rather than overflowing.
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
-  if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
+  place(menu, opts);
+  triggerEl?.setAttribute('aria-expanded', 'true');
 
   // Capture-phase pointerdown (not click) so a drag started outside also
   // dismisses, and before the outside target acts on the press. Scroll is
@@ -295,6 +315,32 @@ export function openContextMenu(opts) {
 
   const first = /** @type {HTMLElement | null} */ (menu.querySelector(enabledRows()));
   first?.focus();
+}
+
+/**
+ * Position the inserted menu. At the cursor: clamped into the viewport, so a
+ * menu opened near the right or bottom edge flips to the cursor's other side
+ * rather than overflowing. Under a trigger button: right edges aligned, a
+ * small gap below it, flipped above it when the bottom edge is short of
+ * room. Measured after insertion, at x/y, so the menu's own size is known.
+ * @param {HTMLElement} menu
+ * @param {OpenOptions} opts
+ */
+function place(menu, opts) {
+  const { x, y } = opts;
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  const rect = menu.getBoundingClientRect();
+  if (opts.triggerEl) {
+    const r = opts.triggerEl.getBoundingClientRect();
+    const below = r.bottom + TRIGGER_GAP;
+    const fits = below + rect.height <= window.innerHeight;
+    menu.style.left = `${Math.max(0, r.right - rect.width)}px`;
+    menu.style.top = `${Math.max(0, fits ? below : r.top - rect.height - TRIGGER_GAP)}px`;
+    return;
+  }
+  if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
+  if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
 }
 
 /**

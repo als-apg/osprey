@@ -1883,6 +1883,12 @@ class BuildProfile:
         # under `web`, never as a panel, so it is refused while it is a line.
         errors.extend(panel_spelling_errors(self.config))
 
+        # A `web.tile_bar.controls` the tile bar cannot draw: the terminal
+        # drops it with a warning, so it is refused while it is a line.
+        from .build_profile_tile_bar import tile_bar_control_errors
+
+        errors.extend(tile_bar_control_errors(self.config))
+
         # Validate default_panel: must be a tab this render shows — selected in
         # web_panels, or universal. Catches typos like `default_panel: areil`,
         # and a built-in the profile never selected, both of which would

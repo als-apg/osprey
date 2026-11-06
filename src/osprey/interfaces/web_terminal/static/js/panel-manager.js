@@ -38,9 +38,9 @@ import {
   sendSessionToIframe,
   sendThemeToWindow,
   sendSessionToWindow,
-  buildPopoutSrc,
   isUrlWithinMount,
 } from './panel-iframe-sync.js';
+import { popoutSrc } from './panel-links.js';
 import { navigateInPlace, watchNavigateReady } from './panel-navigate.js';
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
@@ -393,11 +393,12 @@ export async function initPanelManager(panelId) {
   initPopouts({
     // No page to open until the config resolves a URL; and none for a panel
     // whose frame resolved to an opaque origin (panel-iframe-factory.js), whose
-    // standalone page would open sandboxed and out of the hub's reach.
+    // standalone page would open sandboxed and out of the hub's reach. The
+    // window opens on the panel's deep link (panel-links.js): what the tile shows.
     popoutUrl: (id) => {
       const url = getPanelStandaloneUrl(id);
       if (url === null || panelState[id]?.iframe?.dataset.panelFrame === 'opaque') return null;
-      return buildPopoutSrc(url);
+      return popoutSrc(id, url);
     },
     conceal: vacateForPopout,
     redock: (id) => activateTab(id, { userInitiated: false }),
@@ -1028,7 +1029,7 @@ export function getPresets() {
 
 /**
  * Standalone (non-embedded) URL for a service panel — the page a pop-out
- * window opens on, once the pop-out params are added (buildPopoutSrc).
+ * window falls back to when the panel's frame cannot be read (panel-links.js).
  * state.url is the already-proxied root-relative base; the optional catalog
  * path suffixes custom panels' UI root. Null until the panel's config fetch
  * has resolved a URL, and for an opaque-origin panel, which has no first-party
