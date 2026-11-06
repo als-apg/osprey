@@ -477,3 +477,35 @@ async def test_reprobe_of_an_on_demand_row_runs_it_and_the_poll_never_does() -> 
 
     assert ran == ["costly"]
     assert [r["name"] for r in env["results"]] == ["costly.row"]
+
+
+async def test_a_partial_reprobe_keeps_a_shared_row_and_all_its_consumers() -> None:
+    from osprey.health.config import CategoryRecord, Cost
+
+    def make(name: str, row: str, status: Status, message: str) -> CategoryRecord:
+        return CategoryRecord(
+            name=name,
+            cost=Cost.POLL,
+            timeout_s=5.0,
+            func=lambda: [CheckResult(row, name, status, message)],
+        )
+
+    records = [
+        make("graphdb", "graphdb_connection", Status.OK, "reachable (bolt://h:1)"),
+        make("reach", "reach.graphdb", Status.WARNING, "graph MCP server: unreachable"),
+        make("channel_finder", "channel_finder_store", Status.OK, "reachable"),
+    ]
+    loaded = _loaded(_settings())._replace(records=records)
+    engine, _ = _engine(_FakeLoader(loaded))
+    engine.get_checks()
+    await _drain(engine)
+
+    env = await engine.reprobe(checks=["graphdb_connection"])
+
+    (row,) = env["results"]
+    assert (row["name"], row["category"], row["status"]) == (
+        "graphdb_connection",
+        "graphdb",
+        "warning",
+    )
+    assert set(row["used_by"]) == {"graph store service", "graph MCP server", "channel finder"}

@@ -36,6 +36,7 @@ async def run_poll_refresh(
     lifecycle: HealthRuntimeLifecycle,
     *,
     categories: Collection[str] | None = None,
+    fold: bool = True,
 ) -> CheckReport:
     """Produce the poll-tier report for one loaded config.
 
@@ -51,6 +52,9 @@ async def run_poll_refresh(
     not appended: they belong to the full report the caller merges the slice
     into. Without *categories* the run is the poll: ``on_demand`` categories
     never execute.
+
+    *fold* is passed to the suite; a caller that caches unfolded rows and
+    merges slices into them folds when it serves.
 
     The caller owns scheduling and error/accounting policy: this helper neither
     catches suite/load failures nor mutates caller state, so a failure propagates
@@ -72,6 +76,7 @@ async def run_poll_refresh(
         config=loaded.expanded,
         full=categories is not None,
         categories=None if categories is None else list(categories),
+        fold=fold,
         suite_timeout_s=loaded.settings.suite_timeout_s,
         on_demand_timeout_s=loaded.settings.on_demand_timeout_s,
     )

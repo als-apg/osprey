@@ -61,7 +61,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from osprey.health import offload
 from osprey.health.config import HealthSettings, parse_health_config
-from osprey.health.dedupe import fold_shared
+from osprey.health.dedupe import SHARED_PROBES, fold_shared
 from osprey.health.layout import build_layers
 from osprey.health.models import CheckReport
 from osprey.health.refresh import run_poll_refresh
@@ -192,6 +192,14 @@ class HealthCheckEngine:
     def _envelope(
         self, report: CheckReport | None, *, warming: bool, stale: bool
     ) -> dict[str, Any]:
+        # The cache holds unfolded rows so a partial re-probe merges cleanly;
+        # what is served is folded.
+        if report is not None:
+            report = CheckReport(
+                results=fold_shared(report.results),
+                elapsed_ms=report.elapsed_ms,
+                deadline_hit=report.deadline_hit,
+            )
         base = (report or CheckReport()).to_dict()
         base["stale"] = stale
         base["warming"] = warming
@@ -252,8 +260,13 @@ class HealthCheckEngine:
         """The categories whose rows answer for *checks* or *component* in the cache."""
         if self._report is None:
             return set()
-        rows = self._envelope(self._report, warming=False, stale=False)["results"]
+        rows = [r.to_dict() for r in self._report.results]
+        build_layers(rows, self._expanded)
         wanted = set(checks)
+        for group in SHARED_PROBES:
+            # A folded row answers for every probe folded into it.
+            if wanted & set(group):
+                wanted.update(group)
         return {
             r["category"]
             for r in rows
@@ -359,7 +372,9 @@ class HealthCheckEngine:
                 return
         try:
             # Shared poll cycle: reconcile → suite → append plugin/notice rows.
-            report = await run_poll_refresh(loaded, self._lifecycle, categories=categories)
+            report = await run_poll_refresh(
+                loaded, self._lifecycle, categories=categories, fold=False
+            )
         except Exception:
             logger.warning("health refresh: suite run failed; serving cached report", exc_info=True)
             self._evaluate_breaker(events_before)
@@ -398,7 +413,7 @@ class HealthCheckEngine:
         if not inserted:
             merged.extend(fresh)
         return CheckReport(
-            results=fold_shared(merged),
+            results=merged,
             elapsed_ms=self._report.elapsed_ms,
             deadline_hit=self._report.deadline_hit,
         )
