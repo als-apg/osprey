@@ -453,6 +453,7 @@ LAYOUT = {
 
 class TestPins:
     def test_pin_shows_in_the_rows_and_unpin_clears_it(self, client, record):
+        _ledger((KEY, T2, "2026-11-01T09:00:00+00:00"))
         record.answers["list_sessions"] = _answer([_row(T1, 20), _row(T2, 10)])
         resp = client.put(f"/api/sessions/{T2}/pin", json={"pinned": True})
         assert resp.status_code == 200 and resp.json()["pinned"]
@@ -478,8 +479,62 @@ class TestPins:
         later = client.get("/api/sessions", params={"cursor": first["next_cursor"]}).json()
         assert "pinned_sessions" not in later
 
+    def test_a_pin_from_a_later_page_carries_its_record_row_without_a_meta_title(
+        self, client, record
+    ):
+        _ledger((KEY, T3, "2026-11-01T08:00:00+00:00"))
+        client.put(f"/api/sessions/{T3}/pin", json={"pinned": True})
+        old = _row(T3, 5, prompt="Scan the injection kicker", message_count=12)
+        page = _answer([_row(T1, 30)], more=True)
+
+        def answer(**kwargs):
+            ids = kwargs.get("session_ids")
+            if ids:
+                return _answer([old] if T3 in ids else [])
+            return page
+
+        record.answers["list_sessions"] = answer
+        body = client.get("/api/sessions").json()
+        assert T3 not in _by_id(body)
+        [row] = body["pinned_sessions"]
+        assert row["transcript_id"] == T3
+        assert row["title"] != "Untitled session" and "injection kicker" in row["title"]
+        assert row["message_count"] == 12
+        assert row["prompt"] == "Scan the injection kicker"
+        assert row["last_ts"] == old["last_ts"]
+
+    def test_a_pin_the_record_cannot_answer_for_is_still_listed(self, client, record):
+        _ledger((KEY, T3, "2026-11-01T08:00:00+00:00"))
+        client.put(f"/api/sessions/{T3}/pin", json={"pinned": True})
+        page = _answer([_row(T1, 30)], more=True)
+
+        def answer(**kwargs):
+            if kwargs.get("session_ids"):
+                return ClientAnswer(data=None, complete=False, unavailable="down")
+            return page
+
+        record.answers["list_sessions"] = answer
+        [row] = client.get("/api/sessions").json()["pinned_sessions"]
+        assert row["transcript_id"] == T3 and row["message_count"] == 0
+
+    def test_another_operators_session_cannot_be_pinned(self, client, record):
+        record.answers["list_sessions"] = _answer([_row(T1, 20), _row(OTHER, 10)])
+        resp = client.put(f"/api/sessions/{OTHER}/pin", json={"pinned": True})
+        assert resp.status_code == 404
+        assert session_meta.pinned_ids(client.app) == []
+        assert client.app.state.broadcaster.frames == []
+
+    def test_a_pin_sends_the_session_pinned_frame(self, client):
+        _ledger((KEY, T2, "2026-11-01T09:00:00+00:00"))
+        pinned = client.put(f"/api/sessions/{T2}/pin", json={"pinned": True}).json()["pinned"]
+        client.put(f"/api/sessions/{T2}/pin", json={"pinned": False})
+        assert client.app.state.broadcaster.frames == [
+            {"type": "session_pinned", "transcript_id": T2, "pinned": pinned},
+            {"type": "session_pinned", "transcript_id": T2, "pinned": None},
+        ]
+
     def test_a_deleted_session_cannot_be_pinned_and_loses_its_pin(self, client, record):
-        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"))
+        _ledger((KEY, T1, "2026-11-01T09:00:00+00:00"), (KEY, T2, "2026-11-01T09:30:00+00:00"))
         client.put(f"/api/sessions/{T2}/pin", json={"pinned": True})
         session_meta.mark_deleted(client.app, T2)
         assert client.put(f"/api/sessions/{T2}/pin", json={"pinned": True}).status_code == 404

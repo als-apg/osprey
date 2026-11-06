@@ -64,6 +64,7 @@ __all__ = [
     "LAYOUT_MAX_BYTES",
     "LayoutTooLarge",
     "SESSION_DELETED_FRAME",
+    "SESSION_PINNED_FRAME",
     "SESSION_TRANSCRIPT_FRAME",
     "STORE_FILENAME",
     "backfill_ledger",
@@ -96,6 +97,9 @@ SESSION_TRANSCRIPT_FRAME = "session_transcript"
 
 #: The hub page frame sent when the operator deletes a session.
 SESSION_DELETED_FRAME = "session_deleted"
+
+#: The hub frame type that tells every tab a session was pinned or unpinned.
+SESSION_PINNED_FRAME = "session_pinned"
 
 _TITLE_SOURCES = ("user", "auto")
 _NAMING_STATES = ("done", "failed")
@@ -331,7 +335,8 @@ def get(app, tid: str) -> dict[str, Any]:
 
 def deleted_ids(app) -> set[str]:
     """The transcripts the operator deleted (their tombstones)."""
-    return {tid for tid, entry in _document(app)["sessions"].items() if entry.get("deleted")}
+    sessions = list(_document(app)["sessions"].items())
+    return {tid for tid, entry in sessions if entry.get("deleted")}
 
 
 def mark_deleted(app, tid: str) -> dict[str, Any]:
@@ -377,7 +382,7 @@ def pinned_ids(app) -> list[str]:
     """The pinned transcripts that are not deleted, first pinned first."""
     pins = [
         (entry["pinned"], tid)
-        for tid, entry in _document(app)["sessions"].items()
+        for tid, entry in list(_document(app)["sessions"].items())
         if entry.get("pinned") and not entry.get("deleted")
     ]
     return [tid for _, tid in sorted(pins)]

@@ -299,28 +299,43 @@ def _session_listing(
         **session_record.record_fields(record, reason),
     }
     if before is None:
-        body["pinned_sessions"] = _pinned_rows(app, placed, record_rows, ledger, live)
+        body["pinned_sessions"] = _pinned_rows(app, placed, client, ledger, live)
     return body
 
 
 def _pinned_rows(
     app,
     placed: list[tuple[datetime, str, dict[str, Any]]],
-    record_rows: list[Mapping[str, Any]],
+    client: Any,
     ledger: session_ledger.Ledger,
     live: set[str],
 ) -> list[dict[str, Any]]:
     """Every pinned session's row, first pinned first, wherever it is in the pages.
 
     The first page carries them so the sidebar's pinned group is whole before the
-    later pages load. A pinned session not on this page is drawn from the meta alone.
+    later pages load. A pinned session not on this page is read from the record by
+    id, so it carries the title, count and prompt its own page would give it; one
+    the record does not answer for is drawn from the ledger and the meta alone.
     """
     listed = {tid: row for _, tid, row in placed}
-    by_id = {r["session_id"]: r for r in record_rows}
+    pinned = session_meta.pinned_ids(app)
+    missing = [tid for tid in pinned if tid not in listed]
+    records = _record_rows_by_id(missing, client)
     return [
-        listed.get(tid) or _session_row(app, tid, by_id.get(tid), ledger, live)
-        for tid in session_meta.pinned_ids(app)
+        listed.get(tid) or _session_row(app, tid, records.get(tid), ledger, live) for tid in pinned
     ]
+
+
+def _record_rows_by_id(session_ids: list[str], client: Any) -> dict[str, Mapping[str, Any]]:
+    """The record's rows of *session_ids*, by id; an unavailable read answers none."""
+    if not session_ids:
+        return {}
+    answer = client.list_sessions(session_ids=session_ids, limit=len(session_ids))
+    if not answer.available or not isinstance(answer.data, list):
+        return {}
+    return {
+        r["session_id"]: r for r in answer.data if isinstance(r, Mapping) and r.get("session_id")
+    }
 
 
 @router.get("/api/sessions")
@@ -417,12 +432,30 @@ class _PinBody(BaseModel):
 
 @router.put("/api/sessions/{transcript_id}/pin")
 async def put_pin(request: Request, transcript_id: str, body: _PinBody):
-    """Pin or unpin the session in the operator's sidebar; 404 for a deleted session."""
+    """Pin or unpin the session in the operator's sidebar; 404 for a session not mine.
+
+    Every tab applies the change on the ``session_pinned`` frame.
+    """
     tid = _uuid_id(transcript_id, "transcript_id")
+    app = request.app
+    if not await asyncio.to_thread(_is_mine, app, tid):
+        raise HTTPException(status_code=404, detail="No such session.")
     try:
-        entry = await asyncio.to_thread(session_meta.set_pinned, request.app, tid, body.pinned)
+        entry = await asyncio.to_thread(session_meta.set_pinned, app, tid, body.pinned)
     except KeyError:
         raise HTTPException(status_code=404, detail="No such session.") from None
+    broadcaster = getattr(app.state, "broadcaster", None)
+    if broadcaster is not None:
+        try:
+            broadcaster.broadcast(
+                {
+                    "type": session_meta.SESSION_PINNED_FRAME,
+                    "transcript_id": tid,
+                    "pinned": entry["pinned"],
+                }
+            )
+        except Exception:  # a frame is a hint; the next listing carries the pin anyway
+            logger.warning("Could not send the session_pinned frame", exc_info=True)
     return {"transcript_id": tid, **entry}
 
 
