@@ -48,7 +48,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     write_server_report,
 )
 from osprey_connectors_tests._harness._ports import port_reserver
-from tests import _canopy_contract, _scoped_temp
+from tests import _canopy_contract, _scoped_temp, _wallclock_files
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant,
@@ -1086,6 +1086,26 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
         "OPENROUTER_API_KEY not set (a value only an ancestor .env supplies does not count)",
     ),
 }
+
+
+@pytest.hookimpl(specname="pytest_collection_modifyitems")
+def pytest_collection_modifyitems_wallclock_guard(items):
+    """Hold the wall-clock scan to pytest's marks.
+
+    This runs before `-m` deselects anything, so the sweep, which deselects the
+    `wallclock` marker, still sees every marked test it collects; one in a file
+    tests/_wallclock_files.py does not find would be timed by nothing, and the
+    run stops with its name. A hook of its own, so the resource auto-skip below
+    keeps the narrow item contract its tests drive it with.
+    """
+    strays = _wallclock_files.unscanned(
+        item.path for item in items if item.get_closest_marker(_wallclock_files.MARKER)
+    )
+    if strays:
+        # Written out as well as raised: an xdist worker's UsageError reaches
+        # the controller only as an INTERNALERROR without its text.
+        print("\n".join(strays), file=sys.stderr, flush=True)
+        raise pytest.UsageError("\n".join(strays))
 
 
 def pytest_collection_modifyitems(items):
