@@ -716,6 +716,7 @@ async def test_store_without_pgvector(
     status and every search name the fix. The case then runs with the fix the
     refusal offers applied, semantic search switched off.
     """
+    from osprey.services.ariel_search.database.migrations import MigrationSkippedError
     from osprey.services.ariel_search.enhancement.image_embedding import (
         migration as image_migration,
     )
@@ -726,9 +727,12 @@ async def test_store_without_pgvector(
         migration as text_migration,
     )
 
-    # The preamble both vector migrations share, imported by name into each.
+    async def pgvector_absent(_conn: object, unavailable: str) -> None:
+        raise MigrationSkippedError(unavailable)
+
+    # The preamble every vector migration shares, imported by name into each.
     for module in (text_migration, image_migration, hnsw_migration):
-        monkeypatch.setattr(module, "pgvector_available", AsyncMock(return_value=False))
+        monkeypatch.setattr(module, "require_pgvector_hnsw", pgvector_absent)
     stub = llama_stub()
     monkeypatch.setenv("LLAMA_CPP_HOST", stub.url)
     shipped = _deployment_config(scratch_database, _write_source(tmp_path))

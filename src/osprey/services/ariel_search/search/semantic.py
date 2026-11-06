@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from osprey.services.ariel_search.exceptions import SearchTimeoutError
+from osprey.services.ariel_search.exceptions import EmbeddingGenerationError, SearchTimeoutError
 from osprey.services.ariel_search.models import (
     END_BOUND_DESCRIPTION,
     START_BOUND_DESCRIPTION,
@@ -266,8 +266,10 @@ async def semantic_search(
     Raises:
         SearchTimeoutError: When embedding the query outlasts its timeout or
             every search-call worker is held (``operation`` is
-            ``"query embedding"``). Any other embedding failure is logged and
-            gives no matches.
+            ``"query embedding"``).
+        EmbeddingGenerationError: When the provider fails any other way
+            (unreachable, model error, no vector), naming the provider URL and
+            the cause, so a dead provider never reads as "no matches".
     """
 
     def _output(
@@ -332,6 +334,9 @@ async def semantic_search(
     base_url = provider_cls.effective_base_url(raw_base_url)
 
     embed_text = query_expansion.flattened_text if query_expansion else query
+    provider_name = (
+        f"the embedding provider at {base_url}" if base_url else "the embedding provider"
+    )
 
     embed_kwargs: dict[str, Any] = {}
     if provider_cls.truncates_to_dimensions:
@@ -352,8 +357,11 @@ async def semantic_search(
             timeout_s=step_timeout_s,
         )
         if not embeddings or not embeddings[0]:
-            logger.error("Failed to generate query embedding")
-            return _output([])
+            raise EmbeddingGenerationError(
+                f"{provider_name} returned no vector for the query",
+                model_name=model_name,
+                input_text=embed_text,
+            )
 
         query_embedding = embeddings[0]
 
@@ -373,9 +381,16 @@ async def semantic_search(
             timeout_seconds=step_timeout_s,
             operation="query embedding",
         ) from exc
+    except EmbeddingGenerationError:
+        raise
     except Exception as e:
-        logger.error(f"Embedding generation failed: {e}")
-        return _output([])
+        # "The provider is down" must not look like "nothing matched": an
+        # empty list here reads as a normal answer to the caller and to hybrid.
+        raise EmbeddingGenerationError(
+            f"{provider_name} failed the query embedding: {type(e).__name__}: {e}",
+            model_name=model_name,
+            input_text=embed_text,
+        ) from e
 
     paging: dict[str, Any] = {}
     if entry_filter is not None:

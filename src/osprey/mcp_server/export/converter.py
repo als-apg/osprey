@@ -111,6 +111,22 @@ class PlaywrightNotInstalledError(Exception):
     """Raised when Playwright or its browsers are not available."""
 
 
+class PlotNotDrawnError(Exception):
+    """Raised when a page's Plotly plot did not draw within the render budget.
+
+    Nothing is written then: a screenshot of a plot that did not draw is a blank
+    image a reader would take for the plot.
+    """
+
+    def __init__(self, source: Path, budget_ms: int) -> None:
+        super().__init__(
+            f"The Plotly plot in {source.name} did not draw within {budget_ms} ms; "
+            "no image was written."
+        )
+        self.source = source
+        self.budget_ms = budget_ms
+
+
 def _is_missing_browser(exc: BaseException) -> bool:
     """Whether *exc* is Playwright reporting an absent browser binary."""
     return _MISSING_BROWSER_MARKER in str(exc)
@@ -165,6 +181,10 @@ async def _render(
     A page that calls Plotly without loading it is rendered from a temporary
     copy in ``dest.parent`` that loads the library, then waited on until its
     plot has drawn. The source file itself is never modified.
+
+    Raises:
+        PlotNotDrawnError: The plot had not drawn when the budget ran out; no
+            image is written.
     """
     from osprey.interfaces.vendor import html_needs_plotly
 
@@ -199,12 +219,8 @@ async def _render(
                     remaining_ms = max(1, int(_PLOTLY_BUDGET_MS - elapsed_ms))
                     await page.wait_for_function(_PLOT_DRAWN_JS, timeout=remaining_ms)
                     await page.evaluate(_TWO_FRAMES_JS)
-                except PlaywrightTimeoutError:
-                    logger.warning(
-                        "Plotly plot in %s did not draw within %d ms; screenshotting anyway",
-                        source.name,
-                        _PLOTLY_BUDGET_MS,
-                    )
+                except PlaywrightTimeoutError as exc:
+                    raise PlotNotDrawnError(source, _PLOTLY_BUDGET_MS) from exc
                 await page.screenshot(path=str(dest), type=fmt, full_page=True)
             finally:
                 await browser.close()
@@ -238,6 +254,7 @@ async def convert_html_to_image(
     Raises:
         PlaywrightNotInstalledError: Playwright is not importable, or Chromium is
             absent and could not be installed.
+        PlotNotDrawnError: The page's Plotly plot did not draw in time.
         FileNotFoundError: *html_path* does not exist.
         ValueError: Unsupported *fmt*.
     """
