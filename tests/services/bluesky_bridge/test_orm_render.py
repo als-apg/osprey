@@ -14,7 +14,7 @@ What is actually load-bearing about an `orm` figure, and gets pinned here:
   machine would describe the cap rather than the machine.
 
 Rows are hand-built to the shape `build_plan` emits -- one row per (corrector,
-current) point, corrector-major, every row carrying every corrector's current.
+setpoint) point, corrector-major, every row carrying every corrector's setpoint.
 """
 
 from __future__ import annotations
@@ -66,13 +66,13 @@ def _rows(
     """Rows an `orm` run emits for a machine whose response is *truth*.
 
     Corrector-major emission order, every row carrying EVERY corrector's
-    current (idle ones read back 0.0) alongside every BPM -- the document
+    setpoint (idle ones read back 0.0) alongside every BPM -- the document
     shape `build_plan` produces.
 
     *readback_error* ``(gain, offset)`` models correctors whose readback
-    tracks the demand imperfectly: each then reports the commanded current
+    tracks the demand imperfectly: each then reports the commanded setpoint
     under ``<name>_setpoint`` and ``gain * commanded + offset`` under
-    ``<name>``, while the BPMs respond to the commanded current.
+    ``<name>``, while the BPMs respond to the commanded setpoint.
     """
     rows: list[dict[str, float]] = []
     for j, corrector in enumerate(correctors):
@@ -176,7 +176,7 @@ def test_bidirectional_run_renders_the_same_matrix() -> None:
 
 
 def test_the_heatmap_is_the_setpoint_fit_when_the_readback_tracks_with_an_error() -> None:
-    """The default fit is per unit of commanded current; the readback fit is off by the gain."""
+    """The default fit is per unit of commanded setpoint; the readback fit is off by the gain."""
     correctors, readbacks = ["hcm1", "hcm2"], ["bpm1", "bpm2", "bpm3"]
     truth = _truth(len(readbacks), len(correctors))
     rows = _rows(
@@ -718,7 +718,7 @@ def test_rows_from_a_different_plan_do_not_raise() -> None:
 
 
 def test_a_stuck_corrector_is_traced_and_named_not_fitted() -> None:
-    """Currents that never move have no slope -- say so, do not invent one."""
+    """Setpoints that never move have no slope -- say so, do not invent one."""
     correctors, readbacks = ["hcm1", "hcm2"], ["bpm1", "bpm2"]
     truth = _truth(len(readbacks), len(correctors))
     rows = _rows(correctors, readbacks, truth, _currents(1.0, 7, sweep="bidirectional"))

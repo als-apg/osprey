@@ -51,6 +51,9 @@ class Selection:
 
     state: str
     paths: tuple[str, ...] = ()
+    #: The changed path that widened a runner's selection to the whole of it,
+    #: for ``list --changed`` to name; not part of what the selection is.
+    cause: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True)

@@ -131,9 +131,9 @@ def test_setpoint_regression_recovers_the_commanded_slope_through_a_readback_gai
 ):
     """A readback that tracks its demand with a gain and offset error biases only the readback fit.
 
-    Each row carries the commanded current under ``corr1_setpoint`` and a
+    Each row carries the commanded setpoint under ``corr1_setpoint`` and a
     readback of ``0.98 * setpoint + 0.3`` under ``corr1``; the BPM responds to
-    the commanded current. The setpoint fit recovers the response exactly; the
+    the commanded setpoint. The setpoint fit recovers the response exactly; the
     readback fit is off by the tracking gain.
     """
     response = 1.7
