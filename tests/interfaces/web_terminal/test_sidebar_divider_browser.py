@@ -16,6 +16,10 @@ Coverage:
       grows; a drag back within 10 px of the automatic height snaps and clears the stored height.
   (4) a whole-pixel height stored by an earlier build keeps its height and is
       rewritten once as a fraction.
+  (5) at about 800 px a drag down past the room stops where every group still
+      fits: the line tracks the pointer, then stays on the group's end, and
+      neither the sidebar column nor the rail scrolls under the Search box.
+  (6) a stored share too tall for the window is clamped on load and on resize.
 
 The sessions of (1) and (2) are built with the tree's own row builders
 (``sidebar-artifact-rows.js``) into the live tree of an empty project.
@@ -153,8 +157,9 @@ def _rail_room(page: Page) -> float:
           let room = side.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
           for (const el of side.children) {
             if (el.id === 'panel-rail') continue;
-            const pos = getComputedStyle(el).position;
-            if (pos !== 'absolute' && pos !== 'fixed') room -= el.offsetHeight;
+            const ecs = getComputedStyle(el);
+            if (ecs.position !== 'absolute' && ecs.position !== 'fixed')
+              room -= el.offsetHeight + parseFloat(ecs.marginTop) + parseFloat(ecs.marginBottom);
           }
           return room;
         }"""
@@ -258,3 +263,78 @@ def test_an_earlier_builds_pixels_become_a_fraction_once(tmp_path, chromium_brow
         again = _layout(page)
         assert again["height"] == 300, again
         assert again["stored"] == lay["stored"]
+
+
+#: Where the short-window cases read their positions: the divider, the Search
+#: box, the group's top, how far the sidebar column and the rail scrolled, and
+#: the rail's room left below its last group.
+_PLACES_JS = """() => {
+  const rail = document.getElementById('panel-rail');
+  const group = rail.querySelector(':scope > .sidebar-group:has(#sidebar-agent-row)');
+  const search = document.querySelector('#sidebar .osprey-search');
+  return {
+    divider: rail.querySelector(':scope > .sidebar-divider').getBoundingClientRect().top,
+    searchBottom: search.getBoundingClientRect().bottom,
+    groupTop: group.getBoundingClientRect().top,
+    height: group.offsetHeight,
+    sidebarScroll: rail.parentElement.scrollTop,
+    railScroll: rail.scrollTop,
+    railSpill: rail.scrollHeight - rail.clientHeight,
+    railSlack: rail.getBoundingClientRect().bottom - rail.lastElementChild.getBoundingClientRect().bottom,
+    stored: localStorage.getItem('osprey-sidebar-workspace-height'),
+  };
+}"""
+
+
+@pytest.mark.parametrize("height", [800, 813])
+def test_a_drag_past_the_room_stops_where_everything_fits(tmp_path, chromium_browser, height):
+    """On a short window a drag down stops at the room left; the line stays on the group's end."""
+    with _hub(tmp_path) as url, _page(chromium_browser, url, height) as page:
+        _seed(page, 4, 0)
+        before = page.evaluate(_PLACES_JS)
+        x, y = _divider_y(page)
+        page.mouse.move(x, y)
+        page.mouse.down()
+        # Within the room the line is under the pointer.
+        page.mouse.move(x, y + 40, steps=4)
+        assert abs(page.evaluate(_PLACES_JS)["divider"] - (y + 40)) <= 1
+        page.mouse.move(x, y + 500, steps=10)
+        during = page.evaluate(_PLACES_JS)
+        page.mouse.up()
+        after = page.evaluate(_PLACES_JS)
+
+        for lay in (during, after):
+            assert lay["sidebarScroll"] == 0, f"{lay}"
+            assert lay["railScroll"] == 0, f"{lay}"
+            assert lay["railSpill"] <= 1, f"{lay}"
+            # The group grew, and its top stayed put below the Search box.
+            assert lay["height"] > before["height"], f"{before} {lay}"
+            assert lay["groupTop"] >= lay["searchBottom"] - 1, f"{lay}"
+            assert abs(lay["groupTop"] - before["groupTop"]) <= 1, f"{before} {lay}"
+            # The line moved down by exactly the growth.
+            grown = before["divider"] + lay["height"] - before["height"]
+            assert abs(lay["divider"] - grown) <= 1, f"{before} {lay}"
+            # Clamped at the room: the other groups end on the rail's end.
+            assert abs(lay["railSlack"]) <= 1, f"{lay}"
+        assert after["height"] == during["height"], (during, after)
+        assert after["stored"] is not None
+
+
+def test_a_height_saved_on_a_tall_window_fits_a_short_one(tmp_path, chromium_browser):
+    """A stored share that overflows at 800 px is clamped on load and on resize."""
+    with _hub(tmp_path) as url, _page(chromium_browser, url, 800, stored="0.9000") as page:
+        _seed(page, 4, 0)
+        lay = page.evaluate(_PLACES_JS)
+        assert lay["railSpill"] <= 1, f"{lay}"
+        assert lay["sidebarScroll"] == 0, f"{lay}"
+        assert lay["railScroll"] == 0, f"{lay}"
+        assert abs(lay["railSlack"]) <= 1, f"{lay}"
+        assert lay["stored"] == "0.9000", f"{lay}"
+
+        page.set_viewport_size({"width": 1280, "height": 700})
+        page.wait_for_function(f"document.querySelector('{_GROUP}').offsetHeight < {lay['height']}")
+        short = page.evaluate(_PLACES_JS)
+        assert short["railSpill"] <= 1, f"{short}"
+        assert short["sidebarScroll"] == 0, f"{short}"
+        assert short["railScroll"] == 0, f"{short}"
+        assert abs(short["railSlack"]) <= 1, f"{short}"
