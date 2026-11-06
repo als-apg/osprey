@@ -137,6 +137,8 @@ beforeEach(async () => {
         body = pages[parsed.searchParams.get('cursor') ?? 'first'];
       } else if (parsed.pathname.endsWith('/enter')) {
         body = { session_key: MINTED };
+      } else if (parsed.pathname.endsWith('/pin')) {
+        body = { pinned: JSON.parse(init.body).pinned ? '2026-11-06T11:00:00+00:00' : null };
       }
       return new Response(JSON.stringify(body), { status: 200 });
     })
@@ -441,5 +443,54 @@ describe('listing and refresh', () => {
     expect(model.sessionOfArtifact({ owner: T2 })?.transcript_id).toBe(T2);
     expect(model.sessionOfArtifact({ owner: null })).toBeNull();
     expect(model.sessionOfArtifact({ owner: 'gone' })).toBeNull();
+  });
+});
+
+describe('pins', () => {
+  const PINS = () => model.pinnedRows().map((r) => r.transcript_id);
+  const pinPuts = () => calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/pin'));
+
+  test('the first page names every pinned session, a later page included, in pin order', async () => {
+    pages.first.sessions[1] = row(T2, { pinned: '2026-11-06T10:00:00+00:00' });
+    pages.first.pinned_sessions = [
+      row(T3, { session_key: K2, current_for_key: true, pinned: '2026-11-06T09:00:00+00:00' }),
+      pages.first.sessions[1],
+    ];
+    await boot();
+    expect(PINS()).toEqual([T3, T2]);
+    // A pinned session from a later page is the row a tab on its key is on.
+    pointer.setPointer(K2);
+    expect(model.activeRow()?.transcript_id).toBe(T3);
+    expect(model.activeRow()?.synthesized).toBeUndefined();
+  });
+
+  test('setPinned flips the row at once, PUTs, and keeps the hub time', async () => {
+    await boot();
+    const done = model.setPinned(T2, true);
+    expect(PINS()).toEqual([T2]);
+    expect(await done).toBe(true);
+    expect(pinPuts().map((c) => [c.url, c.body])).toEqual([
+      [`/api/sessions/${T2}/pin`, { pinned: true }],
+    ]);
+    expect(model.pinnedRows()[0].pinned).toBe('2026-11-06T11:00:00+00:00');
+    expect(await model.setPinned(T2, false)).toBe(true);
+    expect(PINS()).toEqual([]);
+  });
+
+  test('a refused PUT puts the pin back', async () => {
+    await boot();
+    vi.mocked(fetch).mockImplementationOnce(
+      async () => new Response(JSON.stringify({ detail: 'No such session.' }), { status: 404 })
+    );
+    expect(await model.setPinned(T2, true)).toBe(false);
+    expect(PINS()).toEqual([]);
+  });
+
+  test('a deleted session leaves the pins', async () => {
+    pages.first.sessions[1] = row(T2, { pinned: '2026-11-06T10:00:00+00:00' });
+    pages.first.pinned_sessions = [pages.first.sessions[1]];
+    await boot();
+    model.forgetSession(T2);
+    expect(PINS()).toEqual([]);
   });
 });

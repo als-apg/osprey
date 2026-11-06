@@ -13,6 +13,11 @@
  * page's first listing waits on the record's drain (`drain=1`); {@link refresh}
  * is throttled and merges page 1 without dropping the later pages.
  *
+ * Pins: a row's `pinned` is the ISO time the operator pinned it, and the
+ * first page's `pinned_sessions` lists every pinned session wherever it is
+ * in the pages; {@link pinnedRows} is that list, first pinned first, and
+ * {@link setPinned} flips a pin at once and then on the hub.
+ *
  * The pick is the artifact the tab shows for the session it is on: one value,
  * cleared on every key change, set by {@link switchTo} (`artifactId`, else the
  * row's `last_artifact_id`) and by the sidebar.
@@ -49,6 +54,7 @@ export const NEW_SESSION_TITLE = 'New session';
  * @property {string} [title]
  * @property {string} [naming]
  * @property {string|null} [last_artifact_id]
+ * @property {string|null} [pinned]
  * @property {string} [state]
  * @property {boolean} [truncated]
  * @property {boolean} [synthesized]
@@ -56,6 +62,8 @@ export const NEW_SESSION_TITLE = 'New session';
 
 /** @type {SessionRow[]} */
 let loaded = [];
+/** The first page's `pinned_sessions`. @type {SessionRow[]} */
+let pinnedListed = [];
 /** @type {string|null} */
 let nextCursor = null;
 let more = false;
@@ -99,6 +107,11 @@ function rowsOf(body) {
   return Array.isArray(body?.sessions) ? body.sessions : [];
 }
 
+/** Take a first page's pinned sessions, when it lists them. @param {any} body */
+function takePinned(body) {
+  if (Array.isArray(body?.pinned_sessions)) pinnedListed = body.pinned_sessions;
+}
+
 /**
  * Start the model: subscribe to the pointer and the hub's session frames, and
  * load the first page. Idempotent.
@@ -121,6 +134,7 @@ export function resetSessionModel() {
   lastActiveTimer = refreshTimer = null;
   listeners.clear();
   loaded = [];
+  pinnedListed = [];
   nextCursor = null;
   more = false;
   record = 'complete';
@@ -178,10 +192,11 @@ function onHubFrame(data) {
   } else if (data?.type === 'session_deleted') {
     forgetSession(data.transcript_id);
   } else if (data?.type === 'session_named') {
-    const row = loaded.find((r) => r.transcript_id === data.transcript_id);
-    if (!row) return;
-    row.title = data.title;
-    row.naming = data.naming;
+    const named = [...loaded, ...pinnedListed].filter(
+      (r) => r.transcript_id === data.transcript_id
+    );
+    if (!named.length) return;
+    for (const row of named) Object.assign(row, { title: data.title, naming: data.naming });
     notify('named');
   }
 }
@@ -192,9 +207,10 @@ function onHubFrame(data) {
  * @param {string} transcriptId
  */
 export function forgetSession(transcriptId) {
-  const before = loaded.length;
+  const before = loaded.length + pinnedListed.length;
   loaded = loaded.filter((r) => r.transcript_id !== transcriptId);
-  if (loaded.length !== before) notify('rows');
+  pinnedListed = pinnedListed.filter((r) => r.transcript_id !== transcriptId);
+  if (loaded.length + pinnedListed.length !== before) notify('rows');
 }
 
 /**
@@ -215,7 +231,8 @@ export function rows() {
 export function activeRow() {
   const key = getPointer();
   if (!key) return null;
-  const row = loaded.find((r) => r.session_key === key && r.current_for_key);
+  // A pinned session from a page not loaded yet is a row all the same.
+  const row = [...loaded, ...pinnedListed].find((r) => r.session_key === key && r.current_for_key);
   return (
     row ?? {
       transcript_id: null,
@@ -295,7 +312,65 @@ export function recordLastArtifact(entry) {
 export function sessionOfArtifact(artifact) {
   const owner = artifact?.owner;
   if (!owner) return null;
-  return loaded.find((r) => r.transcript_id === owner) ?? null;
+  return [...loaded, ...pinnedListed].find((r) => r.transcript_id === owner) ?? null;
+}
+
+/** @param {string|null | undefined} at @returns {number} */
+const pinTime = (at) => (at ? Date.parse(at) || 0 : 0);
+
+/**
+ * The pinned sessions, first pinned first: the loaded row where there is one
+ * (the freshest), else the first page's copy.
+ * @returns {SessionRow[]}
+ */
+export function pinnedRows() {
+  /** @type {Map<string, SessionRow>} */
+  const byId = new Map();
+  for (const row of pinnedListed) if (row.transcript_id) byId.set(row.transcript_id, row);
+  for (const row of loaded) {
+    if (row.transcript_id && (row.pinned || byId.has(row.transcript_id)))
+      byId.set(row.transcript_id, row);
+  }
+  return [...byId.values()]
+    .filter((row) => row.pinned)
+    .sort((a, b) => pinTime(a.pinned) - pinTime(b.pinned));
+}
+
+/**
+ * Set a session's pin: in the rows at once, then on the hub
+ * (`PUT /api/sessions/{id}/pin`); a refused PUT puts the rows back.
+ * @param {string} transcriptId
+ * @param {boolean} pinned
+ * @returns {Promise<boolean>} whether the hub took it
+ */
+export async function setPinned(transcriptId, pinned) {
+  const rowsOfId = () =>
+    [...loaded, ...pinnedListed].filter((r) => r.transcript_id === transcriptId);
+  const before = rowsOfId().map((row) => ({ row, value: row.pinned ?? null }));
+  /** @param {string | null} value */
+  const apply = (value) => {
+    for (const row of rowsOfId()) row.pinned = value;
+    if (value && !pinnedListed.some((r) => r.transcript_id === transcriptId)) {
+      const row = loaded.find((r) => r.transcript_id === transcriptId);
+      if (row) pinnedListed = [...pinnedListed, row];
+    }
+    notify('rows');
+  };
+  apply(pinned ? new Date().toISOString() : null);
+  try {
+    const body = await apiRequest(`${SESSIONS_PATH}/${encodeURIComponent(transcriptId)}/pin`, {
+      method: 'PUT',
+      json: { pinned },
+      errorPrefix: pinned ? 'Pinning the session failed' : 'Unpinning the session failed',
+    });
+    apply(typeof body?.pinned === 'string' ? body.pinned : null);
+    return true;
+  } catch (err) {
+    console.warn('[session-model]', err instanceof Error ? err.message : err);
+    for (const { row, value } of before) row.pinned = value;
+    notify('rows');
+    return false;
+  }
 }
 
 /** @param {string|null} cursor @param {boolean} drain */
@@ -314,6 +389,7 @@ function loadFirst() {
     .then((body) => {
       if (gen !== generation) return;
       loaded = rowsOf(body);
+      takePinned(body);
       nextCursor = body?.next_cursor ?? null;
       more = Boolean(body?.more);
       record = body?.record ?? 'complete';
@@ -390,6 +466,7 @@ async function runRefresh() {
   }
   if (gen !== generation) return;
   const first = rowsOf(body);
+  takePinned(body);
   const ids = new Set(first.map((r) => r.transcript_id));
   const rest = loaded.slice(first.length).filter((r) => !ids.has(r.transcript_id));
   // A row that left page 1 because newer ones pushed it down stays loaded.

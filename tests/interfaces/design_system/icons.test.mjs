@@ -82,6 +82,7 @@ const CONTRACT_NAMES = [
   'text-search',
   'clock',
   'triangle-alert',
+  'pin',
 ];
 
 describe('icons.js', () => {

@@ -251,14 +251,31 @@ export function allSessionsClick() {
  * working in: its bar breathes. A folded row's title names the peek
  * (sidebar-session-peek.js) in `aria-controls`, so the tooltip layer stays
  * quiet while the peek shows.
+ *
+ * A row with a transcript ends in a pin button (`data-tree-pin`), shown in
+ * the count's place while the row is hovered or holds focus; on a pinned row
+ * it is pressed and unpins. A pinned row in the session list (not in the
+ * pinned group, `where: 'pinned'`) shows a pin marker at rest. `data-where`
+ * says which copy a row is.
  * @param {SessionRow} session
  * @param {{active: boolean, open: boolean, count: number, summarized?: boolean,
- *   paneOpen?: boolean, accent?: boolean, busy?: boolean}} options
+ *   paneOpen?: boolean, accent?: boolean, busy?: boolean,
+ *   pinned?: string | null, where?: 'sessions' | 'pinned'}} options
  * @returns {HTMLElement}
  */
 export function sessionRow(
   session,
-  { active, open, count, summarized = false, paneOpen = true, accent = active, busy = false }
+  {
+    active,
+    open,
+    count,
+    summarized = false,
+    paneOpen = true,
+    accent = active,
+    busy = false,
+    pinned = null,
+    where = 'sessions',
+  }
 ) {
   const pending = session.naming === 'pending';
   const title = treeSpan(
@@ -279,7 +296,45 @@ export function sessionRow(
   if (!open) title.setAttribute('aria-controls', SESSION_PEEK_ID);
   if (summarized) row.dataset.count = String(count);
   if (pending && session.title) row.append(treeSpan('osprey-tree-naming', 'naming…'));
+  row.dataset.where = where;
+  if (pinned) row.dataset.pinned = pinned;
+  if (pinned && where !== 'pinned') {
+    const mark = icon('pin');
+    mark.classList.add('osprey-tree-pin-mark');
+    row.append(mark);
+  }
   row.append(treeSpan('osprey-tree-n', String(count)));
+  if (session.transcript_id) row.append(pinButton(Boolean(pinned)));
+  return row;
+}
+
+/**
+ * A session row's pin button: pressed on a pinned row, where it unpins.
+ * @param {boolean} pinned
+ * @returns {HTMLButtonElement}
+ */
+function pinButton(pinned) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'osprey-tree-pin';
+  button.dataset.treePin = '';
+  button.setAttribute('aria-pressed', String(pinned));
+  const label = pinned ? 'Unpin' : 'Pin';
+  button.setAttribute('aria-label', `${label} session`);
+  button.dataset.tip = label;
+  button.append(icon('pin'));
+  return button;
+}
+
+/**
+ * A heading inside a tree (the collapsed sidebar's flyout names its pinned
+ * sessions and then the rest).
+ * @param {string} text
+ * @returns {HTMLElement}
+ */
+export function labelRow(text) {
+  const row = plainRow('osprey-tree-day osprey-tree-d0 osprey-tree-label-row', text);
+  row.dataset.treeLabel = '';
   return row;
 }
 
