@@ -155,6 +155,17 @@ def _transcript_of(request: Request, session_id: str | None) -> str | None:
     return transcript_map.get(request.app, session_id)
 
 
+def _scope_of(transcript_id: str | None) -> Any:
+    """The scope of the transcript the report reads, over the hub's session ledger.
+
+    Built from exactly the transcript :func:`_transcript_of` returned, so the
+    owned artifacts and the timeline describe one conversation.
+    """
+    from osprey.stores.artifact_scope import read_ledger, scope_for
+
+    return scope_for(transcript_id, *read_ledger())
+
+
 def _encodable(text: str | None) -> str:
     """Return *text* with anything UTF-8 cannot encode replaced.
 
@@ -369,7 +380,7 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
         _metadata(
             request, identity, now, include_metadata=body.include_metadata, session_id=session_id
         ),
-        transcript_id=transcript_id,
+        scope=_scope_of(transcript_id) if session_id else None,
     )
 
     record_context, context_truncated = render_bundle(
@@ -455,6 +466,6 @@ def feedback_bundle(request: Request, body: BundleRequest) -> dict[str, str]:
             include_metadata=body.include_metadata,
             session_id=session_id,
         ),
-        transcript_id=_transcript_of(request, session_id),
+        scope=_scope_of(_transcript_of(request, session_id)) if session_id else None,
     )
     return {"bundle": bundle_for_copy(material, body.text_len)}
