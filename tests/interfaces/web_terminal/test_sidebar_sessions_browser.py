@@ -99,8 +99,8 @@ def test_the_row_is_named_sessions_and_its_plus_starts_a_new_session(hub, page):
     expect(row.locator(".osprey-nav-label")).to_have_text("Sessions")
     expect(row).to_have_attribute("aria-label", "Sessions")
     expect(row).to_have_attribute("data-tip", "Sessions")
-    # The row keeps its icon.
-    expect(row.locator('svg[data-icon="agent"]')).to_have_count(1)
+    # The row carries no icon.
+    expect(row.locator('svg[data-icon="agent"]')).to_have_count(0)
     # One menu, the right-click one: no "more" button beside the row.
     expect(page.locator("#sidebar-agent-wrap button")).to_have_count(2)
     row.click(button="right")
