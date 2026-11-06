@@ -33,19 +33,35 @@ escalating warning per trip. A slow-but-completing check self-prunes and never
 trips, so healthy-but-slow facilities keep full cadence; a wedged plugin import
 or hung canary (whose thread stays alive) trips it, bounding live-thread growth
 to O(#edits) in the weeks-lived terminal process.
+
+**Re-probe.** :meth:`HealthCheckEngine.reprobe` re-runs part of the report on
+an operator's request — the categories behind some rows or one component, or
+everything (a rescan). It shares the single flight: while a refresh is in
+flight it waits for that one instead of starting a second, it is refused while
+the breaker suppresses refreshes, and it merges the re-run categories' rows
+into the cache. It never elevates cost class.
+
+**The envelope** carries, beyond the report, each row's ``probed_at`` and the
+panel layout (:func:`osprey.health.layout.build_layers`), plus what the MCP
+introspection cache holds — read with
+:func:`~osprey.mcp_server.introspect.peek_mcp_servers`, so serving ``/checks``
+never spawns an MCP server.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from osprey.health import offload
 from osprey.health.config import HealthSettings, parse_health_config
+from osprey.health.dedupe import fold_shared
+from osprey.health.layout import build_layers
 from osprey.health.models import CheckReport
 from osprey.health.refresh import run_poll_refresh
 from osprey.health.signatures import disk_signature as _resolve_disk_signature
@@ -58,6 +74,10 @@ logger = logging.getLogger("osprey.interfaces.health.engine")
 
 #: Default backoff multiple applied to ``interval_s`` when the breaker trips.
 DEFAULT_BREAKER_BACKOFF_FACTOR = 10.0
+
+
+class RefreshSuppressedError(RuntimeError):
+    """A re-probe was asked for while the circuit breaker suppresses refreshes."""
 
 
 class _SyncLoader(Protocol):
@@ -85,6 +105,8 @@ class HealthCheckEngine:
         disk_signature: Override for the breaker's disk-change probe (injectable);
             defaults to stat-ing ``config.yml`` and its sibling ``.env``.
         backoff_factor: Multiple of ``interval_s`` a trip suppresses refreshes for.
+        wall_clock: Epoch time source for the ``probed_at`` / ``scanned_at``
+            stamps the envelope carries (injectable).
     """
 
     def __init__(
@@ -97,6 +119,7 @@ class HealthCheckEngine:
         clock: Callable[[], float] = time.monotonic,
         disk_signature: Callable[[], Any] | None = None,
         backoff_factor: float = DEFAULT_BREAKER_BACKOFF_FACTOR,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         self._loader = loader
         self._lifecycle = lifecycle
@@ -110,6 +133,12 @@ class HealthCheckEngine:
         self._cached_at: float = 0.0
         self._config_ok: bool = False
         self._refresh_task: asyncio.Task[None] | None = None
+        self._wall = wall_clock
+        self._scanned_at: float | None = None
+        #: Epoch time each row (by name) was last probed.
+        self._probed_at: dict[str, float] = {}
+        #: The expanded config of the last completed refresh, for the layout.
+        self._expanded: dict[str, Any] | None = None
 
         # Circuit-breaker state.
         self._suppressed_until: float | None = None
@@ -126,6 +155,11 @@ class HealthCheckEngine:
     def config_ok(self) -> bool:
         """Whether the last completed refresh loaded a usable config."""
         return self._config_ok
+
+    @property
+    def expanded(self) -> dict[str, Any] | None:
+        """The expanded config the last completed refresh ran against."""
+        return self._expanded
 
     def current_refresh_task(self) -> asyncio.Task[None] | None:
         """Return the in-flight refresh task, or ``None`` when idle/done."""
@@ -162,7 +196,96 @@ class HealthCheckEngine:
         base["warming"] = warming
         base["interval_s"] = self._settings.interval_s
         base["title"] = self._settings.title
+        base["scanned_at"] = self._scanned_at if report is not None else None
+        for row in base["results"]:
+            row["probed_at"] = self._probed_at.get(row["name"], self._scanned_at)
+        servers = self._mcp_configured()
+        base["layers"] = build_layers(base["results"], self._expanded, mcp_configured=servers)
+        base["mcp"] = self._mcp_summary(servers)
         return base
+
+    # -- MCP introspection cache (read-only here) ------------------------------
+
+    def mcp_json_path(self) -> Path | None:
+        """The rendered ``.mcp.json`` beside the deployment's ``config.yml``."""
+        try:
+            if self._config_path is not None:
+                config_path = Path(self._config_path)
+            else:
+                from osprey_connectors.workspace import resolve_config_path
+
+                config_path = resolve_config_path()
+        except Exception:
+            return None
+        return config_path.parent / ".mcp.json"
+
+    def _mcp_configured(self) -> list[str]:
+        path = self.mcp_json_path()
+        try:
+            servers = json.loads(path.read_text(encoding="utf-8")).get("mcpServers") if path else {}
+        except (OSError, ValueError, AttributeError):
+            return []
+        return list(servers) if isinstance(servers, dict) else []
+
+    def _mcp_summary(self, configured: list[str]) -> dict[str, Any]:
+        from osprey.mcp_server.introspect import peek_mcp_servers
+
+        path = self.mcp_json_path()
+        servers, probed_at = peek_mcp_servers(path) if path is not None else (None, None)
+        stdio = [s for s in servers or [] if s.get("transport", "stdio") == "stdio"]
+        return {
+            "configured": configured,
+            "stdio": len(stdio) if servers is not None else None,
+            "answered": sum(1 for s in stdio if s.get("tools") is not None)
+            if servers is not None
+            else None,
+            "tools": sum(len(s.get("tools") or []) for s in stdio) if servers is not None else None,
+            "probed_at": probed_at,
+        }
+
+    # -- re-probe ---------------------------------------------------------------
+
+    def categories_for(
+        self, *, checks: Collection[str] = (), component: str | None = None
+    ) -> set[str]:
+        """The categories whose rows answer for *checks* or *component* in the cache."""
+        if self._report is None:
+            return set()
+        rows = self._envelope(self._report, warming=False, stale=False)["results"]
+        wanted = set(checks)
+        return {
+            r["category"]
+            for r in rows
+            if r["name"] in wanted or (component is not None and r.get("component") == component)
+        }
+
+    async def reprobe(
+        self, *, checks: Collection[str] = (), component: str | None = None
+    ) -> dict[str, Any]:
+        """Re-run the categories behind *checks* / *component* (everything when neither).
+
+        Shares the single flight: an in-flight refresh is awaited rather than
+        joined by a second run, and the result is merged into the cache.
+
+        Raises:
+            RefreshSuppressedError: the circuit breaker is suppressing refreshes.
+        """
+        if self._is_suppressed():
+            raise RefreshSuppressedError("refreshes are suppressed after abandoned worker threads")
+        inflight = self.current_refresh_task()
+        if inflight is not None:
+            await asyncio.shield(inflight)
+            return self.get_checks()
+        categories: set[str] | None = None
+        if checks or component is not None:
+            categories = self.categories_for(checks=checks, component=component)
+            if not categories:
+                return self.get_checks()
+        task = asyncio.ensure_future(self._refresh(categories=categories))
+        task.add_done_callback(self._on_refresh_done)
+        self._refresh_task = task
+        await asyncio.shield(task)
+        return self.get_checks()
 
     # -- refresh scheduling -----------------------------------------------------
 
@@ -196,8 +319,11 @@ class HealthCheckEngine:
             and self._disk_signature_fn() != self._suppressed_sig
         )
 
-    async def _refresh(self) -> None:
-        """Run one full refresh cycle: sync load → reconcile → suite → cache.
+    async def _refresh(self, categories: Collection[str] | None = None) -> None:
+        """Run one refresh cycle: sync load → reconcile → suite → cache.
+
+        With *categories* only those run and their rows replace the cached ones
+        (a re-probe); without, the report is replaced whole.
 
         On any failure of the sync or suite phase the cache is left serving. A
         cancellation (teardown) propagates untouched — only ``Exception`` is
@@ -223,18 +349,58 @@ class HealthCheckEngine:
             return
 
         self._settings = loaded.settings
+        if categories is not None:
+            # Only what the suite can run: a notice or plugin-diagnostic row
+            # names a category no record executes, and is kept as cached.
+            categories = {r.name for r in loaded.records} & set(categories)
+            if not categories:
+                self._evaluate_breaker(events_before)
+                return
         try:
             # Shared poll cycle: reconcile → suite → append plugin/notice rows.
-            report = await run_poll_refresh(loaded, self._lifecycle)
+            report = await run_poll_refresh(loaded, self._lifecycle, categories=categories)
         except Exception:
             logger.warning("health refresh: suite run failed; serving cached report", exc_info=True)
             self._evaluate_breaker(events_before)
             return
 
+        now = self._wall()
+        if categories is None or self._report is None:
+            self._report_full_at(now)
+            self._cached_at = self._clock()
+        for row in report.results:
+            self._probed_at[row.name] = now
+        if categories is not None and self._report is not None:
+            report = self._merged(report, set(categories))
         self._report = report
-        self._cached_at = self._clock()
+        self._expanded = loaded.expanded
         self._config_ok = loaded.config_ok
         self._evaluate_breaker(events_before)
+
+    def _report_full_at(self, now: float) -> None:
+        self._scanned_at = now
+        self._probed_at.clear()
+
+    def _merged(self, part: CheckReport, categories: set[str]) -> CheckReport:
+        """The cached report with *categories*' rows replaced by *part*'s, in place."""
+        assert self._report is not None
+        fresh = list(part.results)
+        merged: list[Any] = []
+        inserted = False
+        for row in self._report.results:
+            if row.category in categories:
+                if not inserted:
+                    merged.extend(fresh)
+                    inserted = True
+                continue
+            merged.append(row)
+        if not inserted:
+            merged.extend(fresh)
+        return CheckReport(
+            results=fold_shared(merged),
+            elapsed_ms=self._report.elapsed_ms,
+            deadline_hit=self._report.deadline_hit,
+        )
 
     # -- circuit breaker --------------------------------------------------------
 

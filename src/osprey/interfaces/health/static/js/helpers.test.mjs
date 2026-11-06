@@ -198,3 +198,285 @@ describe('byCategory', () => {
     expect(byCategory([]).size).toBe(0);
   });
 });
+
+// -- layer-stack view helpers ----------------------------------------------------
+
+import {
+  SEVERITY,
+  sevOf,
+  worstSev,
+  commonMethod,
+  tagOf,
+  fmtAge,
+  fmtClock,
+  fmtDur,
+  parseHash,
+  formatHash,
+  headline,
+  ty,
+  argTree,
+  inlineSpans,
+  mdBlocks,
+  firstLine,
+  mcpFact,
+  mcpSummary,
+  pingText,
+} from './helpers.js';
+
+describe('severity labels', () => {
+  test('wire status maps to the EPICS-style label', () => {
+    expect(SEVERITY).toEqual({ ok: 'OK', warning: 'MINOR', error: 'MAJOR', skip: 'DISABLED' });
+    expect(sevOf('warning')).toBe('MINOR');
+    expect(sevOf('bogus')).toBe('DISABLED');
+    expect(sevOf(undefined)).toBe('DISABLED');
+  });
+
+  test('worstSev ranks MAJOR > MINOR > OK > DISABLED', () => {
+    expect(worstSev(['OK', 'MINOR', 'DISABLED'])).toBe('MINOR');
+    expect(worstSev(['OK', 'MAJOR', 'MINOR'])).toBe('MAJOR');
+    expect(worstSev(['DISABLED', 'OK'])).toBe('OK');
+    expect(worstSev([])).toBe('DISABLED');
+  });
+});
+
+describe('commonMethod', () => {
+  test('rows differing only in the trailing path share the prefix', () => {
+    expect(commonMethod(['dir stat /data/a', 'dir stat /data/b'])).toBe('dir stat');
+  });
+
+  test('identical methods are shared whole', () => {
+    expect(commonMethod(['http GET /health', 'http GET /health'])).toBe('http GET /health');
+  });
+
+  test('different methods or a single row share nothing', () => {
+    expect(commonMethod(['bolt query', 'tcp connect'])).toBeNull();
+    expect(commonMethod(['dir stat'])).toBeNull();
+    expect(commonMethod(['a b c d', 'a x y z'])).toBeNull();
+    expect(commonMethod(['', ''])).toBeNull();
+  });
+});
+
+describe('tagOf', () => {
+  test('annotations decide when present', () => {
+    expect(tagOf({ name: 'channel_write', annotations: { readOnlyHint: true } })).toEqual({
+      tag: '',
+      derived: false,
+    });
+    expect(tagOf({ name: 'x', annotations: { destructiveHint: true } })).toEqual({
+      tag: 'write · gated',
+      derived: false,
+    });
+    expect(tagOf({ name: 'x', annotations: { readOnlyHint: false } })).toEqual({
+      tag: 'write',
+      derived: false,
+    });
+  });
+
+  test('otherwise the name decides, and says it was derived', () => {
+    expect(tagOf({ name: 'channel_write' })).toEqual({ tag: 'write · gated', derived: true });
+    expect(tagOf({ name: 'execute_file' }).tag).toBe('write · gated');
+    expect(tagOf({ name: 'artifact_create' }).tag).toBe('write');
+    expect(tagOf({ name: 'channel_read' })).toEqual({ tag: '', derived: true });
+    expect(tagOf({ name: 'setup_info', annotations: null }).tag).toBe('');
+  });
+});
+
+describe('time formatting', () => {
+  test('fmtAge buckets seconds, minutes, hours and days', () => {
+    expect(fmtAge(1)).toBe('just now');
+    expect(fmtAge(-5)).toBe('just now');
+    expect(fmtAge(14)).toBe('14 s ago');
+    expect(fmtAge(125)).toBe('2 m ago');
+    expect(fmtAge(7300)).toBe('2 h ago');
+    expect(fmtAge(200000)).toBe('2 d ago');
+  });
+
+  test('fmtClock prints UTC wall-clock time', () => {
+    expect(fmtClock(Date.UTC(2026, 10, 6, 6, 31, 7) / 1000)).toBe('06:31:07Z');
+    expect(fmtClock(null)).toBe('--:--:--Z');
+  });
+
+  test('fmtDur switches to seconds at one second', () => {
+    expect(fmtDur(166)).toBe('166 ms');
+    expect(fmtDur(4590)).toBe('4.6 s');
+    expect(fmtDur(null)).toBe('—');
+  });
+});
+
+describe('hash', () => {
+  test('parse decodes each part; format is its inverse', () => {
+    expect(parseHash('#mcp-servers/controls/channel_write')).toEqual([
+      'mcp-servers',
+      'controls',
+      'channel_write',
+    ]);
+    expect(parseHash('#a%20b/c')).toEqual(['a b', 'c']);
+    expect(parseHash('')).toEqual([]);
+    expect(formatHash(['a b', 'c'])).toBe('#a%20b/c');
+    expect(formatHash([])).toBe('');
+    expect(parseHash(formatHash(['agent-record', 'not used/x']))).toEqual([
+      'agent-record',
+      'not used/x',
+    ]);
+  });
+});
+
+describe('headline', () => {
+  const layers = [
+    {
+      components: [
+        { id: 'a', name: 'alpha', status: 'ok' },
+        { id: 'b', name: 'beta', status: 'warning', issue: '3 unreadable' },
+      ],
+    },
+    { components: [{ id: 'c', name: 'gamma', status: 'error', issue: null }] },
+  ];
+  test('counts rows by severity and lists faulty components, MAJOR first', () => {
+    const hl = headline(layers, [
+      { status: 'warning' },
+      { status: 'warning' },
+      { status: 'error' },
+      { status: 'ok' },
+    ]);
+    expect(hl.minor).toBe(2);
+    expect(hl.major).toBe(1);
+    expect(hl.faults.map((f) => f.id)).toEqual(['c', 'b']);
+    expect(hl.faults[1].issue).toBe('3 unreadable');
+    expect(hl.faults[0].issue).toBe('MAJOR');
+  });
+});
+
+describe('schema rendering', () => {
+  const root = {
+    type: 'object',
+    required: ['writes'],
+    properties: {
+      writes: { type: 'array', items: { $ref: '#/$defs/W' }, description: 'pairs\nof values' },
+      mode: { enum: ['a', 'b'], default: 'a' },
+      n: { anyOf: [{ type: 'integer' }, { type: 'null' }], default: null },
+    },
+    $defs: {
+      W: {
+        type: 'object',
+        required: ['channel'],
+        properties: { channel: { type: 'string' }, value: { type: 'number' } },
+      },
+    },
+  };
+
+  test('ty renders enums, unions, arrays and objects on one line', () => {
+    expect(ty({ type: 'string' })).toBe('string');
+    expect(ty({ enum: ['a', 'b'] })).toBe('"a" | "b"');
+    expect(ty({ anyOf: [{ type: 'integer' }, { type: 'null' }] })).toBe('integer | null');
+    expect(ty({ type: ['string', 'null'] })).toBe('string | null');
+    expect(ty({ type: 'array', items: { type: 'string' } })).toBe('array<string>');
+    expect(ty(root.properties.writes, root)).toBe('array<object{2}>');
+    expect(ty({ const: 3 })).toBe('3');
+    expect(ty({})).toBe('any');
+  });
+
+  test('argTree resolves refs, marks required, folds descriptions and nests objects', () => {
+    const tree = argTree(root);
+    expect(tree.map((a) => a.name)).toEqual(['writes', 'mode', 'n']);
+    expect(tree[0].required).toBe(true);
+    expect(tree[0].desc).toBe('pairs of values');
+    expect(tree[0].children.map((a) => [a.name, a.required, a.type])).toEqual([
+      ['channel', true, 'string'],
+      ['value', false, 'number'],
+    ]);
+    expect(tree[1].def).toBe('"a"');
+    expect(tree[2].def).toBe('null');
+    expect(argTree({})).toEqual([]);
+  });
+});
+
+describe('markdown-lite', () => {
+  test('inlineSpans splits single and double backtick code', () => {
+    expect(inlineSpans('use `a` or ``b c``')).toEqual([
+      { code: false, text: 'use ' },
+      { code: true, text: 'a' },
+      { code: false, text: ' or ' },
+      { code: true, text: 'b c' },
+    ]);
+  });
+
+  test('mdBlocks yields paragraphs and bullet lists, never HTML', () => {
+    const b = mdBlocks('First line\ncontinues.\n\nArgs:\n- `x`: one\n  more\n- y <b>');
+    expect(b[0]).toEqual({ kind: 'p', spans: [{ code: false, text: 'First line continues.' }] });
+    expect(b[1].kind).toBe('ul');
+    if (b[1].kind === 'ul') {
+      expect(b[1].lead).toEqual([{ code: false, text: 'Args:' }]);
+      expect(b[1].items.length).toBe(2);
+      expect(b[1].items[0]).toEqual([
+        { code: true, text: 'x' },
+        { code: false, text: ': one more' },
+      ]);
+      expect(b[1].items[1][0].text).toBe('y <b>');
+    }
+    expect(mdBlocks(null)).toEqual([]);
+  });
+
+  test('firstLine', () => {
+    expect(firstLine('  a\nb')).toBe('a');
+    expect(firstLine(undefined)).toBe('');
+  });
+});
+
+describe('MCP summaries', () => {
+  test('mcpFact before and after introspection', () => {
+    expect(mcpFact({ configured: ['a', 'b'], answered: null, tools: null })).toBe('2 servers');
+    expect(mcpFact({ configured: ['a'], answered: null })).toBe('1 server');
+    expect(mcpFact({ configured: ['a', 'b'], answered: 2, tools: 9 })).toBe(
+      '2 / 2 answered · 9 tools'
+    );
+    expect(mcpFact({ configured: ['a', 'b', 'c'], stdio: 2, answered: 2, tools: 9 })).toBe(
+      '2 / 2 answered · 9 tools'
+    );
+    expect(mcpFact(null)).toBe('');
+  });
+
+  test('mcpSummary counts stdio answers and tools, http excluded', () => {
+    const s = mcpSummary({
+      probed_at: 5,
+      servers: [
+        { name: 'a', transport: 'stdio', tools: [1, 2] },
+        { name: 'b', transport: 'stdio', tools: null },
+        { name: 'c', transport: 'http', tools: null },
+      ],
+    });
+    expect(s).toEqual({
+      configured: ['a', 'b', 'c'],
+      answered: 1,
+      stdio: 2,
+      tools: 2,
+      probed_at: 5,
+    });
+  });
+});
+
+describe('pingText', () => {
+  test('a completion shows model, latency and tokens', () => {
+    expect(
+      pingText({
+        status: 'ok',
+        kind: 'completion',
+        model: 'm',
+        latency_ms: 880.4,
+        input_tokens: 14,
+        output_tokens: 1,
+      })
+    ).toEqual({ value: 'm · 880 ms · 14 in / 1 out', method: '1-token completion' });
+  });
+
+  test('an embedding shows input tokens only', () => {
+    expect(
+      pingText({ status: 'ok', kind: 'embedding', model: 'e', latency_ms: 9, input_tokens: 4 })
+    ).toEqual({ value: 'e · 9 ms · 4 in', method: '1 embedding' });
+  });
+
+  test('a failed ping shows its message', () => {
+    expect(pingText({ status: 'skip', kind: 'completion', message: 'API key not set' }).value).toBe(
+      'API key not set'
+    );
+  });
+});

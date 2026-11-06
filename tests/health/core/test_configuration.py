@@ -38,6 +38,11 @@ _CANONICAL_NAMES = (
     "archive",
     "agent_record",
     "simulator",
+    "safety_chain",
+    "rendered",
+    "versions",
+    "dispatch",
+    "service_capabilities",
 )
 
 
@@ -71,7 +76,7 @@ class TestCoreRegistry:
     def test_canonical_names_present_without_import(self):
         assert set(CORE_CATEGORY_NAMES) == set(_CANONICAL_NAMES)
         assert set(CORE_CATEGORIES) == set(_CANONICAL_NAMES)
-        assert len(CORE_CATEGORIES) == 19
+        assert len(CORE_CATEGORIES) == 24
 
     def test_contains(self):
         assert "configuration" in CORE_CATEGORIES
@@ -173,7 +178,9 @@ class TestLoadOutcomeRows:
 class TestStructure:
     def test_no_models_section(self):
         results = _by_name(_run(_loaded_state({})))
-        assert results["model_configs"].status == Status.WARNING
+        # Optional: the agent's model comes from claude_code.
+        assert results["model_configs"].status == Status.SKIP
+        assert results["model_configs"].value == "absent (optional)"
         assert "No models section" in results["model_configs"].message
         # model_configs_valid still emitted (unconditional), ok when no models.
         assert results["model_configs_valid"].status == Status.OK
@@ -264,6 +271,23 @@ class TestEnvironmentVariables:
         results = _by_name(_run(_loaded_state(config)))
         assert results["environment_variables"].status == Status.WARNING
         assert "HEALTH_MISSING_VAR" in results["environment_variables"].message
+        assert results["environment_variables"].value == "0 / 1 set"
+
+    def test_key_of_a_provider_no_role_names_is_not_counted(self, monkeypatch):
+        monkeypatch.setenv("HEALTH_USED_KEY", "x")
+        monkeypatch.delenv("HEALTH_SPARE_KEY", raising=False)
+        config = {
+            "claude_code": {"provider": "used"},
+            "api": {
+                "providers": {
+                    "used": {"api_key": "${HEALTH_USED_KEY}"},
+                    "spare": {"api_key": "${HEALTH_SPARE_KEY}"},
+                }
+            },
+        }
+        row = _by_name(_run(_loaded_state(config)))["environment_variables"]
+        assert row.status == Status.OK
+        assert row.value == "1 / 1 set"
 
 
 # --------------------------------------------------------------------------- #

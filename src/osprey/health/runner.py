@@ -42,6 +42,9 @@ Execution model
   A callable-backed category that hits its budget yields exactly one synthesized
   ``error`` row named after the category. A run that synthesizes any such row
   sets :attr:`CheckReport.deadline_hit`.
+* **Shared resources fold.** Rows that read one fact about one resource from
+  different categories (:data:`osprey.health.dedupe.SHARED_PROBES`) are folded
+  into one row carrying their consumers in ``used_by``.
 * **Baseline banner.** While the deployment is switched away from its own
   baseline, the report opens with
   :meth:`~osprey.health.runtime.HealthRuntime.baseline_pinned_row`'s
@@ -59,6 +62,7 @@ from time import perf_counter
 from typing import Any
 
 from .config import DEFAULT_SUITE_TIMEOUT_S, CategoryRecord, Cost
+from .dedupe import fold_shared
 from .models import CheckReport, CheckResult, Status
 from .offload import run_sync
 from .probes import ProbeContext, get_probe
@@ -75,9 +79,13 @@ _PASSING = (Status.OK, Status.WARNING)
 _DEADLINE_MESSAGE = "suite deadline exceeded"
 
 
+#: How the placeholder row of an on_demand category the run skipped begins.
+ON_DEMAND_PREFIX = "on_demand category"
+
+
 def _on_demand_hint(category: str) -> str:
     return (
-        f"on_demand category; run with --full (e.g. `osprey health --full --category {category}`)"
+        f"{ON_DEMAND_PREFIX}; run with --full (e.g. `osprey health --full --category {category}`)"
     )
 
 
@@ -404,7 +412,9 @@ async def run_health_suite(
         return await _run_declarative(record, ctx, deadline)
 
     grouped = await asyncio.gather(*(_run_category(r) for r in selected))
-    results = [result for rows, _ in grouped for result in rows]
+    # One row per shared resource: the categories that read the same fact from
+    # their own angle fold into one row naming its consumers.
+    results = fold_shared([result for rows, _ in grouped for result in rows])
 
     # The banner leads the report while the deployment is switched away from its
     # own baseline: every row below it describes the baseline target, and
