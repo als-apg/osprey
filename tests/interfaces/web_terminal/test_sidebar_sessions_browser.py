@@ -230,13 +230,13 @@ def test_the_keyboard_reaches_the_pin_button_and_keeps_it_through_the_redraw(hub
 
     # At rest it is out of sight, and the count shows.
     expect(count).to_be_visible()
-    assert button.bounding_box()["width"] <= 1
+    expect(button).to_have_css("width", "1px")
 
     # Focus brings it up in the count's place.
     button.focus()
     expect(button).to_be_focused()
     expect(count).to_be_hidden()
-    assert button.bounding_box()["width"] == 20
+    expect(button).to_have_css("width", "20px")
 
     # Enter pins, and the focus survives the redraw.
     page.keyboard.press("Enter")
