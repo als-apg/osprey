@@ -77,8 +77,22 @@ def _write_results(results: Path) -> None:
     ]
     (results / "m__seed1.json").write_text(json.dumps(_summary("m", 1, tests)))
     queries = [
-        {"test": _CAP, "duration_ms": 100_000, "duration_api_ms": 90_000, "output_tokens": 900},
-        {"test": _CAP2, "duration_ms": 300_000, "duration_api_ms": 210_000, "output_tokens": 2100},
+        {
+            "test": _CAP,
+            "duration_ms": 100_000,
+            "duration_api_ms": 90_000,
+            "output_tokens": 900,
+            "model_wait_ms": 60_000,
+            "span_ms": 100_000,
+        },
+        {
+            "test": _CAP2,
+            "duration_ms": 300_000,
+            "duration_api_ms": 210_000,
+            "output_tokens": 2100,
+            "model_wait_ms": 240_000,
+            "span_ms": 300_000,
+        },
         {"test": _HARD, "duration_ms": 2_000_000, "duration_api_ms": 1_000_000, "output_tokens": 9},
     ]
     (results / "m__seed1.queries.jsonl").write_text("".join(json.dumps(q) + "\n" for q in queries))
@@ -100,10 +114,36 @@ def test_latency_stats_from_tests_and_query_log(tmp_path):
     assert stats["median_task_s"] == 200.0
     # median output tokens per Tier 1 task (900 and 2100)
     assert stats["tokens_per_task"] == 1500.0
-    # 300 s of 400 s spent waiting on the model
+    # 300 s of the 400 s the Tier 1 queries spanned spent waiting on the model
     assert stats["model_share"] == 0.75
     # 3000 output tokens over 300 s of model time
     assert stats["tokens_per_s"] == 10.0
+
+
+def test_model_share_is_the_measured_wait_not_the_summed_request_time(tmp_path):
+    """The SDK's ``duration_api_ms`` sums every request, so concurrent ones (a
+    subagent beside the main agent) push it past the query's wall time; the
+    share must come from the transcript-measured wait, and a record without it
+    gives no share rather than the summed figure."""
+    results = tmp_path / "results"
+    _write_results(results)
+    overlapping = {
+        "test": _CAP,
+        "duration_ms": 42_400,
+        "duration_api_ms": 45_812,  # the smoke run's 108 %
+        "output_tokens": 1041,
+        "model_wait_ms": 30_000,
+        "span_ms": 42_000,
+    }
+    (results / "m__seed1.queries.jsonl").write_text(json.dumps(overlapping) + "\n")
+    queries = dash.load_query_timing(str(results))
+    stats = dash.latency_stats("m", dash.load(str(results)), queries)
+    assert stats["model_share"] == 30_000 / 42_000
+
+    legacy = {k: v for k, v in overlapping.items() if k not in ("model_wait_ms", "span_ms")}
+    (results / "m__seed1.queries.jsonl").write_text(json.dumps(legacy) + "\n")
+    queries = dash.load_query_timing(str(results))
+    assert dash.latency_stats("m", dash.load(str(results)), queries)["model_share"] is None
 
 
 def test_latency_stats_without_query_log_keeps_the_task_time(tmp_path):

@@ -309,10 +309,14 @@ def latency_stats(model: str, runs: dict, queries: dict[str, list[dict]], keep=_
 
     ``median_task_s`` is the median wall time of those tests, skips excluded.
     ``tokens_per_task`` is the median, over (seed, test), of the output tokens
-    the test's queries spent. ``model_share`` and ``tokens_per_s`` come from the
-    same queries: the share of query time spent waiting on the model, and
-    output tokens per second of model time. Each is None when its data is
-    missing; a query record with no test name counts toward every selection."""
+    the test's queries spent. ``model_share`` is the share of the queries' span
+    spent waiting on the model (``model_wait_ms`` over ``span_ms``, measured
+    from the session transcripts with concurrent requests counted once; records
+    from before that measurement carry neither and are left out).
+    ``tokens_per_s`` is output tokens per second of summed request time
+    (``duration_api_ms``), the per-request throughput. Each is None when its
+    data is missing; a query record with no test name counts toward every
+    selection."""
     durations = []
     for (m, _s), d in runs.items():
         if m != model:
@@ -321,7 +325,7 @@ def latency_stats(model: str, runs: dict, queries: dict[str, list[dict]], keep=_
             if t.get("outcome") == "skipped" or not keep(canon_name(t["name"])):
                 continue
             durations.append(float(t.get("duration_s", 0) or 0))
-    total_ms = api_ms = out_tok = 0
+    wait_ms = span_ms = api_ms = out_tok = 0
     per_task: dict[tuple, int] = defaultdict(int)
     for q in queries.get(model, []):
         test = q.get("test")
@@ -329,14 +333,16 @@ def latency_stats(model: str, runs: dict, queries: dict[str, list[dict]], keep=_
             continue
         if test:
             per_task[(q.get("_seed"), canon_name(test))] += q.get("output_tokens") or 0
-        if q.get("duration_ms") and q.get("duration_api_ms") is not None:
-            total_ms += q["duration_ms"]
+        if q.get("span_ms") and q.get("model_wait_ms") is not None:
+            span_ms += q["span_ms"]
+            wait_ms += q["model_wait_ms"]
+        if q.get("duration_api_ms"):
             api_ms += q["duration_api_ms"]
             out_tok += q.get("output_tokens") or 0
     return {
         "median_task_s": _median(durations),
         "tokens_per_task": _median([v for v in per_task.values() if v]),
-        "model_share": (api_ms / total_ms) if total_ms else None,
+        "model_share": (wait_ms / span_ms) if span_ms else None,
         "tokens_per_s": (out_tok / (api_ms / 1000)) if api_ms and out_tok else None,
     }
 
@@ -897,7 +903,8 @@ def main() -> int:
             "calls the right tools, a simple workflow goes through. All green is the check; "
             "the comparison is <i>median task</i> (wall time of a Tier 1 test) and "
             "<i>tokens / task</i> (output tokens a test's queries spent, median). <i>In "
-            "model</i> is the share of agent time spent waiting on the model, <i>tok/s</i> "
+            "model</i> is the share of agent time spent waiting on the model, concurrent "
+            "requests counted once, <i>tok/s</i> "
             "output tokens per second of model time. Each cell counts first-attempt passes "
             "(a timeout counts as a failure; skips are excluded).</p>"
         )

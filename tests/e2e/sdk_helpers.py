@@ -21,6 +21,7 @@ carries one handle. A repo has three zones the helpers resolve internally:
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import math
@@ -1264,14 +1265,91 @@ def _tool_events(nodes: list[dict], session_id: str, *, agent_id: str | None) ->
 # ---------------------------------------------------------------------------
 
 
-def _log_query_timing(workflow: SDKWorkflowResult) -> None:
+def _transcript_time(stamp: Any) -> float | None:
+    """Seconds since the epoch for a transcript entry's ISO ``timestamp``."""
+    if not isinstance(stamp, str):
+        return None
+    try:
+        return datetime.fromisoformat(stamp).timestamp()
+    except ValueError:
+        return None
+
+
+def model_wait(transcripts: list[list[dict[str, Any]]]) -> tuple[int, int] | None:
+    """(ms the session spent waiting on the model, ms the session spanned).
+
+    ``transcripts`` is the main session's transcript entries first, then each
+    subagent's, each in file order. One model request is the run of
+    ``assistant`` entries sharing a ``requestId``: it starts at the timestamp of
+    the entry written just before its first assistant entry (the prompt, a tool
+    result, or the CLI's own record of the request) and ends at its last one.
+    The wait is the UNION of those intervals across every transcript, clipped
+    to the main session's span. A sum would count concurrent requests — a
+    subagent's beside the main agent's — twice, which is how the SDK's
+    ``duration_api_ms`` comes to exceed the query's wall time. None when the
+    main transcript carries no timestamps.
+    """
+    if not transcripts:
+        return None
+    main = [t for e in transcripts[0] if (t := _transcript_time(e.get("timestamp"))) is not None]
+    if not main:
+        return None
+    lo, hi = min(main), max(main)
+    intervals: list[tuple[float, float]] = []
+    for entries in transcripts:
+        previous: float | None = None
+        open_requests: dict[str, list[float]] = {}
+        for entry in entries:
+            stamp = _transcript_time(entry.get("timestamp"))
+            if stamp is None:
+                continue
+            request = entry.get("requestId")
+            if entry.get("type") == "assistant" and request:
+                if request not in open_requests:
+                    open_requests[request] = [previous if previous is not None else stamp, stamp]
+                open_requests[request][1] = stamp
+            else:
+                previous = stamp
+        intervals.extend((a, b) for a, b in open_requests.values())
+    busy = 0.0
+    end = lo
+    for a, b in sorted((max(a, lo), min(b, hi)) for a, b in intervals):
+        if b <= end:
+            continue
+        busy += b - max(a, end)
+        end = b
+    return round(busy * 1000), round((hi - lo) * 1000)
+
+
+def _session_transcripts(session_id: str, render: Path) -> list[list[dict[str, Any]]]:
+    """The main session's transcript entries, then each subagent's ([] if none)."""
+    base = claude_project_dir(Path(render).resolve())
+    files = [base / f"{session_id}.jsonl"]
+    if not files[0].is_file():
+        return []
+    files += sorted((base / session_id / "subagents").glob("*.jsonl"))
+    out = []
+    for f in files:
+        entries = []
+        for line in f.read_text(encoding="utf-8").splitlines():
+            with contextlib.suppress(json.JSONDecodeError):
+                entry = json.loads(line)
+                if isinstance(entry, dict):
+                    entries.append(entry)
+        out.append(entries)
+    return out
+
+
+def _log_query_timing(workflow: SDKWorkflowResult, render: Path) -> None:
     """Append one timing record per agent query to ``OSPREY_E2E_QUERY_LOG``.
 
     The benchmark matrix points the variable at
     ``results/<model>__seed<seed>.queries.jsonl``; the dashboard reads it to show
     how long each model takes and how much of that time is spent waiting on the
-    model rather than in OSPREY's tools. The figures are the agent SDK's own
-    accounting on the final ``ResultMessage``. Off unless the variable is set.
+    model rather than in OSPREY's tools. Durations, turns and tokens are the
+    agent SDK's own accounting on the final ``ResultMessage``; the wait on the
+    model (``model_wait_ms`` over ``span_ms``) comes from the session's
+    transcripts (:func:`model_wait`). Off unless the variable is set.
     """
     path = os.environ.get("OSPREY_E2E_QUERY_LOG")
     result = workflow.result
@@ -1287,6 +1365,12 @@ def _log_query_timing(workflow: SDKWorkflowResult) -> None:
         "output_tokens": usage.get("output_tokens"),
         "is_error": getattr(result, "is_error", None),
     }
+    wait = None
+    with contextlib.suppress(OSError):
+        session_id = getattr(result, "session_id", None)
+        wait = session_id and model_wait(_session_transcripts(session_id, render))
+    if wait:
+        record["model_wait_ms"], record["span_ms"] = wait
     try:
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
@@ -1593,7 +1677,7 @@ async def run_sdk_query(
     # them from the on-disk transcripts so delegation tests can observe them.
     _harvest_subagent_traces(workflow, pending_tools, render)
 
-    _log_query_timing(workflow)
+    _log_query_timing(workflow, render)
     _persist_mcp_sidecar(workflow, repo)
     return workflow
 
@@ -1834,7 +1918,7 @@ async def run_sdk_query_with_hooks(
     _harvest_subagent_traces(workflow, pending_tools, render)
 
     workflow.hook_events = hook_events
-    _log_query_timing(workflow)
+    _log_query_timing(workflow, render)
     _persist_mcp_sidecar(workflow, repo)
     return workflow
 
