@@ -1,0 +1,1 @@
+Archiver events on a shared channel no longer block a scenario set: they compose in set order in the archive, so `[vacuum-burst, rf-thermal]` now activates together. Overrides, faults, channel faults and motion still compose only on disjoint targets.
