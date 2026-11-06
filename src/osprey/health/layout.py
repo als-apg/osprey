@@ -842,6 +842,9 @@ def annotate(row: Row, provider_roles: Mapping[str, str]) -> None:
     if row["status"] == "skip" and row["message"].startswith(ON_DEMAND_PREFIX):
         # The runner's placeholder for a costly category the poll never runs.
         display = "on demand · osprey health --full"
+    elif row.get("value") == NOT_USED:
+        # The group these rows are drawn under already says why.
+        display = "not probed"
     row["display"] = _display(row, display)
 
 
