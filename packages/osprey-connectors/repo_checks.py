@@ -45,6 +45,21 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.simulation.sessions.ARTIFACT_FORMS": "a scenario author reads the artifact forms",
+    "osprey_connectors.simulation.sessions.ResolvedArtifact": "a resolved turn carries its artifacts",
+    "osprey_connectors.simulation.sessions.ScenarioSession": "parse_sessions returns it",
+    "osprey_connectors.simulation.sessions.SessionPart": "a parsed session carries its parts",
+    "osprey_connectors.simulation.sessions.AnswerStep": "the framework's transcript author reads a turn's answers",
+    "osprey_connectors.simulation.sessions.ArtifactSpec": "the framework renders the artifacts a turn states",
+    "osprey_connectors.simulation.sessions.ResolvedPart": "the framework's transcript author writes one transcript per part",
+    "osprey_connectors.simulation.sessions.ResolvedSession": "the framework's apply seeds resolved sessions",
+    "osprey_connectors.simulation.sessions.ResolvedTurn": "the framework renders a resolved turn's artifacts",
+    "osprey_connectors.simulation.sessions.SessionTurn": "the framework's scenario validator checks a turn's channels",
+    "osprey_connectors.simulation.sessions.ToolStep": "the framework's scenario validator checks a step's tool",
+    "osprey_connectors.simulation.sessions.from_dict": "the framework's hub reads the sessions seed file",
+    "osprey_connectors.simulation.sessions.parse_sessions": "the framework's scenario validator parses the block",
+    "osprey_connectors.simulation.sessions.resolve": "the framework's apply places sessions at the anchor",
+    "osprey_connectors.simulation.sessions.to_dict": "the framework's apply writes the sessions seed file",
 }
 
 #: Interim: the listed names that had no user when this check was added. Each

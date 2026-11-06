@@ -9,9 +9,11 @@ Scenarios compose only when they write disjoint targets: two scenarios writing
 one target would apply in an order-dependent way, so such a set is refused as
 an :class:`Overlap` naming the target. A scenario's ``still`` meets only the
 motion other scenarios set: it overlaps the ``noise`` or ``couple`` of the
-readings it stills, never another target and never another ``still``. A process that serves without a
-scenario because of an overlap logs one :func:`overlap_record`, and readers
-print it with :func:`format_overlap_record`.
+readings it stills, never another target and never another ``still``. An
+``archiver`` entry writes no target: events several scenarios script on one
+channel compose in set order in the archive, so they never refuse a set. A
+process that serves without a scenario because of an overlap logs one
+:func:`overlap_record`, and readers print it with :func:`format_overlap_record`.
 
 The module imports neither numpy nor lume.
 """
@@ -217,9 +219,10 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
 
     Returns:
         The keys of its ``overrides``, the keys of every fault's ``writes``,
-        the keys of its ``channel_faults``, each ``archiver`` entry's channel,
-        and the keys of ``couple`` and ``noise``; a block the scenario does not
-        state contributes nothing.
+        the keys of its ``channel_faults``, and the keys of ``couple`` and
+        ``noise``; a block the scenario does not state contributes nothing.
+        ``archiver`` entries are not targets: the archive merges the events
+        of every active scenario on a channel in set order.
         The ``couple`` and ``noise`` keys and the ``still`` readings are also
         targets of the motion namespace, which :func:`validate_composition`
         reads apart.
@@ -228,8 +231,6 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
     for fault in (scenario.get("faults") or {}).values():
         targets.update(fault.get("writes") or {})
     targets.update(str(address) for address in scenario.get("channel_faults") or {})
-    for entry in scenario.get("archiver") or []:
-        targets.add(str(entry["channel"]))
     moved = {str(address) for slot in ("couple", "noise") for address in scenario.get(slot) or {}}
     targets.update(moved)
     targets.update(_SETS_MOTION + address for address in moved)
