@@ -38,9 +38,9 @@ Every ``osprey build`` renders a reference container recipe into ``build/``
 
 Both files are re-rendered from the framework on every build, so an edit made
 in ``build/`` lasts only until the next ``osprey build``. To customize them, put
-your version in the source zone's ``project/`` mirror instead. Keep ``.env``
-excluded in a ``.dockerignore`` of your own; the build also strips every
-``.env`` file except ``.env.example`` from the image context.
+your version in the source zone's ``project/`` mirror instead. A
+``.dockerignore`` placed there replaces OSPREY's list, so keep ``.env`` in it.
+The build also strips every ``.env`` file but ``.env.example`` from the image.
 
 .. code-block:: text
 
@@ -63,10 +63,12 @@ See :doc:`../build-profiles` for the profile's convention directories.
 Keeping repo files out of the image
 ===================================
 
-The image carries your deployment repo. To keep repo files out of it —
-notebooks, scratch directories, large analysis output — list them in a
-``.dockerignore`` at the repo root, beside ``profile.yml``. The syntax is
-Docker's, and patterns are anchored at the repo root:
+The image carries your whole deployment repo, not just the render. Some repo
+files have no use there: notebooks, scratch directories, large analysis output.
+List them in a ``.dockerignore`` at the repo root, beside ``profile.yml``. This
+file is yours. It is not the rendered ``build/.dockerignore`` above, which is
+OSPREY's list. The syntax is Docker's, and patterns are anchored at the repo
+root:
 
 .. code-block:: text
 
@@ -74,19 +76,16 @@ Docker's, and patterns are anchored at the repo root:
    notebooks/
    *.h5
 
-Here ``*.h5`` drops ``x.h5`` at the root but not ``data/x.h5``; write
-``**/*.h5`` for every depth. Two rules hold whatever the file says:
+Here ``*.h5`` drops ``x.h5`` at the root but not ``data/x.h5``. Write
+``**/*.h5`` to match at every depth. Two rules hold whatever the file says:
 
-- it cannot bring back what OSPREY excludes: ``.env`` files, ``.git``,
-  ``build/`` and the repo's Claude Code files stay out;
-- a pattern that would remove a build input — ``data/``, the convention
-  directories, ``tiers/``, ``apps/``, the trigger file, ``profile.yml``,
-  a repo-local ``extends:`` base, the selected host-variant profile, an
-  enabled watchdog's directory —
-  fails the build, naming the pattern.
-
-This file is yours; the rendered ``build/.dockerignore`` described above is
-OSPREY's list of what it always keeps out.
+#. It cannot bring back what OSPREY excludes. ``.env`` files, ``.git``,
+   ``build/``, ``var/`` and the repo's Claude Code files stay out.
+#. It cannot remove a file the build reads. Such a pattern fails the build,
+   and the error names it. The build reads ``profile.yml``, ``data/``,
+   ``tiers/``, ``apps/``, the convention directories and the trigger file. It
+   also reads a repo-local ``extends:`` base, the selected host-variant profile
+   and an enabled watchdog's directory.
 
 Quickstart
 ==========
@@ -117,7 +116,7 @@ those logs can read the token, so treat both like a password. If your ``.env``
 sets ``OSPREY_TERMINAL_SECRET`` itself, the container uses that value and
 explains why it is printing no URL. Browse to
 ``http://localhost:10100/?token=<that value>`` instead. Secrets are
-passed at runtime via ``--env-file``. The ``.dockerignore`` guarantees that
+passed at runtime via ``--env-file``. The build guarantees that
 ``.env`` and every other ``.env.*`` file but ``.env.example`` never enter the
 image.
 
@@ -454,11 +453,9 @@ than where it was made.
 The Privilege Split
 ===================
 
-The agent never runs as root:
-
-- **The agent CLI refuses to run in bypassPermissions mode as root.**
-- Running it there would in any case put the whole project within its own
-  reach.
+The agent never runs as root. **The agent CLI refuses to run in
+bypassPermissions mode as root**, and root would put the whole project within
+the agent's reach.
 
 The image satisfies that in a way that still lets the container fix itself at
 startup. It *starts* as root and does the few things only root can do. Then it
@@ -505,9 +502,9 @@ its own uid. Before it serves anything, ``osprey web`` does two things:
 - On Linux, it marks itself non-dumpable.
 
 Its exec-time environment and memory are then closed to the agent and
-everything the agent runs. The panel token is not one of those credentials:
-the agent's own panel tooling is handed it by design. The dispatch worker does the same with
-its bearer. The approval prompt the operator answers at the terminal therefore
+everything the agent runs. The dispatch worker does the same with its bearer.
+The panel token is not one of those credentials: the agent's own panel tooling
+is handed it by design. The approval prompt the operator answers at the terminal therefore
 records that a person intended a write. What contains agent code is the
 connector's checks and the container, as :doc:`/architecture/safety-chain`
 lays out.
@@ -536,8 +533,8 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
    :ref:`containerize-control-identity`.
 #. **Hands the state zone back** to the ``osprey`` user, covering only the
    paths root actually left behind. It does so because both earlier steps
-   wrote into ``var/`` as root. That includes the agent record's spool (``var/spool/``), which the
-   running server has to keep appending to.
+   wrote into ``var/`` as root. That includes the agent record's spool
+   (``var/spool/``), which the running server has to keep appending to.
 #. **Drops privileges** with ``exec gosu osprey "$@"``. Because it execs the
    arguments it was handed, overriding the command on ``docker run`` still
    goes through the drop.
