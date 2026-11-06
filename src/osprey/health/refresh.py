@@ -36,6 +36,7 @@ async def run_poll_refresh(
     lifecycle: HealthRuntimeLifecycle,
     *,
     categories: Collection[str] | None = None,
+    fold: bool = True,
 ) -> CheckReport:
     """Produce the poll-tier report for one loaded config.
 
@@ -45,10 +46,15 @@ async def run_poll_refresh(
     (``loaded.extra_rows``) followed by any restart-notice rows the reconcile
     produced — in that order.
 
-    With *categories* only those categories run — a re-probe of part of a
-    cached report — still poll-tier (``full=False``; a selection never elevates
-    cost), and the plugin-diagnostic and notice rows are not appended: they
-    belong to the full report the caller merges the slice into.
+    With *categories* only those categories run — an operator's re-probe of
+    part of a cached report — at full tier: the click is the consent an
+    ``on_demand`` category waits for. The plugin-diagnostic and notice rows are
+    not appended: they belong to the full report the caller merges the slice
+    into. Without *categories* the run is the poll: ``on_demand`` categories
+    never execute.
+
+    *fold* is passed to the suite; a caller that caches unfolded rows and
+    merges slices into them folds when it serves.
 
     The caller owns scheduling and error/accounting policy: this helper neither
     catches suite/load failures nor mutates caller state, so a failure propagates
@@ -68,8 +74,9 @@ async def run_poll_refresh(
         loaded.records,
         runtime=runtime,
         config=loaded.expanded,
-        full=False,
+        full=categories is not None,
         categories=None if categories is None else list(categories),
+        fold=fold,
         suite_timeout_s=loaded.settings.suite_timeout_s,
         on_demand_timeout_s=loaded.settings.on_demand_timeout_s,
     )

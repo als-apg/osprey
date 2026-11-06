@@ -24,7 +24,8 @@ Rows, all in category ``safety_chain``:
   file are ``error``; a file whose sha differs from the template is
   ``warning`` with fix ``osprey build``. A render with no write tools skips the
   three rows ("no write tools in this render"); one with no ``.claude/``
-  skips them ("not rendered"); an unreadable ``settings.json`` is ``error``.
+  skips them ("not rendered"); an unreadable ``settings.json`` is ``error``,
+  and so is a missing or unreadable ``hook_config.json`` (fail closed).
 * ``hooks.order`` — in every ``PreToolUse`` entry the three run in the order
   ``writes_check → limits → approval``; any other order is ``error``.
 * ``write_switch.<login>`` — per login (``modules.web_terminals.users`` when
@@ -219,7 +220,22 @@ def _hook_rows(render: Path) -> list[CheckResult]:
             )
             for h in CHAIN
         ]
-    write_tools = _write_tools(claude / "hooks" / "hook_config.json")
+    try:
+        write_tools = _write_tools(claude / "hooks" / "hook_config.json")
+    except (OSError, ValueError, AttributeError) as exc:
+        # The hooks' own contract: without it nothing says which tools write,
+        # so the chain cannot be shown to cover them. Fail closed.
+        return [
+            _row(
+                f"hooks.{h}",
+                Status.ERROR,
+                f"{h}: .claude/hooks/hook_config.json cannot be read",
+                "hook_config.json unreadable",
+                details=str(exc),
+                fix=_FIX_BUILD,
+            )
+            for h in CHAIN
+        ]
     if not write_tools:
         return [
             _row(
@@ -261,10 +277,8 @@ def _hook_rows(render: Path) -> list[CheckResult]:
 
 
 def _write_tools(hook_config: Path) -> list[str]:
-    try:
-        tools = json.loads(hook_config.read_text(encoding="utf-8")).get("write_tools")
-    except (OSError, ValueError, AttributeError):
-        return []
+    """The render's write tools; raises when ``hook_config.json`` is missing or malformed."""
+    tools = json.loads(hook_config.read_text(encoding="utf-8")).get("write_tools")
     return [t for t in tools or [] if isinstance(t, str) and t]
 
 
@@ -567,10 +581,15 @@ def _watchdog_rows(cfg: Mapping[str, Any], render: Path, repo: Path) -> list[Che
 
 
 def _flags_row(root: Path) -> CheckResult:
-    from osprey_connectors.session_hold import is_safe_session_key, open_flags
+    from osprey_connectors.session_hold import (
+        UNREADABLE_FLAG_ID,
+        is_safe_session_key,
+        open_flags,
+    )
 
     flags = 0
     held = 0
+    unreadable: list[str] = []
     try:
         keys = sorted(p.name for p in root.iterdir() if p.is_dir())
     except FileNotFoundError:
@@ -578,17 +597,37 @@ def _flags_row(root: Path) -> CheckResult:
     for key in keys:
         if not is_safe_session_key(key):
             continue
-        n = len(open_flags(key, root=root))
-        flags += n
-        held += 1 if n else 0
-    if not flags:
+        found = open_flags(key, root=root)
+        if any(f.flag_id == UNREADABLE_FLAG_ID for f in found):
+            # Still held (fail closed), but there is no operator question to
+            # answer: the record itself is the fault.
+            unreadable.append(key)
+            continue
+        flags += len(found)
+        held += 1 if found else 0
+    if not flags and not unreadable:
         return _row("watchdog.flags_open", Status.OK, "no open hold flag", "0 · no hold")
+    parts: list[str] = []
     noun = "session" if held == 1 else "sessions"
+    if flags:
+        parts.append(f"{flags} open · {held} {noun} held")
+    if unreadable:
+        parts.append(
+            f"{len(unreadable)} hold record{'s' if len(unreadable) != 1 else ''} unreadable"
+        )
+    message = (
+        f"{flags} open hold flag(s); {held} {noun} held until an operator answers"
+        if flags
+        else "a session's hold record is missing or unreadable, so the session is held"
+    )
+    if flags and unreadable:
+        message += f"; {len(unreadable)} more held on an unreadable record"
     return _row(
         "watchdog.flags_open",
         Status.WARNING,
-        f"{flags} open hold flag(s); {held} {noun} held until an operator answers",
-        f"{flags} open · {held} {noun} held",
+        message,
+        " · ".join(parts),
+        details="\n".join(str(root / key / "record.json") for key in unreadable),
     )
 
 

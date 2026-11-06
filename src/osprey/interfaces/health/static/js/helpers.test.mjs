@@ -207,6 +207,7 @@ import {
   worstSev,
   commonMethod,
   tagOf,
+  pageTitle,
   fmtAge,
   fmtClock,
   fmtDur,
@@ -256,27 +257,56 @@ describe('commonMethod', () => {
   });
 });
 
+describe('pageTitle', () => {
+  test('demo data says so in the title; live data does not', () => {
+    expect(pageTitle('System Health', false)).toBe('System Health');
+    expect(pageTitle('System Health', true)).toBe('System Health — demo data');
+    expect(pageTitle('', true)).toBe('System Health — demo data');
+  });
+});
+
 describe('tagOf', () => {
-  test('annotations decide when present', () => {
+  test("the render's hook contract decides when the server sends it", () => {
+    const hooks = (write, gated) => ({ write, gated });
+    expect(tagOf({ name: 'channel_write', hooks: hooks(true, true) })).toEqual({
+      tag: 'write · gated',
+      derived: false,
+      from: 'hooks',
+    });
+    expect(tagOf({ name: 'set_mode', hooks: hooks(true, false) })).toEqual({
+      tag: 'write',
+      derived: false,
+      from: 'hooks',
+    });
+    // A destructive annotation never claims a gate the chain does not provide.
+    expect(
+      tagOf({ name: 'x', hooks: hooks(false, false), annotations: { destructiveHint: true } })
+    ).toEqual({ tag: '', derived: false, from: 'hooks' });
+  });
+
+  test('without the contract annotations decide, and never claim a gate', () => {
     expect(tagOf({ name: 'channel_write', annotations: { readOnlyHint: true } })).toEqual({
       tag: '',
       derived: false,
+      from: 'annotations',
     });
     expect(tagOf({ name: 'x', annotations: { destructiveHint: true } })).toEqual({
-      tag: 'write · gated',
+      tag: 'write',
       derived: false,
+      from: 'annotations',
     });
     expect(tagOf({ name: 'x', annotations: { readOnlyHint: false } })).toEqual({
       tag: 'write',
       derived: false,
+      from: 'annotations',
     });
   });
 
-  test('otherwise the name decides, and says it was derived', () => {
-    expect(tagOf({ name: 'channel_write' })).toEqual({ tag: 'write · gated', derived: true });
-    expect(tagOf({ name: 'execute_file' }).tag).toBe('write · gated');
+  test('otherwise the name decides, says it was derived, and never claims a gate', () => {
+    expect(tagOf({ name: 'channel_write' })).toEqual({ tag: 'write', derived: true, from: 'name' });
+    expect(tagOf({ name: 'execute_file' }).tag).toBe('write');
     expect(tagOf({ name: 'artifact_create' }).tag).toBe('write');
-    expect(tagOf({ name: 'channel_read' })).toEqual({ tag: '', derived: true });
+    expect(tagOf({ name: 'channel_read' })).toEqual({ tag: '', derived: true, from: 'name' });
     expect(tagOf({ name: 'setup_info', annotations: null }).tag).toBe('');
   });
 });
@@ -465,7 +495,7 @@ describe('pingText', () => {
         input_tokens: 14,
         output_tokens: 1,
       })
-    ).toEqual({ value: 'm · 880 ms · 14 in / 1 out', method: '1-token completion' });
+    ).toEqual({ value: 'm · 880 ms · 14 in / 1 out', method: '1 completion' });
   });
 
   test('an embedding shows input tokens only', () => {

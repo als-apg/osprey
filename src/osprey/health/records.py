@@ -68,11 +68,12 @@ CONFIG_DEPENDENT = frozenset(
         "versions",
         "dispatch",
         "service_capabilities",
+        "ariel_modules",
     }
 )
 
 # Core categories in the on_demand cost class (gated behind ``--full``).
-ON_DEMAND_CORE = frozenset({"claude_cli_pinned", "model_chat"})
+ON_DEMAND_CORE = frozenset({"claude_cli_pinned", "model_chat", "ariel_modules"})
 
 
 def load_config(

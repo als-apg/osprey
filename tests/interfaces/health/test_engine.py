@@ -454,3 +454,78 @@ async def test_rescan_runs_everything() -> None:
     await engine.reprobe()
 
     assert counts == {"a": 2, "b": 2}
+
+
+async def test_reprobe_of_an_on_demand_row_runs_it_and_the_poll_never_does() -> None:
+    from osprey.health.config import CategoryRecord, Cost
+
+    ran: list[str] = []
+
+    def costly() -> list[CheckResult]:
+        ran.append("costly")
+        return [CheckResult("costly.row", "costly", Status.OK, "answered")]
+
+    record = CategoryRecord(name="costly", cost=Cost.ON_DEMAND, timeout_s=5.0, func=costly)
+    loaded = _loaded(_settings())._replace(records=[record])
+    engine, _ = _engine(_FakeLoader(loaded))
+    engine.get_checks()
+    await _drain(engine)
+    await engine.reprobe()  # a rescan is a poll: never the costly tier
+    assert ran == []
+
+    env = await engine.reprobe(checks=["costly"])
+
+    assert ran == ["costly"]
+    assert [r["name"] for r in env["results"]] == ["costly.row"]
+
+
+async def test_a_partial_reprobe_keeps_a_shared_row_and_all_its_consumers() -> None:
+    from osprey.health.config import CategoryRecord, Cost
+
+    def make(name: str, row: str, status: Status, message: str) -> CategoryRecord:
+        return CategoryRecord(
+            name=name,
+            cost=Cost.POLL,
+            timeout_s=5.0,
+            func=lambda: [CheckResult(row, name, status, message)],
+        )
+
+    records = [
+        make("graphdb", "graphdb_connection", Status.OK, "reachable (bolt://h:1)"),
+        make("reach", "reach.graphdb", Status.WARNING, "graph MCP server: unreachable"),
+        make("channel_finder", "channel_finder_store", Status.OK, "reachable"),
+    ]
+    loaded = _loaded(_settings())._replace(records=records)
+    engine, _ = _engine(_FakeLoader(loaded))
+    engine.get_checks()
+    await _drain(engine)
+
+    env = await engine.reprobe(checks=["graphdb_connection"])
+
+    (row,) = env["results"]
+    assert (row["name"], row["category"], row["status"]) == (
+        "graphdb_connection",
+        "graphdb",
+        "warning",
+    )
+    assert set(row["used_by"]) == {"graph store service", "graph MCP server", "channel finder"}
+
+
+async def test_a_partial_reprobe_does_not_add_a_second_baseline_banner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from osprey.health.runtime import BASELINE_ROW_CATEGORY, BASELINE_ROW_NAME, HealthRuntime
+
+    banner = CheckResult(BASELINE_ROW_NAME, BASELINE_ROW_CATEGORY, Status.SKIP, "switched")
+    monkeypatch.setattr(HealthRuntime, "baseline_pinned_row", lambda _self: banner)
+    counts: dict[str, int] = {}
+    loaded = _loaded(_settings())._replace(records=_counting_records(counts))
+    engine, _ = _engine(_FakeLoader(loaded))
+    engine.get_checks()
+    await _drain(engine)
+
+    await engine.reprobe(checks=["a.row"])
+    env = await engine.reprobe(checks=["b.row"])
+
+    names = [r["name"] for r in env["results"]]
+    assert names.count(BASELINE_ROW_NAME) == 1

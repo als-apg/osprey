@@ -2546,11 +2546,6 @@ def _render_project(
         runtime_interpreter=shared.runtime_interpreter,
     )
     progress("  ✓ Re-rendered Claude Code artifacts")
-    # The manifest above was written before this re-render replaced `.claude/`
-    # and `.mcp.json`; record the checksums of the render as it now stands.
-    from osprey.cli.templates.manifest import restamp_file_checksums
-
-    restamp_file_checksums(render_dir)
 
     validation_errors = validate_agent_tools_against_permissions(render_dir)
     if validation_errors:

@@ -32,9 +32,23 @@ def test_the_worst_probe_is_kept_when_they_disagree():
     ]
     (kept,) = fold_shared(rows)
 
+    # The canonical row keeps its identity; only the reading is the worst one's.
+    assert (kept.name, kept.category) == ("graphdb_connection", "graphdb")
     assert kept.status is Status.WARNING
     assert kept.message == "graph MCP server: unreachable"
     assert kept.used_by == ("graph store service", "graph MCP server")
+
+
+def test_folding_twice_keeps_every_consumer():
+    rows = [
+        _row("graphdb_connection", "graphdb"),
+        _row("reach.graphdb", "reach", Status.WARNING, "graph MCP server: unreachable"),
+    ]
+    again = fold_shared([*fold_shared(rows), _row("channel_finder_store", "channel_finder")])
+
+    (kept,) = again
+    assert kept.name == "graphdb_connection"
+    assert set(kept.used_by) >= {"graph store service", "graph MCP server", "channel finder"}
 
 
 def test_a_single_present_row_is_untouched():

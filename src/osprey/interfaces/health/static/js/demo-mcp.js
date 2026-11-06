@@ -122,6 +122,17 @@ export const DEMO_MCP = {
   ],
 };
 
+// What the server adds from the render's hook_config.json: each tool's write
+// and gated coverage.
+const DEMO_WRITES = new Set(['controls/channel_write', 'workspace/artifact_create']);
+const DEMO_GATED = new Set(['controls/channel_write']);
+for (const s of DEMO_MCP.servers) {
+  for (const t of /** @type {any[]} */ (s.tools || [])) {
+    const key = s.name + '/' + t.name;
+    t.hooks = { write: DEMO_WRITES.has(key), gated: DEMO_GATED.has(key) };
+  }
+}
+
 /** @param {any} data */
 export function mcpOf(data) {
   const stdio = data.servers.filter((/** @type {any} */ s) => s.transport !== 'http');

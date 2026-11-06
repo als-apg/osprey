@@ -1,6 +1,6 @@
 """Core ``service_capabilities`` health category.
 
-Reads the capability surfaces three services already publish and that no other
+Reads the capability surfaces two services already publish and that no other
 health row reads. Each part contributes rows only when its subject is
 configured; with none configured the category contributes no rows.
 
@@ -24,14 +24,9 @@ against ``cwd``, the render directory).
   the fix when not). ``warning`` when the bundle directory is missing.
 * ``okf.bundle_age`` — age of the newest Markdown file in the bundle (``ok``).
 
-**ARIEL enhancement modules** — present when ``ariel.enhancement_modules``
-enables at least one module. Each enabled module is built alone and its own
-``health_check()`` awaited (5 s bound, all concurrently), the check ``osprey
-ariel status`` runs:
-
-* ``ariel.enhancement.<module>`` — ``ok`` when reachable, ``warning`` with the
-  module's reason when not, ``skip`` when the module has no check of its own.
-  A module that cannot be built is a ``warning`` ("config error").
+The ARIEL enhancement modules' own checks are not read here: one may send a
+billed completion or create a directory, so they are the on_demand
+``ariel_modules`` category (:mod:`osprey.health.core.ariel_modules`).
 
 Every row is advisory: a capability that is missing is a service that is
 degraded, not a broken build.
@@ -66,9 +61,6 @@ _BY_DESIGN = frozenset({"executable", "browse_only_connector"})
 _FIX = "osprey build"
 _DIGEST_LEN = 8
 
-#: Builds the enabled modules from the config mapping; injectable for tests.
-ModuleFactory = Callable[[Mapping[str, Any]], list[Any]]
-
 
 def service_capabilities(
     config: Mapping[str, Any] | None = None,
@@ -77,7 +69,6 @@ def service_capabilities(
     cwd: Path | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
     now: Callable[[], float] | None = None,
-    ariel_modules: ModuleFactory | None = None,
 ) -> CategoryCallable:
     """Build the ``service_capabilities`` category callable.
 
@@ -90,25 +81,21 @@ def service_capabilities(
             path the way the knowledge panel does without one.
         transport: Optional httpx transport, for tests.
         now: Epoch-seconds clock, for tests; defaults to :func:`time.time`.
-        ariel_modules: Optional factory of the enabled ARIEL enhancement
-            modules, for tests; ``None`` builds them from the config.
 
     Returns:
         A no-argument async callable returning the category's check results.
     """
     cfg: Mapping[str, Any] = config or {}
     clock = now or time.time
-    build_modules = ariel_modules or _build_ariel_modules
 
     async def _run() -> list[CheckResult]:
         parts = await asyncio.gather(
             _bluesky_rows(cfg, transport),
             asyncio.to_thread(_okf_rows, cfg, cwd, clock()),
-            _ariel_rows(cfg, build_modules),
             return_exceptions=True,
         )
         rows: list[CheckResult] = []
-        for part, label in zip(parts, ("bluesky", "okf", "ariel.enhancement"), strict=True):
+        for part, label in zip(parts, ("bluesky", "okf"), strict=True):
             if isinstance(part, BaseException):
                 # Isolation: one part's surprise never hides the others.
                 rows.append(
@@ -304,135 +291,3 @@ def _age(seconds: float) -> str:
     if seconds < 48 * 3600:
         return f"{seconds / 3600:.1f} h"
     return f"{seconds / 86400:.1f} d"
-
-
-# -- ARIEL enhancement modules ----------------------------------------------------
-
-
-def _enabled_module_names(cfg: Mapping[str, Any]) -> list[str]:
-    ariel = cfg.get("ariel")
-    modules = ariel.get("enhancement_modules") if isinstance(ariel, Mapping) else None
-    if not isinstance(modules, Mapping):
-        return []
-    return [
-        str(name)
-        for name, block in modules.items()
-        if isinstance(block, Mapping) and block.get("enabled")
-    ]
-
-
-class _Unbuildable:
-    """Stands in for a module whose construction failed, so it reports as one row."""
-
-    def __init__(self, name: str, exc: Exception) -> None:
-        self.name = name
-        self.config_error = exc
-
-
-def _build_ariel_modules(cfg: Mapping[str, Any]) -> list[Any]:
-    """Build each enabled module alone, as ``osprey ariel status`` does."""
-    from osprey.port_layout import resolve_port_base
-    from osprey.services.ariel_search import ARIELConfig
-    from osprey.services.ariel_search.enhancement import create_enhancers_from_config
-
-    services = cfg.get("services")
-    postgresql = services.get("postgresql") if isinstance(services, Mapping) else None
-    config = ARIELConfig.from_dict(
-        dict(cfg.get("ariel") or {}), dict(postgresql or {}), base=resolve_port_base(cfg)
-    )
-    built: list[Any] = []
-    for name in _enabled_module_names(cfg):
-        try:
-            built.extend(
-                m
-                for m in create_enhancers_from_config(config, stage="all", names=[name])
-                if m.name == name
-            )
-        except Exception as exc:  # one misconfigured module never hides the others
-            built.append(_Unbuildable(name, exc))
-    return built
-
-
-async def _ariel_rows(cfg: Mapping[str, Any], build: ModuleFactory) -> list[CheckResult]:
-    if not _enabled_module_names(cfg):
-        return []
-    try:
-        modules = await asyncio.to_thread(build, cfg)
-    except Exception as exc:
-        return [
-            CheckResult(
-                "ariel.enhancement",
-                CATEGORY,
-                Status.WARNING,
-                "ARIEL enhancement modules could not be built",
-                value="config error",
-                details=str(exc),
-            )
-        ]
-    return list(await asyncio.gather(*(_module_row(m) for m in modules)))
-
-
-async def _module_row(module: Any) -> CheckResult:
-    from osprey.services.ariel_search.enhancement.base import as_health_result
-
-    name = f"ariel.enhancement.{module.name}"
-    error = getattr(module, "config_error", None)
-    if error is not None:
-        return CheckResult(
-            name,
-            CATEGORY,
-            Status.WARNING,
-            f"ARIEL module {module.name} cannot be configured",
-            value="config error",
-            details=str(error),
-        )
-    started = time.perf_counter()
-    try:
-        result = as_health_result(await asyncio.wait_for(module.health_check(), _TIMEOUT_S))
-    except TimeoutError:
-        result = None
-        failure = f"no answer within {_TIMEOUT_S:g} s"
-        value = "no answer"
-    except Exception as exc:
-        result = None
-        failure = str(exc) or type(exc).__name__
-        value = "check failed"
-    elapsed = (time.perf_counter() - started) * 1000.0
-    if result is None:
-        return CheckResult(
-            name,
-            CATEGORY,
-            Status.WARNING,
-            f"ARIEL module {module.name} health check failed",
-            value=value,
-            details=failure,
-            latency_ms=elapsed,
-            probed=True,
-        )
-    if result.reachable is None:
-        return CheckResult(
-            name,
-            CATEGORY,
-            Status.SKIP,
-            f"ARIEL module {module.name} has no health check",
-            value="no health check",
-        )
-    if result.reachable:
-        return CheckResult(
-            name,
-            CATEGORY,
-            Status.OK,
-            result.message or f"ARIEL module {module.name} reachable",
-            value=f"reachable · {elapsed:.0f} ms",
-            latency_ms=elapsed,
-            probed=True,
-        )
-    return CheckResult(
-        name,
-        CATEGORY,
-        Status.WARNING,
-        result.message or f"ARIEL module {module.name} unreachable",
-        value=result.reason or "unreachable",
-        latency_ms=elapsed,
-        probed=True,
-    )

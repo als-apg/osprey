@@ -9,9 +9,11 @@ row per resource and records the consumers whose probes it absorbed in
 :attr:`~osprey.health.models.CheckResult.used_by`.
 
 The equivalences are :data:`SHARED_PROBES`: groups of row names that read the
-same fact. The first name present in a group is the row kept; when the probes
-disagree the worst one is kept instead, since a consumer that cannot reach the
-resource from where it runs is the fact that matters. A group with a single
+same fact. The first name present in a group is the row kept, under its own
+name and category; when the probes disagree it carries the worst one's status,
+message and value, since a consumer that cannot reach the resource from where
+it runs is the fact that matters. Folding a folded row again keeps every
+consumer it already named. A group with a single
 present row is left untouched, so a ``--category`` run of one category reports
 exactly what it did before.
 """
@@ -55,23 +57,38 @@ def fold_shared(results: Sequence[CheckResult]) -> list[CheckResult]:
     """Return *results* with each :data:`SHARED_PROBES` group folded into one row.
 
     The kept row takes the position of the group's first row in *results*; the
-    others are dropped. Order is otherwise preserved.
+    others are dropped. Order is otherwise preserved. Idempotent.
     """
     by_name = {r.name: r for r in results}
     keep: dict[str, CheckResult] = {}
-    drop: set[str] = set()
+    first_of: dict[str, str] = {}
     for group in SHARED_PROBES:
         present = [by_name[name] for name in group if name in by_name]
         if len(present) < 2:
             continue
-        kept = present[0]
+        canonical = present[0]
+        worst = canonical
         for row in present[1:]:
-            if _RANK[row.status] > _RANK[kept.status]:
-                kept = row
-        consumers = tuple(dict.fromkeys(_consumer(r) for r in present))
-        first = present[0].name
-        keep[first] = replace(kept, used_by=consumers)
-        drop.update(r.name for r in present if r.name != first)
-    if not keep:
-        return list(results)
-    return [keep.get(r.name, r) for r in results if r.name not in drop]
+            if _RANK[row.status] > _RANK[worst.status]:
+                worst = row
+        # A row folded earlier already names its consumers; keep them all.
+        consumers = tuple(dict.fromkeys(c for r in present for c in (r.used_by or (_consumer(r),))))
+        keep[canonical.name] = replace(
+            canonical,
+            status=worst.status,
+            message=worst.message,
+            value=worst.value,
+            used_by=consumers,
+        )
+        first_of.update(dict.fromkeys((r.name for r in present), canonical.name))
+    out: list[CheckResult] = []
+    placed: set[str] = set()
+    for r in results:
+        canonical_name = first_of.get(r.name)
+        if canonical_name is None:
+            out.append(r)
+        elif canonical_name not in placed:
+            # The folded row takes the place of the group's first row in *results*.
+            out.append(keep[canonical_name])
+            placed.add(canonical_name)
+    return out

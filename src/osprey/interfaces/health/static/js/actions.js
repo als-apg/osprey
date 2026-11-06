@@ -4,7 +4,7 @@
  * rescan, row re-probe and provider ping.
  */
 
-import { pingText } from './helpers.js';
+import { pageTitle, pingText } from './helpers.js';
 import { must, note, now } from './dom.js';
 import { fromHash, rerenderDrawer, show } from './drawer.js';
 import {
@@ -61,7 +61,7 @@ export async function ping(provider) {
   } catch (e) {
     pings.set(provider, {
       value: e instanceof Error ? e.message : String(e),
-      method: '1-token completion',
+      method: '1 completion',
       status: 'warning',
       t: now(),
     });
@@ -78,7 +78,7 @@ export async function ping(provider) {
 export function applyEnvelope(d, flash) {
   const firstData = !store.env || store.env.warming;
   store.env = d;
-  const title = d.title || 'System Health';
+  const title = pageTitle(d.title, store.demo);
   must('ttl').textContent = title;
   document.title = title;
   if (d.warming) {

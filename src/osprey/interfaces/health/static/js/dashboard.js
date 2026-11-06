@@ -61,6 +61,8 @@ async function boot() {
   if (params.has('demo')) {
     const { demoApi } = await import('./demo.js');
     store.api = demoApi();
+    store.demo = true;
+    must('demo').hidden = false;
   } else {
     store.api = makeApi();
   }

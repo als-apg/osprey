@@ -1,9 +1,9 @@
-"""One minimal real request to one provider, on explicit demand.
+"""One small real request to one provider, on explicit demand.
 
 The poll-tier ``providers`` category asks each provider whether it answers
 (its ``check_health``), which costs nothing. A *ping* goes one step further and
-sends one real chat completion capped at one output token, so it costs a
-request: it runs only when an operator asks for it (the panel's ``ping``
+sends one real chat completion capped at :data:`MAX_TOKENS` output tokens, so
+it costs a request: it runs only when an operator asks for it (the panel's ``ping``
 button), never on a schedule.
 
 The model is the one the deployment itself uses with that provider — the
@@ -14,15 +14,24 @@ route the deployment depends on rather than an arbitrary catalogue model.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from time import perf_counter
 from typing import Any
 
 from osprey.health.offload import run_sync
 
-#: The prompt, and the output cap: one token proves the round trip.
+#: The prompt.
 _PROMPT = "Reply with OK"
-_MAX_TOKENS = 1
+
+#: The output cap. Small, so a ping stays cheap, but not one token: a reasoning
+#: model spends output tokens before it answers, and with a cap of one it comes
+#: back empty or refuses, which would report a working provider as faulty.
+MAX_TOKENS = 64
+
+#: The ping in flight per provider: a second click (or a second tab) while one
+#: is running waits for it instead of sending another billed request.
+_inflight: dict[str, asyncio.Task[dict[str, Any]]] = {}
 
 _MODEL_KEYS = ("model_id", "model", "default_model")
 
@@ -76,7 +85,9 @@ def _result(provider: str, status: str, message: str, **extra: Any) -> dict[str,
 async def ping_provider(
     config: Mapping[str, Any] | None, provider: str, *, timeout_s: float = 30.0
 ) -> dict[str, Any]:
-    """Send one one-token completion to *provider* and report how it went.
+    """Send one small completion to *provider* and report how it went.
+
+    Concurrent pings of one provider share one request.
 
     Returns:
         ``provider``, ``status`` (``ok`` / ``warning`` / ``error`` / ``skip``),
@@ -85,7 +96,19 @@ async def ping_provider(
         ``output_tokens`` (``None``: the completion route does not report
         usage) and a one-line ``message``. Never raises.
     """
-    cfg: Mapping[str, Any] = config or {}
+    running = _inflight.get(provider)
+    if running is not None and not running.done():
+        return await asyncio.shield(running)
+    task = asyncio.ensure_future(_ping(config or {}, provider, timeout_s))
+    _inflight[provider] = task
+    try:
+        return await asyncio.shield(task)
+    finally:
+        if _inflight.get(provider) is task and task.done():
+            del _inflight[provider]
+
+
+async def _ping(cfg: Mapping[str, Any], provider: str, timeout_s: float) -> dict[str, Any]:
     catalogue = (cfg.get("api") or {}).get("providers") or {}
     if provider not in catalogue:
         return _result(provider, "error", f"{provider} has no api.providers block")
@@ -106,7 +129,7 @@ async def ping_provider(
         from osprey.models.completion import get_chat_completion
 
         return get_chat_completion(
-            message=_PROMPT, provider=provider, model_id=model, max_tokens=_MAX_TOKENS
+            message=_PROMPT, provider=provider, model_id=model, max_tokens=MAX_TOKENS
         )
 
     t0 = perf_counter()

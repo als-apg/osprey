@@ -190,6 +190,21 @@ def test_unreadable_settings_is_an_error(tmp_path: Path) -> None:
     assert rows["hooks.osprey_writes_check"].value == "settings.json unreadable"
 
 
+@pytest.mark.parametrize("body", [None, "{not json", '["a list"]'])
+def test_a_missing_or_unreadable_hook_config_fails_closed(tmp_path: Path, body) -> None:
+    config, build = _render(tmp_path, limits=GOOD_LIMITS)
+    hook_config = build / ".claude" / "hooks" / "hook_config.json"
+    if body is None:
+        hook_config.unlink()
+    else:
+        hook_config.write_text(body)
+    rows = _run(config, build)
+    for hook in CHAIN:
+        row = rows[f"hooks.{hook}"]
+        assert row.status is Status.ERROR, row.message
+        assert row.fix == "osprey build"
+
+
 def test_no_rendered_claude_dir_skips_the_hooks(tmp_path: Path) -> None:
     config, build = _render(tmp_path, limits=GOOD_LIMITS)
     shutil.rmtree(build / ".claude")
@@ -420,6 +435,29 @@ def test_watchdogs_without_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     rows = _run(config, build)
     assert rows["watchdog.flags_open"].status is Status.OK
     assert rows["watchdog.flags_open"].value == "0 · no hold"
+
+
+def test_an_unreadable_hold_record_holds_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.services.watchdog.config import WatchdogDefinition
+
+    config, build = _render(tmp_path, limits=GOOD_LIMITS)
+    monkeypatch.setattr(
+        sc,
+        "_load_watchdogs",
+        lambda _cfg, _dir: (WatchdogDefinition(name="radiation", engine="decision", enabled=True),),
+    )
+    session = sc.session_hold_dir(build.parent) / "s1"
+    session.mkdir(parents=True)
+    (session / "record.json").write_text("{not json")
+    row = _run(config, build)["watchdog.flags_open"]
+
+    # Fail closed: the session still counts as held; the text names the fault.
+    assert row.status is Status.WARNING
+    assert row.value == "1 hold record unreadable"
+    assert "operator" not in row.message
+    assert "s1" in row.details
 
 
 def test_invalid_watchdogs_block_is_an_error(

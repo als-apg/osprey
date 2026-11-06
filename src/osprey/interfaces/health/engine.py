@@ -39,7 +39,8 @@ an operator's request — the categories behind some rows or one component, or
 everything (a rescan). It shares the single flight: while a refresh is in
 flight it waits for that one instead of starting a second, it is refused while
 the breaker suppresses refreshes, and it merges the re-run categories' rows
-into the cache. It never elevates cost class.
+into the cache. A named slice runs at full tier — the click is the consent an
+``on_demand`` row waits for; a rescan stays the poll.
 
 **The envelope** carries, beyond the report, each row's ``probed_at`` and the
 panel layout (:func:`osprey.health.layout.build_layers`), plus what the MCP
@@ -60,10 +61,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from osprey.health import offload
 from osprey.health.config import HealthSettings, parse_health_config
-from osprey.health.dedupe import fold_shared
+from osprey.health.dedupe import SHARED_PROBES, fold_shared
 from osprey.health.layout import build_layers
 from osprey.health.models import CheckReport
 from osprey.health.refresh import run_poll_refresh
+from osprey.health.runtime import BASELINE_ROW_NAME
 from osprey.health.signatures import disk_signature as _resolve_disk_signature
 
 if TYPE_CHECKING:
@@ -191,6 +193,14 @@ class HealthCheckEngine:
     def _envelope(
         self, report: CheckReport | None, *, warming: bool, stale: bool
     ) -> dict[str, Any]:
+        # The cache holds unfolded rows so a partial re-probe merges cleanly;
+        # what is served is folded.
+        if report is not None:
+            report = CheckReport(
+                results=fold_shared(report.results),
+                elapsed_ms=report.elapsed_ms,
+                deadline_hit=report.deadline_hit,
+            )
         base = (report or CheckReport()).to_dict()
         base["stale"] = stale
         base["warming"] = warming
@@ -200,8 +210,12 @@ class HealthCheckEngine:
         for row in base["results"]:
             row["probed_at"] = self._probed_at.get(row["name"], self._scanned_at)
         servers = self._mcp_configured()
-        base["layers"] = build_layers(base["results"], self._expanded, mcp_configured=servers)
-        base["mcp"] = self._mcp_summary(servers)
+        mcp = self._mcp_summary(servers)
+        answered = None if mcp["answered"] is None else (mcp["answered"], mcp["stdio"])
+        base["layers"] = build_layers(
+            base["results"], self._expanded, mcp_configured=servers, mcp_answered=answered
+        )
+        base["mcp"] = mcp
         return base
 
     # -- MCP introspection cache (read-only here) ------------------------------
@@ -251,8 +265,13 @@ class HealthCheckEngine:
         """The categories whose rows answer for *checks* or *component* in the cache."""
         if self._report is None:
             return set()
-        rows = self._envelope(self._report, warming=False, stale=False)["results"]
+        rows = [r.to_dict() for r in self._report.results]
+        build_layers(rows, self._expanded)
         wanted = set(checks)
+        for group in SHARED_PROBES:
+            # A folded row answers for every probe folded into it.
+            if wanted & set(group):
+                wanted.update(group)
         return {
             r["category"]
             for r in rows
@@ -358,7 +377,9 @@ class HealthCheckEngine:
                 return
         try:
             # Shared poll cycle: reconcile → suite → append plugin/notice rows.
-            report = await run_poll_refresh(loaded, self._lifecycle, categories=categories)
+            report = await run_poll_refresh(
+                loaded, self._lifecycle, categories=categories, fold=False
+            )
         except Exception:
             logger.warning("health refresh: suite run failed; serving cached report", exc_info=True)
             self._evaluate_breaker(events_before)
@@ -384,10 +405,16 @@ class HealthCheckEngine:
     def _merged(self, part: CheckReport, categories: set[str]) -> CheckReport:
         """The cached report with *categories*' rows replaced by *part*'s, in place."""
         assert self._report is not None
-        fresh = list(part.results)
-        merged: list[Any] = []
+        # The baseline banner is decided by each run, slices included: the one
+        # this slice carries (or its absence) replaces the cached one, and it
+        # leads the report.
+        banner = [r for r in part.results if r.name == BASELINE_ROW_NAME]
+        fresh = [r for r in part.results if r.name != BASELINE_ROW_NAME]
+        merged: list[Any] = list(banner)
         inserted = False
         for row in self._report.results:
+            if row.name == BASELINE_ROW_NAME:
+                continue
             if row.category in categories:
                 if not inserted:
                     merged.extend(fresh)
@@ -397,7 +424,7 @@ class HealthCheckEngine:
         if not inserted:
             merged.extend(fresh)
         return CheckReport(
-            results=fold_shared(merged),
+            results=merged,
             elapsed_ms=self._report.elapsed_ms,
             deadline_hit=self._report.deadline_hit,
         )

@@ -13,7 +13,6 @@ import httpx
 from osprey.build.manifest import MANIFEST_FILENAME
 from osprey.health.core.service_capabilities import service_capabilities
 from osprey.health.models import Status
-from osprey.models.providers.health import HealthResult
 
 _NOW = 1_800_000_000.0
 _BLUESKY = {"services": {"bluesky": {"port": 10080}}}
@@ -42,14 +41,13 @@ def _bridge(body: dict | None = None, status: int = 200):
     return handle, seen
 
 
-def _rows(config, *, handler=None, cwd=None, modules=None) -> dict:
+def _rows(config, *, handler=None, cwd=None) -> dict:
     transport = httpx.MockTransport(handler) if handler else None
     run = service_capabilities(
         config,
         cwd=cwd,
         transport=transport,
         now=lambda: _NOW,
-        ariel_modules=modules,
     )
     return {row.name: row for row in asyncio.run(run())}
 
@@ -184,57 +182,24 @@ def test_a_missing_bundle_warns(tmp_path):
     assert "okf.bundle_age" not in rows
 
 
-# -- ARIEL enhancement modules ---------------------------------------------------
+# -- ARIEL enhancement modules are not polled ------------------------------------
 
 
-class _Module:
-    def __init__(self, name: str, verdict=None, exc: Exception | None = None, delay: float = 0.0):
-        self.name = name
-        self._verdict = verdict
-        self._exc = exc
-        self._delay = delay
+def test_the_poll_category_never_runs_an_ariel_module_check():
+    """A module's health_check can send a billed completion or create a directory."""
+    called: list[str] = []
 
-    async def health_check(self):
-        if self._delay:
-            await asyncio.sleep(self._delay)
-        if self._exc:
-            raise self._exc
-        return self._verdict
+    class _Billed:
+        name = "semantic_processor"
 
+        async def health_check(self):
+            called.append(self.name)
 
-_ARIEL = {"ariel": {"enhancement_modules": {"text_embedding": {"enabled": True}}}}
+    run = service_capabilities(
+        {"ariel": {"enhancement_modules": {"semantic_processor": {"enabled": True}}}},
+        now=lambda: _NOW,
+    )
+    rows = asyncio.run(run())
 
-
-def test_module_health_checks():
-    modules = [
-        _Module("text_embedding", HealthResult(True, "ollama answered", None)),
-        _Module("image_caption", HealthResult(False, "model missing", "model")),
-        _Module("qmd_export", HealthResult(None, "no health check", None)),
-        _Module("legacy", (True, "ok")),
-        _Module("broken", exc=RuntimeError("boom")),
-    ]
-    rows = _rows(_ARIEL, modules=lambda _cfg: modules)
-
-    assert rows["ariel.enhancement.text_embedding"].status is Status.OK
-    assert rows["ariel.enhancement.text_embedding"].value.startswith("reachable · ")
-    assert rows["ariel.enhancement.image_caption"].status is Status.WARNING
-    assert rows["ariel.enhancement.image_caption"].value == "model"
-    assert rows["ariel.enhancement.qmd_export"].status is Status.SKIP
-    assert rows["ariel.enhancement.qmd_export"].value == "no health check"
-    assert rows["ariel.enhancement.legacy"].status is Status.OK
-    assert rows["ariel.enhancement.broken"].status is Status.WARNING
-    assert "boom" in rows["ariel.enhancement.broken"].details
-
-
-def test_a_module_factory_failure_is_one_warning_row():
-    def explode(_cfg):
-        raise ValueError("bad ariel config")
-
-    rows = _rows(_ARIEL, modules=explode)
-    assert rows["ariel.enhancement"].status is Status.WARNING
-    assert rows["ariel.enhancement"].value == "config error"
-
-
-def test_no_ariel_rows_without_enabled_modules():
-    off = {"ariel": {"enhancement_modules": {"text_embedding": {"enabled": False}}}}
-    assert _rows(off, modules=lambda _cfg: [_Module("x")]) == {}
+    assert called == []
+    assert not any(r.name.startswith("ariel.") for r in rows)

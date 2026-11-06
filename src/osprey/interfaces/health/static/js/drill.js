@@ -162,14 +162,19 @@ export function colItem(tileId, k, col, sel) {
   );
 }
 
-/** @param {{tag: string, derived: boolean}} tag */
+/** @type {Record<string, string>} */
+const TAG_SOURCE = {
+  hooks: "from the render's hook_config.json",
+  annotations: 'from the tool annotations; hook_config.json unreadable',
+  name: 'from the tool name; no hook_config.json and no annotations',
+};
+
+/** @param {{tag: string, derived: boolean, from?: string}} tag */
 export function tagEl(tag) {
   return h('span', {
     class: 'tag',
     text: tag.tag,
-    title: tag.derived
-      ? 'from the tool name; the server publishes no annotations'
-      : 'from the tool annotations',
+    title: TAG_SOURCE[tag.from || (tag.derived ? 'name' : 'annotations')],
   });
 }
 
