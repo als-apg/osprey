@@ -534,6 +534,27 @@ def _drop_ignore_line(run_text: str, target_file: str) -> str:
     return "".join(kept)
 
 
+def _drop_lines(text: str, dropped: Callable[[str], bool], stale: str) -> str:
+    """Remove every line ``dropped`` matches, keeping each line's own ending.
+
+    A ``"\n".join(...)`` rebuild loses a trailing newline, so it differs from
+    its source even when nothing matched; this helper fails instead, with
+    ``stale`` naming what the mutation expected to find."""
+    lines = text.splitlines(keepends=True)
+    kept = [line for line in lines if not dropped(line)]
+    assert len(kept) < len(lines), f"{stale} — mutation is stale"
+    return "".join(kept)
+
+
+def test_drop_lines_fails_when_nothing_matches() -> None:
+    with pytest.raises(AssertionError, match="no b — mutation is stale"):
+        _drop_lines("a\nc\n", lambda line: "b" in line, "no b")
+
+
+def test_drop_lines_keeps_the_trailing_newline() -> None:
+    assert _drop_lines("a\nb\nc\n", lambda line: "b" in line, "no b") == "a\nc\n"
+
+
 def test_e2e_tests_ignores_both_new_lane_files__mutation_drops_tiled_ignore() -> None:
     """Removing only the tiled-roundtrip ignore line must fail — proves the
     two ignore assertions are independent, not satisfied by either alone."""
@@ -1602,8 +1623,11 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
     ``worksteal`` runs) on stock xdist. Deleting it would silently widen the
     override's reach beyond the lane it was written for."""
     source = _conftest_source()
-    mutated = "\n".join(line for line in source.splitlines() if 'getoption("dist"' not in line)
-    assert mutated != source, f"no dist-option guard in {SCHEDULER_SOURCE} — mutation is stale"
+    mutated = _drop_lines(
+        source,
+        lambda line: 'getoption("dist"' in line,
+        f"no dist-option guard in {SCHEDULER_SOURCE}",
+    )
     assert _missing_scheduler_parts(mutated) == ["loadgroup guard"]
 
 
@@ -6256,9 +6280,9 @@ def test_two_shape_lane_names_match_the_module__mutation_drops_the_network() -> 
     mutated = copy.deepcopy(_load_workflow())
     steps = _jobs(mutated)[TWO_SHAPE_JOB]["steps"]
     cleanup = steps[-1]
-    before = cleanup["run"]
-    cleanup["run"] = "\n".join(line for line in before.splitlines() if "network rm" not in line)
-    assert cleanup["run"] != before, "no network removal in the cleanup — mutation is stale"
+    cleanup["run"] = _drop_lines(
+        cleanup["run"], lambda line: "network rm" in line, "no network removal in the cleanup"
+    )
     with pytest.raises(AssertionError, match="osprey-network"):
         test_two_shape_lane_names_match_the_module(mutated)
 
@@ -6864,9 +6888,9 @@ def test_contract_probe_rejects_a_runtime_that_injects_lowercase(workflow: dict[
 def test_contract_probe_rejects_a_runtime_that_injects_lowercase__mutation_drops_the_half() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_CONTRACT_STEP)
-    original = step["run"]
-    step["run"] = "\n".join(line for line in original.splitlines() if "http_proxy=" not in line)
-    assert step["run"] != original, "no lowercase check in the probe — mutation is stale"
+    step["run"] = _drop_lines(
+        step["run"], lambda line: "http_proxy=" in line, "no lowercase check in the probe"
+    )
     assert "HTTP_PROXY=" in step["run"]  # the uppercase half survives
     with pytest.raises(AssertionError, match="lowercase proxy"):
         test_contract_probe_rejects_a_runtime_that_injects_lowercase(mutated)
