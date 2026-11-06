@@ -27,6 +27,16 @@ ever arrive from the environment are in :doc:`environment-variables`. A closing
 note records the **protected set** — the files and keys no agent-side writer
 may touch.
 
+Each example names its file on its first line. ``# build/config.yml`` marks the
+nested form that ``osprey build`` writes. Every build wipes and re-renders that
+file, so set a key through the profile and never edit the rendered file.
+``# profile.yml, under config:`` marks
+the dotted form you write in the profile's ``config:`` block. Both spell the
+same key: ``health.disk.min_free_gb: 2.0`` under ``config:`` renders as
+``min_free_gb: 2.0`` under ``disk:`` under ``health:``. In a profile, always use
+the dotted form; the reason is under "Configuration overrides" in
+:doc:`profile`.
+
 .. _config-simulation:
 
 ``simulation:`` — which models the simulator serves and how fast it ticks
@@ -71,6 +81,7 @@ list, so a tier that sets the key there stops the build with
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      simulation.models: [SR]
 
@@ -95,6 +106,7 @@ default timing.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      suite_timeout_s: 30          # poll-class wall-clock budget (default 30)
      on_demand_timeout_s: 120     # on_demand wall-clock budget (default: sum of budgets)
@@ -279,6 +291,7 @@ you normally configure nothing.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      auto:
        mcp:
@@ -359,6 +372,7 @@ unresponsiveness should be treated as non-fatal:
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        beamline_services:
@@ -390,6 +404,7 @@ genuine dependency chain serializes.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        beamline_services:
@@ -416,6 +431,7 @@ plugin category — without redefining it:
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        providers:
@@ -476,11 +492,17 @@ The thresholds are not spelled as a ``file_system`` entry under
 
 The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
-section. The keys below aim the sidebar's two utility controls, bound the feedback
-store, name the deployment, decide who is offered the onboarding tour, choose
-whether the terminal is offered, size the operator-chat pool, bound how
-long a panel's own server gets to start, set how often the file watchers
-re-read the tree, and configure the CANOPY panel.
+section. The keys below:
+
+- aim the sidebar's two utility controls
+- bound the feedback store
+- name the deployment
+- decide who is offered the onboarding tour
+- choose whether the terminal is offered
+- size the operator-chat pool
+- bound how long a panel's own server gets to start
+- set how often the file watchers re-read the tree
+- configure the CANOPY panel
 
 .. _feedback-configuration:
 
@@ -539,6 +561,7 @@ Documentation and feedback keys
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      docs_url: https://docs.example-facility.org/osprey
      feedback:
@@ -653,6 +676,7 @@ The control-target picker
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      control_target_picker: true
 
@@ -694,6 +718,7 @@ long a change can stay invisible.
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      file_watch_reconcile_interval_s: 2.0
 
@@ -788,6 +813,7 @@ trusted operator and no live machine behind it:
 
 .. code-block:: yaml
 
+   # build/config.yml
    dangerously_allow_bash: true
 
 It takes the boolean ``true`` and nothing else — any other value is a config
@@ -818,6 +844,7 @@ Each entry has a ``type`` and an optional ``label``:
 
 .. code-block:: yaml
 
+   # build/config.yml
    modules:
      web_terminals:
        landing:
@@ -854,6 +881,7 @@ type:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      artifact_server.extension_types.beam_study: {label: Beam study, base_form: plots}
      artifact_server.extension_types.rf_scan:
@@ -902,6 +930,7 @@ submitted script:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      python_executor.execution_timeout_seconds: 1800
 
@@ -922,6 +951,7 @@ set, for an analysis library that reads its own variable:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      python_executor.child_env_passthrough: [HDF5_PLUGIN_PATH, OMP_NUM_THREADS]
 
@@ -940,6 +970,7 @@ ship an ``ariel:`` block carry it as a commented line.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
 
@@ -998,6 +1029,7 @@ same for ``entries_by_ids``. ``entry_get`` is never cut.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      ariel.entry_text.listing_chars: 800
      ariel.entry_text.read_chars: 4000
@@ -1027,6 +1059,7 @@ display them. ``omitted`` leaves thinking out. Any other value stops
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      claude_code.thinking.display: omitted
 
@@ -1047,6 +1080,7 @@ agent CLI to 2.1.228 or later under ``config:`` in ``profile.yml`` and run
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      claude_code.cli_version: "2.1.228"
 
@@ -1118,6 +1152,7 @@ PNG file and records the file's path in the artifact gallery.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      screen_capture.output_dir: /srv/operator-captures
 
@@ -1275,7 +1310,7 @@ An OSPREY-built default is always spelled the same way::
 
 Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the sixteen rows above:
+the rows above:
 
 .. list-table::
    :header-rows: 1
@@ -1296,7 +1331,7 @@ the sixteen rows above:
 
 .. code-block:: yaml
 
-   # config.yml — every OSPREY-built image comes from the mirror,
+   # build/config.yml — every OSPREY-built image comes from the mirror,
    # at the tag the pipeline pushed
    images:
      registry: registry.example.org/accelerator
