@@ -12,7 +12,7 @@
  * browser, per user, and never on the server. One JSON value is stored under
  * `scopedStorageKey('osprey-sidebar-groups')`:
  *
- *   { version: 1,
+ *   { version: 2,
  *     groups: [{ id, label }, …],         in sidebar order; an id is
  *                                         `workspace`, `tools`, `system` or `g-<8 hex>`
  *     placement: { <panel id>: <group id> } }
@@ -20,7 +20,9 @@
  * A panel with no placement sits where the sidebar has always put it:
  * Artifacts in Workspace, Events and Health in System, every other panel in
  * Tools. A value stored before System existed has it added as the last
- * group, so no arrangement is lost. Within a
+ * group (or has a System that holds no panel), and each placement in it that only
+ * repeats the old default (Events in Workspace, a panel in Tools) is dropped, so a panel the operator never moved
+ * follows the new default while a deliberate move stays. Within a
  * group the rows keep the server's rail order (panel-rail.js), so a group
  * filters the rail and never reorders it. A stored value without this shape
  * reads as the default, and the next change overwrites it. The value is read
@@ -55,7 +57,7 @@ import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 
 /**
  * @typedef {object} GroupsModel
- * @property {1} version
+ * @property {2} version
  * @property {SidebarGroup[]} groups - in sidebar order
  * @property {Record<string, string>} placement - panel id → group id
  */
@@ -66,7 +68,12 @@ export const GROUPS_STORAGE_KEY = 'osprey-sidebar-groups';
 /** The name a group made from a menu has until the operator renames it. */
 export const NEW_GROUP_LABEL = 'New group';
 
-const MODEL_VERSION = 1;
+const MODEL_VERSION = 2;
+
+/** The version written before the current defaults (System holding Events and
+ *  Health, defaults not stored). Its values are migrated once, on read; the
+ *  next change writes the current version, and from then on moves stick. */
+const OLD_VERSION = 1;
 
 /** The longest group name, in characters. */
 const MAX_LABEL_LENGTH = 40;
@@ -89,6 +96,12 @@ const DEFAULT_WORKSPACE = Object.freeze(['artifacts']);
 
 /** The panels that sit in System until the operator moves them. */
 const DEFAULT_SYSTEM = Object.freeze(['events', 'system-health']);
+
+/** Where the sidebar put a panel before System existed: Artifacts and Events in
+ *  Workspace, every other panel in Tools. A placement equal to this was never a
+ *  choice, so it is dropped when a pre-System value is read and the panel
+ *  follows the current default. */
+const PRE_SYSTEM_DEFAULT = Object.freeze({ artifacts: 'workspace', events: 'workspace' });
 
 /** The id of a group the operator added. */
 const CUSTOM_ID = /^g-[0-9a-f]{8}$/;
@@ -155,7 +168,7 @@ export function defaultModel(panelIds = []) {
 }
 
 /**
- * `value` as a model, or null when it is not one. A model is version 1; its
+ * `value` as a model, or null when it is not one. A model is the current version, or the old one (migrated); its
  * groups have unique, well-formed ids, clean names, and the built-ins (System is added when missing)
  * among them; every placement names one of those groups.
  * @param {unknown} value
@@ -164,7 +177,7 @@ export function defaultModel(panelIds = []) {
 function validModel(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const { version, groups, placement } = /** @type {Record<string, unknown>} */ (value);
-  if (version !== MODEL_VERSION || !Array.isArray(groups)) return null;
+  if ((version !== MODEL_VERSION && version !== OLD_VERSION) || !Array.isArray(groups)) return null;
   /** @type {Set<string>} */
   const ids = new Set();
   /** @type {SidebarGroup[]} */
@@ -178,16 +191,27 @@ function validModel(value) {
     ids.add(id);
     copy.push({ id, label });
   }
+  let predatesBuiltins = false;
   for (const group of BUILTIN_GROUPS) {
     if (ids.has(group.id)) continue;
+    predatesBuiltins = true;
     if (!ADDED_LATER.includes(group.id)) return null;
     ids.add(group.id);
     copy.push({ id: group.id, label: group.label });
   }
   if (!placement || typeof placement !== 'object' || Array.isArray(placement)) return null;
   const places = emptyPlacement();
+  // A System group that holds nothing was never used: the layout predates the
+  // current defaults, whether System was just added or saved empty by an
+  // intermediate build.
+  const migrate =
+    version === OLD_VERSION && (predatesBuiltins || !Object.values(placement).includes('system'));
   for (const [panelId, groupId] of Object.entries(placement)) {
     if (typeof groupId !== 'string' || !ids.has(groupId)) return null;
+    const wasDefault = Object.hasOwn(PRE_SYSTEM_DEFAULT, panelId)
+      ? PRE_SYSTEM_DEFAULT[/** @type {'events'} */ (panelId)] === groupId
+      : groupId === FALLBACK_GROUP;
+    if (migrate && wasDefault) continue;
     places[panelId] = groupId;
   }
   return { version: MODEL_VERSION, groups: copy, placement: places };
@@ -313,7 +337,10 @@ export function moveToGroup(panelId, groupId) {
   if (panelId === TERMINAL_RAIL_ID || groupOf(panelId) === groupId) return false;
   const model = loadGroups();
   if (!model.groups.some((group) => group.id === groupId)) return false;
-  model.placement[panelId] = groupId;
+  // Only a move away from the default is a choice worth storing, so a later
+  // change of default reaches a panel that sits where the default put it.
+  if (groupId === defaultGroupOf(panelId)) delete model.placement[panelId];
+  else model.placement[panelId] = groupId;
   commit(model);
   return true;
 }

@@ -75,7 +75,7 @@ afterEach(() => {
 describe('the default model', () => {
   test('three built-in groups, and nothing placed', () => {
     expect(defaultModel()).toEqual({
-      version: 1,
+      version: 2,
       groups: [
         { id: 'workspace', label: 'Workspace' },
         { id: 'tools', label: 'Tools' },
@@ -126,6 +126,20 @@ describe('the default model', () => {
   });
 });
 
+describe('a value written under the current version', () => {
+  test.each([
+    ['events', 'workspace'],
+    ['system-health', 'tools'],
+  ])('%s moved to %s survives a reload', (panel, group) => {
+    expect(moveToGroup(panel, group)).toBe(true);
+    expect(stored().version).toBe(2);
+    expect(groupOf(panel)).toBe(group);
+    // A reload reads the stored text again, with nothing held in memory.
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(stored(), null, 1));
+    expect(groupOf(panel)).toBe(group);
+  });
+});
+
 describe('a value stored before System existed', () => {
   const legacy = {
     version: 1,
@@ -133,16 +147,61 @@ describe('a value stored before System existed', () => {
       { id: 'tools', label: 'Instruments' },
       { id: 'workspace', label: 'Workspace' },
     ],
-    placement: { events: 'workspace', ariel: 'tools' },
+    placement: { events: 'workspace', ariel: 'tools', 'system-health': 'tools' },
   };
+
+  test('an untouched old default gains System holding Events and Health', () => {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
+    expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
+    expect(groupOf('events')).toBe('system');
+    expect(groupOf('system-health')).toBe('system');
+    expect(groupOf('ariel')).toBe('tools');
+  });
+
+  test('a deliberate move of Events away from the old default stays put', () => {
+    for (const to of ['tools', 'g-0a1b2c3d']) {
+      const groups = [...legacy.groups, ...(to === 'tools' ? [] : [{ id: to, label: 'Mine' }])];
+      localStorage.setItem(
+        GROUPS_STORAGE_KEY,
+        JSON.stringify({ ...legacy, groups, placement: { events: to } })
+      );
+      expect(groupOf('events')).toBe(to);
+    }
+  });
+
+  test('an empty System saved by an intermediate build follows the default', () => {
+    const saved = {
+      ...legacy,
+      groups: [...legacy.groups, { id: 'system', label: 'System' }],
+    };
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(saved));
+    expect(groupOf('events')).toBe('system');
+    expect(groupOf('system-health')).toBe('system');
+    expect(groupOf('ariel')).toBe('tools');
+  });
+
+  test('a System that holds a panel keeps every placement', () => {
+    const saved = {
+      ...legacy,
+      groups: [...legacy.groups, { id: 'system', label: 'System' }],
+      placement: { events: 'workspace', 'system-health': 'system' },
+    };
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(saved));
+    expect(groupOf('events')).toBe('workspace');
+  });
+
+  test('moving a panel back to its default stores no placement', () => {
+    moveToGroup('events', 'tools');
+    expect(stored().placement.events).toBe('tools');
+    moveToGroup('events', 'system');
+    expect(stored().placement).not.toHaveProperty('events');
+  });
 
   test('keeps the arrangement and gains System as the last group', () => {
     localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
     expect(groupIds()).toEqual(['tools', 'workspace', 'system']);
     expect(labelOf('tools')).toBe('Instruments');
     expect(labelOf('system')).toBe('System');
-    // The operator's own placement of Events wins over the new default.
-    expect(groupOf('events')).toBe('workspace');
     expect(groupOf('ariel')).toBe('tools');
     // A panel never placed follows the new default.
     expect(groupOf('system-health')).toBe('system');
@@ -273,7 +332,7 @@ describe('persistence', () => {
     moveToGroup('ariel', id);
 
     expect(stored()).toEqual({
-      version: 1,
+      version: 2,
       groups: [
         { id: 'workspace', label: 'Workspace' },
         { id, label: 'Beamline' },
