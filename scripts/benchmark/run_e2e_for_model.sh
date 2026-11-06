@@ -64,8 +64,8 @@ JSON="$RESULTS/${SAFE}__seed${SEED}.json"
 export OSPREY_E2E_LIVE="$RESULTS/${SAFE}__seed${SEED}.live.jsonl"
 : > "$OSPREY_E2E_LIVE"
 # benchmark-lane manifest (conftest writes nodeid -> agentic/harness at collection
-# time). The dashboard joins outcomes against it to score the capability lane
-# (agentic_benchmark) separately from the harness-integrity lane.
+# time). The dashboard joins outcomes against it, and reads each agentic test's tier
+# and description from it.
 export OSPREY_E2E_LANES="$RESULTS/${SAFE}__seed${SEED}.lanes.json"
 # per-query timing (wall time, time waiting on the model, turns, tokens); the
 # dashboard's latency columns read it.
