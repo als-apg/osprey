@@ -292,6 +292,7 @@ class Restorable:
             _remove_tree(live)  # what a failed make left
             live.mkdir()
             root, self.made = self._make(live)
+            _remove_tree(self._pristine)  # what a failed copy left
             shutil.copytree(root, self._pristine, symlinks=True)
             self._root = root
             return root
