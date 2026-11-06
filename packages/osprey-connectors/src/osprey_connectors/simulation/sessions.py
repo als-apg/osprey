@@ -39,11 +39,15 @@ from typing import Any
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
 __all__ = [
+    "ARTIFACT_FORMS",
     "AnswerStep",
     "ArtifactSpec",
+    "ResolvedArtifact",
     "ResolvedPart",
     "ResolvedSession",
     "ResolvedTurn",
+    "ScenarioSession",
+    "SessionPart",
     "SessionTurn",
     "ToolStep",
     "from_dict",
