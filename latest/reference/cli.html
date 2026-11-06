@@ -1633,11 +1633,12 @@ the stored archive, and <code class="docutils literal notranslate"><span class="
 confirmation prompts before the purge and the archive rewrite. <code class="docutils literal notranslate"><span class="pre">--now</span></code>
 freezes the apply-time anchor to an ISO-8601 instant so seeded logbook
 dates are reproducible; a naive value takes the facility timezone, and the
-<code class="docutils literal notranslate"><span class="pre">OSPREY_SIM_NOW</span></code> environment variable is read when the option is absent.</p>
+<code class="docutils literal notranslate"><span class="pre">OSPREY_SIM_NOW</span></code> environment variable is read when the option is absent.
+It never adds or removes the scenario sessions a first deploy laid down.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>sim<span class="w"> </span>list
-osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>rf-thermal
+osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>rf-thermal<span class="w"> </span>demo-history
 osprey<span class="w"> </span>sim<span class="w"> </span>status
 </pre></div>
 </div>

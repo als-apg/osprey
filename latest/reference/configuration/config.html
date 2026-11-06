@@ -534,8 +534,10 @@ name from the facility’s scenarios. <code class="docutils literal notranslate"
 the way <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> would, before it seeds the archive and the
 logbook, and only while no set has been chosen. Absent, <code class="docutils literal notranslate"><span class="pre">null</span></code> or
 <code class="docutils literal notranslate"><span class="pre">[]</span></code> starts in <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone, which is the default: the build
-derives no start set. The control-assistant preset sets <code class="docutils literal notranslate"><span class="pre">[rf-thermal]</span></code>;
-the other presets leave it out. A value that is not a list of non-empty
+derives no start set. The control-assistant preset sets
+<code class="docutils literal notranslate"><span class="pre">[rf-thermal,</span> <span class="pre">demo-history]</span></code> (an existing deployment gets
+<code class="docutils literal notranslate"><span class="pre">demo-history</span></code>’s sessions only from a fresh <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>); the other
+presets leave it out. A value that is not a list of non-empty
 names, or a name that is not a scenario the facility serves (its own or
 the built-in <code class="docutils literal notranslate"><span class="pre">still</span></code>), stops the
 build with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line naming the key (see

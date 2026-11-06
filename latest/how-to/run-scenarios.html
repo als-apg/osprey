@@ -550,7 +550,7 @@ them from the simulator view under <code class="docutils literal notranslate"><s
 <a class="reference internal" href="../reference/cli.html#cli-osprey-sim"><span class="std std-ref">osprey sim</span></a>.</p>
 <section id="the-scenarios-the-demo-ships">
 <h2>The scenarios the demo ships<a class="headerlink" href="#the-scenarios-the-demo-ships" title="Link to this heading">#</a></h2>
-<p>The control-assistant preset ships six scenarios in
+<p>The control-assistant preset ships seven scenarios in
 <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -594,12 +594,20 @@ not converge.</p></td>
 <td><p>The BPM 17 inversion and corrector HCM01 at half its nominal gain at
 once, both visible only through an orbit-response measurement.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">demo-history</span></code></p></td>
+<td><p>Three past agent sessions (a sector-7 beam loss, an approved corrector
+nudge, an orbit review), with the archive events and logbook entries
+behind them.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
-<p>The preset starts a fresh deployment in <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code>, as the profile key
-<code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> names (see
+<p>The preset starts a fresh deployment in <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code> and <code class="docutils literal notranslate"><span class="pre">demo-history</span></code>,
+as the profile key <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> names (see
 <a class="reference internal" href="../reference/configuration/config.html"><span class="doc">Runtime Configuration — config.yml</span></a>).</p>
+<p>A scenario’s sessions are laid down only by a deployment’s first deploy, from
+its default set. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> never adds or removes sessions: a set
+without <code class="docutils literal notranslate"><span class="pre">demo-history</span></code> drops its archive events and logbook entries only.</p>
 </section>
 <section id="apply-a-scenario">
 <h2>Apply a scenario<a class="headerlink" href="#apply-a-scenario" title="Link to this heading">#</a></h2>
@@ -617,7 +625,9 @@ the rewrite; <code class="docutils literal notranslate"><span class="pre">--yes<
 untouched.</p>
 <p>Several scenarios apply together only when no two of them write one target,
 a channel or a model’s fault. A set that breaks the rule is refused before
-anything is written, and the refusal names the target.</p>
+anything is written, and the refusal names the target. Archive events are not
+a target: events of several scenarios on one channel combine, so
+<code class="docutils literal notranslate"><span class="pre">[vacuum-burst,</span> <span class="pre">rf-thermal]</span></code> composes.</p>
 <p>Every facility has a scenario named <code class="docutils literal notranslate"><span class="pre">still</span></code> that stills every float reading:
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">still</span></code>, or <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">[still]</span></code> for a
 deployment that should start still. A file may define its own <code class="docutils literal notranslate"><span class="pre">still</span></code>,
@@ -711,6 +721,17 @@ fraction of the reading.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">all</span></code>, or a list of addresses and selections (see <a class="reference internal" href="#apply-a-scenario">Apply a scenario</a>):
 while the scenario is active, those readings serve without drift,
 couplings or noise; readout faults still apply.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sessions</span></code></p></td>
+<td><p>Past agent sessions, <code class="docutils literal notranslate"><span class="pre">[{slug,</span> <span class="pre">title,</span> <span class="pre">when,</span> <span class="pre">parts}]</span></code>; each part (a
+<code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts the next) has a <code class="docutils literal notranslate"><span class="pre">title</span></code> and <code class="docutils literal notranslate"><span class="pre">turns</span></code>. A turn has
+<code class="docutils literal notranslate"><span class="pre">prompt</span></code> and <code class="docutils literal notranslate"><span class="pre">steps</span></code> (<code class="docutils literal notranslate"><span class="pre">{tool:</span> <span class="pre">{server,</span> <span class="pre">name},</span> <span class="pre">input,</span> <span class="pre">result,</span>
+<span class="pre">approved?}</span></code> or <code class="docutils literal notranslate"><span class="pre">{answer}</span></code>), and optionally <code class="docutils literal notranslate"><span class="pre">at_offset_s</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">logbook_ids</span></code> and <code class="docutils literal notranslate"><span class="pre">artifacts</span></code>. <code class="docutils literal notranslate"><span class="pre">channels</span></code> must be facility channels
+and <code class="docutils literal notranslate"><span class="pre">logbook_ids</span></code> entries of <code class="docutils literal notranslate"><span class="pre">nominal</span></code> or the scenario itself, or
+the build stops. The scenario must also state, under <code class="docutils literal notranslate"><span class="pre">archiver</span></code> and
+<code class="docutils literal notranslate"><span class="pre">logbook</span></code>, the events its sessions tell of, so a resumed session that
+reads the archive sees the same story.</p></td>
 </tr>
 </tbody>
 </table>
