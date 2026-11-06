@@ -6,8 +6,8 @@
  * menu (panel-context-menu.js):
  *
  *   Agent row   New session · Expand all / Collapse all
- *   Session     Open in Agent · Group by Kind / Activity · Rename… ·
- *               Use automatic name · Export transcript · Copy ID · Delete…
+ *   Session     Group by Kind / Activity · Rename… · Use automatic name
+ *               (only on a hand-named session) · Export transcript · Copy ID · Delete…
  *   Group head  Expand / Collapse
  *   Run         Open result · Open approval preview · Open code · Delete…
  *   Artifact    Open · Pin · Delete… · Copy ID
@@ -223,8 +223,6 @@ export function sessionMenuItems(row) {
   const active = row.classList.contains('active');
   const view = readTreeView();
   return [
-    { label: 'Open in Agent', run: () => void openSession(treeId) },
-    { divider: true },
     { label: 'Group by Kind', checked: view === 'kind', run: () => void applyView('kind') },
     {
       label: 'Group by Activity',
@@ -233,7 +231,10 @@ export function sessionMenuItems(row) {
     },
     { divider: true },
     { label: 'Rename…', disabled: !tid, run: () => tid && startRename(row, tid) },
-    { label: 'Use automatic name', disabled: !tid, run: () => tid && void putTitle(tid, '') },
+    // Only a hand-set name has an automatic one to go back to.
+    ...(tid && row.dataset.titleSource === 'user'
+      ? [{ label: 'Use automatic name', run: () => void putTitle(tid, '') }]
+      : []),
     { label: 'Export transcript', disabled: !tid, run: () => tid && exportTranscript(tid) },
     { label: 'Copy ID', disabled: !tid, run: () => tid && copyText(tid) },
     { divider: true },
@@ -245,16 +246,6 @@ export function sessionMenuItems(row) {
       run: () => tid && confirmDeleteSession(row, tid),
     },
   ];
-}
-
-/**
- * Open a session in the Agent through the controller (a click on the current
- * session's name only folds it). Imported lazily, as {@link applyView}.
- * @param {string} treeId
- */
-async function openSession(treeId) {
-  const { openInAgent } = await import('./sidebar-artifacts.js');
-  await openInAgent(treeId);
 }
 
 /**
