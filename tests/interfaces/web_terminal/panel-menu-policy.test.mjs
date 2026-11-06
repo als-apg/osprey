@@ -1,6 +1,7 @@
 /**
  * The Agent's two menus (panel-menu-policy.js): the tile header keeps the
- * pane verbs (Restart terminal, Reset layout, Close Agent pane), and the
+ * pane verbs (Pop out, Export conversation in chat, Restart terminal on the
+ * terminal, Reset layout, Close Agent pane), and the
  * Agent row in the sidebar — the head of the session tree — gets the tree's
  * menu (New session, Expand/Collapse all), New session through switchTo.
  *
@@ -17,7 +18,9 @@ const dock = vi.hoisted(() => ({
   closeTerminalPanel: vi.fn(),
   isTerminalPanelOpen: vi.fn(() => true),
   resetDockLayout: vi.fn(),
+  agentPaneContent: vi.fn(() => /** @type {HTMLElement | null} */ (null)),
 }));
+const chatExport = vi.hoisted(() => ({ exportConversation: vi.fn(async () => {}) }));
 const term = vi.hoisted(() => ({
   focusTerminal: vi.fn(),
   restartTerminal: vi.fn(async () => {}),
@@ -36,6 +39,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/agent-surface.js'
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => dock);
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => term);
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-export.js', () => chatExport);
 vi.mock(
   '../../../src/osprey/interfaces/web_terminal/static/js/session-model.js',
   () => sessionModel
@@ -98,22 +102,43 @@ afterEach(() => {
 });
 
 describe('the Agent tile header', () => {
-  test('on the terminal surface: Restart terminal, Reset layout, Close Agent pane — no New session', () => {
+  test('on the terminal surface: Pop out, Restart terminal, Reset layout, Close Agent pane — no New session', () => {
     const anchorEl = document.createElement('div');
     document.body.append(anchorEl);
     expect(policy.openTileContextMenu(TERMINAL_RAIL_ID, { x: 1, y: 1, anchorEl })).toBe(true);
-    expect(menuLabels()).toEqual(['Restart terminal', 'Reset layout', 'Close Agent pane']);
+    expect(menuLabels()).toEqual([
+      'Pop out',
+      'Restart terminal',
+      'Reset layout',
+      'Close Agent pane',
+    ]);
     expect(document.querySelector('.rail-context-menu')?.getAttribute('aria-label')).toBe(
       'Agent actions'
     );
   });
 
-  test('in chat the PTY verb is withheld', () => {
+  test('in chat the PTY verb is withheld and Export conversation is offered', async () => {
     surface.terminal = false;
-    expect(policy.buildTerminalMenuItems().map((/** @type {Item} */ i) => i.label)).toEqual([
+    /** @type {Item[]} */
+    const items = policy.buildTerminalMenuItems();
+    expect(items.filter((i) => i.label).map((i) => i.label)).toEqual([
+      'Pop out',
+      'Export conversation',
       'Reset layout',
       'Close Agent pane',
     ]);
+    await items.find((i) => i.label === 'Export conversation')?.run?.();
+    expect(chatExport.exportConversation).toHaveBeenCalledTimes(1);
+  });
+
+  test('Pop out waits for the Agent pane, and runs the attached pop-out once it is there', () => {
+    /** @type {any[]} */
+    let items = policy.buildTerminalMenuItems();
+    expect(items.find((i) => i.label === 'Pop out')?.disabled).toBe(true);
+    dock.agentPaneContent.mockReturnValue(document.createElement('div'));
+    items = policy.buildTerminalMenuItems();
+    expect(items.find((i) => i.label === 'Pop out')?.disabled).toBe(false);
+    dock.agentPaneContent.mockReturnValue(null);
   });
 
   test('the verbs reach the terminal and the dock', async () => {

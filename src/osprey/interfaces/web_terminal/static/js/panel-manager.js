@@ -110,6 +110,7 @@ import {
   onPopoutChange,
   broadcastToPopouts,
 } from './popout.js';
+import { focusAttached, isAttached } from './attached-popout.js';
 import { subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { onSessionChange } from './terminal.js';
 
@@ -816,9 +817,9 @@ function ensureActivePanel() {
  * reported to the server via setPanelFocus — omitting it focuses locally only.
  * `landing` marks the boot/empty-slot landing: a surfacing nobody asked for.
  *
- * A panel living in its own pop-out window has no tile to focus: a requested
- * surfacing brings that window to the front instead, and a health-driven one
- * does nothing — nobody asked for the window.
+ * A panel living in its own pop-out window — either kind — shows there: a
+ * requested surfacing brings that window to the front instead, and a
+ * health-driven one does nothing — nobody asked for the window.
  * @param {string} panelId
  * @param {{ userInitiated?: boolean, auto?: boolean, landing?: boolean }} [options]
  */
@@ -826,8 +827,8 @@ export function activateTab(
   panelId,
   { userInitiated = false, auto = false, landing = false } = {}
 ) {
-  if (isPoppedOut(panelId)) {
-    if (!auto) focusPopout(panelId);
+  if (isPoppedOut(panelId) || isAttached(panelId)) {
+    if (!auto && !focusPopout(panelId)) focusAttached(panelId);
     return;
   }
   const state = panelState[panelId];

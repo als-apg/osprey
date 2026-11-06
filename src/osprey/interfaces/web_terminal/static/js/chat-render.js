@@ -305,7 +305,8 @@ export function createChatRenderer(container, options = {}) {
     }
     cards.set(id, card);
     // A live card takes focus, but never from the composer's text box, and never while history is redrawn.
-    const typing = document.activeElement;
+    // The card's own document: the console may live in an attached window.
+    const typing = card.el.ownerDocument.activeElement;
     if (!replaying && !(typing instanceof HTMLTextAreaElement && !typing.disabled)) card.focus();
   }
 

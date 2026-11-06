@@ -637,34 +637,40 @@ or press the same keys.
 Pop a pane out
 ~~~~~~~~~~~~~~
 
-You can move a panel out of the workspace into its own browser window. This
-works for each service panel, the Artifacts panel included. The agent pane
-stays in the workspace.
+Click **Pop out** in a tile's header, left of the close button, to move the
+tile's content into a window of its own. This works for the agent pane and for
+each service panel. The window stays attached to the terminal: the content
+keeps running there, and the window follows its theme. The tile keeps its
+place and shows **Bring back**. A service panel loads again when it moves into
+the window and when it comes back.
 
-To pop a panel out, do one of these:
+To bring the content back, close the window, or click **Bring back** in the
+tile. When you reload or close the terminal, the window closes and the content
+is back in its tile.
 
-- Click the **Pop out** button in the header of its tile, left of the close
-  button.
-- Right-click its row in the sidebar and pick **Pop out**.
-- Open the command palette and run **Pop out <panel>**.
+To open a service panel as a page of its own instead, do one of these:
+
+- Right-click its row in the sidebar or its tile header and pick
+  **Open in new window**.
+- Open the command palette and run **Open <panel> in new window**.
 
 The panel opens in a new window the size of its tile. Its tile leaves the
 workspace, and its sidebar row shows a window glyph. The window follows the
 theme, the view and the session of the terminal. The agent can still show you
 the panel: a focus from the agent brings the window to the front.
 
-While the panel is popped out:
+While the panel is in that window:
 
 - A click on its sidebar row brings the window to the front.
-- Its row menu offers **Bring back** in place of **Pop out**.
+- Its row menu offers **Bring back** in place of **Open in new window**.
 - A layout change in the workspace does not open a tile for it.
 
 To bring the panel back, close the window, or pick **Bring back** from its
 row menu. The tile returns next to the active tile.
 
-When you reload the terminal, the open windows stay open and connect to the
-reloaded page again. When you close the terminal tab, the windows stay open
-as normal pages, and they no longer follow the terminal.
+When you reload the terminal, these windows stay open and connect to the
+reloaded page again. When you close the terminal tab, they stay open as normal
+pages, and they no longer follow the terminal.
 
 .. note::
 
@@ -673,7 +679,8 @@ as normal pages, and they no longer follow the terminal.
    the site in the browser, then try again.
 
    A panel that runs at an opaque origin (a page the agent wrote) cannot be
-   popped out. Its **Pop out** button and row are disabled.
+   popped out. Its **Pop out** button and its **Open in new window** row are
+   disabled.
 
 The More menu
 ~~~~~~~~~~~~~

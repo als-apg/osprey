@@ -59,6 +59,9 @@ import { getEntry, entryIds } from './panel-rail.js';
 import { isListOpen, setListOpen } from './sidebar.js';
 import { showUndoNotice } from './undo-notice.js';
 import { bringBackPanel, canPopOut, focusPopout, isPoppedOut, popOutPanel } from './popout.js';
+import { bringBackAttached, canAttach, isAttached, popOutAttached } from './attached-popout.js';
+import { exportConversation } from './chat-export.js';
+import { isPanelDocked } from './dock-iframe.js';
 import {
   NEW_GROUP_LABEL,
   addGroup,
@@ -374,10 +377,12 @@ export function setServiceMenuExtras(panelId, fn) {
  * the panel's tile header so the two surfaces cannot drift apart, and followed
  * by the rows registered through {@link setServiceMenuExtras}.
  *
- * "Pop out" stays inert until the panel can open in a window of its own: its
- * standalone URL has resolved, and it is not an opaque-origin panel. A
- * popped-out panel offers "Bring back" in its place and no "Open in a new
- * tile", because the panel has no tile while its window is open.
+ * A panel with a tile offers "Pop out", the tile button's attached window
+ * (attached-popout.js), and "Bring back" while it is out. "Open in new
+ * window" stays inert until the panel can open its standalone page
+ * (popout.js): its URL has resolved, and it is not an opaque-origin panel. A
+ * panel in that window offers "Bring back" in its place and no "Open in a
+ * new tile", because the panel has no tile while its window is open.
  *
  * A member's rows also move its sidebar row between the sidebar's groups:
  * "Move to <group>" for every other group, then "Move to new group…".
@@ -404,10 +409,14 @@ export function buildServiceMenuItems(id) {
     // Off the rail it is focused without the report a member's focus sends.
     { label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) },
     ...(popped ? [] : [newTile]),
+    // Pop out is the tile's own button, attached, so it is offered while the
+    // panel has a tile; Open in new window is the panel's standalone page
+    // (popout.js).
+    ...(!popped && (isPanelDocked(id) || isAttached(id)) ? [attachedRow(id)] : []),
     popped
       ? { label: 'Bring back', glyph: '⊟', run: () => bringBackPanel(id) }
       : {
-          label: 'Pop out',
+          label: 'Open in new window',
           glyph: '↗',
           // False until the config resolves a URL, and for an opaque-origin panel.
           disabled: !canPopOut(id),
@@ -468,7 +477,21 @@ function moveToNewGroup(id) {
 }
 
 /**
- * The Agent tile header's menu rows: Restart terminal, Reset layout, Close
+ * The attached pop-out's row (the tile header's Pop out button,
+ * attached-popout.js): Pop out, or Bring back while the content is in its
+ * window.
+ * @param {string} id  service panel id, or TERMINAL_RAIL_ID
+ * @returns {import('./panel-context-menu.js').MenuItem}
+ */
+function attachedRow(id) {
+  return isAttached(id)
+    ? { label: 'Bring back', glyph: '⊟', run: () => bringBackAttached(id) }
+    : { label: 'Pop out', glyph: '⧉', disabled: !canAttach(id), run: () => popOutAttached(id) };
+}
+
+/**
+ * The Agent tile header's menu rows: Pop out (or Bring back), Export
+ * conversation in chat, Restart terminal on the terminal, Reset layout, Close
  * Agent pane. The Agent row in the sidebar heads the session tree and has
  * its own menu (buildAgentRowMenuItems, sidebar-artifact-menus.js), which is
  * where New session lives.
@@ -480,11 +503,20 @@ function moveToNewGroup(id) {
  */
 export function buildTerminalMenuItems() {
   const layout = [
+    { divider: true },
     { label: 'Reset layout', run: () => resetDockLayout() },
     { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
   ];
-  if (!isTerminalSurface()) return layout;
+  if (!isTerminalSurface()) {
+    return [
+      attachedRow(TERMINAL_RAIL_ID),
+      // The conversation as a Markdown file (chat-export.js).
+      { label: 'Export conversation', run: () => void exportConversation() },
+      ...layout,
+    ];
+  }
   return [
+    attachedRow(TERMINAL_RAIL_ID),
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
     // palette's "Restart terminal" runs the identical pair.
@@ -495,7 +527,6 @@ export function buildTerminalMenuItems() {
         startTerminal();
       },
     },
-    { divider: true },
     ...layout,
   ];
 }

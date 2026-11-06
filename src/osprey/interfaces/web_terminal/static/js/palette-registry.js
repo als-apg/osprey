@@ -105,8 +105,8 @@ const PANEL_SYNONYMS = {
   canopy: 'screens gui operator',
 };
 
-/** Verb vocabulary for "Pop out …" rows. */
-const POPOUT_ALIASES = 'window popout standalone';
+/** Verb vocabulary for "Open … in new window" rows. */
+const POPOUT_ALIASES = 'window popout pop out standalone';
 
 /** Verb vocabulary for "Open … in a new tile" rows. */
 const BESIDE_ALIASES = 'tile beside split';
@@ -259,8 +259,8 @@ function buildSettingsFiles(deps) {
 
 /**
  * Build the Panels group: a "Show <label>" item per hidden panel, a
- * "Focus <label>" item per visible (non-active) panel, a "Pop out <label>"
- * item per pop-out-able panel, and an "Open <label> in a new tile" item per
+ * "Focus <label>" item per visible (non-active) panel, an "Open <label> in
+ * new window" item (the standalone pop-out, popout.js) per pop-out-able panel, and an "Open <label> in a new tile" item per
  * visible (non-active) panel.
  *
  * The pop-out and new-tile verbs draw on DIFFERENT sources on purpose, and
@@ -323,8 +323,10 @@ function buildPanels(deps) {
     const id = panel.id;
     items.push({
       group: 'Panels',
-      label: `Pop out ${panel.label}`,
-      searchText: panelSearchText('pop out', panel, POPOUT_ALIASES),
+      label: `Open ${panel.label} in new window`,
+      // The label's words go last: a fuzzy query ("elog") must not thread
+      // through "open" into another panel's synonyms.
+      searchText: `${panelSearchText('window', panel, POPOUT_ALIASES)} open in new window`,
       names: panelNames(panel),
       run: () => {
         if (typeof popoutPanel === 'function') {
