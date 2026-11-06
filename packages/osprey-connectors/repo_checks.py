@@ -105,7 +105,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.recovery.Supervised",
         "osprey_connectors.session_hold.EXCERPT_LIMIT",
         "osprey_connectors.session_hold.SCHEMA_VERSION",
-        "osprey_connectors.session_hold.UNREADABLE_FLAG_ID",
         "osprey_connectors.settle.POLL_INTERVAL_S",
         "osprey_connectors.simulation.ACTIVE_SCENARIOS_FILENAME",
         "osprey_connectors.simulation.DEFAULT_SCENARIO",
