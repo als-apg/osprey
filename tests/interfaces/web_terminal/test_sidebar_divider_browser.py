@@ -22,7 +22,16 @@ Coverage:
   (6) a stored share too tall for the window is clamped on load and on resize.
 
 The sessions of (1) and (2) are built with the tree's own row builders
-(``sidebar-artifact-rows.js``) into the live tree of an empty project.
+(``sidebar-artifact-rows.js``) into the live tree of an empty project. The
+tree draws itself from the hub's reads (the session listing, the artifacts
+panel turning served), which land at their own pace and later on a loaded
+machine; so the seed stops the tree first and keeps it from drawing over the
+seeded rows.
+
+Every case starts once the sidebar has its last row: the Docs row in the foot
+appears when its own read of ``/api/panels`` lands, after the divider is wired,
+and the rail's room (so the cap, a stored share, an earlier build's rewrite)
+shrinks with it.
 
 Run:
     .venv/bin/pytest tests/interfaces/web_terminal/test_sidebar_divider_browser.py -v
@@ -58,11 +67,19 @@ _KEY = "osprey-sidebar-workspace-height"
 _GROUP = "#panel-rail > .sidebar-group:has(#sidebar-agent-row)"
 _DIVIDER = "#panel-rail > .sidebar-divider"
 
-#: Fills the live tree with ``past`` closed sessions under an open current
-#: session holding ``arts`` artifact rows, then reports the layout one frame on.
+#: Stops the tree's own renderer, fills the live tree with ``past`` closed
+#: sessions under an open current session holding ``arts`` artifact rows, then
+#: reports the layout one frame on.
 _SEED_JS = """async ([past, arts]) => {
   const rows = await import('/static/js/sidebar-artifact-rows.js');
+  // The page's own module instance (same URL). The reset stops the tree's reads
+  // and listeners; the artifacts panel turning served later restarts the tree,
+  // so its draws (all through replaceChildren) are also kept off the seed.
+  const artifacts = await import('/static/js/sidebar-artifacts.js');
+  artifacts.resetSidebarArtifacts();
   const tree = document.getElementById('sidebar-session-tree');
+  const draw = (...nodes) => Element.prototype.replaceChildren.apply(tree, nodes);
+  tree.replaceChildren = () => {};
   const session = (i, state) => ({ transcript_id: `t${i}`, title: `Session ${i}`, state });
   const kids = [];
   for (let i = 0; i < arts; i++) {
@@ -77,7 +94,8 @@ _SEED_JS = """async ([past, arts]) => {
   ];
   for (let i = 1; i <= past; i++)
     nodes.push(rows.sessionRow(session(i, 'idle'), { active: false, open: false, count: 2 }));
-  tree.replaceChildren(...nodes);
+  draw(...nodes);
+  window.__seededFirst = nodes[0];
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   return window.__dividerLayout();
 }"""
@@ -100,6 +118,7 @@ _LAYOUT_JS = """() => {
       treeSpill: tree.scrollHeight - tree.clientHeight,
       gap: tools.getBoundingClientRect().top - group.getBoundingClientRect().bottom,
       stored: localStorage.getItem('osprey-sidebar-workspace-height'),
+      seeded: Boolean(window.__seededFirst) && tree.firstElementChild === window.__seededFirst,
     };
   };
 }"""
@@ -127,11 +146,21 @@ def _page(browser: Browser, url: str, height: int, stored: str | None = None) ->
     page = ctx.new_page()
     try:
         page.goto(url, wait_until="domcontentloaded")
-        expect(page.locator(f"{_DIVIDER}[aria-valuetext]")).to_be_attached(timeout=10_000)
-        page.evaluate(_LAYOUT_JS)
+        _ready(page)
         yield page
     finally:
         ctx.close()
+
+
+def _ready(page: Page) -> None:
+    """Wait for the divider and for the sidebar's last row, then wire the measurements.
+
+    The divider repaints from a ResizeObserver on the sidebar's blocks, which
+    runs in the frame the Docs row first lays out, before any later evaluate.
+    """
+    expect(page.locator(f"{_DIVIDER}[aria-valuetext]")).to_be_attached(timeout=10_000)
+    expect(page.locator("#panel-docs-link")).to_be_visible(timeout=10_000)
+    page.evaluate(_LAYOUT_JS)
 
 
 def _layout(page: Page) -> dict[str, Any]:
@@ -185,6 +214,8 @@ def test_thirty_sessions_scroll_in_the_group_and_no_row_squashes(tmp_path, chrom
     """At 800 px with ~30 sessions the group stops at the cap; rows stay 30 px."""
     with _hub(tmp_path) as url, _page(chromium_browser, url, 800) as page:
         lay = _seed(page, 30, 6)
+        assert lay["seeded"], lay
+        assert len(lay["rowHeights"]) == 31, lay["rowHeights"]
         assert set(lay["rowHeights"]) == {30}, lay["rowHeights"]
         # The open session's box: min(its content, 3 rows of 26 px + 2 px padding).
         assert lay["box"]["height"] >= min(lay["box"]["full"], 80), lay["box"]
@@ -202,6 +233,7 @@ def test_thirty_sessions_scroll_in_the_group_and_no_row_squashes(tmp_path, chrom
         page.mouse.move(x, y - 100, steps=4)
         page.mouse.up()
         dragged = _layout(page)
+        assert dragged["seeded"], dragged
         assert dragged["sized"], dragged
         assert set(dragged["rowHeights"]) == {30}, dragged["rowHeights"]
         assert dragged["box"]["height"] >= min(dragged["box"]["full"], 80), dragged["box"]
@@ -258,8 +290,7 @@ def test_an_earlier_builds_pixels_become_a_fraction_once(tmp_path, chromium_brow
         assert abs(float(lay["stored"]) * _rail_room(page) - 300) <= 1
 
         page.reload(wait_until="domcontentloaded")
-        expect(page.locator(f"{_DIVIDER}[aria-valuetext]")).to_be_attached(timeout=10_000)
-        page.evaluate(_LAYOUT_JS)
+        _ready(page)
         again = _layout(page)
         assert again["height"] == 300, again
         assert again["stored"] == lay["stored"]
