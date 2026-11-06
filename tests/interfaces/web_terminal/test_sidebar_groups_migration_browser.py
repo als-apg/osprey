@@ -84,6 +84,14 @@ def test_untouched_old_layout_shows_events_in_system(tmp_path, chromium_browser)
     assert "system" in groups
 
 
+def test_empty_system_group_still_shows_events(tmp_path, chromium_browser):
+    """A layout saved by an intermediate build (System present, empty) follows the default."""
+    stored = _stored({"events": "workspace"})
+    stored["groups"].append({"id": "system", "label": "System"})
+    group, _ = _group_of_events(chromium_browser, tmp_path, stored)
+    assert group == "system"
+
+
 def test_deliberately_moved_events_stays_put(tmp_path, chromium_browser):
     """An operator who moved Events into Tools keeps it there."""
     group, _ = _group_of_events(chromium_browser, tmp_path, _stored({"events": "tools"}))

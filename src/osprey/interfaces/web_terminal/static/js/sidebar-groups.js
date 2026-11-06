@@ -20,8 +20,8 @@
  * A panel with no placement sits where the sidebar has always put it:
  * Artifacts in Workspace, Events and Health in System, every other panel in
  * Tools. A value stored before System existed has it added as the last
- * group, and each placement in it that only repeats the old default (Events in
- * Workspace, a panel in Tools) is dropped, so a panel the operator never moved
+ * group (or has a System that holds no panel), and each placement in it that only
+ * repeats the old default (Events in Workspace, a panel in Tools) is dropped, so a panel the operator never moved
  * follows the new default while a deliberate move stays. Within a
  * group the rows keep the server's rail order (panel-rail.js), so a group
  * filters the rail and never reorders it. A stored value without this shape
@@ -196,12 +196,16 @@ function validModel(value) {
   }
   if (!placement || typeof placement !== 'object' || Array.isArray(placement)) return null;
   const places = emptyPlacement();
+  // A System group that holds nothing was never used: the layout predates the
+  // current defaults, whether System was just added or saved empty by an
+  // intermediate build.
+  const migrate = predatesBuiltins || !Object.values(placement).includes('system');
   for (const [panelId, groupId] of Object.entries(placement)) {
     if (typeof groupId !== 'string' || !ids.has(groupId)) return null;
     const wasDefault = Object.hasOwn(PRE_SYSTEM_DEFAULT, panelId)
       ? PRE_SYSTEM_DEFAULT[/** @type {'events'} */ (panelId)] === groupId
       : groupId === FALLBACK_GROUP;
-    if (predatesBuiltins && wasDefault) continue;
+    if (migrate && wasDefault) continue;
     places[panelId] = groupId;
   }
   return { version: MODEL_VERSION, groups: copy, placement: places };
@@ -327,7 +331,10 @@ export function moveToGroup(panelId, groupId) {
   if (panelId === TERMINAL_RAIL_ID || groupOf(panelId) === groupId) return false;
   const model = loadGroups();
   if (!model.groups.some((group) => group.id === groupId)) return false;
-  model.placement[panelId] = groupId;
+  // Only a move away from the default is a choice worth storing, so a later
+  // change of default reaches a panel that sits where the default put it.
+  if (groupId === defaultGroupOf(panelId)) delete model.placement[panelId];
+  else model.placement[panelId] = groupId;
   commit(model);
   return true;
 }

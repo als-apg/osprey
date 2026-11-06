@@ -155,6 +155,34 @@ describe('a value stored before System existed', () => {
     }
   });
 
+  test('an empty System saved by an intermediate build follows the default', () => {
+    const saved = {
+      ...legacy,
+      groups: [...legacy.groups, { id: 'system', label: 'System' }],
+    };
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(saved));
+    expect(groupOf('events')).toBe('system');
+    expect(groupOf('system-health')).toBe('system');
+    expect(groupOf('ariel')).toBe('tools');
+  });
+
+  test('a System that holds a panel keeps every placement', () => {
+    const saved = {
+      ...legacy,
+      groups: [...legacy.groups, { id: 'system', label: 'System' }],
+      placement: { events: 'workspace', 'system-health': 'system' },
+    };
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(saved));
+    expect(groupOf('events')).toBe('workspace');
+  });
+
+  test('moving a panel back to its default stores no placement', () => {
+    moveToGroup('events', 'tools');
+    expect(stored().placement.events).toBe('tools');
+    moveToGroup('events', 'system');
+    expect(stored().placement).not.toHaveProperty('events');
+  });
+
   test('keeps the arrangement and gains System as the last group', () => {
     localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(legacy));
     expect(groupIds()).toEqual(['tools', 'workspace', 'system']);

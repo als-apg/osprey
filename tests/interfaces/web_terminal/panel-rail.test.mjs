@@ -169,7 +169,9 @@ beforeEach(() => {
         { id: 'tools', label: 'Tools' },
         { id: 'system', label: 'System' },
       ],
-      placement: { events: 'workspace' },
+      // System holds a panel, so this reads as the operator's own arrangement and
+      // Events in Workspace as their choice, not as a stale default.
+      placement: { events: 'workspace', 'system-health': 'system' },
     })
   );
 });
