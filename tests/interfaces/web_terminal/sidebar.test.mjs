@@ -67,10 +67,10 @@ const SIDEBAR_HTML = `
 
           <div class="sidebar-row" id="sidebar-agent-wrap">
             <button class="osprey-nav-row parent panel-rail-button disabled" id="sidebar-agent-row"
-                    data-panel-id="terminal" type="button" aria-label="Agent" title="Agent" data-tip="Agent"
+                    data-panel-id="terminal" type="button" aria-label="Sessions" title="Sessions" data-tip="Sessions"
                     aria-expanded="true" aria-controls="sidebar-session-tree">
               <svg class="osprey-ic osprey-nav-icon" data-icon="agent" aria-hidden="true"></svg>
-              <span class="osprey-nav-label">Agent</span>
+              <span class="osprey-nav-label">Sessions</span>
               <span class="sidebar-open-hint" aria-hidden="true">Open</span>
               <span class="osprey-nav-badge" data-agent-badge hidden></span>
             </button>
@@ -423,9 +423,9 @@ describe('collapsed', () => {
   });
 });
 
-/* ---- the Agent row ------------------------------------------------------- */
+/* ---- the Sessions row ---------------------------------------------------- */
 
-describe('the Agent row', () => {
+describe('the Sessions row', () => {
   /** @param {'open'|'closed'} state */
   function agentPane(state) {
     document.documentElement.setAttribute('data-agent', state);
@@ -439,7 +439,7 @@ describe('the Agent row', () => {
 
     expect(agentBadge().hidden).toBe(true);
     expect(agentBadge().textContent).toBe('');
-    expect(agentRow().dataset.tip).toBe('Agent');
+    expect(agentRow().dataset.tip).toBe('Sessions');
     expect(agentRow().hasAttribute('aria-description')).toBe(false);
   });
 
@@ -450,7 +450,7 @@ describe('the Agent row', () => {
 
     expect(agentBadge().hidden).toBe(false);
     expect(agentBadge().textContent).toBe('2');
-    expect(agentRow().dataset.tip).toBe('Agent · 2 waiting — click to open');
+    expect(agentRow().dataset.tip).toBe('Sessions · 2 waiting — click to open');
     expect(agentRow().getAttribute('aria-description')).toBe(
       'The Agent pane is closed and 2 cards wait on you; activate to open it'
     );
@@ -469,7 +469,7 @@ describe('the Agent row', () => {
     chatEvents.emitChat('attention', { waiting: 0 });
 
     expect(agentBadge().hidden).toBe(true);
-    expect(agentRow().dataset.tip).toBe('Agent · closed — click to open');
+    expect(agentRow().dataset.tip).toBe('Sessions · Agent pane closed — click to open');
     expect(agentRow().getAttribute('aria-description')).toBe(
       'The Agent pane is closed; activate to open it'
     );
@@ -483,7 +483,7 @@ describe('the Agent row', () => {
 
     agentPane('open');
     expect(agentBadge().hidden).toBe(true);
-    expect(agentRow().dataset.tip).toBe('Agent');
+    expect(agentRow().dataset.tip).toBe('Sessions');
     expect(agentRow().hasAttribute('aria-description')).toBe(false);
   });
 
@@ -510,9 +510,9 @@ describe('the Agent row', () => {
     document.documentElement.setAttribute('data-agent', 'closed');
     chatEvents.emitChat('attention', { waiting: 2 });
     // panel-rail.js re-labels the row on every render.
-    agentRow().dataset.tip = 'Agent';
+    agentRow().dataset.tip = 'Sessions';
     document.dispatchEvent(new CustomEvent('osprey-sidebar-rendered'));
-    expect(agentRow().dataset.tip).toBe('Agent · 2 waiting — click to open');
+    expect(agentRow().dataset.tip).toBe('Sessions · 2 waiting — click to open');
   });
 });
 

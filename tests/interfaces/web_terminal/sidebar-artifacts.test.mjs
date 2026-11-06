@@ -3,7 +3,7 @@
  * The sidebar's session tree controller (sidebar-artifacts.js):
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifacts.test.mjs
  *
- * The Agent row's tree lists the operator's sessions (session-model.js, real
+ * The Sessions row's tree lists the operator's sessions (session-model.js, real
  * here, over a stubbed hub), each expanding to its artifacts grouped by form
  * (Kind mode, stored per test), loaded lazily through the artifacts panel's
  * `session-list` and counted by one `session-summary` per page of sessions.
@@ -240,6 +240,7 @@ function skeleton() {
   document.body.innerHTML = `
     <div class="sidebar-row" id="sidebar-agent-wrap">
       <button class="osprey-nav-row parent panel-rail-button" id="sidebar-agent-row" data-panel-id="terminal"></button>
+      <button class="osprey-icon-btn sidebar-new-session" id="sidebar-new-session" type="button"></button>
       <div class="sidebar-kids osprey-tree" id="sidebar-session-tree" data-session-tree></div>
     </div>
     <iframe class="panel-iframe" data-panel-id="artifacts"></iframe>`;
@@ -1057,5 +1058,134 @@ describe('the highlight: at most one row, the one the Artifacts panel shows', ()
     await settle();
     expect(shown()).toBeTruthy();
     expect(selected()).toEqual([]);
+  });
+});
+
+/* ---- the session rows: accent, busy, peek, "+" ------------------------- */
+
+describe('the session rows: accent, breathing, peek and "+"', () => {
+  /** @param {number} ms */
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const classesOf = (/** @type {string} */ id) => [...sessionRowEl(id).classList];
+  const titleOf = (/** @type {string} */ id) =>
+    /** @type {HTMLElement} */ (sessionRowEl(id).querySelector('.osprey-tree-title'));
+  const peekEl = () =>
+    /** @type {HTMLElement | null} */ (document.getElementById('sidebar-session-peek'));
+  /** @param {Element} el */
+  const hover = (el) => el.dispatchEvent(new Event('pointerover', { bubbles: true }));
+
+  test('the active session holds the accent; a clicked one takes it at once and keeps it once switched', async () => {
+    await boot();
+    expect(classesOf(T1)).toEqual(expect.arrayContaining(['active', 'accent']));
+    expect(classesOf(T2)).not.toContain('accent');
+
+    /** @type {(v: Response) => void} */
+    let release = () => {};
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) =>
+      String(url).endsWith('/enter')
+        ? new Promise((resolve) => (release = resolve))
+        : route(url, init)
+    );
+    click(titleOf(T2));
+    await settle();
+    // Mid-switch: the accent is on the clicked row; only the active one is bold.
+    expect(classesOf(T2)).toContain('accent');
+    expect(classesOf(T2)).not.toContain('active');
+    expect(classesOf(T1)).toContain('active');
+    expect(classesOf(T1)).not.toContain('accent');
+
+    release(reply({ session_key: server.enterKey }));
+    await settle();
+    expect(classesOf(T2)).toEqual(expect.arrayContaining(['active', 'accent']));
+    expect(classesOf(T1)).not.toContain('accent');
+    expect(classesOf(T1)).not.toContain('active');
+  });
+
+  test('a switch cancelled at the streaming guard gives the accent back', async () => {
+    await boot();
+    mocks.streaming = true;
+    mocks.showConfirm.mockImplementation((spec) => spec.onDismiss());
+    click(titleOf(T2));
+    await settle();
+    expect(classesOf(T1)).toEqual(expect.arrayContaining(['active', 'accent']));
+    expect(classesOf(T2)).not.toContain('accent');
+  });
+
+  test('the active session breathes while the agent works (the chat bus busy), and stops after', async () => {
+    await boot();
+    const chatEvents = await import(`${JS}/chat-events.js`);
+    expect(tree().querySelectorAll('.is-busy')).toHaveLength(0);
+    chatEvents.emitChat('busy', { busy: true });
+    expect(classesOf(T1)).toContain('is-busy');
+    expect(classesOf(T2)).not.toContain('is-busy');
+    chatEvents.emitChat('busy', { busy: false });
+    expect(tree().querySelectorAll('.is-busy')).toHaveLength(0);
+  });
+
+  test("the active row's tip follows the Agent pane opening and closing", async () => {
+    await boot();
+    expect(titleOf(T1).dataset.tipDetail).toMatch(/^Click to fold or unfold · /);
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open: false } }));
+    expect(titleOf(T1).dataset.tipDetail).toMatch(/^Click to reopen the Agent pane · /);
+    mocks.isTerminalPanelOpen.mockReturnValue(true);
+    document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open: true } }));
+    expect(titleOf(T1).dataset.tipDetail).toMatch(/^Click to fold or unfold · /);
+  });
+
+  test('"+" starts a new session through the session model, opening the Agent pane first', async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    click(/** @type {Element} */ (document.getElementById('sidebar-new-session')));
+    await settle();
+    expect(mocks.openTerminalPanel).toHaveBeenCalledOnce();
+    expect(mocks.newConversation).toHaveBeenCalledOnce();
+  });
+
+  test('hovering a folded session peeks at its artifacts; a click there opens one without switching', async () => {
+    await boot();
+    // The open session gets no peek: its artifacts are in the tree.
+    hover(titleOf(T1));
+    await wait(350);
+    expect(peekEl()?.hidden ?? true).toBe(true);
+
+    hover(titleOf(T2));
+    await wait(350);
+    await settle();
+    const peek = /** @type {HTMLElement} */ (peekEl());
+    expect(peek.hidden).toBe(false);
+    expect(titleOf(T2).getAttribute('aria-controls')).toBe('sidebar-session-peek');
+    expect(peek.querySelector('.osprey-popover-title')?.textContent).toBe('Tune scan');
+    expect(
+      [...peek.querySelectorAll('.osprey-list-row[data-id]')].map(
+        (r) => /** @type {HTMLElement} */ (r).dataset.id
+      )
+    ).toEqual(['b1']);
+    // The summary counts 2; one is listed.
+    expect(peek.querySelector('[data-peek-more]')?.textContent).toBe('1 more');
+
+    click(/** @type {Element} */ (peek.querySelector('.osprey-list-row[data-id="b1"]')));
+    await settle();
+    expect(shown()).toBe('b1');
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+    expect(peek.hidden).toBe(true);
+  });
+
+  test('the peek\'s "more" switches to the session; Escape closes the peek', async () => {
+    await boot();
+    hover(titleOf(T2));
+    await wait(350);
+    await settle();
+    expect(peekEl()?.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(peekEl()?.hidden).toBe(true);
+
+    hover(titleOf(T2));
+    await wait(350);
+    await settle();
+    click(/** @type {Element} */ (peekEl()?.querySelector('[data-peek-more]')));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
+    expect(classesOf(T2)).toContain('active');
   });
 });

@@ -51,8 +51,8 @@ Where the panels live
 ---------------------
 
 Panels have a row in the sidebar on the left of the window.
-**Agent** is the first row and has no heading. **Artifacts** has no row: its
-artifacts are in the Agent row's session tree, and the palette opens the panel.
+**Sessions** is the first row and has no heading. **Artifacts** has no row: its
+artifacts are in the session tree, and the palette opens the panel.
 **Events** (when the deployment enables it) and **Health** are in the
 **System** section. All other panels are in the **Tools** section, which ends
 with **+ Add panel**. See :ref:`web-terminal-sidebar`.

@@ -201,7 +201,7 @@ describe('the form groups', () => {
   });
 });
 
-describe('the Agent row disclosure', () => {
+describe('the Sessions row disclosure', () => {
   test('a chevron that says whether the sessions show', () => {
     const open = rows.agentDisclosure(true);
     expect(open.getAttribute('data-tree-agent-disc')).toBe('');
@@ -248,6 +248,38 @@ describe('a session row', () => {
     const idle = rows.sessionRow(session(), { active: false, open: false, count: 0 });
     expect(cls(idle)).not.toContain('active');
     expect(cls(/** @type {Element} */ (idle.querySelector('.osprey-dot')))).toContain('hollow');
+  });
+
+  test('the accent follows the active session unless moved; only the active one is bold', () => {
+    const active = rows.sessionRow(session(), { active: true, open: true, count: 0 });
+    expect(cls(active)).toEqual(expect.arrayContaining(['active', 'accent']));
+    const left = rows.sessionRow(session(), { active: true, open: true, count: 0, accent: false });
+    expect(cls(left)).toContain('active');
+    expect(cls(left)).not.toContain('accent');
+    const target = rows.sessionRow(session(), {
+      active: false,
+      open: false,
+      count: 0,
+      accent: true,
+    });
+    expect(cls(target)).toContain('accent');
+    expect(cls(target)).not.toContain('active');
+  });
+
+  test('the session the agent works in is marked busy', () => {
+    const busy = rows.sessionRow(session(), { active: true, open: true, count: 0, busy: true });
+    expect(cls(busy)).toContain('is-busy');
+    const idle = rows.sessionRow(session(), { active: true, open: true, count: 0 });
+    expect(cls(idle)).not.toContain('is-busy');
+  });
+
+  test("a folded session's title names the peek, which quiets its tooltip while the peek shows", () => {
+    const folded = rows.sessionRow(session(), { active: false, open: false, count: 0 });
+    expect(folded.querySelector('.osprey-tree-title')?.getAttribute('aria-controls')).toBe(
+      rows.SESSION_PEEK_ID
+    );
+    const open = rows.sessionRow(session(), { active: true, open: true, count: 0 });
+    expect(open.querySelector('.osprey-tree-title')?.hasAttribute('aria-controls')).toBe(false);
   });
 
   test('only the active session has a disclosure; another keeps an empty slot of its width', () => {
