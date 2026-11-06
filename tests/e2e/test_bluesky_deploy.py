@@ -24,8 +24,8 @@ else covers:
     service going red;
   * that deployment refuses to hold queue items it could never run.
 
-``hello-world`` (not ``control-assistant``) is still the right preset for that:
-control-assistant ships a ``dispatch:`` block, the VA, Tiled, the sidecar and
+``hello-world`` (not ``demo``) is still the right preset for that:
+demo ships a ``dispatch:`` block, the VA, Tiled, the sidecar and
 the web-terminal stack by default, all of which would be built and deployed for
 no reason — ``_inject_bluesky`` only *adds* to ``deployed_services``, it does
 not replace what a preset already declares. ``hello-world`` declares no

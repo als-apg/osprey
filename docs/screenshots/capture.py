@@ -13,7 +13,7 @@ Two environments are dispatched by :func:`run`:
   throwaway port via :func:`osprey.interfaces._serving.run_app_server`, and
   capture. Zero container, deterministic, the default target.
 * ``tutorial_stack`` — delegated to :func:`capture_tutorial_stack`, which owns
-  the full container lifecycle: it builds the ``control-assistant`` tutorial
+  the full container lifecycle: it builds the ``demo`` tutorial
   project, brings up Postgres detached, seeds ARIEL at the frozen anchor, and
   captures either the static ARIEL views or the agentic web-terminal hero. In an
   environment without that runtime (no ``osprey`` binary, no container engine,
@@ -75,7 +75,7 @@ _VA_PVA_PORT = 27075
 _POSTGRES_PORT = default_port("postgres", base=_PORT_BASE)
 
 # Directory name for the throwaway tutorial deployment repo. ``osprey init
-# <dir>/<name> --preset control-assistant`` creates the repo; ``osprey build``
+# <dir>/<name> --preset demo`` creates the repo; ``osprey build``
 # run inside it renders ``<dir>/<name>/build``.
 _TUTORIAL_PROJECT_NAME = "docshots-tutorial"
 
@@ -540,7 +540,7 @@ def _opus_model_id(project_dir: Path) -> str:
     raise ScreenshotSkip(f"provider {provider!r} serves no Opus model: {models}")
 
 
-_SCENARIO_PRESET = "control-assistant"
+_SCENARIO_PRESET = "demo"
 _HISTORY_SCENARIO = "demo-history"
 
 
@@ -561,7 +561,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     """Build the tutorial project, bring up Postgres, seed ARIEL, yield the dir.
 
     Lifecycle order (each step's failure degrades to :class:`ScreenshotSkip`):
-    make a temp build root, ``osprey init <dir> --preset control-assistant``
+    make a temp build root, ``osprey init <dir> --preset demo``
     into it, ``osprey set model=<the provider's Opus id>``, ``osprey build --skip-deps --dev``
     (the capture drives ``osprey``/ARIEL from the current environment, so the
     deployment needs no venv of its own), ``osprey up -d --dev`` (detached — the
@@ -593,7 +593,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
             "init",
             str(project_dir),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             # The capture drives a single-user `osprey web` on the host; the
             # preset's multi-user roster would own the same index-0 panel ports.
@@ -617,7 +617,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
         _run_stack_step(
             init_cmd,
             cwd=None,
-            what="create the control-assistant tutorial repo",
+            what="create the demo tutorial repo",
         )
         # Captures on this stack (the stack and agentic screenshots and the
         # demo video) run on Opus, whatever the preset defaults to. The profile
@@ -631,7 +631,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
         _run_stack_step(
             ["osprey", "build", "--skip-deps", "--dev"],
             cwd=project_dir,
-            what="build the control-assistant tutorial",
+            what="build the demo tutorial",
         )
         _run_stack_step(
             ["osprey", "up", "-d", "--dev"],

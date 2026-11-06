@@ -206,7 +206,7 @@ def e2e_config_file():
     """Module-scoped config file setup (used during data seeding).
 
     Required for RAG tests which call get_chat_completion.
-    Uses my-control-assistant config which has als-apg configured.
+    Uses osprey-demo config which has als-apg configured.
     """
     if not CONFIG_FILE_PATH.exists():
         pytest.skip(f"Config file not found: {CONFIG_FILE_PATH}")
@@ -492,7 +492,7 @@ VOCAB_ENTRY_TEXT = (
     "Had to troubleshoot the beam position monitor offset after the orbit drift this morning."
 )
 
-#: The vocabulary the ``control_assistant`` app template ships, used verbatim.
+#: The vocabulary the ``demo`` app template ships, used verbatim.
 SHIPPED_VOCABULARY_PATH = (
     Path(__file__).parent.parent.parent
     / "src"

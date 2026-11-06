@@ -1044,7 +1044,7 @@ class TestTheStarterNotebooksExampleRead:
     ) -> None:
         assert starter_read_channel(config) == expected
 
-    def test_a_built_control_assistant_offers_its_beam_current(self, tmp_path: Path) -> None:
+    def test_a_built_demo_offers_its_beam_current(self, tmp_path: Path) -> None:
         """The resolver is pinned to the shape the build really emits.
 
         The canary is declared as ``va_archiver.freshness_channel`` and reaches
@@ -1074,7 +1074,7 @@ class TestTheStarterNotebooksExampleRead:
             "      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB\n",
             encoding="utf-8",
         )
-        # The channel the control-assistant preset names as its canary.
+        # The channel the demo preset names as its canary.
         overrides = va_archiver_config_overrides(
             VAArchiverConfig(freshness_channel="SR:DIAG:DCCT:01:CURRENT:RB")
         )

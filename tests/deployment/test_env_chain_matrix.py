@@ -279,7 +279,7 @@ def _render_repo(repo: Path) -> Path:
     """Give *repo* the rendered zone the repo-scoped verbs expect to find."""
     build = repo / "build"
     build.mkdir(parents=True, exist_ok=True)
-    (repo / "profile.yml").write_text("preset: control-assistant\n", encoding="utf-8")
+    (repo / "profile.yml").write_text("preset: demo\n", encoding="utf-8")
     (build / "config.yml").write_text(yaml.safe_dump(ENV_USERS_CONFIG), encoding="utf-8")
     return build / "config.yml"
 

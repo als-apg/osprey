@@ -60,7 +60,7 @@ def _groups_of(
     shared_root = patch(
         "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace
     )
-    # Events is a URL-backed custom panel, as the control-assistant preset has it.
+    # Events is a URL-backed custom panel, as the demo preset has it.
     panels = [
         {"id": "events", "label": "Events", "url": "http://127.0.0.1:9/dashboard"},
         {"id": "bluesky", "label": "Bluesky", "url": "http://127.0.0.1:9/bluesky"},

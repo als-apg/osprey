@@ -44,7 +44,7 @@ which devices share a PV.
    - How to point the tools at a store the facility already runs
 
    **Prerequisites:** a project with a ``services.graphdb`` block — the
-   ``control-assistant`` preset ships one, which ``osprey up`` seeds.
+   ``demo`` preset ships one, which ``osprey up`` seeds.
 
 
 What the graph holds, how its names are spelled, and what each of the four
@@ -180,7 +180,7 @@ file reaches the graph with:
 What the Preset Seeds
 =====================
 
-The control-assistant preset seeds the graph view ``osprey build`` writes from
+The demo preset seeds the graph view ``osprey build`` writes from
 its facility file, ``data/graph/facility.ttl`` under the render. No
 hand-written corpus ships. Point ``ttl_path`` at a corpus of your own to seed
 that instead.
@@ -271,7 +271,7 @@ reads the same block and reaches an external store the same way
 One Machine, Several Views
 ==========================
 
-On the ``control-assistant`` preset the graph and the channel finder are
+On the ``demo`` preset the graph and the channel finder are
 generated from the same source, so their address spaces line up exactly — and
 where a view is smaller, it is a strict subset rather than a different machine:
 
@@ -384,8 +384,8 @@ stages, not a copy borrowed from the deployment's.
 Multi-User Operator Terminals
 =============================
 
-The ``control-assistant-readonly``, ``control-assistant-readwrite`` and
-``control-assistant-admin`` tier renders (:doc:`../web-terminal/multi-user/index`)
+The ``demo-readonly``, ``demo-readwrite`` and
+``demo-admin`` tier renders (:doc:`../web-terminal/multi-user/index`)
 get the same facility-knowledge-graph agent and its tools, reading the hosting
 deployment's store, and — the preset runs ``channel_finder_mode: graph`` — a
 channel finder that answers from it too. They are attached renders — they
@@ -415,8 +415,8 @@ Two consequences worth knowing before you move anything:
 The read-only tier receives ``GRAPHDB_PASSWORD`` as well. The store has a
 single write-capable account, so read-only-ness here is enforced by the graph
 server's read transaction rather than by the credential — the same posture the
-ARIEL database credential already takes. ``control-assistant-logbook`` has no
-control surface and no graph tools by design. ``control-assistant-knowledge``
+ARIEL database credential already takes. ``demo-logbook`` has no
+control surface and no graph tools by design. ``demo-knowledge``
 is the app built around the graph: it keeps the facility-knowledge-graph
 agent, the graph-backed channel finder and the KNOWLEDGE panel, and nothing
 that reads or writes the machine — the shared card for "how is the

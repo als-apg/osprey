@@ -1,11 +1,11 @@
-"""Every e2e stack built from control-assistant pins the scenarios it starts in.
+"""Every e2e stack built from demo pins the scenarios it starts in.
 
 An e2e lane reads live values off the simulator, so the scenarios a stack
 starts in are part of what its assertions stand on. The preset's default set
 is a product decision that moves on its own; ``demo-history`` in particular
 replays a whole fabricated past into the archiver and the logbook, which no
 lane asserts against. So every site that runs ``osprey init --preset
-control-assistant`` and then ``up`` states the start set itself, through
+demo`` and then ``up`` states the start set itself, through
 :func:`tests.e2e.profile_edits.e2e_scenario_pin` -- the preset's own default
 minus ``demo-history``, read off the preset file rather than copied here.
 
@@ -30,18 +30,18 @@ HELPER = "e2e_scenario_pin"
 #: scan must reach each, or a green result says nothing.
 SHARED_BUILDERS = ("e2e/sdk_helpers.py", "e2e/_orm_stack.py")
 
-#: Modules that init control-assistant and name ``up`` without needing the pin,
+#: Modules that init demo and name ``up`` without needing the pin,
 #: each with why. A new module lands here only with a reason as good.
 EXEMPT = {
-    # The PTY suite renders hello-world; control-assistant is only a parameter
+    # The PTY suite renders hello-world; demo is only a parameter
     # value it never brings up.
-    "pty/conftest.py": "renders hello-world, never ups control-assistant",
+    "pty/conftest.py": "renders hello-world, never ups demo",
     # CLI tests drive `up` against a stubbed compose; nothing reads a scenario.
     "cli/test_lifecycle_phases.py": "stubbed up, no simulator runs",
     "cli/test_init_verb.py": "stubbed up, no simulator runs",
     # The tutorial stack pins its own start set (task 5.2 owns it).
     "docs/screenshots/test_tutorial_stack.py": "tutorial stack pins its own start set",
-    # Deploys hello-world; control-assistant appears only in prose.
+    # Deploys hello-world; demo appears only in prose.
     "e2e/test_bluesky_deploy.py": "deploys hello-world",
 }
 
@@ -49,24 +49,24 @@ EXEMPT = {
 FROZEN = "fixtures/previous_release_repo/"
 
 _PRESET_FLAG = re.compile(r"""["']--preset["']""")
-_CONTROL_ASSISTANT = re.compile(r"control[-_]assistant")
+_DEMO = re.compile(r"\bdemo\b")
 _UP_VERB = re.compile(r"""["']up["']""")
 
 
-def _inits_control_assistant_and_ups(text: str) -> bool:
-    """Whether a module's source runs a control-assistant init and names ``up``."""
+def _inits_demo_and_ups(text: str) -> bool:
+    """Whether a module's source runs a demo init and names ``up``."""
     return bool(
-        _PRESET_FLAG.search(text) and _CONTROL_ASSISTANT.search(text) and _UP_VERB.search(text)
+        _PRESET_FLAG.search(text) and _DEMO.search(text) and _UP_VERB.search(text)
     )
 
 
-def test_e2e_scenario_pin_every_control_assistant_init_that_ups_pins_its_scenarios() -> None:
+def test_e2e_scenario_pin_every_demo_init_that_ups_pins_its_scenarios() -> None:
     matched: list[str] = []
     offenders: list[str] = []
     for relative, text in python_sources(exempt=Path(__file__)):
         if relative.startswith(FROZEN) or relative in EXEMPT:
             continue
-        if relative not in SHARED_BUILDERS and not _inits_control_assistant_and_ups(text):
+        if relative not in SHARED_BUILDERS and not _inits_demo_and_ups(text):
             continue
         matched.append(relative)
         if HELPER not in text:
@@ -78,7 +78,7 @@ def test_e2e_scenario_pin_every_control_assistant_init_that_ups_pins_its_scenari
         f"the scan must reach tests/va/e2e as well as tests/e2e; it matched {matched}"
     )
     assert offenders == [], (
-        f"these modules init control-assistant and bring it up without {HELPER}(), "
+        f"these modules init demo and bring it up without {HELPER}(), "
         f"so their stack starts in whatever the preset's default set is today: {offenders}"
     )
 
@@ -92,7 +92,7 @@ def test_e2e_scenario_pin_is_the_preset_default_minus_demo_history() -> None:
     from osprey.cli.build_profile_resolve import preset_authored_config
     from tests.e2e.profile_edits import WITHHELD_SCENARIO, e2e_scenario_pin
 
-    authored = preset_authored_config("control-assistant")["simulation.default_scenarios"]
+    authored = preset_authored_config("demo")["simulation.default_scenarios"]
     flag, pair = e2e_scenario_pin()
     assert flag == "--set"
     key, _, value = pair.partition("=")
@@ -131,7 +131,7 @@ def test_e2e_scenario_pin_rides_in_the_shared_plan_stack_argv(tmp_path: Path) ->
 def test_e2e_scenario_pin_unaffected_init_renders_the_start_set_without_demo_history(
     tmp_path: Path,
 ) -> None:
-    """A pinned control-assistant init renders a start set with no ``demo-history``.
+    """A pinned demo init renders a start set with no ``demo-history``.
 
     The pin is checked where it lands, not only as an argument: ``osprey init``
     with it writes the profile, ``osprey build`` renders ``config.yml``, and the
@@ -148,7 +148,7 @@ def test_e2e_scenario_pin_unaffected_init_renders_the_start_set_without_demo_his
 
     repo = tmp_path / "pinned"
     inited = CliRunner().invoke(
-        init, [str(repo), "--preset", "control-assistant", "--no-git", *e2e_scenario_pin()]
+        init, [str(repo), "--preset", "demo", "--no-git", *e2e_scenario_pin()]
     )
     assert inited.exit_code == 0, inited.output
     built = run_build(repo)
@@ -156,7 +156,7 @@ def test_e2e_scenario_pin_unaffected_init_renders_the_start_set_without_demo_his
 
     rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     start_set = rendered["simulation"]["default_scenarios"]
-    authored = preset_authored_config("control-assistant")["simulation.default_scenarios"]
+    authored = preset_authored_config("demo")["simulation.default_scenarios"]
     assert WITHHELD_SCENARIO in authored, "the preset's own default seeds the history"
     assert WITHHELD_SCENARIO not in start_set
     assert start_set == [name for name in authored if name != WITHHELD_SCENARIO]

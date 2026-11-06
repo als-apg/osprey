@@ -44,7 +44,7 @@ saying the panel is unavailable.
      - ``facility_knowledge:``
      - ``bundle_path``, the compiled knowledge bundle the KNOWLEDGE tab serves.
 
-The shipped ``control-assistant`` preset ships the sections for KNOWLEDGE and
+The shipped ``demo`` preset ships the sections for KNOWLEDGE and
 CHANNELS, which is why both work out of the box.
 
 Where the panels live
@@ -103,7 +103,7 @@ Panels backed by a URL
 An entry under ``web.panels`` can also declare a **URL-backed panel** — a tab
 that shows another web service inside the terminal. This is how the EVENTS
 dashboard and the BLUESKY tab ship in the
-``control-assistant`` preset (a build that includes those stacks registers
+``demo`` preset (a build that includes those stacks registers
 the entries for you):
 
 .. code-block:: yaml

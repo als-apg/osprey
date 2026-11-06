@@ -77,11 +77,11 @@ def test_a_preset_naming_a_bundle_resolves_cleanly(fake_presets: Path) -> None:
 def test_an_inherited_bundle_key_is_consumed_too(fake_presets: Path) -> None:
     """The key is consumed on EVERY preset layer, not only the one named.
 
-    Regression for the render path: the ``control-assistant-*`` presets carry
+    Regression for the render path: the ``demo-*`` presets carry
     no ``app_template:`` of their own and reach the base one through
     ``extends:``. Popping only at the named preset left the inherited key in
     the merged raw, where the unknown-key check refused it — so
-    ``osprey init --preset control-assistant`` failed on every render while
+    ``osprey init --preset demo`` failed on every render while
     ``hello-world``, which has no children, still worked.
     """
     _write_yaml(fake_presets / "base.yml", {"name": "base", "app_template": "hello_world"})
@@ -110,22 +110,22 @@ def test_the_bundled_layers_are_discoverable() -> None:
 
 
 @pytest.fixture(scope="module")
-def control_assistant_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The repo ``osprey init --preset control-assistant`` materializes."""
+def demo_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The repo ``osprey init --preset demo`` materializes."""
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
     return build_exemplar_repo(tmp_path_factory.mktemp("exemplar") / "repo")
 
 
 @pytest.mark.parametrize("layer", _bundled_layers())
-def test_every_shipped_layer_resolves(control_assistant_repo: Path, layer: str) -> None:
+def test_every_shipped_layer_resolves(demo_repo: Path, layer: str) -> None:
     """The same regression against the real layers `osprey init` materializes.
 
     Each tier and app resolves over a root profile whose data tree came from
     the preset's consumed bundle key, and every one of them is resolved while a
-    `control-assistant` repo is being initialized.
+    `demo` repo is being initialized.
     """
-    profile, _dir = resolve_build_profile(control_assistant_repo / layer, None)
+    profile, _dir = resolve_build_profile(demo_repo / layer, None)
 
     assert profile.name
 
@@ -146,7 +146,7 @@ def test_preset_data_bundle_follows_extends(fake_presets: Path) -> None:
 
 def test_the_nearest_bundle_on_the_chain_wins(fake_presets: Path) -> None:
     """Same answer the deep merge would have given: the child's key wins."""
-    _write_yaml(fake_presets / "base.yml", {"name": "base", "app_template": "control_assistant"})
+    _write_yaml(fake_presets / "base.yml", {"name": "base", "app_template": "demo"})
     _write_yaml(
         fake_presets / "child.yml",
         {"name": "child", "extends": "base", "app_template": "hello_world"},
@@ -271,7 +271,7 @@ def test_the_nearest_preset_on_the_chain_is_the_one_recorded(
     fake_presets: Path, tmp_path: Path
 ) -> None:
     """Nearest-first, the order the deep merge resolved the key by."""
-    _write_yaml(fake_presets / "base.yml", {"name": "base", "app_template": "control_assistant"})
+    _write_yaml(fake_presets / "base.yml", {"name": "base", "app_template": "demo"})
     _write_yaml(
         fake_presets / "child.yml",
         {"name": "child", "extends": "base", "app_template": "hello_world"},

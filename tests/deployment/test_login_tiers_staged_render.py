@@ -403,7 +403,7 @@ def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
 
     build = repo / "build"
     services = _tree_bound_services(build / "services")
-    # The control-assistant build runs both tree-bound containers; a test that
+    # The demo build runs both tree-bound containers; a test that
     # found neither would pass on nothing.
     assert {"bluesky", "dispatch_worker"} <= set(services), services
 

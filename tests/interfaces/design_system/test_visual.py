@@ -123,7 +123,7 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
 # serving the genuine render output — so the baseline exercises the real
 # deploy render path, not a hand-built HTML fixture. Two users on distinct
 # tiers (alice->operator, bob->physicist) so both tier sublabels appear, plus
-# the three shared apps the control-assistant preset ships (logbook research,
+# the three shared apps the demo preset ships (logbook research,
 # facility knowledge and channel finder), titled by their app files' ``name:``
 # — so the baseline also covers the labelled users section and the apps tray
 # (accent-edged panel, no badges on app cards).

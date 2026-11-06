@@ -1905,7 +1905,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [hello-world, control-assistant]
+        preset: [hello-world, demo]
 
     steps:
     - name: Checkout repository
@@ -1964,7 +1964,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [hello-world, control-assistant]
+        preset: [hello-world, demo]
 
     steps:
     - name: Checkout repository
@@ -2547,9 +2547,9 @@ jobs:
         - backend: embedded
           case: test_embedded_record_on_hello_world
         - backend: clickhouse
-          case: test_clickhouse_record_on_control_assistant
+          case: test_clickhouse_record_on_demo
     # Sized for its waits, not measured: one stopped-source wait of up to five
-    # minutes; one deploy (hello-world, or control-assistant with its services
+    # minutes; one deploy (hello-world, or demo with its services
     # and web terminals) with a restart, an outage, a re-`up` that closes the
     # day and a reset, and hello-world's rebuild after it; and a one-minute
     # readability bound per step. Kept at the two-case size so a cell never
@@ -2994,7 +2994,7 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
       # saves instead, and started through OSPREY_QMD_IMAGE below.
@@ -3108,7 +3108,7 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
       # saves instead, and started through OSPREY_QMD_IMAGE below.
@@ -3357,7 +3357,7 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
       # saves instead, and started through OSPREY_QMD_IMAGE below.
@@ -3976,7 +3976,7 @@ jobs:
       uses: ./.github/actions/install-pinned-claude-code
 
     - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
       # saves instead, and started through OSPREY_QMD_IMAGE below.
@@ -4154,7 +4154,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-    # Three `osprey build`s of the control-assistant preset plus one
+    # Three `osprey build`s of the demo preset plus one
     # testcontainers Neo4j store; about a minute on a workstation.
     timeout-minutes: 30
 
@@ -4210,7 +4210,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-    # Deploys the control-assistant preset, so the bring-up builds that preset's
+    # Deploys the demo preset, so the bring-up builds that preset's
     # images (bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
     # and the Tiled image pull it actually tests. ~6.5min with
     # images cached, ~9-11min on a warm runner, but a fully cold one has been
@@ -4847,7 +4847,7 @@ jobs:
   privilege-split-e2e:
     name: Privilege Split E2E (built images, stat-level ownership proof)
     runs-on: ubuntu-latest
-    # Two image builds of the control-assistant preset (base + admin render);
+    # Two image builds of the demo preset (base + admin render);
     # they share every layer up to the render's own config, so the second is
     # mostly cache — but the first is the same cold EPICS-toolchain compile
     # dockerfile-e2e pays, hence the same order of budget plus the second image.

@@ -46,7 +46,7 @@ facility logbook (and whether it needs credentials).
    :align: center
    :width: 90%
 
-   Captured with OSPREY |captured_ariel| from the ``control-assistant``
+   Captured with OSPREY |captured_ariel| from the ``demo``
    tutorial's seeded logbook.
 
 The address records the screen as ``#q=&mode=&box=&f=&sel=&att=&compose=``, so a link

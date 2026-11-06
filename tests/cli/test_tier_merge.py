@@ -278,7 +278,7 @@ def test_empty_exclude_in_a_tier_is_still_refused(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
 def test_extends_in_a_layer_names_its_kind(tmp_path: Path, layer: str) -> None:
-    path = _repo(tmp_path, layer, {"extends": "control-assistant"})
+    path = _repo(tmp_path, layer, {"extends": "demo"})
     with pytest.raises(BuildProfileError, match="'extends'") as excinfo:
         _resolve(path)
     assert layer.split("/")[0] + "/" in str(excinfo.value)

@@ -48,7 +48,7 @@ scratch directory and diff it:
 
 .. code-block:: bash
 
-   osprey init /tmp/fresh --preset control-assistant
+   osprey init /tmp/fresh --preset demo
    diff -u /tmp/fresh/profile.yml my-facility/profile.yml
 
 
@@ -59,7 +59,7 @@ One command creates a deployment repository from a preset:
 
 .. code-block:: bash
 
-   osprey init my-facility --preset control-assistant
+   osprey init my-facility --preset demo
 
 That writes the repository and stops. Look at the profile, edit it, then render
 and start it from inside:
@@ -597,7 +597,7 @@ Some presets give each operator their own web terminal. Each operator's
 terminal runs the deployment's agent at a **tier** — an access level such as
 read-only, write-capable or admin. Cards everyone on the roster can open run an
 **app** — a second, complete agent, such as the logbook research assistant.
-For those presets (``control-assistant``), ``osprey init`` writes one file per
+For those presets (``demo``), ``osprey init`` writes one file per
 tier and per app:
 
 .. code-block:: text
@@ -1024,7 +1024,7 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey init --list-presets
 
    # Create the deployment, then render it
-   osprey init my-assistant --preset control-assistant
+   osprey init my-assistant --preset demo
    cd my-assistant
    osprey build
 

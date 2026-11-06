@@ -10,7 +10,7 @@ always carried an explicit closing contract; the other agents ended on
 ``**Results** (artifact_id: 5): ...``, and a small model fills that ellipsis
 with the whole artifact.
 
-Two claims, rendered on ``control_assistant`` in the graph paradigm so every
+Two claims, rendered on ``demo`` in the graph paradigm so every
 agent template is exercised:
 
 1. **Every agent whose frontmatter carries ``submit_response`` ships the shared
@@ -45,7 +45,7 @@ def rendered_project(tmp_path_factory) -> Path:
         facility_views=True,
         project_name="handback-contract",
         output_dir=tmp_path_factory.mktemp("render"),
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "graph"},
     )
 

@@ -161,7 +161,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
       2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes; and
       3. the same configured embedding model and populated pgvector table used by ``semantic`` search.
 
-      The sidecar and the export need each other: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own. It reaches the hosting deployment's sidecar through ``services.qmd.port`` instead. The build copies that key from the hosting deployment's render into every tier and app, so nothing pins it by hand. ``osprey build`` refuses a render that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
+      The sidecar and the export need each other: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``demo`` template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own. It reaches the hosting deployment's sidecar through ``services.qmd.port`` instead. The build copies that key from the hosting deployment's render into every tier and app, so nothing pins it by hand. ``osprey build`` refuses a render that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
 
       ``hybrid`` also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as *search is down*, deliberately, so that the agent cannot read an outage as "nothing matched".
 

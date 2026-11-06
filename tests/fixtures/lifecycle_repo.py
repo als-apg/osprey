@@ -3,7 +3,7 @@
 This module is the hand-authored reference deployment (``als-exemplar/``) that
 the lifecycle verbs are developed against, and the shape ``osprey init`` must
 emit. Exemplar-first: the content below was authored by hand, derived from the
-``control-assistant`` preset emission and rewritten onto the new command
+``demo`` preset emission and rewritten onto the new command
 surface; ``init`` is then made to reproduce it, never the reverse.
 
 The layout is the four-zone repo — one directory, four kinds of content::
@@ -28,7 +28,7 @@ fresh-clone state (SC-10). A test that needs a rendered build stubs one itself.
 Two variants, and which one a caller wants is not a matter of taste:
 
 ``with_ci=False`` (the default) is the **init-reproducible** shape. A bare
-``osprey init --preset control-assistant`` leaves the ``deploy:`` block a
+``osprey init --preset demo`` leaves the ``deploy:`` block a
 commented stub, and with no deployment coordinates there is nothing to render a
 CI pipeline from — so the repo carries neither ``.gitlab-ci.yml`` nor
 ``scripts/verify.sh``. This is the shape Task 2.1 compares ``init``'s emission
@@ -105,7 +105,7 @@ import yaml
 EXEMPLAR_DIRNAME = "als-exemplar"
 
 #: The preset the exemplar was materialized from.
-EXEMPLAR_PRESET = "control-assistant"
+EXEMPLAR_PRESET = "demo"
 
 #: The bundled tiers materialized into ``tiers/``, as file stem -> bundled
 #: source under ``presets/tiers/``. Location is the type: a file is a tier
@@ -168,11 +168,11 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept
 #
-# Made from the bundled `control-assistant` preset. Everything it sets is written
+# Made from the bundled `demo` preset. Everything it sets is written
 # out below and is yours to edit. Nothing is hidden or inherited.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant@
+#   preset content hash: @PRESET_HASH:demo@
 
 name: Als Exemplar
 # Names the compose project, volumes, images, tier and app renders; not the folder.
@@ -1444,8 +1444,8 @@ requires_osprey_version: '>=2026.10.0'
 # `providers_hash` is the same record for providers.yml beside this file;
 # `osprey init --revalidate` adds the packaged entries and keys it lacks.
 provenance:
-  preset: control-assistant
-  preset_hash: @PRESET_HASH:control-assistant@
+  preset: demo
+  preset_hash: @PRESET_HASH:demo@
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
@@ -2094,7 +2094,7 @@ def packaged_tutorial_triggers_yml() -> str:
     return (Path(str(package)) / "tutorial_triggers.yml").read_text(encoding="utf-8")
 
 
-#: The demonstration triggers the ``control-assistant`` preset ships, which
+#: The demonstration triggers the ``demo`` preset ships, which
 #: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
 #: because :data:`BASE_SOURCE_FILES` is built at import.
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
@@ -2115,10 +2115,10 @@ def packaged_data_readme_md() -> str:
     """
     from tests._preset_data import preset_data
 
-    return (preset_data("control_assistant").app_data / "README.md").read_text(encoding="utf-8")
+    return (preset_data("demo").app_data / "README.md").read_text(encoding="utf-8")
 
 
-#: The ``data/README.md`` the ``control-assistant`` preset ships. Resolved at
+#: The ``data/README.md`` the ``demo`` preset ships. Resolved at
 #: import, because :data:`BASE_SOURCE_FILES` is built at import.
 DATA_README_MD = packaged_data_readme_md()
 
@@ -3086,14 +3086,14 @@ CANOPY_LIBRARY_RELPATH = "data/canopy/library"
 
 
 def packaged_canopy_library() -> Path:
-    """The control-assistant screen library inside the installed package.
+    """The demo screen library inside the installed package.
 
     Read rather than frozen, as :func:`packaged_providers_yml` reads the
     catalog: the package owns the screens and their write-binding report, so
-    the exemplar carries exactly what ``osprey init --preset control-assistant``
+    the exemplar carries exactly what ``osprey init --preset demo``
     puts into a deployment's ``data/``.
     """
-    bundle = importlib.resources.files("osprey.templates.apps.control_assistant")
+    bundle = importlib.resources.files("osprey.templates.apps.demo")
     return Path(str(bundle)) / "data" / "canopy" / "library"
 
 
@@ -3157,7 +3157,7 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     Args:
         with_ci: Fill in the deploy coordinates and emit the CI pipeline they
             are rendered from. The default False is the init-reproducible
-            shape — a bare ``osprey init --preset control-assistant`` has no
+            shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
     """
     return {

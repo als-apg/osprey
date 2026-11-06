@@ -386,7 +386,7 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
         "init",
         str(repo),
         "--preset",
-        "control-assistant",
+        "demo",
         "--no-git",
         *e2e_scenario_pin(),
         *set_pairs(_profile_edits()),

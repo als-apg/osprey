@@ -295,7 +295,7 @@ def test_the_hook_spells_the_section_fault_like_the_build(section):
 def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_config):
     """DETERMINISTIC contract pin for the e2e read test (test_safety_reads.py).
 
-    The default control_assistant config ships ``channel_read: skip``. This test
+    The default demo config ships ``channel_read: skip``. This test
     drives the approval hook directly (no LLM/SDK) and asserts the skip branch
     emits an explicit ``permissionDecision: 'allow'`` — that is the decision the
     SDK later surfaces through can_use_tool as a recorded `allow` hook event,

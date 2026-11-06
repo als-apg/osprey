@@ -38,7 +38,7 @@ def _create_project(manager, **kwargs) -> Path:
     render straight from a bundle rather than from a profile, so they name the
     tree that bundle packages.
     """
-    kwargs.setdefault("data_bundle", "control_assistant")
+    kwargs.setdefault("data_bundle", "demo")
     kwargs.setdefault("data_root", bundle_data_root(kwargs["data_bundle"]))
     return manager.create_project(**kwargs)
 
@@ -60,7 +60,7 @@ def _stamp_bundle_selection(manager, project: Path, name: str, bundle: str) -> N
     )
 
 
-def materialize_data(profile_dir: Path, bundle: str = "control_assistant") -> Path:
+def materialize_data(profile_dir: Path, bundle: str = "demo") -> Path:
     """Copy *bundle*'s packaged data tree to ``profile_dir/data``, as init does.
 
     For a test that builds through the real verb: the render stages channel
@@ -1846,7 +1846,7 @@ def _build_for_web_panels(
     overrides: dict | None = None,
     default_panel: str | None = None,
 ) -> Path:
-    """Build a minimal control_assistant project, optionally with web_panels,
+    """Build a minimal demo project, optionally with web_panels,
     a default_panel pin, and config overrides, and return the rendered
     config.yml path.
 
@@ -1865,7 +1865,7 @@ def _build_for_web_panels(
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
-        # Ship the memory-guard hook the real control_assistant preset ships:
+        # Ship the memory-guard hook the real demo preset ships:
         # without it the built profile leaves Write/NotebookEdit
         # ungated and the build-time write-tool lint (correctly) refuses it.
         "hooks": ["memory-guard"],
@@ -2052,7 +2052,7 @@ _PARADIGM_DATABASE_FILENAMES: frozenset[str] = frozenset(
 
 @pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
 def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> None:
-    """A control-assistant render carries the index views and no staging tree.
+    """A demo render carries the index views and no staging tree.
 
     - rendered config.yml names the index the build writes at
       ``data/channel_finder/<paradigm>.json``, and the file is there.
@@ -3181,7 +3181,7 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             *_set_args({"channel_finder_mode": "graph"}),
         ],

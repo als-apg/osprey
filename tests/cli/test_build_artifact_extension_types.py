@@ -257,7 +257,7 @@ def test_persist_writes_extension_types_with_declared_viewer(tmp_path: Path) -> 
 # --- emitted ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("preset", ["hello-world", "control-assistant"])
+@pytest.mark.parametrize("preset", ["hello-world", "demo"])
 def test_emitted_profile_offers_extension_types_not_categories(preset: str) -> None:
     text = emit_standalone_profile_yaml(preset, (), "Emitted", project_name="emitted")
     assert "categories:" not in text

@@ -1,4 +1,4 @@
-"""The control-assistant preset's ``canopy-payload`` pre_build step.
+"""The demo preset's ``canopy-payload`` pre_build step.
 
 The step stages the prebuilt CANOPY payload each terminal's own CANOPY runs
 from, and is the phase's only step. These tests run the phase through
@@ -31,7 +31,7 @@ from osprey_connectors.errors import BuildProfileError
 
 @pytest.fixture
 def repo(lifecycle_repo: Path) -> Path:
-    """The exemplar repo ``osprey init --preset control-assistant`` materializes."""
+    """The exemplar repo ``osprey init --preset demo`` materializes."""
     return lifecycle_repo
 
 

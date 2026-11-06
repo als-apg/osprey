@@ -478,7 +478,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="output-styles/control-operator",
             template_path="claude/output-styles/control-operator.md.j2",
             output_path=".claude/output-styles/control-operator.md",
-            description="Communication style for the control assistant",
+            description="Communication style for the demo",
         ),
         # ── Service compose templates ────────────────────────────────
         # Directory artifacts: copied verbatim from templates/services/ into

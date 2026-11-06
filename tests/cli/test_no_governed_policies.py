@@ -91,7 +91,7 @@ def _preset_servers(preset: str) -> dict[str, Any]:
 def governed() -> frozenset[str]:
     """The bare names of the tools the switch decides for, from the one producer."""
     tools: set[str] = set()
-    for preset in ("hello-world", "control-assistant"):
+    for preset in ("hello-world", "demo"):
         servers = resolve_servers(
             {"servers": _preset_servers(preset)},
             {"event_dispatcher_wired": True, "phoebus_agent_access": "read_write"},
@@ -127,7 +127,7 @@ def test_the_scan_ignores_a_policy_in_a_comment(tmp_path: Path, governed: frozen
 
 def test_a_non_governed_policy_survives_the_retirement() -> None:
     """The scan's other half: the presets still state policies, just not these."""
-    policies = _policies(PRESETS_DIR / "control-assistant.yml")
+    policies = _policies(PRESETS_DIR / "demo.yml")
     assert {"channel_read", "archiver_read", "setup_patch"} <= policies
 
 
@@ -176,14 +176,14 @@ def test_every_stanza_hash_matches_its_preset(stanza: WriteStanza) -> None:
 
 def test_the_two_stanzas_on_the_tier_line_look_for_the_shipped_spelling() -> None:
     moved = [s for s in WRITE_STANZAS if s.anchor == "control_system.writes: allowed"]
-    assert sorted(s.preset for s in moved) == ["control-assistant", "tiers/readwrite"]
+    assert sorted(s.preset for s in moved) == ["demo", "tiers/readwrite"]
     assert {s.preset_anchor for s in moved} == {"control_system.writes: asked"}
     assert not any(s.preset_anchor for s in WRITE_STANZAS if s not in moved)
 
 
 def test_a_stanza_without_its_preset_anchor_no_longer_resolves() -> None:
     """Proves the field carries weight: the operator's line left the preset."""
-    stanza = next(s for s in WRITE_STANZAS if s.preset == "control-assistant" and s.preset_anchor)
+    stanza = next(s for s in WRITE_STANZAS if s.preset == "demo" and s.preset_anchor)
     assert _preset_stanza(stanza._replace(preset_anchor=None)) is None
 
 
@@ -191,7 +191,7 @@ def test_revalidate_replaces_the_prose_and_leaves_the_operators_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The operator keeps ``allowed``: the anchor matches their file, not the preset."""
-    shipped = next(s for s in WRITE_STANZAS if s.preset == "control-assistant" and s.preset_anchor)
+    shipped = next(s for s in WRITE_STANZAS if s.preset == "demo" and s.preset_anchor)
     old = ["# The previous release's words.\n", "# Two lines of them.\n"]
     stanza = shipped._replace(old_lines=len(old), old_hash=_stanza_hash(old))
     monkeypatch.setattr(init_revalidate, "WRITE_STANZAS", (stanza,))

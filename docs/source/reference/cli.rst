@@ -158,8 +158,8 @@ away, optionally in the background or in development mode.
 .. code-block:: bash
 
    osprey init --list-presets
-   osprey init my-assistant --preset control-assistant
-   osprey init demo --preset control-assistant --up -d --dev
+   osprey init my-assistant --preset demo
+   osprey init demo --preset demo --up -d --dev
    osprey init my-assistant --revalidate
 
 osprey set
@@ -356,7 +356,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 .. code-block:: bash
 
    osprey profile presets
-   osprey init my-facility --preset control-assistant --set model=claude-opus-5
+   osprey init my-facility --preset demo --set model=claude-opus-5
    cd my-facility
    osprey validate
    osprey build
@@ -1621,8 +1621,8 @@ All subcommands accept a common flag:
 
 ``osprey scaffold pull PRESET[:PATH] [--list] [--force] [--with-content] [--repo DIRECTORY]``
    Copy a preset's packaged content into this repo, each file at the same path,
-   for you to edit and commit: ``control-assistant`` copies the whole app
-   template, ``control-assistant:data/facility/knowledge`` one subtree of it.
+   for you to edit and commit: ``demo`` copies the whole app
+   template, ``demo:data/facility/knowledge`` one subtree of it.
    ``--list`` prints every path the preset offers and copies nothing. The
    knowledge base arrives as its ``index.md`` files alone, rebuilt from what
    landed; ``--with-content`` brings its documents too. A file that is already
@@ -1683,7 +1683,7 @@ All subcommands accept a common flag:
    osprey scaffold systemd                        # Write the boot unit
    osprey scaffold tiers                          # Write the tier files
    osprey scaffold apps                           # Write the app files
-   osprey scaffold pull control-assistant --list  # Show what a preset offers
+   osprey scaffold pull demo --list  # Show what a preset offers
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold claim services/postgresql      # Freeze a service template

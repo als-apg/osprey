@@ -42,7 +42,7 @@ BUILTIN_PANELS: set[str] = {
 } | set(SIDECAR_PANELS)
 
 # The event-dispatcher dashboard (``events``) is intentionally NOT a builtin: it
-# is a URL-backed custom panel (the control-assistant preset sets
+# is a URL-backed custom panel (the demo preset sets
 # ``web.panels.events.url`` to the dispatcher's ``/dashboard``). Listing it here
 # would make ``_load_panel_config`` discard that url and the frontend has no
 # builtin ``events`` tab, so the tab would never render.

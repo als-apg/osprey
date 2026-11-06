@@ -244,7 +244,7 @@ def test_resolved_document_records_the_repo_local_extends_files(tmp_path):
     from osprey.cli.build_profile_merge import resolve_profile_document
 
     root = tmp_path / "facility"
-    _write(root / "site-base.yml", "extends: control-assistant\nname: Site\n")
+    _write(root / "site-base.yml", "extends: demo\nname: Site\n")
     profile = _write(root / "profile.yml", "extends: site-base.yml\nname: Facility\n")
 
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
@@ -262,7 +262,7 @@ def test_the_documents_are_the_root_profile_and_its_extends_files(tmp_path):
     )
 
     root = tmp_path / "facility"
-    _write(root / "site-base.yml", "extends: control-assistant\nname: Site\n")
+    _write(root / "site-base.yml", "extends: demo\nname: Site\n")
     profile = _write(root / "profile.yml", "extends: site-base.yml\nname: Facility\n")
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
 

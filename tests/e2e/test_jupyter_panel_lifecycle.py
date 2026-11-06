@@ -9,7 +9,7 @@ notebook kernel read, refuse, follow and survive the way the panel promises?
 
 THE DEPLOYMENT THIS BUILDS
 --------------------------
-One ``osprey up --dev`` of a ``control-assistant`` render, trimmed to one
+One ``osprey up --dev`` of a ``demo`` render, trimmed to one
 roster user (``alice``) on one render that keeps the preset's write gate armed
 and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
@@ -122,7 +122,7 @@ RUNTIME = "docker"
 PROJECT_NAME = "osprey-e2e-jnb"
 #: The compose project name the web tier's containers are named by.
 PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
-PRESET = "control-assistant"
+PRESET = "demo"
 USER = "alice"
 RENDER = "operator"
 #: ``osprey build`` renders a layer to ``build/<repo>-<render>``, and

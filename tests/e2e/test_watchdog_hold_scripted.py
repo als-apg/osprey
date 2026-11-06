@@ -446,7 +446,7 @@ class Stack:
 
 @pytest.fixture(scope="module")
 def deployment(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo: watchdog on, every write surface offered, writes armed."""
+    """A demo repo: watchdog on, every write surface offered, writes armed."""
     root = tmp_path_factory.mktemp("watchdog-hold")
     repo = init_project(root, "watchdog-hold", provider="als-apg")
     profile_path = repo / "profile.yml"

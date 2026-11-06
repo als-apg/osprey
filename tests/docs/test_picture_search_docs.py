@@ -40,7 +40,7 @@ _INDEX = _DOCS / "how-to" / "ariel" / "index.rst"
 _INGESTION = _DOCS / "how-to" / "ariel" / "data-ingestion.rst"
 _CONTRACT = _DOCS / "reference" / "contracts" / "ariel.rst"
 _PROFILES = _REPO_ROOT / "src" / "osprey" / "profiles"
-_PRESETS = ("control-assistant",)
+_PRESETS = ("demo",)
 
 
 def _text(path: Path) -> str:

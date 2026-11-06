@@ -143,7 +143,7 @@ dependencies = [
     "psycopg-pool>=3.3.1,<4.0.0",
     # MongoDB client for the stored archive: the `mongodb_archiver` connector
     # reads it, the deploy-time seeder writes it, and the recorder keeps it
-    # current. Core rather than an extra because the shipped `control-assistant`
+    # current. Core rather than an extra because the shipped `demo`
     # preset deploys that store, and `osprey up` preflights this import before it
     # builds anything -- so an install that lacked it could not run the preset at
     # all. Declared here as well as in osprey-connectors: three framework modules

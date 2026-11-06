@@ -15,7 +15,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
 | `transcript_resume_probe.py` | Prove the pinned build resumes a transcript OSPREY authored | ~5 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` or changing `transcript_author.py` |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
-| `facility_demo/facility_overview.py` | Generate the control-assistant facility overview, booster and storage-ring sector screens from the example records | < 1 s | After changing the example facility's records or the generated screens' layout |
+| `facility_demo/facility_overview.py` | Generate the demo facility overview, booster and storage-ring sector screens from the example records | < 1 s | After changing the example facility's records or the generated screens' layout |
 | `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
 
 ## Scripts
@@ -294,7 +294,7 @@ uv run python scripts/bpm_polarity_picture.py --simulator build/data/simulator
 
 ### facility_demo/facility_overview.py
 
-**Purpose**: Generate the control-assistant library's landing page
+**Purpose**: Generate the demo library's landing page
 `facility/overview`, the booster screen `br/overview` and the storage-ring sector
 screens `sr/sector-01` to `sr/sector-12` with their sub-screens from the example
 facility's channel records, so every bound channel exists.
@@ -316,8 +316,8 @@ committed file that differs. After a `write`, regenerate the library's report
 
 **Usage**:
 ```bash
-uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/control_assistant/data/canopy/library
-uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/control_assistant/data/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/demo/data/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/demo/data/canopy/library
 ```
 
 ---
