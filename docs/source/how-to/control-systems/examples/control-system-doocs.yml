@@ -1,0 +1,5 @@
+control_system:
+  type: doocs
+  connector:
+    doocs:
+      timeout_s: 5.0   # optional; seconds per ENS lookup, read or set

@@ -22,6 +22,7 @@
     .srv-graph        { --srv: #818cf8; }
     .srv-phoebus      { --srv: #fbbf24; }
     .srv-bluesky      { --srv: #fb923c; }
+    .srv-optimizer    { --srv: #fca5a5; }
     .srv-health       { --srv: #a3e635; }
     .srv-event-dispatcher { --srv: #e879f9; }
     .srv-canopy       { --srv: #2dd4bf; }

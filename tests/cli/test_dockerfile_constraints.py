@@ -341,7 +341,9 @@ class _Image:
             PIP_DISABLE_PIP_VERSION_CHECK="1",
             # The image's uv installs into the system interpreter; the venv is it here.
             UV_PYTHON=str(self.venv / "bin" / "python"),
-            UV_NO_INDEX="1",
+            # uv has no environment spelling of --no-index; offline it still
+            # reads the find-links directory and reaches no index.
+            UV_OFFLINE="1",
             UV_FIND_LINKS=str(wheelhouse),
             UV_CACHE_DIR=str(root / "uv-cache"),
             OSPREY_PIP_SPEC="osprey-framework==1.0",

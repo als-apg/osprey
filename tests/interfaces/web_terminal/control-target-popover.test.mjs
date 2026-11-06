@@ -252,11 +252,20 @@ let postAnswers = [];
 /** @type {{url: string, method: string, body: any}[]} */
 let fetchCalls = [];
 
+/**
+ * What the programs' routes answer: `listing` for GET
+ * /api/terminal/write-authorizations, `card` for one request. Null answers
+ * those GETs with the roster, as before, which renders no Programs section.
+ * @type {{listing: any, card?: any}|null}
+ */
+let programs = null;
+
 const posts = () => fetchCalls.filter((c) => c.method === 'POST');
 
 function stubFetch() {
   fetchCalls = [];
   postAnswers = [];
+  programs = null;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
@@ -264,7 +273,15 @@ function stubFetch() {
       const body = init?.body ? JSON.parse(String(init.body)) : null;
       fetchCalls.push({ url: String(url), method, body });
       if (method === 'GET') {
-        const snapshot = JSON.parse(JSON.stringify(served));
+        const path = String(url).split('?')[0];
+        const answer = !programs
+          ? served
+          : path.endsWith('/api/terminal/write-authorizations')
+            ? programs.listing
+            : path.includes('/api/terminal/write-authorizations/requests/')
+              ? programs.card
+              : served;
+        const snapshot = JSON.parse(JSON.stringify(answer));
         return { ok: true, status: 200, json: async () => snapshot };
       }
       const answer = postAnswers.shift() ?? { ok: true, body: {} };
@@ -1016,6 +1033,34 @@ describe('the switch under a lock', () => {
 /* ---- write-state gestures ------------------------------------------------ */
 
 describe('turning writes off and on', () => {
+  test('a machine a program holds keeps its word with a qualifier, and off stops it', async () => {
+    const held = viewOf();
+    held.targets[0] = rowOf(KINDS.live, {
+      ...STATES.off,
+      program_hold: true,
+      programs: [{ id: 'g', holder: 'optimizer', label: 'run-42', steps: 12, expires_in_s: 60 }],
+    });
+    await bootOpen(held);
+    expect(switchWord('live')?.textContent).toBe('off · program');
+    expect(switchWord('live')?.title).toContain('optimizer (run-42)');
+    const off = /** @type {HTMLButtonElement} */ (optionEl('live', 'off'));
+    expect(off.disabled).toBe(false);
+    expect(off.title).toContain("revokes the program's authorization");
+    postAnswers.push({ ok: true, body: { target: 'live', state: 'off', switch_epoch: EPOCH } });
+    off.click();
+    await flush();
+    expect(confirmEl()).toBeNull();
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0].body).toMatchObject({ target: 'live', state: 'off' });
+  });
+
+  test('an off switch with no program is still a no-op', async () => {
+    await bootOpen();
+    optionEl('live', 'off')?.click();
+    await flush();
+    expect(posts()).toHaveLength(0);
+  });
+
   test('turning writes off applies on click, with no confirm', async () => {
     await bootOpen();
     postAnswers.push({ ok: true, body: { target: 'va', state: 'off', switch_epoch: EPOCH } });
@@ -2554,5 +2599,80 @@ describe('a landed switch', () => {
     expect(isOpen()).toBe(true);
     expect(outcomes('va')).not.toContain('switching…');
     expect(document.querySelector('.ctc-anchor .osprey-toast')).toBeNull();
+  });
+});
+
+describe('the programs section while open', () => {
+  const GRANT = 'fedcba9876543210fedcba9876543210';
+  const REQUEST = '0123456789abcdef0123456789abcdef';
+  const grantOf = (o = {}) => ({
+    id: GRANT,
+    holder: 'optimizer',
+    target: 'va',
+    label: 'run-42',
+    steps: 5,
+    used: 0,
+    expires_at: 'later',
+    expires_in_s: 28740,
+    in_force: true,
+    ...o,
+  });
+  const requestOf = () => ({
+    id: REQUEST,
+    holder: 'optimizer',
+    target: 'va',
+    label: 'run-43',
+    completion: 'none',
+    steps: 3,
+    lease_s: 30,
+    expires_at: 'later',
+    expires_in_s: 600,
+    channels: [{ address: 'SR:A', min: 0, max: 1, limit_min: 0, limit_max: 2, current: 0.5 }],
+    approvable: true,
+    refusal: null,
+  });
+  const heldText = () => document.querySelector('.wa-held .wa-what')?.textContent ?? '';
+
+  test("follows the chip's re-read: steps move and an ended run leaves", async () => {
+    programs = { listing: { requests: [], authorizations: [grantOf()] } };
+    await bootOpen();
+    expect(heldText()).toContain('0/5 used');
+    expect(document.querySelector('.wa-held .wa-revoke')).not.toBeNull();
+
+    // The idle tick and the pushed frame both land in the chip's refetch.
+    programs.listing = { requests: [], authorizations: [grantOf({ used: 2 })] };
+    await chipModule.refetch();
+    await flush();
+    expect(heldText()).toContain('2/5 used');
+
+    programs.listing = { requests: [], authorizations: [grantOf({ in_force: false })] };
+    await chipModule.refetch();
+    await flush();
+    expect(document.querySelector('.wa-held')).toBeNull();
+    expect(isOpen()).toBe(true);
+  });
+
+  test('an open approve card and the focus on Approve survive the re-read', async () => {
+    programs = { listing: { requests: [requestOf()], authorizations: [] }, card: requestOf() };
+    await bootOpen();
+    /** @type {HTMLButtonElement} */ (document.querySelector('.wa-review')).click();
+    await flush();
+    const approve = () =>
+      /** @type {HTMLButtonElement|null} */ (document.querySelector('.wa-card .wa-approve'));
+    approve()?.focus();
+    expect(document.activeElement).toBe(approve());
+
+    await chipModule.refetch();
+    await flush();
+    expect(document.querySelector('.wa-card')).not.toBeNull();
+    expect(document.activeElement).toBe(approve());
+  });
+
+  test('no programs read is made while the popover is closed', async () => {
+    programs = { listing: { requests: [], authorizations: [grantOf()] } };
+    await boot();
+    await chipModule.refetch();
+    await flush();
+    expect(fetchCalls.some((c) => c.url.includes('/write-authorizations'))).toBe(false);
   });
 });

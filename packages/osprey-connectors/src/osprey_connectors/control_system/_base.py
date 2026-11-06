@@ -22,7 +22,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors import posture_store
+from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
 from osprey_connectors.posture_env import is_readonly_run
@@ -343,7 +343,12 @@ class ChannelWriteResult:
     that says why, and who, refused; it is set **if and only if** the outcome
     is ``refused``. Construction enforces it too: a refused result with no
     reason or an unknown one, or a reason on any other outcome, raises
-    ``ValueError``. ``observed_value`` is whatever the confirming
+    ``ValueError``. ``verdict_reason`` narrows a ``WRITES_DISABLED`` refusal
+    to the reason the write verdict gave, a member of
+    :data:`osprey_connectors.refusals.REASONS` — ``switch_off``,
+    ``auth_exhausted``, ``auth_range`` and the rest — so a program can tell
+    them apart without parsing ``error_message``; it is ``None`` on every
+    other result. ``observed_value`` is whatever the confirming
     re-read returned, in the type the channel holds — a number, a string, an
     enum label, a waveform; :attr:`observed_number` narrows it to a float
     where that makes sense.
@@ -370,6 +375,8 @@ class ChannelWriteResult:
     # Alarm severity: 0 healthy, higher is worse; None if not reported
     alarm_severity: int | None = None
     notes: str | None = None  # Display-only detail
+    # The write verdict's reason, for a WRITES_DISABLED refusal that has one
+    verdict_reason: str | None = None
 
     def __post_init__(self) -> None:
         """Coerce ``outcome`` and ``refusal_reason`` to members, then check the shape.
@@ -523,6 +530,23 @@ _READONLY_SCRIPT_REMEDY = (
 )
 
 
+def _monitor_section() -> Any:
+    """The ``control_system`` section the reference monitor judges by.
+
+    Empty for a read-only run, which is answered before any config is read: it
+    refuses whatever the config says. A config that cannot be read arms
+    nothing — the section is then empty, which the tier answers ``never``.
+    """
+    if is_readonly_run():
+        return {}
+    try:
+        from osprey_connectors.config import get_config_value
+
+        return get_config_value("control_system", {})
+    except (FileNotFoundError, RuntimeError):
+        return {}
+
+
 def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
     """The verdict the reference monitor decides one write (or batch) by.
 
@@ -534,17 +558,22 @@ def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
     whatever the config says. A config that cannot be read arms nothing — the
     section is then empty, which the tier answers ``never``.
 
+    A process that names a program's write authorization
+    (:func:`~osprey_connectors.write_authorization.named_authorization`) is
+    answered by
+    :func:`~osprey_connectors.write_authorization.authorized_write_verdict`
+    instead: whether the authorization would let it write at all, channels
+    aside. That is the answer the gateway is chosen on; each write is judged
+    on its own channels and values by the write guard.
+
     Never raises; reads the record at most once.
     """
-    if is_readonly_run():
-        return posture_store.write_verdict({}, control_target, owner=None)
-    try:
-        from osprey_connectors.config import get_config_value
-
-        section: Any = get_config_value("control_system", {})
-    except (FileNotFoundError, RuntimeError):
-        section = {}
-    return posture_store.write_verdict(section, control_target, owner=None)
+    return write_authorization.authorized_write_verdict(
+        _monitor_section(),
+        control_target,
+        authorization=write_authorization.named_authorization(),
+        owner=None,
+    )
 
 
 def _verdict_refusal(
@@ -584,7 +613,57 @@ def _verdict_refusal(
         outcome=WriteOutcome.REFUSED,
         refusal_reason=RefusalReason.WRITES_DISABLED,
         error_message=f"Write to '{channel_address}' blocked{marker}: {spoken}",
+        verdict_reason=None if verdict.allowed else verdict.reason,
     )
+
+
+def _authorized_refusal(
+    connector: "ControlSystemConnector", operations: list[tuple[Any, Any]], authorization: str
+) -> "WriteVerdict | None":
+    """The verdict refusing one write call of a process that names an authorization.
+
+    ``None`` means the call may go ahead and its step is spent. Otherwise the
+    refusing verdict, which :func:`_verdict_refusal` words; an allowed verdict
+    returned here is a subclass's own ``_writes_enabled`` answering no.
+
+    The order: a subclass that overrides ``_writes_enabled`` and answers no
+    refuses as it does for every process. A connector that cannot carry a
+    write over the gateway it selected (:meth:`ControlSystemConnector.
+    _write_route_open`) refuses ``switching`` when the authorization would
+    allow the call, its own reason when not, and spends nothing either way.
+    Otherwise :func:`~osprey_connectors.write_authorization.authorized_execution_verdict`
+    judges the whole call and, when it allows, spends its one step before
+    anything is put: a write the limits then refuse has still spent it.
+    """
+    connector._last_verdict = None
+    if _overrides_writes_enabled(connector) and not connector._writes_enabled:
+        return connector._last_verdict or _monitor_verdict(connector._control_target)
+    section = _monitor_section()
+    target = connector._control_target
+    if not connector._write_route_open():
+        judged = write_authorization.authorized_execution_verdict(
+            section, target, operations, authorization=authorization
+        )
+        connector._last_verdict = judged
+        if not judged.allowed:
+            return judged
+        return posture_store.WriteVerdict(
+            allowed=False,
+            reason="switching",
+            target=judged.target,
+            kind=judged.kind,
+            authorization=authorization,
+        )
+    verdict = write_authorization.authorized_execution_verdict(
+        section, target, operations, authorization=authorization, spend=True
+    )
+    connector._last_verdict = verdict
+    return None if verdict.allowed else verdict
+
+
+def _overrides_writes_enabled(connector: object) -> bool:
+    """Whether *connector*'s class answers ``_writes_enabled`` with its own rule."""
+    return getattr(type(connector), "_writes_enabled", None) is not _BASE_WRITES_ENABLED
 
 
 #: The outcomes a caller may proceed on: the channel was confirmed to hold the
@@ -634,6 +713,7 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
             result.channel_address,
             result.refusal_reason,
             message=result.error_message,
+            verdict_reason=result.verdict_reason,
         )
     if result.outcome in _PROCEEDABLE_OUTCOMES:
         return result
@@ -760,6 +840,11 @@ class ControlSystemConnector(ABC):
     # refusal asks for a verdict itself.
     _last_verdict: "WriteVerdict | None" = None
 
+    # A subclass's own ``write_channel`` before the guard wrapped it, set by
+    # ``__init_subclass__``: what an authorized batch writes each operation
+    # through once the whole call was judged and its step spent.
+    _unguarded_write_channel: Callable[..., Any]
+
     @property
     def _writes_enabled(self) -> bool:
         """Whether the write verdict allows a write to this connector's machine.
@@ -843,6 +928,17 @@ class ControlSystemConnector(ABC):
         ``_writes_enabled`` because that property also chooses the gateway: a held
         session's write is refused here while its connection stays as it is.
 
+        A process that names a program's write authorization
+        (:func:`~osprey_connectors.write_authorization.named_authorization`) is
+        judged instead by
+        :func:`~osprey_connectors.write_authorization.authorized_execution_verdict`
+        on the call's channels and values, which spends the call's one step
+        before anything is put (:func:`_authorized_refusal`). A batch is the
+        base class's :meth:`write_multiple_channels` under an authorization,
+        a subclass's own batch included: judged whole and spent once, then each
+        operation written past the guard. A process naming none is judged
+        exactly as before.
+
         Past both checks the original method runs inside
         :func:`~osprey_connectors.control_system.write_door.open_door`, so the
         raw-client guard attributes its put to a connector. A connector whose
@@ -856,13 +952,20 @@ class ControlSystemConnector(ABC):
 
         original_subscribe = cls.__dict__.get("subscribe")
         if original_subscribe is not None and not _accepts_on_connection(original_subscribe):
-            cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)
+            cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)  # type: ignore[method-assign]  # wraps the subclass's own method
 
         original_write = cls.__dict__.get("write_channel")
         if original_write is not None:
 
             @functools.wraps(original_write)
             async def _guarded_write(self, channel_address, value, *args, **kwargs):
+                authorization = write_authorization.named_authorization()
+                if authorization is not None:
+                    refused = _authorized_refusal(self, [(channel_address, value)], authorization)
+                    if refused is not None:
+                        return _verdict_refusal(channel_address, value, refused)
+                    with open_door():
+                        return await original_write(self, channel_address, value, *args, **kwargs)
                 self._last_verdict = None
                 if not self._writes_enabled:
                     verdict = self._last_verdict or _monitor_verdict(self._control_target)
@@ -873,13 +976,22 @@ class ControlSystemConnector(ABC):
                 with open_door():
                     return await original_write(self, channel_address, value, *args, **kwargs)
 
-            cls.write_channel = _guarded_write
+            cls.write_channel = _guarded_write  # type: ignore[method-assign]  # wraps the subclass's own method
+            # The write past the guard, for an authorized batch that was judged
+            # and spent whole (:meth:`write_multiple_channels`).
+            cls._unguarded_write_channel = original_write
 
         original_multi = cls.__dict__.get("write_multiple_channels")
         if original_multi is not None:
 
             @functools.wraps(original_multi)
             async def _guarded_multi(self, operations, *args, **kwargs):
+                if write_authorization.named_authorization() is not None:
+                    # Under an authorization a batch is the base class's: one
+                    # step for the call, then each operation past the guard.
+                    return await ControlSystemConnector.write_multiple_channels(
+                        self, operations, *args, **kwargs
+                    )
                 self._last_verdict = None
                 if not self._writes_enabled:
                     # One verdict for the batch, not one per operation: the
@@ -893,7 +1005,18 @@ class ControlSystemConnector(ABC):
                 with open_door():
                     return await original_multi(self, operations, *args, **kwargs)
 
-            cls.write_multiple_channels = _guarded_multi
+            cls.write_multiple_channels = _guarded_multi  # type: ignore[method-assign]  # wraps the subclass's own method
+
+    def _write_route_open(self) -> bool:
+        """Whether the route this connector selected at ``connect()`` can carry a write.
+
+        ``True`` here; a connector that selects a gateway by the verdict at
+        connect time and refuses a write on the read gateway ``switching``
+        (EPICS) answers for itself. The write guard asks it before an
+        authorized write spends its step, so a write that could not go out
+        costs nothing.
+        """
+        return True
 
     def _resolve_confirm(self, channel_address: str) -> bool:
         """Whether a write to this channel must be confirmed by re-reading it.
@@ -1123,15 +1246,31 @@ class ControlSystemConnector(ABC):
             An explicit ``confirm`` — ``False`` every bit as much as ``True`` — is
             forwarded unchanged to every channel, which is why the guard below
             tests ``is not None`` rather than the value's truth.
+
+            In a process that names a program's write authorization this is
+            every batch, a subclass's own batch included: the whole call is
+            judged and its one step spent first, and each operation is then
+            written past the guard.
         """
-        results = []
-        for address, value in operations:
-            kwargs: dict[str, Any] = {"timeout": timeout}
-            if confirm is not None:
-                kwargs["confirm"] = confirm
-            result = await self.write_channel(address, value, **kwargs)
-            results.append(result)
-        return results
+        kwargs: dict[str, Any] = {"timeout": timeout}
+        if confirm is not None:
+            kwargs["confirm"] = confirm
+        authorization = write_authorization.named_authorization()
+        if authorization is None:
+            return [
+                await self.write_channel(address, value, **kwargs) for address, value in operations
+            ]
+        # One write call under a program's authorization: judged whole and its
+        # one step spent before any put; a refusal writes nothing. Each
+        # operation then meets the connector's own checks, limits included,
+        # without being judged or spent again.
+        batch = list(operations)
+        refused = _authorized_refusal(self, batch, authorization)
+        if refused is not None:
+            return [_verdict_refusal(address, value, refused) for address, value in batch]
+        write = type(self)._unguarded_write_channel
+        with open_door():
+            return [await write(self, address, value, **kwargs) for address, value in batch]
 
     @abstractmethod
     async def subscribe(
@@ -1234,3 +1373,7 @@ class ControlSystemConnector(ABC):
         Returns:
             True if channel is valid and accessible
         """
+
+
+#: The base class's own ``_writes_enabled``, which a subclass may override.
+_BASE_WRITES_ENABLED = ControlSystemConnector.__dict__["_writes_enabled"]

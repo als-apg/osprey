@@ -182,6 +182,9 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
         "IOC (only on a deployment with `bluesky.second_lane`)"
     ),
     "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
+    "OPTIMIZER_LAUNCH_TOKEN": (
+        "arms the optimizer API's routes that start runs, write to the machine or load a model"
+    ),
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "ARIEL_DB_READONLY_PASSWORD": (
         "password of the SELECT-only Postgres role the agent's SQL tool queries through"
@@ -259,7 +262,8 @@ def create_project_structure(
         (CONFIG_TEMPLATE, "config.yml"),
         ("env.example.j2", ".env.example"),
         ("README.md.j2", "README.md"),
-        # Reference container image — rendered once at build; regen never touches it
+        # Reference container image — rendered into the render on every build;
+        # regenerate_claude_code never touches it
         ("Dockerfile.j2", "Dockerfile"),
     ]
 

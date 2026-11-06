@@ -94,3 +94,23 @@ def test_orchestrator_focuses_a_handed_back_artifact(rendered_project):
     tail = rule.split("## Subagent Hand-Backs", 1)[1]
     assert "artifact_focus" in tail
     assert "artifact_read" in tail
+
+
+def test_diagnose_reads_every_session_and_the_cited_artifacts(rendered_project):
+    skill = (rendered_project / ".claude" / "skills" / "diagnose" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    state = skill.split("### 2c. Workspace State", 1)[1].split("###", 1)[0]
+    assert 'artifact_list(scope="all")' in state
+    assert "artifact_read(artifact_id)" in state
+    assert "different agent" not in state
+
+
+def test_reuse_first_lists_this_conversation_and_widens_on_request(rendered_project):
+    rule = (rendered_project / ".claude" / "rules" / "artifacts.md").read_text(encoding="utf-8")
+    reuse = rule.split("## Reuse First", 1)[1].split("##", 1)[0]
+    assert "`artifact_list()`" in reuse
+    assert 'scope="all"' in reuse
+    assert "`artifact_read`" in reuse, "a dispatched run reads the ids it was given"
+    assert "`artifact_delete_all`" in reuse
+    assert "[Gallery Focus]" in rule

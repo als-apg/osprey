@@ -24,8 +24,18 @@ host-hygiene only -- drop the event-dispatcher/web-terminal stacks this proof
 never touches, and move every published port off the defaults so this can run
 on a shared dev machine beside an already-deployed tutorial stack.
 
+The one edit that is not host hygiene: the deployed stack leaves out the
+agent's knowledge services (``_orm_stack.KNOWLEDGE_SERVICES_OFF``: qmd, the
+graph store, ARIEL's Postgres, the record's ClickHouse). Nothing here reads
+them, and with them the stack runs a 72 GB runner out of disk. Stage 0 keeps
+the claim about the shipped preset without deploying it.
+
 Stages, in order, each an independently-reportable test:
 
+0. ``test_0_the_shipped_preset_*`` -- the preset with only the host edits
+   renders, and its services are the deployed stack's plus the knowledge
+   services, nothing else. Render only; qmd with its models is proven in
+   the ``qmd-sidecar-e2e`` CI lane.
 1. ``test_1_capability_*``       -- bridge ``/health`` and the sidecar's
    ``/bridge/health`` relay both report ``can_execute: true`` / ``executable``.
 2. ``test_2_shipped_preset_*``   -- the preset arms the queue at boot
@@ -109,8 +119,7 @@ not inherit their state -- the queue itself lives in a Redis named volume.
 Gating: needs Docker. Lives in ``tests/e2e/`` so the fast lane
 (``pytest tests/ --ignore=tests/e2e``) never collects this ~20-minute
 build+deploy; run it by name --
-``uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v`` -- never with
-``-m e2e`` (the marker selection leaks registries; see the repo convention).
+``uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v``.
 """
 
 from __future__ import annotations
@@ -130,6 +139,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.services.bluesky_bridge.analysis import REASON_RUN_IN_PROGRESS
 from osprey.services.bluesky_bridge.app import PREVIEW_REASON_UNKNOWN_PLAN
@@ -142,8 +152,8 @@ from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
     REASON_EXECUTABLE,
+    REASON_SESSION_PLAN_UNVALIDATED,
 )
-from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
 from tests.e2e import _facility_select, _orm_stack
 from tests.e2e._deploy_support import (
     docker_inspect,
@@ -156,7 +166,7 @@ from tests.e2e._deploy_support import (
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
-# The nine keys every pre-flight answer carries, success or not: the approval
+# The ten keys every pre-flight answer carries, success or not: the approval
 # gate reads `ok` and never a status code, so the shape cannot vary with the
 # outcome.
 _PREVIEW_KEYS = {
@@ -169,6 +179,7 @@ _PREVIEW_KEYS = {
     "move_cap",
     "reason",
     "detail",
+    "retryable",
 }
 
 # The six keys of a data read's analysis block, present whether or not the
@@ -287,7 +298,6 @@ def _auth_headers() -> dict[str, str]:
 
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
@@ -785,17 +795,15 @@ def _drain_leftover_queue_items() -> None:
     assert remaining == 0, f"queue still holds {remaining} item(s) after draining leftovers"
 
 
-@pytest.fixture(scope="module")
-def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
-    """Init + build + ``osprey up --dev`` the whole queue stack; tear it down after."""
-    osprey_bin = _orm_stack.find_osprey_console_script()
-    base = tmp_path_factory.mktemp("bluesky_queue_e2e")
-    # The deployment repo. Its directory name IS the deployment name, so the
-    # container/image names derived above still hold.
-    repo = base / PROJECT_NAME
+def _init_and_build(repo: Path, edits: dict[str, Any]) -> None:
+    """``osprey init`` the preset with ``edits`` and the ports below, then ``osprey build``.
 
-    # Two steps, because the surface has two: `init` writes the repo's source
-    # zone from the preset plus these edits, `build` renders build/ from it.
+    Two steps, because the surface has two: ``init`` writes the repo's source
+    zone from the preset plus these edits, ``build`` renders build/ from it.
+    Shared by the deployed stack and the shipped-preset render check, so the
+    two differ only by the edits each passes.
+    """
+    osprey_bin = _orm_stack.find_osprey_console_script()
     init = run_command(
         [
             str(osprey_bin),
@@ -804,7 +812,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             "--preset",
             "control-assistant",
             "--no-git",
-            *set_pairs(_profile_edits()),
+            *set_pairs(edits),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
@@ -822,7 +830,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             "--set",
             "port_base=22000",
         ],
-        cwd=base,
+        cwd=repo.parent,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if init.returncode != 0:
@@ -830,11 +838,37 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
     build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
-        cwd=base,
+        cwd=repo.parent,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
         pytest.fail(format_failure("osprey build", build))
+
+
+def _compose_services(repo: Path) -> set[str]:
+    """Every service the render at ``repo`` would start."""
+    services: set[str] = set()
+    for compose in (repo / "build").rglob("docker-compose*.yml"):
+        services |= set((yaml.safe_load(compose.read_text()) or {}).get("services") or {})
+    return services
+
+
+@pytest.fixture(scope="module")
+def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
+    """Init + build + ``osprey up --dev`` the whole queue stack; tear it down after.
+
+    Deployed without the agent's knowledge services
+    (``_orm_stack.KNOWLEDGE_SERVICES_OFF``): nothing in the queue stack reads
+    them, and with them the stack does not fit a 72 GB runner.
+    ``test_0_the_shipped_preset_differs_only_by_the_knowledge_services`` keeps
+    the claim that this is the shipped preset's queue stack.
+    """
+    osprey_bin = _orm_stack.find_osprey_console_script()
+    base = tmp_path_factory.mktemp("bluesky_queue_e2e")
+    # The deployment repo. Its directory name IS the deployment name, so the
+    # container/image names derived above still hold.
+    repo = base / PROJECT_NAME
+    _init_and_build(repo, _orm_stack.knowledge_services_off(_profile_edits()))
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without. It is also where `up` mints
@@ -920,6 +954,40 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # `osprey down` keeps volumes by design; drop this project's own so a
         # rerun cannot inherit their state (see tests/e2e/_volumes.py).
         remove_project_volumes(_orm_stack.project_prefix(PROJECT_NAME))
+
+
+# ===========================================================================
+# Stage 0 -- the deployed stack is the shipped preset's
+# ===========================================================================
+
+#: The services the shipped preset deploys and the stack above leaves out: the
+#: agent's knowledge services (qmd for the docs and for ARIEL, the graph store,
+#: ARIEL's Postgres, and the record's ClickHouse).
+KNOWLEDGE_SERVICES = {"qmd-okf", "qmd-ariel", "graphdb", "postgresql", "agent_record_clickhouse"}
+
+
+def test_0_the_shipped_preset_differs_only_by_the_knowledge_services(
+    tmp_path: Path,
+) -> None:
+    """The preset with only this module's host edits renders, and is the stack plus
+    the knowledge services.
+
+    Render only, no images: the queue stages deploy the trimmed stack, and this
+    is what keeps them about the shipped preset. A queue-stack service the
+    preset drops or adds when its knowledge services are on, or a preset whose
+    full render the build refuses, fails here.
+    """
+    shipped = tmp_path / "shipped" / PROJECT_NAME
+    trimmed = tmp_path / "trimmed" / PROJECT_NAME
+    shipped.parent.mkdir()
+    trimmed.parent.mkdir()
+    _init_and_build(shipped, _profile_edits())
+    _init_and_build(trimmed, _orm_stack.knowledge_services_off(_profile_edits()))
+
+    shipped_services = _compose_services(shipped)
+    trimmed_services = _compose_services(trimmed)
+    assert trimmed_services <= shipped_services, trimmed_services - shipped_services
+    assert shipped_services - trimmed_services == KNOWLEDGE_SERVICES
 
 
 # ===========================================================================
@@ -1348,7 +1416,9 @@ class _BridgeHopHandler(http.server.BaseHTTPRequestHandler):
 def _recording_bridge_hop() -> Iterator[_RecordingBridgeHop]:
     """Serve the recording hop for one block, then close it."""
     hop = _RecordingBridgeHop(_BridgeHopHandler)
-    serving = threading.Thread(target=hop.serve_forever, daemon=True)
+    serving = threading.Thread(
+        target=hop.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     serving.start()
     try:
         yield hop
@@ -1805,7 +1875,7 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
                 "the analysis chose an x axis the plan never declared movable "
                 f"(expected the swept corrector {expected_axis!r}): {analysis}"
             )
-            assert analysis["x_column"] in data["columns"], (
+            assert analysis["x_column"] in [column["name"] for column in data["columns"]], (
                 f"the analysis names an x column that is not in the table: {analysis}"
             )
             assert analysis["points"] == data["row_count"]
@@ -1879,7 +1949,7 @@ logger = logging.getLogger(__name__)
 class PARAMS(BaseModel):
     correctors: MovableChannels = Field(..., min_length=1)
     readbacks: ReadableChannels = Field(..., min_length=1)
-    span_a: float = Field(..., gt=0, le=10.0)
+    span: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
@@ -1894,8 +1964,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
     bpm_devices = [devices[name] for name in params.readbacks]
-    step = (2 * params.span_a) / (params.num - 1)
-    currents = [-params.span_a + i * step for i in range(params.num)]
+    step = (2 * params.span) / (params.num - 1)
+    setpoints = [-params.span + i * step for i in range(params.num)]
     all_devices = corrector_devices + bpm_devices
 
     @bpp.stage_decorator(all_devices)
@@ -1909,8 +1979,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     def _sweep():
         for name, corrector in correctors:
             try:
-                for current in currents:
-                    yield from bps.mv(corrector, current)
+                for setpoint in setpoints:
+                    yield from bps.mv(corrector, setpoint)
                     yield from bps.trigger_and_read(all_devices)
             finally:
                 try:
@@ -1931,13 +2001,13 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     bytes that were validated are exercised with the parameters they will
     actually run with.
 
-    The plan body sweeps ``-span_a .. span_a`` absolutely and restores to 0.0,
+    The plan body sweeps ``-span .. span`` absolutely and restores to 0.0,
     so the device must be one whose own limits record contains that range -- a
     bipolar corrector. The staged device set is every channel of the facility
     file (dipoles and all), so the first settable is not that device; pick the
     first one whose record proves it is.
     """
-    span_a = 1.0
+    span = 1.0
     corrector = next(
         (
             name
@@ -1945,19 +2015,19 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
             if isinstance(entry := stack.limits.get(sp_address), dict)
             and "min_value" in entry
             and "max_value" in entry
-            and float(entry["min_value"]) <= -span_a
-            and float(entry["max_value"]) >= span_a
+            and float(entry["min_value"]) <= -span
+            and float(entry["max_value"]) >= span
         ),
         None,
     )
     assert corrector is not None, (
         f"no staged settable has a limits record covering "
-        f"[-{span_a}, {span_a}] -- the session sweep needs a bipolar corrector"
+        f"[-{span}, {span}] -- the session sweep needs a bipolar corrector"
     )
     return {
         "correctors": [corrector],
         "readbacks": [next(iter(stack.bpms))],
-        "span_a": span_a,
+        "span": span,
         "num": 3,
     }
 
@@ -2082,19 +2152,19 @@ def test_5_session_plan_with_stale_validation_is_refused_at_enqueue(stack: Queue
     if _S.session_plan_name is None:
         pytest.skip("stage 5's authoring step never produced a validated session plan")
 
-    revision = _patch_draft(_SESSION_PLAN_NAME, {**_session_plan_args(stack), "span_a": 2.0})
+    revision = _patch_draft(_SESSION_PLAN_NAME, {**_session_plan_args(stack), "span": 2.0})
 
     # Same name, different bytes -> the recorded hash no longer matches disk.
     _author_session_plan(
         _SESSION_PLAN_NAME,
         _SESSION_PLAN_BODY.replace(
-            "span_a: float = Field(..., gt=0, le=10.0)", "span_a: float = Field(..., gt=0, le=9.0)"
+            "span: float = Field(..., gt=0, le=10.0)", "span: float = Field(..., gt=0, le=9.0)"
         ),
     )
 
     status, body = _enqueue(revision, token=stack.token)
     assert status == 409, f"an unvalidated session plan must be refused: {status} {body}"
-    assert _code_of(body) == REASON_UNVALIDATED, (
+    assert _code_of(body) == REASON_SESSION_PLAN_UNVALIDATED, (
         f"wrong refusal code for a stale validation record: {body}"
     )
 

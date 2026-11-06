@@ -1,0 +1,7 @@
+archiver:
+  type: mya_archiver
+  settings:
+    myquery_server: myquery.facility.edu
+    deployment: ops        # MYA deployment to query
+    timeout_s: 60          # seconds per request
+    timezone: America/New_York   # default: system.timezone

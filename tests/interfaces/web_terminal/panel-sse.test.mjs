@@ -11,15 +11,22 @@
  *     panels are surfaced, an `open` with a url navigates after placement, and
  *     the resulting layout (or the runner's named refusal) is POSTed to
  *     /api/panel-op-result, whose `rev` becomes the holder's ack baseline;
- *   - a `panel_report_request` frame is answered with an undeduped report;
+ *   - a `panel_report_request` frame asks dock-sync's reporter for a report;
  *   - an `open` of a panel in its own window brings the window forward;
+ *   - a `panel_visibility` hide closes the panel's tile and, when it held the
+ *     view, hands the view to a panel still on screen without changing any
+ *     other tile; only a dock left with no service tile opens the next member;
+ *   - an `agent_activity` frame targeting a panel still badges its rail entry,
+ *     and is relayed as `osprey-agent-activity` to that panel's mounted iframe
+ *     or pop-out window only; any other target posts nothing;
  *   - the retired `panel_focus`, `panel_close` and `panel_arrange` frames do
  *     nothing.
  *
  * The stream is stubbed at api.js: createEventSource captures the handlers so
- * a test can deliver a frame by hand. The op runner, the holder and the POST
- * helpers are stubs at their module boundaries; the runner's own semantics are
- * pinned against the real holder in panel-placement.test.mjs.
+ * a test can deliver a frame by hand. The op runner and the POST helpers are
+ * stubs at their module boundaries, and so is the holder for the op frames;
+ * the runner's own semantics are pinned against the real holder in
+ * panel-placement.test.mjs. A hide runs on a real holder.
  */
 
 import { test, expect, describe, beforeEach, vi } from 'vitest';
@@ -44,9 +51,11 @@ const { stream, calls, spies, dock } = vi.hoisted(() => {
       hidePanel: vi.fn(),
       runPanelOp: vi.fn(),
       postPanelOpResult: vi.fn(),
-      postLayoutReport: vi.fn(),
+      reportLayoutNow: vi.fn(),
       noteReported: vi.fn(),
       focusPopout: vi.fn(),
+      popoutWindow: vi.fn(),
+      badgePanelActivity: vi.fn(),
       record,
     },
   };
@@ -67,7 +76,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-sync.js', () => ({
   withEchoSuppressed: (/** @type {() => any} */ fn) => fn(),
   noteReported: spies.noteReported,
-  postLayoutReport: spies.postLayoutReport,
+  reportLayoutNow: spies.reportLayoutNow,
   sameReport: (/** @type {any} */ a, /** @type {any} */ b) =>
     JSON.stringify(a) === JSON.stringify(b),
 }));
@@ -78,7 +87,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', (
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-agent-attention.js', () => ({
   flashAgentGlow: vi.fn(),
   flashAgentTile: spies.flashAgentTile,
-  badgePanelActivity: vi.fn(() => true),
+  badgePanelActivity: spies.badgePanelActivity,
   restoreAgentBadges: vi.fn(),
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js', () => ({
@@ -97,6 +106,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
   focusPopout: spies.focusPopout,
+  popoutWindow: spies.popoutWindow,
 }));
 
 /** @param {string} id @param {string[]} tabs @param {string} [showing] */
@@ -109,7 +119,8 @@ function row(...items) {
 }
 
 const BEFORE = row(tile('s1', ['a'], 'a'), tile('t1', ['terminal']));
-const WITH_B = row(tile('s1', ['a', 'b'], 'b'), tile('t1', ['terminal']));
+/** An agent's open of b by the open rule: b replaced a in s1. */
+const WITH_B = row(tile('s1', ['b'], 'b'), tile('t1', ['terminal']));
 
 /**
  * A stand-in holder: the runner stub swaps its layout.
@@ -170,19 +181,23 @@ beforeEach(async () => {
     spies.hidePanel,
     spies.runPanelOp,
     spies.postPanelOpResult,
-    spies.postLayoutReport,
+    spies.reportLayoutNow,
     spies.noteReported,
     spies.focusPopout,
+    spies.popoutWindow,
+    spies.badgePanelActivity,
   ]) {
     spy.mockReset();
   }
+  spies.popoutWindow.mockReturnValue(null);
+  spies.badgePanelActivity.mockReturnValue(true);
+  document.body.replaceChildren();
   spies.ensureRailMembership.mockImplementation(spies.record('member'));
   spies.flashAgentTile.mockImplementation(spies.record('glow'));
   spies.postPanelOpResult.mockImplementation(async (/** @type {any} */ body) => {
     calls.push(body.refusal ? `refuse:${body.refusal}` : 'answer');
     return { status: 'ok', layout: body.layout ?? null, rev: 7 };
   });
-  spies.postLayoutReport.mockImplementation(async () => ({ status: 'ok', rev: 9 }));
   dock.holder = fakeHolder();
   const sse = await import(`${JS}/panel-sse.js`);
   deps = {
@@ -272,7 +287,8 @@ describe('panel_op — addressed to one dock client', () => {
   test('a layout that moved on before the answer landed is not acked', async () => {
     runnerApplies(WITH_B, 's1');
     spies.postPanelOpResult.mockImplementation(async () => {
-      dock.holder.layout = row(tile('s1', ['b'], 'b'), tile('t1', ['terminal']));
+      // A person dragged b to a tile of its own meanwhile.
+      dock.holder.layout = row(tile('s2', ['b'], 'b'), tile('t1', ['terminal']));
       return { status: 'ok', rev: 7 };
     });
     deliver(opFrame());
@@ -282,7 +298,7 @@ describe('panel_op — addressed to one dock client', () => {
 
   test('a refusal is answered by name and surfaces nothing', async () => {
     spies.runPanelOp.mockReturnValue({ refusal: 'stale_base' });
-    deliver(opFrame({ op: 'close_tile', args: { tile: 's1' }, base_rev: 2 }));
+    deliver(opFrame({ op: 'close', args: { key: 'a' }, base_rev: 2 }));
     await settle();
     expect(spies.postPanelOpResult).toHaveBeenCalledWith({
       request_id: 'r1',
@@ -316,10 +332,11 @@ describe('panel_op — addressed to one dock client', () => {
   test('newly shown panels are activated, the focused tile last, then the answer goes out', async () => {
     const after = row(
       tile('s2', ['c'], 'c'),
-      tile('s1', ['a', 'b'], 'b'),
+      tile('s3', ['b'], 'b'),
+      tile('s1', ['a'], 'a'),
       tile('t1', ['terminal'])
     );
-    runnerApplies(after, 's1');
+    runnerApplies(after, 's3');
     deliver(
       opFrame({ op: 'open_set', args: { members: ['b', 'c'], as: 'side' }, source: undefined })
     );
@@ -341,6 +358,30 @@ describe('panel_op — addressed to one dock client', () => {
     expect(calls).toEqual(['run', 'activate:b', 'glow:b', 'answer']);
   });
 
+  test('an agent open that replaced the panel on view answers its layout and moves the view to the opened panel', async () => {
+    // a held the view in s1; the open rule put b there in its place.
+    let active = 'a';
+    deps.getActive.mockImplementation(() => active);
+    deps.activate.mockImplementation((/** @type {string} */ id) => {
+      calls.push(`activate:${id}`);
+      active = id;
+    });
+    runnerApplies(WITH_B, 's1');
+    deliver(opFrame());
+    await settle();
+    // Only the opened panel is surfaced and glowed; the replaced one is
+    // neither activated nor cleared: the view simply moved to b.
+    expect(calls).toEqual(['run', 'activate:b', 'glow:b', 'answer']);
+    expect(active).toBe('b');
+    expect(deps.clearActive).not.toHaveBeenCalled();
+    expect(deps.resetActive).not.toHaveBeenCalled();
+    expect(spies.postPanelOpResult.mock.calls[0][0]).toMatchObject({
+      layout: WITH_B,
+      popouts: [],
+    });
+    expect(dock.holder.ack).toHaveBeenCalledWith(7);
+  });
+
   test('an open with a url navigates the panel after placement', async () => {
     runnerApplies(WITH_B, 's1');
     deliver(opFrame({ args: { member: 'b', url: '/u/x/page' }, source: undefined }));
@@ -359,27 +400,116 @@ describe('panel_op — addressed to one dock client', () => {
   test('closing the active panel with nothing surfaced clears the accent and paints the empty pane', async () => {
     deps.getActive.mockReturnValue('a');
     runnerApplies(tile('t1', ['terminal']), 't1');
-    deliver(opFrame({ op: 'close_tab', args: { key: 'a' }, source: undefined }));
+    deliver(opFrame({ op: 'close', args: { key: 'a' }, source: undefined }));
     await settle();
     expect(deps.activate).not.toHaveBeenCalled();
     expect(deps.resetActive).toHaveBeenCalledTimes(1);
     expect(deps.renderEmpty).toHaveBeenCalledWith('No panels visible');
   });
 
-  test('closing a tab reveals and activates the tab behind it', async () => {
-    dock.holder = fakeHolder(row(tile('s1', ['a', 'b'], 'a'), tile('t1', ['terminal'])));
-    // An activation that takes effect makes its panel the active one.
-    let active = 'a';
-    deps.getActive.mockImplementation(() => active);
-    deps.activate.mockImplementation((/** @type {string} */ id) => {
-      calls.push(`activate:${id}`);
-      active = id;
-    });
-    runnerApplies(row(tile('s1', ['b'], 'b'), tile('t1', ['terminal'])), 's1');
-    deliver(opFrame({ op: 'close_tab', args: { key: 'a' }, source: undefined }));
+  test('a close is applied and answered; the tile left on screen is neither opened into nor painted over', async () => {
+    dock.holder = fakeHolder(row(tile('s1', ['a']), tile('s2', ['c']), tile('t1', ['terminal'])));
+    deps.getActive.mockReturnValue('a');
+    const after = row(tile('s2', ['c']), tile('t1', ['terminal']));
+    runnerApplies(after);
+    const frame = opFrame({ op: 'close', args: { key: 'a' } });
+    deliver(frame);
     await settle();
-    expect(calls).toEqual(['run', 'activate:b', 'answer']);
-    expect(deps.resetActive).not.toHaveBeenCalled();
+    expect(spies.runPanelOp).toHaveBeenCalledWith(frame);
+    expect(spies.postPanelOpResult).toHaveBeenCalledWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: after,
+      popouts: [],
+    });
+    expect(dock.holder.ack).toHaveBeenCalledWith(7);
+    // Nothing is activated in the closed panel's place (a panel with no tile
+    // would replace c, by the open rule), and the accent stays on the closed
+    // panel's row, one click away.
+    expect(deps.activate).not.toHaveBeenCalled();
+    expect(deps.renderEmpty).not.toHaveBeenCalled();
+    expect(deps.clearActive).not.toHaveBeenCalled();
+    expect(deps.resetActive).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('an op the holder took is answered with its layout, whatever fails after', () => {
+  // The op happened, so the server is told what the holder holds: a failure in
+  // the follow-up steps is logged, never turned into silence or a refusal.
+  const silenced = () => vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  test('a surfacing failure is logged and the layout still goes out and is acked', async () => {
+    const error = silenced();
+    runnerApplies(WITH_B, 's1');
+    deps.activate.mockImplementation(() => {
+      throw new Error('activate broke');
+    });
+    deliver(opFrame());
+    await settle();
+    expect(spies.postPanelOpResult).toHaveBeenCalledExactlyOnceWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: WITH_B,
+      popouts: [],
+    });
+    expect(dock.holder.ack).toHaveBeenCalledWith(7);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  test('a navigation failure after placement still answers the layout', async () => {
+    const error = silenced();
+    runnerApplies(WITH_B, 's1');
+    deps.navigate.mockImplementation(() => {
+      throw new Error('no iframe');
+    });
+    deliver(opFrame({ args: { member: 'b', url: '/u/x/page' } }));
+    await settle();
+    expect(spies.postPanelOpResult).toHaveBeenCalledExactlyOnceWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: WITH_B,
+      popouts: [],
+    });
+    error.mockRestore();
+  });
+
+  test("a failure bringing a panel's own window forward still answers the layout", async () => {
+    const error = silenced();
+    dock.holder = fakeHolder(BEFORE, ['b']);
+    spies.runPanelOp.mockImplementation(() => ({
+      result: { layout: BEFORE, changed: false },
+      popout: 'b',
+    }));
+    spies.focusPopout.mockImplementation(() => {
+      throw new Error('window gone');
+    });
+    deliver(opFrame());
+    await settle();
+    expect(spies.postPanelOpResult).toHaveBeenCalledExactlyOnceWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: BEFORE,
+      popouts: ['b'],
+    });
+    error.mockRestore();
+  });
+
+  test('a runner that throws after the holder took the op answers the layout, not op_failed', async () => {
+    const error = silenced();
+    spies.runPanelOp.mockImplementation(() => {
+      dock.holder.layout = WITH_B;
+      throw new Error('boom after the apply');
+    });
+    deliver(opFrame());
+    await settle();
+    expect(spies.postPanelOpResult).toHaveBeenCalledExactlyOnceWith({
+      request_id: 'r1',
+      client_id: 'me/1',
+      layout: WITH_B,
+      popouts: [],
+    });
+    error.mockRestore();
   });
 });
 
@@ -413,40 +543,124 @@ describe('surfacing — only an activation that took effect counts', () => {
   });
 });
 
+describe('panel_visibility hide — the view falls back, and no other tile changes', () => {
+  // The hide closes the hidden panel's tile on a real holder (dock-iframe's
+  // hidePanel is stubbed to the holder op it runs). What the view falls back
+  // to is under test: activating a docked panel only focuses it, whereas
+  // activating a panel with no tile puts it in the service tile used last,
+  // REPLACING the panel that tile shows (the open rule) — a panel the operator
+  // did not touch.
+
+  /** @type {any} */
+  let holder;
+
+  beforeEach(async () => {
+    const { createLayoutHolder } = /** @type {any} */ (
+      await vi.importActual(`${JS}/dock-apply.js`)
+    );
+    const { closeKeys } = await import(`${JS}/dock-open.js`);
+    holder = createLayoutHolder({ dockPx: { width: 1000, height: 600 } });
+    dock.holder = holder;
+    spies.hidePanel.mockImplementation((/** @type {string} */ id) => {
+      calls.push(`hide:${id}`);
+      holder.run((/** @type {any} */ layout) => closeKeys(layout, [id]));
+    });
+    // A hide drops the member, as panel-manager's dropMember does.
+    deps.dropMember.mockImplementation((/** @type {string} */ id) => deps.memberSet.delete(id));
+  });
+
+  /**
+   * Seed the dock with one service tile per entry of `shown`, left of the
+   * terminal, each focused in turn: the last one's panel holds the view.
+   * @param {Record<string, string>} shown  tile id → the panel it shows
+   * @param {string[]} members  the rail
+   */
+  function seedView(shown, members) {
+    const entries = Object.entries(shown);
+    holder.restore(row(...entries.map(([id, key]) => tile(id, [key])), tile('t1', ['terminal'])));
+    for (const [id, key] of entries) holder.show(id, key);
+    deps.memberSet = new Set(members);
+    deps.getActive.mockReturnValue(entries[entries.length - 1][1]);
+  }
+
+  /** The held layout's panels, tile by tile, in tree order. */
+  const panelsByTile = () => {
+    /** @param {any} node @returns {string[][]} */
+    const walk = (node) => (node.tabs ? [node.tabs] : node.items.flatMap(walk));
+    return walk(holder.layout);
+  };
+
+  /** @param {string} panel */
+  const hide = (panel) => deliver({ type: 'panel_visibility', panel, visible: false });
+
+  test('a hide of the panel on view hands the view to the panel still on screen: nothing opens, nothing is replaced', () => {
+    // artifacts, first in the catalog, is a healthy member with no tile:
+    // activating it would replace lattice.
+    seedView({ s1: 'lattice', s2: 'ariel' }, ['artifacts', 'ariel', 'lattice']);
+
+    hide('ariel');
+
+    expect(calls).toEqual(['hide:ariel', 'activate:lattice']);
+    expect(panelsByTile()).toEqual([['lattice'], ['terminal']]);
+    expect(deps.resetActive).not.toHaveBeenCalled();
+    expect(deps.renderEmpty).not.toHaveBeenCalled();
+  });
+
+  test('when the panel left on screen is not answering, the view is cleared and its tile is not painted over', () => {
+    seedView({ s1: 'lattice', s2: 'ariel' }, ['artifacts', 'ariel', 'lattice']);
+    deps.isHealthy.mockImplementation((/** @type {string} */ id) => id !== 'lattice');
+
+    hide('ariel');
+
+    expect(deps.activate).not.toHaveBeenCalled();
+    expect(deps.resetActive).toHaveBeenCalledTimes(1);
+    expect(deps.renderEmpty).not.toHaveBeenCalled();
+    expect(panelsByTile()).toEqual([['lattice'], ['terminal']]);
+  });
+
+  test('a hide of a panel not on view closes its tile and changes nothing else', () => {
+    seedView({ s1: 'ariel', s2: 'lattice' }, ['artifacts', 'ariel', 'lattice']);
+
+    hide('ariel');
+
+    expect(calls).toEqual(['hide:ariel']);
+    expect(panelsByTile()).toEqual([['lattice'], ['terminal']]);
+    expect(deps.resetActive).not.toHaveBeenCalled();
+    expect(deps.clearActive).not.toHaveBeenCalled();
+    expect(deps.renderEmpty).not.toHaveBeenCalled();
+  });
+
+  test('with no service tile left, the hide opens the next healthy member', () => {
+    seedView({ s1: 'ariel' }, ['artifacts', 'ariel', 'channel-finder']);
+    deps.isHealthy.mockImplementation((/** @type {string} */ id) => id !== 'artifacts');
+
+    hide('ariel');
+
+    // In catalog order, past the hidden panel and the one not answering.
+    expect(calls).toEqual(['hide:ariel', 'activate:channel-finder']);
+    expect(deps.renderEmpty).not.toHaveBeenCalled();
+  });
+
+  test('with no service tile and no healthy member left, the hide paints the empty pane', () => {
+    seedView({ s1: 'ariel' }, ['ariel']);
+
+    hide('ariel');
+
+    expect(deps.activate).not.toHaveBeenCalled();
+    expect(deps.resetActive).toHaveBeenCalledTimes(1);
+    expect(deps.renderEmpty).toHaveBeenCalledWith('No panels visible');
+    expect(panelsByTile()).toEqual([['terminal']]);
+  });
+});
+
 describe('panel_report_request — a forced report', () => {
-  test("reports the holder layout through dock-sync's poster, and acks the rev", async () => {
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.postLayoutReport).toHaveBeenCalledWith(BEFORE, []);
-    expect(dock.holder.ack).toHaveBeenCalledWith(9);
-  });
-
-  test('reports even an unchanged layout: it is never deduped', async () => {
+  // What the report carries, its resends and its ack are dock-sync's reporter
+  // contract (dock-sync.test.mjs); this module only hands the request over.
+  test("each request asks dock-sync's reporter for a report now", () => {
     deliver({ type: 'panel_report_request' });
     deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.postLayoutReport).toHaveBeenCalledTimes(2);
-  });
-
-  test('a page without a holder reports nothing', async () => {
-    dock.holder = null;
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.postLayoutReport).not.toHaveBeenCalled();
-  });
-
-  test('a report that did not land acks nothing', async () => {
-    spies.postLayoutReport.mockImplementation(async () => null);
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(dock.holder.ack).not.toHaveBeenCalled();
-    expect(spies.noteReported).not.toHaveBeenCalled();
-  });
-
-  test("an acknowledged forced report becomes dock-sync's dedupe baseline", async () => {
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.noteReported).toHaveBeenCalledExactlyOnceWith(key(BEFORE));
+    expect(spies.reportLayoutNow).toHaveBeenCalledTimes(2);
+    expect(spies.postPanelOpResult).not.toHaveBeenCalled();
   });
 });
 
@@ -471,13 +685,6 @@ describe('a panel in its own window', () => {
     });
     expect(spies.noteReported).toHaveBeenCalledExactlyOnceWith(key(BEFORE, ['b']));
   });
-
-  test('the pop-outs ride on a forced report too', async () => {
-    dock.holder = fakeHolder(BEFORE, ['b']);
-    deliver({ type: 'panel_report_request' });
-    await settle();
-    expect(spies.postLayoutReport).toHaveBeenCalledWith(BEFORE, ['b']);
-  });
 });
 
 describe('the retired frames do nothing', () => {
@@ -499,5 +706,110 @@ describe('the retired frames do nothing', () => {
     deliver({ type: 'panel_arrange', tiles: ['a'] });
     expect(spies.runPanelOp).not.toHaveBeenCalled();
     expect(deps.activate).not.toHaveBeenCalled();
+  });
+});
+
+describe('agent activity reaches the panel it names', () => {
+  /**
+   * The route's broadcast frame (routes/agent_activity.py record_activity):
+   * target is model_dump(exclude_none=True), ts is time.time() — float seconds.
+   * @param {Record<string, any>} target
+   */
+  function activityFrame(target) {
+    return { type: 'agent_activity', tool: 'entry_create', target, ts: 1730668800.25 };
+  }
+
+  const RELAYED = {
+    type: 'osprey-agent-activity',
+    tool: 'entry_create',
+    detail: 'e-42',
+    ts: 1730668800.25,
+  };
+
+  /** A mounted panel iframe, stamped as panel-iframe-factory.js stamps it. @param {string} id */
+  function mount(id) {
+    const iframe = document.createElement('iframe');
+    iframe.className = 'panel-iframe';
+    iframe.dataset.panelId = id;
+    document.body.appendChild(iframe);
+    const win = /** @type {Window} */ (iframe.contentWindow);
+    return vi.spyOn(win, 'postMessage').mockImplementation(() => {});
+  }
+
+  /** A stand-in pop-out window. */
+  function popout() {
+    const postMessage = vi.fn();
+    return { win: /** @type {Window} */ (/** @type {unknown} */ ({ postMessage })), postMessage };
+  }
+
+  test("a panel-targeted frame reaches that panel's iframe only, and the badge is still applied", () => {
+    const ariel = mount('ariel');
+    const other = mount('artifacts');
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
+    expect(spies.badgePanelActivity).toHaveBeenCalledExactlyOnceWith('ariel', 1730668800.25);
+    expect(ariel).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+    expect(other).not.toHaveBeenCalled();
+    expect(deps.reportActivity).not.toHaveBeenCalled();
+  });
+
+  test("a popped-out panel's frame reaches its window", () => {
+    const { win, postMessage } = popout();
+    spies.popoutWindow.mockImplementation((/** @type {string} */ id) =>
+      id === 'ariel' ? win : null
+    );
+    const other = mount('artifacts');
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
+    expect(spies.popoutWindow).toHaveBeenCalledWith('ariel');
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+    expect(other).not.toHaveBeenCalled();
+    expect(spies.badgePanelActivity).toHaveBeenCalledExactlyOnceWith('ariel', 1730668800.25);
+  });
+
+  test('a panel with both a tile iframe and a pop-out gets the notice in each', () => {
+    const tileFrame = mount('ariel');
+    const { win, postMessage } = popout();
+    spies.popoutWindow.mockReturnValue(win);
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
+    expect(tileFrame).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+  });
+
+  test('a frame without a detail relays none', () => {
+    const ariel = mount('ariel');
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel' }));
+    expect(ariel).toHaveBeenCalledOnce();
+    expect(ariel.mock.calls[0][0]).toMatchObject({
+      type: 'osprey-agent-activity',
+      tool: 'entry_create',
+    });
+    expect(ariel.mock.calls[0][0].detail).toBeUndefined();
+  });
+
+  test('a frame for an unmounted panel is dropped: nothing is posted, the badge still applies', () => {
+    const other = mount('artifacts');
+    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
+    expect(other).not.toHaveBeenCalled();
+    expect(spies.badgePanelActivity).toHaveBeenCalledExactlyOnceWith('ariel', 1730668800.25);
+  });
+
+  test('a panel with no rail entry falls through to the strip and is still relayed when mounted', () => {
+    spies.badgePanelActivity.mockReturnValue(false);
+    const ariel = mount('ariel');
+    const frame = activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' });
+    deliver(frame);
+    expect(deps.reportActivity).toHaveBeenCalledExactlyOnceWith(frame);
+    expect(ariel).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
+  });
+
+  test('a non-panel target posts nothing', () => {
+    const ariel = mount('ariel');
+    const { win, postMessage } = popout();
+    spies.popoutWindow.mockReturnValue(win);
+    const frame = activityFrame({ kind: 'channel', detail: 'SR:BPM:1' });
+    deliver(frame);
+    expect(ariel).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(spies.badgePanelActivity).not.toHaveBeenCalled();
+    expect(deps.reportActivity).toHaveBeenCalledExactlyOnceWith(frame);
   });
 });

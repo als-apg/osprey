@@ -546,7 +546,7 @@ def test_provenance_outranks_the_retired_key(runner: CliRunner, tmp_path: Path) 
     recorded = _preset_config("hello-world")
     serving = "control_system.connector.virtual_accelerator.serving"
     epics_timeout = "control_system.connector.epics.timeout_s"
-    # Measured, not assumed: the two presets disagree on these keys.
+    # Measured, not assumed: the presets disagree on these keys.
     assert bundle["control_system.writes"] == "asked"
     assert recorded["control_system.writes"] == "never"
     assert serving not in bundle
@@ -1098,11 +1098,11 @@ def test_every_remedy_names_the_one_migration_verb() -> None:
         timeout=60,
     ).stdout.splitlines()
     this_file = Path(__file__).resolve().relative_to(REPO_ROOT).as_posix()
+    # The previous release's profile text, held as the revalidate gate's swaps.
+    previous_release = "tests/cli/test_init_revalidate.py"
     offenders = []
     for rel in listed:
-        if rel in (this_file, "CHANGELOG.md") or rel.startswith(
-            "tests/fixtures/previous_release_repo/"
-        ):
+        if rel in (this_file, previous_release, "CHANGELOG.md"):
             continue
         path = REPO_ROOT / rel
         if not path.is_file():

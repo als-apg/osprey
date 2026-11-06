@@ -80,7 +80,6 @@ from tests.e2e._deploy_support import format_failure
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA image build + a real multi-service deploy -- runs in
     # the dedicated archiver-world-e2e CI job, never the shared e2e-tests lane
@@ -191,9 +190,9 @@ def _profile_edits() -> dict[str, Any]:
     archiver_recorder services and renders the connector's connection keys.
     Declaring it carries NO knob overrides on purpose: this lane owns the
     measured budgets, and shrinking retention here would make them meaningless.
-    It names only ``port_host``: the preset's own ``freshness_channel`` stays in
-    force, so the derived ``archiver_freshness`` health check reads the canary a
-    deployment ships (:func:`_freshness_canary`).
+    It names only ``port_host``: ``freshness_channel`` stays unstated, so the
+    build derives it from the facility file and the derived ``archiver_freshness``
+    health check reads the canary a deployment ships (:func:`_freshness_canary`).
 
     ``archiver.type`` must be set SEPARATELY. Declaring where an archive lives is
     not the same decision as selecting it as the deployment's archiver, so
@@ -264,19 +263,21 @@ def _profile_edits() -> dict[str, Any]:
 def _freshness_canary(repo: Path) -> str:
     """The canary channel the derived ``archiver_freshness`` check reads.
 
-    Inherited from the preset rather than named by this lane: the profile edits
-    leave ``va_archiver.freshness_channel`` alone, so the lane proves the canary
-    a deployment actually ships.
+    Read from the render, not named by this lane: the profile edits leave
+    ``va_archiver.freshness_channel`` unstated, so the build derives it from the
+    facility file and the lane proves the canary a deployment actually ships.
     """
-    import yaml
+    from osprey.cli.build_profile_archiver import FRESHNESS_CHECK_NAME
 
-    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
-    canary = (profile.get("va_archiver") or {}).get("freshness_channel")
-    assert canary, (
-        f"{repo / 'profile.yml'} names no va_archiver.freshness_channel, so the build "
-        "derives no archiver_freshness check"
+    checks = (
+        ((_load_config(repo).get("health") or {}).get("categories") or {}).get("archiver") or {}
+    ).get("checks") or []
+    canaries = [row.get("channel") for row in checks if row.get("type") == FRESHNESS_CHECK_NAME]
+    assert canaries and canaries[0], (
+        f"{repo / 'build' / 'config.yml'} carries no {FRESHNESS_CHECK_NAME} check with a "
+        "channel, so the build derived no canary"
     )
-    return str(canary)
+    return str(canaries[0])
 
 
 def _build_project(output_dir: Path) -> Path:
@@ -950,7 +951,7 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     assert canary in served, (
         f"{canary} is not a channel this machine model serves, so the derived "
         f"freshness check would report 'no samples' for a reason that has nothing to do "
-        f"with the recorder. The preset's va_archiver.freshness_channel names it."
+        f"with the recorder. The build derived it from the facility file."
     )
 
     store = archiver_world.store

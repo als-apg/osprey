@@ -243,7 +243,6 @@ CONNECTOR_CONFIG: dict[str, Any] = {
 }
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
@@ -304,11 +303,11 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     view are built in memory from the repo's tree, because the pairs are
     chosen before the build.
     """
+    from osprey.facility import TEXTURE
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
-    from osprey_connectors.simulation.view import TEXTURE
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     coupled = {
@@ -350,11 +349,12 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     that same model wires, and which a limits record gives a range to write
     inside. The first by setpoint address is taken.
     """
+    from osprey.facility import TEXTURE
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
-    from osprey_connectors.simulation.view import TEXTURE, Binding
+    from osprey_connectors.simulation.view import Binding
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     readback_of = {
@@ -495,15 +495,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # to a CI-sized one -- this proof deploys the store (the preset's
     # `va_archiver:` block is what makes the VA's history real) but reads none
     # of its history, and seeding a tutorial-sized month costs every run.
-    edits = {
-        "config": {
-            "control_system.type": "virtual_accelerator",
-            "modules.web_terminals.enabled": False,
-        },
-        "dispatch": None,
-        "services": {},
-        **_orm_stack.VA_ARCHIVER_CI_KNOBS,
-    }
+    # `_orm_stack.knowledge_services_off` drops the agent's knowledge services
+    # (qmd, the graph store, ARIEL's Postgres, the ClickHouse record store):
+    # nothing in this proof reads them, and they are most of the stack's disk.
+    edits = _orm_stack.knowledge_services_off(
+        {
+            "config": {
+                "control_system.type": "virtual_accelerator",
+                "modules.web_terminals.enabled": False,
+            },
+            "dispatch": None,
+            "services": {},
+            **_orm_stack.VA_ARCHIVER_CI_KNOBS,
+        }
+    )
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
@@ -978,7 +983,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], rb)
+    col = _find_column([column["name"] for column in data["columns"]], rb)
     bridge_value = data["rows"][0][col]
     assert bridge_value is not None, f"no value recorded for {rb}: {data}"
 
@@ -1080,7 +1085,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == num, f"expected {num} rows: {data}"
-    col = _find_column(data["columns"], rb)
+    col = _find_column([column["name"] for column in data["columns"]], rb)
     row_values = [row[col] for row in data["rows"]]
     assert len(row_values) == num and all(v is not None for v in row_values), (
         f"incomplete {rb} column: {row_values}"
@@ -1225,7 +1230,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         status, data = _get(f"/runs/{run_id}/data")
         assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
         assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-        col = _find_column(data["columns"], rb)
+        col = _find_column([column["name"] for column in data["columns"]], rb)
         bridge_rb = data["rows"][0][col]
         assert bridge_rb is not None, f"no value recorded for {rb}: {data}"
 

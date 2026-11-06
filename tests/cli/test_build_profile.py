@@ -137,7 +137,12 @@ def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
     profile = _profile(
         name="x",
         web_panels=["ariel"],
-        panel_presets={"Machine setup": {"tabs": ["artifacts", "ariel"]}},
+        panel_presets={
+            "Machine setup": {
+                "split": "row",
+                "items": [{"tabs": ["artifacts"]}, {"tabs": ["ariel"]}],
+            }
+        },
     )
     profile.validate(tmp_path)  # must not raise
 
@@ -160,7 +165,8 @@ def test_panel_presets_unselected_builtin_member_raises(tmp_path: Path) -> None:
 
 def test_panel_presets_unknown_member_raises(tmp_path: Path) -> None:
     """A preset member that is not a known panel id fails validation."""
-    profile = _profile(name="x", panel_presets={"Setup": {"tabs": ["artifacts", "ghost"]}})
+    layout = {"split": "row", "items": [{"tabs": ["artifacts"]}, {"tabs": ["ghost"]}]}
+    profile = _profile(name="x", panel_presets={"Setup": layout})
     with pytest.raises(BuildProfileError, match="ghost"):
         profile.validate(tmp_path)
 
@@ -250,21 +256,26 @@ def test_panel_presets_old_list_shape_says_how_to_rewrite(tmp_path: Path) -> Non
         profile.validate(tmp_path)
     message = str(excinfo.value)
     assert "panel_presets['Ops'] is the retired list-of-panel-ids form" in message
-    assert "{split: row, items: [{tabs: [artifacts]}, {tabs: [ariel]}]}" in message
-    assert "{tabs: [artifacts, ariel]}" in message
+    assert message.endswith(
+        "rewrite it as a layout, e.g. 'Ops': "
+        "{split: row, items: [{tabs: [artifacts]}, {tabs: [ariel]}]} (side by side)"
+    )
 
 
 def test_panel_presets_nested_layout_with_weights_validates(tmp_path: Path) -> None:
-    """Splits nest, tiles hold several tabs, sizes are weights, showing is optional."""
+    """Splits nest, a tile names one panel, sizes are weights, showing is optional."""
     layout = {
         "split": "row",
         "items": [
-            {"tabs": ["artifacts", "ariel"], "showing": "ariel", "size": 2},
-            {"split": "column", "items": [{"tabs": ["okf"]}, {"tabs": ["lattice"], "size": 3}]},
+            {"tabs": ["ariel"], "showing": "ariel", "size": 2},
+            {
+                "split": "column",
+                "items": [{"tabs": ["okf"]}, {"tabs": ["system-health"], "size": 3}],
+            },
         ],
     }
     profile = _profile(
-        name="x", web_panels=["ariel", "okf", "lattice"], panel_presets={"L": layout}
+        name="x", web_panels=["ariel", "okf", "system-health"], panel_presets={"L": layout}
     )
     profile.validate(tmp_path)  # must not raise
 
@@ -286,6 +297,12 @@ def test_panel_presets_nested_layout_with_weights_validates(tmp_path: Path) -> N
         pytest.param({"slot": 0}, "not_layout", id="not-a-layout"),
         pytest.param({"tabs": [0]}, "not member indexes", id="index-key"),
         pytest.param({"tabs": ["terminal", "artifacts"]}, "names the terminal", id="terminal"),
+        pytest.param(
+            {"split": "row", "items": [{"tabs": ["okf"]}, {"tabs": ["artifacts", "ariel"]}]},
+            "puts several panels in one tile (layout.items[1].tabs): a tile holds one panel; "
+            "to show several, put them side by side in tiles of their own",
+            id="two-panels-in-a-tile",
+        ),
     ],
 )
 def test_panel_presets_invalid_layout_raises(

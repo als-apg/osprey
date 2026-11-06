@@ -46,6 +46,7 @@ import copy
 import dataclasses
 import functools
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -103,6 +104,10 @@ INVARIANT_CHECKS = {
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
 UNIT_TEST_JOB = "test"
+#: The job that runs the suites which time the box or need a process of their
+#: own, beside the unit sweep rather than after it.
+SERIAL_SUITES_JOB = "serial-suites"
+LIVE_CA_STEP = "Run live Channel Access suites in isolation"
 E2E_TESTS_JOB = "e2e-tests"
 GATE_JOB = "all-checks-passed"
 SECRET_TOKEN = "secrets.ALS_APG_API_KEY"
@@ -191,10 +196,8 @@ NO_MODEL_RUN_STEP = "Run the model-free E2E files"
 NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 #: The files the model-free lane names, in the order its run step names them.
 NO_MODEL_TEST_FILES = (
-    "tests/e2e/test_sdk_helpers.py",
     "tests/e2e/test_scripted_model.py",
     "tests/e2e/claude_code/test_safety_gates_scripted.py",
-    "tests/e2e/test_mcp_readiness.py",
     "tests/e2e/test_dispatch_deploy_render.py",
     "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
     "tests/e2e/web_terminals/test_skills_overlay_discovery.py",
@@ -310,10 +313,14 @@ LANE_LEAVING_MARKERS = (
     # spinner advancing between frames.
     LaneLeavingMarker(
         "pty",
-        (SerialHost("test", "Run real-terminal pty suite serially", "tests/pty/", "-m pty"),),
+        (
+            SerialHost(
+                SERIAL_SUITES_JOB, "Run real-terminal pty suite serially", "tests/pty/", "-m pty"
+            ),
+        ),
     ),
-    # Absolute wall-clock budgets: a budget timed beside loaded workers
-    # measures the workers.
+    # Tests that read a wall clock (a latency budget or a readiness window):
+    # a clock read beside loaded workers measures the workers.
     LaneLeavingMarker(
         "wallclock",
         (
@@ -323,12 +330,13 @@ LANE_LEAVING_MARKERS = (
                 "tests/integration/",
                 "-m wallclock",
             ),
-            # On demand: the module is slow, so no per-PR step collects it.
+            # The image-free budgets, on every event: the step selects the
+            # marker in the files under the tree, minus the directories with
+            # hosts of their own, that a scan finds carrying it
+            # (tests/_wallclock_files.py; the root conftest holds the scan to
+            # what pytest marks).
             SerialHost(
-                "channel-finder-benchmarks",
-                "Search-index scale guard (no LLM, no store)",
-                "tests/services/channel_finder/graph_index/test_scale.py",
-                "-m wallclock",
+                SERIAL_SUITES_JOB, "Run the wall-clock budgets serially", "tests/", "-m wallclock"
             ),
         ),
     ),
@@ -995,7 +1003,7 @@ def test_unit_test_job_runs_xdist_parallel__mutation_drops_a_flag(
 
 
 # ---------------------------------------------------------------------------
-# The boot smoke selects one preset per cell, so the matrix and the module's
+# The boot smoke selects a single preset per cell, so the matrix and the module's
 # own list are two halves of one statement
 # ---------------------------------------------------------------------------
 
@@ -1099,7 +1107,7 @@ def test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(
     assert sorted(matrix) == sorted(module), (
         f"the '{BOOT_SMOKE_JOB}' matrix in .github/workflows/ci.yml names "
         f"{sorted(matrix)} while {BOOT_SMOKE_TEST_FILE} parametrises {sorted(module)} — "
-        f"one cell per preset, and no cell without one"
+        f"a cell for every preset, and no cell without one"
     )
 
 
@@ -1132,7 +1140,7 @@ def test_boot_smoke_step_selects_the_matrix_preset(workflow: dict[str, Any]) -> 
         f"{step['run'].strip()!r}"
     )
     assert BOOT_SMOKE_SELECTOR in step["run"], (
-        f"the '{BOOT_SMOKE_STEP}' step must select one preset with {BOOT_SMOKE_SELECTOR} — "
+        f"the '{BOOT_SMOKE_STEP}' step must select a single preset with {BOOT_SMOKE_SELECTOR} — "
         f"without it every cell runs the whole file and the matrix buys nothing; got: "
         f"{step['run'].strip()!r}"
     )
@@ -1176,7 +1184,7 @@ def test_every_boot_smoke_test_runs_in_exactly_one_matrix_cell() -> None:
     )
     assert stray == [], (
         f"test(s) in {BOOT_SMOKE_TEST_FILE} are not parametrised over "
-        f"{BOOT_SMOKE_PRESETS_CONSTANT}: {stray}. The lane selects one preset per cell "
+        f"{BOOT_SMOKE_PRESETS_CONSTANT}: {stray}. The lane selects a single preset per cell "
         f"with {BOOT_SMOKE_SELECTOR}, so a test with no preset in its id runs in no cell."
     )
 
@@ -1223,18 +1231,11 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_adds_a_preset_free_tes
 #:    process per module through that gate, in a step of the unit job itself
 #:    that is gated on a single matrix cell. libca is process-global and not
 #:    thread-safe, so a shared xdist worker is precisely what they cannot have,
-#:    and the gate — not a path in a run step — is what proves they ran;
-#:  * the search-index scale guard is `slow` and runs on demand, alone in the
-#:    benchmark job, so the lane ignores the module by path. Its absolute
-#:    budgets are not held by that ignore: they carry the `wallclock` marker,
-#:    and the marker's row in LANE_LEAVING_MARKERS names the benchmark step as
-#:    their serial host. The `channel_finder_benchmark` marker text in
-#:    pyproject.toml states the on-demand rule from the other side.
+#:    and the gate — not a path in a run step — is what proves they ran.
 UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
     {
         "tests/va/test_apply_fault.py",
         "tests/va/test_lume_pva_seam.py",
-        "tests/services/channel_finder/graph_index/test_scale.py",
     }
 )
 
@@ -1612,9 +1613,10 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
 
 # Some tests read the machine as much as the code. ``tests/pty/`` runs osprey's
 # own verbs on a real terminal and asserts that a spinner ADVANCED between two
-# frames; a ``wallclock`` test asserts an absolute time budget. Beside three
-# loaded xdist workers both measure the workers, so each marker is handed out
-# of the four-worker lane and given a serial step of its own.
+# frames; a ``wallclock`` test reads a wall clock, for a latency budget or a
+# readiness window. Beside three loaded xdist workers both measure the workers,
+# so each marker is handed out of the four-worker lane and given a serial step
+# of its own.
 #
 # Both halves of that handover are silently droppable, in opposite directions,
 # which is why each is pinned here for every row of LANE_LEAVING_MARKERS. Lose
@@ -1707,17 +1709,41 @@ def _unhosted_carriers(row: LaneLeavingMarker, sources: dict[str, str]) -> list[
     ]
 
 
+def _sole_marker(command: str) -> str | None:
+    """The one marker an invocation's ``-m`` expression names, when it names
+    nothing else; such an invocation collects only that marker's tests."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    for flag, expression in itertools.pairwise(tokens):
+        if flag == "-m":
+            return expression if re.fullmatch(r"\w+", expression) else None
+    return None
+
+
 def _undeselected_reaches(
-    wf: dict[str, Any], row: LaneLeavingMarker, carriers: list[str]
+    wf: dict[str, Any], row: LaneLeavingMarker, sources: dict[str, str]
 ) -> list[str]:
     """Non-host invocations that reach a marked file without deselecting the
-    marker (empty = the row's tests run in its hosts and nowhere else)."""
+    marker (empty = the row's tests run in its hosts and nowhere else).
+
+    An invocation that selects one other marker alone reaches a marked file
+    only when the file carries that marker too."""
     hosts = {(host.job, host.step) for host in row.hosts}
+
+    def _selects(command: str, name: str) -> bool:
+        sole = _sole_marker(command)
+        if sole is None or sole == row.marker:
+            return True
+        return re.search(rf"pytest\.mark\.{re.escape(sole)}\b", sources[name]) is not None
+
+    carriers = _carriers(row, sources)
     return [
         f"{job} · {step}: {command}"
         for job, step, command in _ci_pytest_invocations(wf)
         if (job, step) not in hosts
-        and any(_invocation_reaches(command, f) for f in carriers)
+        and any(_invocation_reaches(command, f) and _selects(command, f) for f in carriers)
         and row.deselect_term() not in command
     ]
 
@@ -1855,12 +1881,18 @@ def test_every_marked_file_lives_where_a_serial_step_looks(row: LaneLeavingMarke
     )
 
 
-@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+#: The rows whose every host path is narrower than the tree. A row hosted over
+#: the whole tree has no stray under tests/ by construction.
+_NARROW_ROWS = [row for row in LANE_LEAVING_MARKERS if all(h.path != "tests/" for h in row.hosts)]
+
+
+@pytest.mark.parametrize("row", _NARROW_ROWS, ids=[row.marker for row in _NARROW_ROWS])
 def test_every_marked_file_lives_where_a_serial_step_looks__mutation_strays(
     row: LaneLeavingMarker,
 ) -> None:
     """A future marked file one directory over must be reported by name, not
-    tolerated because the tests it was modelled on are still in place."""
+    tolerated because the tests it was modelled on are still in place. A row
+    hosted over the whole tree has no stray under tests/ by construction."""
     sources = _test_module_sources()
     phantom = f"tests/cli/test_future_{row.marker}_scenarios.py"
     sources[phantom] = f"pytestmark = [pytest.mark.{row.marker}]\n"
@@ -1943,22 +1975,23 @@ def test_marker_runs_in_its_own_serial_step__mutation_drops_the_select(host: Ser
 
 
 def test_marker_runs_in_its_own_serial_step__mutation_neighbour_line_drops_the_term() -> None:
-    """A host step may run the rest of its module on a line of its own; that
-    line without the term times the budgets a second time, among the others."""
+    """A host step may run other tests on a line of its own; that line without
+    the term times the budgets a second time, among the others."""
     row = _row("wallclock")
-    host = next(h for h in row.hosts if h.job == BENCHMARKS_JOB)
+    host = next(h for h in row.hosts if h.job == SERIAL_SUITES_JOB)
     mutated = _load_workflow()
     step = _find_named_step(mutated, host.job, host.step)
-    original = step["run"]
-    step["run"] = original.replace(f' -m "{row.deselect_term()}"', "")
-    assert step["run"] != original, "neighbour-line deselection not found; mutation is stale"
+    assert row.deselect_term() not in step["run"], "neighbour line already present; stale"
+    step["run"] = f"{step['run'].rstrip()}\nuv run pytest tests/ --ignore=tests/e2e -v\n"
+    _check_host(_load_workflow(), host)
     with pytest.raises(AssertionError, match="beside its host line"):
         _check_host(mutated, host)
 
 
-def _check_nothing_else_times_it(wf: dict[str, Any], row: LaneLeavingMarker) -> None:
-    carriers = _carriers(row, _test_module_sources())
-    leaks = _undeselected_reaches(wf, row, carriers)
+def _check_nothing_else_times_it(
+    wf: dict[str, Any], row: LaneLeavingMarker, sources: dict[str, str] | None = None
+) -> None:
+    leaks = _undeselected_reaches(wf, row, _test_module_sources() if sources is None else sources)
     assert leaks == [], (
         f"pytest invocation(s) reach a {row.marker}-marked file without "
         f"{row.deselect_term()!r}: {leaks}. Only the row's serial step may run it; "
@@ -2015,6 +2048,24 @@ def test_nothing_else_times_it__mutation_sidecar_step_drops_the_term() -> None:
         _check_nothing_else_times_it(mutated, row)
 
 
+def test_nothing_else_times_it__mutation_a_file_carries_both_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A host that selects its own marker alone still reaches a file that
+    carries another row's marker as well, and runs those tests a second time.
+    The wall-clock host collects the files its scan finds, and the scan would
+    find this one, so the scan is told about it too."""
+    sources = _test_module_sources()
+    phantom = "tests/cli/test_future_pty_wallclock_scenarios.py"
+    sources[phantom] = "pytestmark = [pytest.mark.pty, pytest.mark.wallclock]\n"
+    _check_nothing_else_times_it(_load_workflow(), TERMINAL_ROW)
+    scanned = framework_checks.wallclock_unit_files()
+    monkeypatch.setattr(framework_checks, "wallclock_unit_files", lambda: [*scanned, phantom])
+    rescanned = _parsed_workflow.__wrapped__()
+    with pytest.raises(AssertionError, match="Run the wall-clock budgets serially"):
+        _check_nothing_else_times_it(rescanned, TERMINAL_ROW, sources)
+
+
 def test_unit_lane_says_the_canopy_contract_was_not_exercised(workflow: dict[str, Any]) -> None:
     """The deselection is the check's; saying so in the run summary is the
     step's, read from the log the step tees."""
@@ -2052,6 +2103,152 @@ def test_pty_step_runs_only_where_a_terminal_is_real__mutation_drops_the_gate() 
     del _find_named_step(mutated, TERMINAL_HOST.job, TERMINAL_HOST.step)["if"]
     with pytest.raises(AssertionError):
         test_pty_step_runs_only_where_a_terminal_is_real(mutated)
+
+
+# The suites that time the box (pty, the image-free wall-clock budgets) and the
+# live Channel Access modules, which need a process of their own, run in a job
+# of their own beside the unit sweep. They used to run after the sweep in the
+# rest-b cells, five minutes of that shard's critical path for nothing the sweep
+# produced. The move is safe only while the job keeps what the cells gave them:
+# every ubuntu Python, the same install, every event, a gate that reads it, and
+# a cap that covers its steps; and only while no unit cell runs them as well.
+
+#: The checks the serial-suites job runs, one step each, in this order.
+SERIAL_SUITE_CHECKS = ("pytest-pty", "pytest-wallclock-unit", "live-ca")
+#: Minutes the serial-suites job keeps outside its three capped steps: checkout,
+#: uv, the install and the pinned CLI, about a minute on a healthy runner.
+SERIAL_SUITES_OUTSIDE_STEPS_MINUTES = 10
+
+
+def _checks_called_by(wf: dict[str, Any], job: str) -> list[str]:
+    """The check ids *job*'s steps call, in step order."""
+    declared = {check.id for check in check_set.CHECKS}
+    return [
+        word
+        for step in _jobs(wf)[job]["steps"]
+        for call in _check_calls(step)
+        for word in (call[1:] if call[:1] == ["run"] else [])
+        if word in declared
+    ]
+
+
+def _serial_suites_problems(wf: dict[str, Any]) -> list[str]:
+    """What is wrong with the serial-suites job as the suites' home."""
+    jobs = _jobs(wf)
+    job, unit = jobs[SERIAL_SUITES_JOB], jobs[UNIT_TEST_JOB]
+    problems = []
+    called = _checks_called_by(wf, SERIAL_SUITES_JOB)
+    if called != list(SERIAL_SUITE_CHECKS):
+        problems.append(f"{SERIAL_SUITES_JOB} calls {called}, not {list(SERIAL_SUITE_CHECKS)}")
+    in_unit = [c for c in _checks_called_by(wf, UNIT_TEST_JOB) if c in SERIAL_SUITE_CHECKS]
+    if in_unit:
+        problems.append(f"{UNIT_TEST_JOB} still calls {in_unit}; they would run twice")
+    matrix, unit_matrix = job["strategy"]["matrix"], unit["strategy"]["matrix"]
+    if sorted(matrix["python-version"]) != sorted(unit_matrix["python-version"]):
+        problems.append(
+            f"{SERIAL_SUITES_JOB} runs Pythons {matrix['python-version']}, the unit "
+            f"cells {unit_matrix['python-version']}"
+        )
+    if matrix.get("os") != ["ubuntu-latest"] or "include" in matrix:
+        problems.append(f"{SERIAL_SUITES_JOB} must run on the ubuntu cells alone")
+    if "if" in job:
+        problems.append(f"{SERIAL_SUITES_JOB} has a job if: {job['if']!r}; it runs on every event")
+    install = _find_named_step(wf, SERIAL_SUITES_JOB, "Install dependencies")["run"]
+    unit_install = _find_named_step(wf, UNIT_TEST_JOB, "Install dependencies")["run"]
+    if install != unit_install:
+        problems.append(
+            f"{SERIAL_SUITES_JOB} installs {install!r}, the unit cells {unit_install!r}"
+        )
+    caps = []
+    for step in job["steps"]:
+        if not _check_calls(step):
+            continue
+        cap = step.get("timeout-minutes")
+        if not isinstance(cap, int):
+            problems.append(f"'{step.get('name')}' has no int timeout-minutes: {cap!r}")
+        else:
+            caps.append(cap)
+    if sum(caps) + SERIAL_SUITES_OUTSIDE_STEPS_MINUTES > job.get("timeout-minutes", 0):
+        problems.append(
+            f"step caps {caps} + outside {SERIAL_SUITES_OUTSIDE_STEPS_MINUTES} exceed the "
+            f"job cap {job.get('timeout-minutes')}"
+        )
+    return problems
+
+
+def test_serial_suites_run_in_their_own_job(raw_workflow: dict[str, Any]) -> None:
+    """The pty suite, the image-free wall-clock budgets and the live Channel
+    Access gate run in the serial-suites job, one step each, on every Python
+    and the OS the unit cells ran them on, with the same install, on every
+    event; no unit cell runs them too; and the job cap covers its step caps
+    plus the setup around them, so a hung step fails by its own cap."""
+    assert _serial_suites_problems(raw_workflow) == []
+
+
+def test_serial_suites_run_in_their_own_job__mutation_back_in_the_unit_cells() -> None:
+    mutated = _load_raw_workflow()
+    step = copy.deepcopy(_find_named_step(mutated, SERIAL_SUITES_JOB, TERMINAL_HOST.step))
+    step["if"] = "matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'"
+    _jobs(mutated)[UNIT_TEST_JOB]["steps"].append(step)
+    assert _serial_suites_problems(mutated) == [
+        f"{UNIT_TEST_JOB} still calls ['pytest-pty']; they would run twice"
+    ]
+
+
+def test_serial_suites_run_in_their_own_job__mutation_drops_the_live_ca_step() -> None:
+    mutated = _load_raw_workflow()
+    steps = _jobs(mutated)[SERIAL_SUITES_JOB]["steps"]
+    steps.remove(_find_named_step(mutated, SERIAL_SUITES_JOB, LIVE_CA_STEP))
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith(f"{SERIAL_SUITES_JOB} calls ['pytest-pty', 'pytest-wallclock-unit']")
+
+
+def test_serial_suites_run_in_their_own_job__mutation_drops_a_python() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[SERIAL_SUITES_JOB]["strategy"]["matrix"]["python-version"].remove("3.11")
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith(f"{SERIAL_SUITES_JOB} runs Pythons")
+
+
+def test_serial_suites_run_in_their_own_job__mutation_adds_macos() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[SERIAL_SUITES_JOB]["strategy"]["matrix"]["os"].append("macos-latest")
+    assert _serial_suites_problems(mutated) == [
+        f"{SERIAL_SUITES_JOB} must run on the ubuntu cells alone"
+    ]
+
+
+def test_serial_suites_run_in_their_own_job__mutation_gates_the_job_on_an_event() -> None:
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[SERIAL_SUITES_JOB]["if"] = "github.event_name == 'push'"
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith(f"{SERIAL_SUITES_JOB} has a job if:")
+
+
+def test_serial_suites_run_in_their_own_job__mutation_drops_the_va_extra() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, SERIAL_SUITES_JOB, "Install dependencies")
+    step["run"] = step["run"].replace(" --extra virtual-accelerator", "")
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith(f"{SERIAL_SUITES_JOB} installs")
+
+
+def test_serial_suites_run_in_their_own_job__mutation_drops_a_step_cap() -> None:
+    mutated = _load_raw_workflow()
+    del _find_named_step(mutated, SERIAL_SUITES_JOB, LIVE_CA_STEP)["timeout-minutes"]
+    assert _serial_suites_problems(mutated) == [
+        f"'{LIVE_CA_STEP}' has no int timeout-minutes: None"
+    ]
+
+
+def test_serial_suites_run_in_their_own_job__mutation_lowers_the_job_cap_to_the_steps() -> None:
+    mutated = _load_raw_workflow()
+    job = _jobs(mutated)[SERIAL_SUITES_JOB]
+    job["timeout-minutes"] = sum(
+        step["timeout-minutes"] for step in job["steps"] if _check_calls(step)
+    )
+    (problem,) = _serial_suites_problems(mutated)
+    assert problem.startswith("step caps")
 
 
 #: The unit-lane step that runs the readonly gate's warm-up module under 3.14 on
@@ -2253,10 +2450,6 @@ def _script_pytest_lines(source: str) -> list[str]:
     return [line for line in source.splitlines() if f"{CHECK_UV_RUN} pytest " in line]
 
 
-def _repo_source(path: str) -> str:
-    return (REPO_ROOT / path).read_text(encoding="utf-8")
-
-
 def _tier_source(tier: str, base: str | None = None) -> str:
     """The commands *tier* runs over the whole tree, one shell line each; with
     *base*, the checks that judge a range are armed against it."""
@@ -2265,8 +2458,14 @@ def _tier_source(tier: str, base: str | None = None) -> str:
 
 
 def _lane_invocations(source: str) -> list[str]:
-    """The tier's wholesale ``pytest tests/`` sweeps, ignoring narrower runs."""
-    return [line for line in _script_pytest_lines(source) if "--ignore=tests/e2e" in line]
+    """The tier's wholesale ``pytest tests/`` sweeps, ignoring narrower runs
+    and each row's serial run, which may name the same tree."""
+    selects = {row.select() for row in LANE_LEAVING_MARKERS}
+    return [
+        line
+        for line in _script_pytest_lines(source)
+        if "--ignore=tests/e2e" in line and not any(select in line for select in selects)
+    ]
 
 
 def _sweeps_missing_the_deselection(source: str, row: LaneLeavingMarker) -> list[str]:
@@ -2399,13 +2598,14 @@ def test_the_full_tier_runs_what_the_sweep_deselects__mutation_parallelizes_it(
 
 
 @pytest.mark.parametrize(
-    ("marker", "jobs"), [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e"])]
+    ("marker", "jobs"),
+    [("pty", [SERIAL_SUITES_JOB]), ("wallclock", ["qmd-sidecar-e2e", SERIAL_SUITES_JOB])],
 )
 def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
     marker: str, jobs: list[str], workflow: dict[str, Any]
 ) -> None:
-    """The scale guard's host is dispatched by hand and sits outside the merge
-    gate, so it is the one host a per-PR mirror does not owe."""
+    """Every host gates the merge, and ``_per_pr_hosts`` is the filter that
+    still holds the day an on-demand host is added."""
     assert [host.job for host in _per_pr_hosts(workflow, _row(marker))] == jobs
 
 
@@ -2470,7 +2670,8 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_narrows_the_path(
 ) -> None:
     source = _tier_source(tier)
     hosts = [host.path.rstrip("/") for host in _per_pr_hosts(workflow, row)]
-    host_re = re.compile(rf"(?<!\S)(?:{'|'.join(map(re.escape, hosts))})/?(?=\s)")
+    # A host path, or a file under one: the wall-clock check names its files.
+    host_re = re.compile(rf"(?<!\S)(?:{'|'.join(map(re.escape, hosts))})(?:/\S*)?(?=\s)")
     mutated = "\n".join(
         host_re.sub("tests/_nowhere/test_x.py", line) if row.select() in line else line
         for line in source.splitlines()
@@ -2487,32 +2688,16 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_adds_a_per_pr_dire
 ) -> None:
     """A second per-PR host directory is owed too, not only the first."""
     widened = replace(
-        row, hosts=(*row.hosts, SerialHost(UNIT_TEST_JOB, "x", "tests/cli/", row.select()))
+        row, hosts=(*row.hosts, SerialHost(UNIT_TEST_JOB, "x", "tests/e2e/", row.select()))
     )
     sources = _test_module_sources()
-    phantom = f"tests/cli/test_future_{row.marker}.py"
+    phantom = f"tests/e2e/test_future_{row.marker}.py"
     assert phantom not in sources, f"{phantom} exists; mutation is stale"
     sources[phantom] = f"pytestmark = [pytest.mark.{row.marker}]\n"
     assert phantom in _per_pr_carriers(workflow, widened, sources)
     assert _unreached_by_serial_runs(
         _tier_source(tier), widened, _per_pr_carriers(workflow, widened, sources)
     ) == [phantom]
-
-
-@pytest.mark.parametrize("tier", SERIAL_MIRROR_TIERS)
-def test_serial_runs_reach_every_per_pr_marked_file__mutation_gates_the_on_demand_host(
-    tier: str,
-) -> None:
-    """The scale guard is exempt only because its job is outside the merge
-    gate; the day it gates the merge, a mirror owes it as well."""
-    row = _row("wallclock")
-    mutated = _load_workflow()
-    needs = _jobs(mutated)[GATE_JOB]["needs"]
-    assert BENCHMARKS_JOB not in needs, f"{BENCHMARKS_JOB} gates the merge; mutation is stale"
-    needs.append(BENCHMARKS_JOB)
-    files = _per_pr_carriers(mutated, row, _test_module_sources())
-    scale = "tests/services/channel_finder/graph_index/test_scale.py"
-    assert scale in _unreached_by_serial_runs(_tier_source(tier), row, files)
 
 
 # The full tier is held tighter than the quick one: every pytest line it runs
@@ -2621,65 +2806,6 @@ def test_the_gate_runs_exactly_the_lane_expression__mutation_parallelizes_a_seri
     assert _gate_lines_off_the_table(mutated) != []
 
 
-#: The written-down copies of the parallel sweep a contributor or a skill copies
-#: by hand. Each must carry the unit lane's marker expression, or the copy runs
-#: the lane-leaving markers under workers that distort them.
-DOCUMENTED_SWEEPS = (
-    "tests/README.md",
-    "CONTRIBUTING.md",
-    "plugins/osprey/skills/release/SKILL.md",
-    "plugins/osprey/skills/test-audit/SKILL.md",
-)
-#: A pytest invocation with xdist workers: a fixed count or ``auto``.
-_DOCUMENTED_XDIST_RE = re.compile(r"(?<!\S)-n\s+(auto|\d+)")
-
-
-def _documented_sweep_lines(source: str) -> list[str]:
-    """Lines that run pytest with workers over ``tests/`` wholesale, or over one
-    area when the line already carries a marker expression."""
-    return [
-        line
-        for line in source.splitlines()
-        if "pytest " in line
-        and _DOCUMENTED_XDIST_RE.search(line)
-        and ("tests/ --ignore=tests/e2e" in line or ("tests/<area>" in line and "-m " in line))
-    ]
-
-
-def _documented_sweeps_missing_terms(source: str, row: LaneLeavingMarker) -> list[str]:
-    """Documented sweeps in *source* that do not hand the row's marker away
-    (empty = all of them do)."""
-    return [
-        line.strip() for line in _documented_sweep_lines(source) if row.deselect_term() not in line
-    ]
-
-
-@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("path", DOCUMENTED_SWEEPS, ids=DOCUMENTED_SWEEPS)
-def test_documented_sweeps_carry_the_lane_expression(path: str, row: LaneLeavingMarker) -> None:
-    """A documented parallel sweep is the command a reader copies, so it hands
-    away every marker the CI lane hands away."""
-    source = _repo_source(path)
-    assert _documented_sweep_lines(source), (
-        f"{path} no longer documents a parallel sweep; this pin is stale"
-    )
-    assert _documented_sweeps_missing_terms(source, row) == [], (
-        f"{path} documents a parallel sweep without deselecting the {row.marker!r} marker "
-        f"({row.deselect_term()!r}): {_documented_sweeps_missing_terms(source, row)}"
-    )
-
-
-@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-@pytest.mark.parametrize("path", DOCUMENTED_SWEEPS, ids=DOCUMENTED_SWEEPS)
-def test_documented_sweeps_carry_the_lane_expression__mutation_drops_a_term(
-    path: str, row: LaneLeavingMarker
-) -> None:
-    source = _repo_source(path)
-    mutated = _drop_the_term(source, row)
-    assert mutated != source, f"no {row.marker!r} deselection in {path}; mutation is stale"
-    assert _documented_sweeps_missing_terms(mutated, row) != []
-
-
 # ---------------------------------------------------------------------------
 # (e) the dockerbuild --ignore guard
 # ---------------------------------------------------------------------------
@@ -2766,6 +2892,55 @@ def test_orm_roundtrip_job_runs_the_grid_scan_module__mutation_drops_the_step() 
     _jobs(mutated)[ORM_JOB]["steps"] = kept
     with pytest.raises(AssertionError):
         test_orm_roundtrip_job_runs_the_grid_scan_module(mutated)
+
+
+ORM_OVERLAY2_STEP = "Use the overlay2 image store"
+
+
+def _orm_overlay2_violations(wf: dict[str, Any]) -> list[str]:
+    """Why the ORM job's images would not all land in the overlay2 store, if they would not."""
+    steps = _jobs(wf)[ORM_JOB]["steps"]
+    names = [step.get("name", "") for step in steps]
+    if ORM_OVERLAY2_STEP not in names:
+        return [f"no {ORM_OVERLAY2_STEP!r} step"]
+    at = names.index(ORM_OVERLAY2_STEP)
+    run = steps[at].get("run", "")
+    problems = [
+        f"{needle!r} missing from the step"
+        for needle in ('"containerd-snapshotter"] = false', "systemctl restart docker", "overlay2")
+        if needle not in run
+    ]
+    first_pytest = next(i for i, step in enumerate(steps) if "pytest" in step.get("run", ""))
+    if at > first_pytest:
+        problems.append("the switch runs after a stack has already built into the containerd store")
+    return problems
+
+
+def test_orm_roundtrip_job_builds_into_the_overlay2_store(workflow: dict[str, Any]) -> None:
+    """Four stacks in a row fit an AWS 72 GB runner only under overlay2: the
+    containerd image store keeps every layer compressed and unpacked and, while
+    a cached stack builds in parallel, unpacks a shared layer once per image
+    (measured on amd64 at a 37 GB cap: ENOSPC at the fourth stack, against a
+    16.7 GiB peak under overlay2). Dropping the switch, or moving it after the
+    first build, reds the lane only on the runners that happen to be small."""
+    assert _orm_overlay2_violations(workflow) == []
+
+
+def test_orm_roundtrip_job_builds_into_the_overlay2_store__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[ORM_JOB]["steps"]
+    _jobs(mutated)[ORM_JOB]["steps"] = [s for s in steps if s.get("name") != ORM_OVERLAY2_STEP]
+    assert _orm_overlay2_violations(mutated) == [f"no {ORM_OVERLAY2_STEP!r} step"]
+
+
+def test_orm_roundtrip_job_builds_into_the_overlay2_store__mutation_moves_it_last() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[ORM_JOB]["steps"]
+    switch = next(s for s in steps if s.get("name") == ORM_OVERLAY2_STEP)
+    _jobs(mutated)[ORM_JOB]["steps"] = [s for s in steps if s is not switch] + [switch]
+    assert _orm_overlay2_violations(mutated) == [
+        "the switch runs after a stack has already built into the containerd store"
+    ]
 
 
 def test_dispatch_overlay_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
@@ -3690,11 +3865,13 @@ def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_th
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
     lines = step["run"].splitlines(keepends=True)
-    kept = [line for line in lines if "tests/e2e/test_sdk_helpers.py" not in line]
+    kept = [line for line in lines if "tests/e2e/test_scripted_model.py" not in line]
     assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
     step["run"] = "".join(kept)
     # the neighbour survives, so the mutation is one file wide
-    assert "tests/e2e/test_scripted_model.py" in _model_free_selected_paths(mutated)
+    assert "tests/e2e/claude_code/test_safety_gates_scripted.py" in _model_free_selected_paths(
+        mutated
+    )
     with pytest.raises(AssertionError, match="does not name"):
         test_model_free_lane_names_every_file_it_owns(mutated)
 
@@ -3808,7 +3985,7 @@ def test_record_lane_runs_exactly_the_replay__mutation_adds_a_file() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
     step["run"] = step["run"].replace(
-        RECORD_E2E_FILE, f"{RECORD_E2E_FILE} tests/e2e/test_sdk_helpers.py"
+        RECORD_E2E_FILE, f"{RECORD_E2E_FILE} tests/e2e/test_scripted_model.py"
     )
     with pytest.raises(AssertionError, match="replay alone"):
         test_record_lane_runs_exactly_the_replay(mutated)
@@ -3825,7 +4002,7 @@ def test_record_lane_is_not_in_the_model_free_lane__mutation_names_it_there() ->
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
     step["run"] = step["run"].replace(
-        "tests/e2e/test_sdk_helpers.py", f"{RECORD_E2E_FILE} tests/e2e/test_sdk_helpers.py"
+        "tests/e2e/test_scripted_model.py", f"{RECORD_E2E_FILE} tests/e2e/test_scripted_model.py"
     )
     with pytest.raises(AssertionError, match="has its own lane"):
         test_record_lane_is_not_in_the_model_free_lane(mutated)
@@ -4296,15 +4473,13 @@ def test_the_browser_lane_runs_unconditionally__mutation_gates_an_install_on_the
 
 COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
 HISTORY_BROWSER_TEST_FILE = "tests/interfaces/history/test_history_page_browser.py"
-LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
 
 #: The browser suites (h) and its siblings each pin by name: the login flow, the
-#: channel combobox, the history page and the lattice dashboard.
+#: channel combobox and the history page.
 _NAMED_BROWSER_TEST_FILES = [
     AUTH_BROWSER_TEST_FILE,
     COMBOBOX_BROWSER_TEST_FILE,
     HISTORY_BROWSER_TEST_FILE,
-    LATTICE_BROWSER_TEST_FILE,
 ]
 
 
@@ -8169,7 +8344,7 @@ def test_lint_runs_the_changelog_fragment_guard(workflow: dict[str, Any]) -> Non
     assert "${{" not in step["run"], (
         f"{CHANGELOG_STEP} interpolates an expression into `run:`: {step['run']!r}"
     )
-    assert "github.event.pull_request.base.ref" in step["env"]["BASE_REF"]
+    assert "github.event.pull_request.base.ref" in step["env"]["BASE"]
     assert "!cancelled()" in step["if"]
     assert "pull_request" in step["if"]
 
@@ -8191,9 +8366,9 @@ def test_lint_runs_the_changelog_fragment_guard__mutation_interpolates_the_base_
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, LINT_JOB, CHANGELOG_STEP)
     step["run"] = step["run"].replace(
-        '"origin/$BASE_REF"', '"origin/${{ github.event.pull_request.base.ref }}"'
+        '"$BASE"', '"origin/${{ github.event.pull_request.base.ref }}"'
     )
-    assert "${{" in step["run"], "the run line no longer uses $BASE_REF; this mutation is stale"
+    assert "${{" in step["run"], "the run line no longer uses $BASE; this mutation is stale"
     with pytest.raises(AssertionError):
         test_lint_runs_the_changelog_fragment_guard(mutated)
 
@@ -8225,7 +8400,7 @@ def test_the_quick_tier_runs_the_same_gate__mutation_restores_the_grep() -> None
 #
 # One rule, one implementation: the lint step calls the script and states no
 # part of the rule itself. `scripts/plugin_version.py check` decides whether a
-# PR that changes the plugin tree carries a version its base does not; a copy
+# PR that changes the plugin tree carries a version newer than its base's; a copy
 # of that rule written inline beside the call is a second answer to the same
 # question, free to drift from the first.
 
@@ -8234,19 +8409,26 @@ PLUGIN_VERSION_SCRIPT = "scripts/plugin_version.py"
 
 
 def test_lint_runs_the_plugin_version_check(workflow: dict[str, Any]) -> None:
-    """The step calls ``check`` against the pull request's own base, the base
-    reaches the shell through ``env:`` and never through ``${{ }}`` inside
-    ``run:``, ``!cancelled()`` keeps an earlier failure from hiding a missing
-    bump, and the run line restates no part of the rule."""
+    """The step runs on pull requests and on pushes to main and calls ``check``
+    against the event's base: the pull request's own base ref, or on a push the
+    first parent, so a landing that does not raise the version past main's
+    previous tip goes red on the landing commit. The base reaches the shell
+    through ``env:`` and never through ``${{ }}`` inside ``run:``,
+    ``!cancelled()`` keeps an earlier failure from hiding a missing bump, and
+    the run line restates no part of the rule."""
     step = _find_named_step(workflow, LINT_JOB, PLUGIN_VERSION_STEP)
     run = step["run"]
-    assert PLUGIN_VERSION_SCRIPT + ' check --base "origin/$BASE_REF"' in run
+    assert PLUGIN_VERSION_SCRIPT + ' check --base "$BASE"' in run
     assert "${{" not in run, (
         f"{PLUGIN_VERSION_STEP} interpolates an expression into `run:`: {run!r}"
     )
-    assert "github.event.pull_request.base.ref" in step["env"]["BASE_REF"]
+    base = step["env"]["BASE"]
+    assert "github.event.pull_request.base.ref" in base
+    assert "format('origin/{0}'" in base
+    assert "'HEAD^1'" in base, f"{PLUGIN_VERSION_STEP} has no first-parent base on push: {base!r}"
     assert "!cancelled()" in step["if"]
-    assert "pull_request" in step["if"]
+    assert "'pull_request'" in step["if"]
+    assert "'push'" in step["if"], f"{PLUGIN_VERSION_STEP} does not run on push: {step['if']!r}"
     assert "git diff" not in run, f"{PLUGIN_VERSION_STEP} restates the rule inline: {run!r}"
     assert "json.load" not in run, f"{PLUGIN_VERSION_STEP} restates the rule inline: {run!r}"
 
@@ -8263,9 +8445,9 @@ def test_lint_runs_the_plugin_version_check__mutation_drops_the_step() -> None:
     ("replacement", "expected_in_run", "stale_message"),
     [
         (
-            '"origin/${{ github.event.pull_request.base.ref }}"',
+            '"${{ env.BASE }}"',
             "${{",
-            "the run line no longer uses $BASE_REF; this mutation is stale",
+            "the run line no longer uses $BASE; this mutation is stale",
         ),
         ("origin/main", "origin/main", "the run line moved; this mutation is stale"),
     ],
@@ -8276,8 +8458,28 @@ def test_lint_runs_the_plugin_version_check__mutation_replaces_the_base_ref(
 ) -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
-    step["run"] = step["run"].replace('"origin/$BASE_REF"', replacement)
+    step["run"] = step["run"].replace('"$BASE"', replacement)
     assert expected_in_run in step["run"], stale_message
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_plugin_version_check(mutated)
+
+
+def test_lint_runs_the_plugin_version_check__mutation_drops_the_push_event() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
+    original = step["if"]
+    step["if"] = original.replace(" || github.event_name == 'push'", "")
+    assert step["if"] != original, "the push clause moved; this mutation is stale"
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_plugin_version_check(mutated)
+
+
+def test_lint_runs_the_plugin_version_check__mutation_drops_the_first_parent_base() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
+    original = step["env"]["BASE"]
+    step["env"]["BASE"] = original.replace("'HEAD^1'", "'origin/main'")
+    assert step["env"]["BASE"] != original, "the first-parent base moved; this mutation is stale"
     with pytest.raises(AssertionError):
         test_lint_runs_the_plugin_version_check(mutated)
 
@@ -8286,7 +8488,7 @@ def test_lint_runs_the_plugin_version_check__mutation_restates_the_rule_inline()
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
     original = step["run"]
-    step["run"] += '\ngit diff --name-only "origin/$BASE_REF...HEAD" -- plugins'
+    step["run"] += '\ngit diff --name-only "$BASE...HEAD" -- plugins'
     assert step["run"] != original
     with pytest.raises(AssertionError):
         test_lint_runs_the_plugin_version_check(mutated)
@@ -8320,9 +8522,9 @@ def test_the_quick_tier_runs_the_plugin_version_check__mutation_drops_the_line()
 
 FRONTEND_JS_JOB = "frontend-js"
 DOCS_JOB = "docs"
-#: How a caller step names the comparison base of the two diff checks: the
-#: pull request's base ref, read from ``env:``.
-CI_BASE = "origin/$BASE_REF"
+#: How a caller step names the comparison base of the diff checks: the
+#: event's base, read from ``env:``.
+CI_BASE = "$BASE"
 
 
 def _first_index(commands: list[str], predicate: Callable[[str], bool]) -> int:
@@ -8891,8 +9093,8 @@ def test_full_chain_auth_lane_caps_and_reads_the_playwright_install__mutation_sa
 def test_full_chain_auth_lane_outbudgets_the_single_build_lanes(workflow: dict[str, Any]) -> None:
     """The lane builds BOTH real framework images — the deployed sidecar
     Dockerfile and the production project image — where each sibling below
-    builds one, and its neighbours measure a single such build at 7-11 minutes
-    cold. Held to the SAME cap as a one-build lane, the worst legal in-test path
+    builds one (the cold single-build figure is in docs/source/contributing/workflow.rst,
+    "Measured CI Figures"). Held to the SAME cap as a one-build lane, the worst legal in-test path
     runs past the ceiling and the lane reds on wall clock rather than on
     anything it asserts. What is pinned is the relation, not the minute counts:
     strictly more work must carry strictly more budget, at both the job cap and
@@ -8927,8 +9129,9 @@ def test_full_chain_auth_lane_outbudgets_the_single_build_lanes__mutation_back_t
 
 
 #: The full-chain lane's measured caps, in minutes: the job, and its one pytest
-#: step under it. Measured with the history page deployed (see the job's
-#: comment for the wall clock); a change to either is a re-measurement.
+#: step under it. The wall clock they were sized against is in
+#: docs/source/contributing/workflow.rst, "Measured CI Figures"; a change to
+#: either is a re-measurement.
 FULL_CHAIN_JOB_CAP = 85
 FULL_CHAIN_STEP_CAP = 75
 
@@ -8986,10 +9189,10 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 # Model-spending lanes: `full-ci` on a pull request, the revalidation dispatch on main
 # ---------------------------------------------------------------------------
 #
-# Ten jobs drive real Claude sessions through the gateway. Measured on its
-# ledger for the week of 2026-09-01, the set cost about $15 per run and ran on
-# every push of every same-repo PR (~150 a week, on pace for $10k a month).
-# The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
+# The SPENDING_LANES jobs drive real Claude sessions through the gateway.
+# Their cost scales as turns x context times push volume (the measurement is
+# recorded in docs/source/contributing/workflow.rst, "Model-Spending Lanes"),
+# so the lever is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
 # the revalidation dispatch — and on nothing else. Both arms are pinned
 # below, and so is the absence of a third: ci.yml has no schedule arm and no
 # `schedule` trigger. Main's nightly run is the revalidation dispatch, started
@@ -8997,20 +9200,10 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 # has moved, and turns a red into an issue. Dropping the label clause is the
 # other regression — the lane is back on every push, and so is the bill.
 
-SPENDING_LANES = frozenset(
-    {
-        "agentic-per-preset",
-        "e2e-tests",
-        "dispatch-deploy-e2e",
-        "single-user-narrowing-e2e",
-        "host-record-e2e",
-        "dispatch-overlay-e2e",
-        "scan-agentic-e2e",
-        "nextcloud-talk-bridge-e2e",
-        "gchat-bridge-e2e",
-        "target-switch-agentic-e2e",
-    }
-)
+#: Each spending lane to the prefix of its rendered job name: the lanes the
+#: LANES tables mark ``why="models"``, held below against ci.yml and release.yml.
+SPENDING_PREFIXES = check_set.kit.spending(check_set.LANES)
+SPENDING_LANES = frozenset(SPENDING_PREFIXES)
 # Lanes that carry the secret but spend nothing worth gating: deploy-e2e needs
 # the key only for `osprey up`'s .env preflight and never calls a model;
 # dockerfile-e2e drives a single haiku turn; the two benchmark jobs run only on
@@ -9174,25 +9367,34 @@ def test_workflow_fires_when_the_full_ci_label_is_applied__mutation_drops_labele
         test_workflow_fires_when_the_full_ci_label_is_applied(mutated)
 
 
+#: The gate step's two skipped-lanes blocks, by the start of each heading it echoes.
+DEPENDABOT_SUMMARY_HEADING = "### ⚠️ Secret-dependent lanes did not run"
+UNLABELED_SUMMARY_HEADING = "### ℹ️ Model-spending lanes did not run"
+SUMMARY_HEADINGS = (DEPENDABOT_SUMMARY_HEADING, UNLABELED_SUMMARY_HEADING)
+SUMMARY_BULLET = re.compile(r'echo "- (.+)"')
+
+
+def _summary_block_lanes(run: str, heading: str) -> list[str]:
+    """The lanes one summary block prints, a line naming two split into its two."""
+    block = run.partition(f'echo "{heading}')[2].partition('} >> "$GITHUB_STEP_SUMMARY"')[0]
+    bullets = (SUMMARY_BULLET.fullmatch(line.strip()) for line in block.splitlines())
+    return [lane for bullet in bullets if bullet for lane in bullet[1].split(" / ")]
+
+
 def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(workflow: dict[str, Any]) -> None:
     """Same rule as the Dependabot block: a green gate with skipped lanes says
-    so where a reviewer sees it, and prints the one command that runs them."""
+    so where a reviewer sees it, under each lane's real name, and prints the one
+    command that runs them."""
     step = _find_named_step(workflow, GATE_JOB, "Check all jobs status")
     assert step["env"]["HAS_FULL_CI"] == "${{ " + FULL_CI_LABEL_CLAUSE + " }}"
     assert "--add-label full-ci" in step["run"]
-    for lane_name in (
-        "Tier 3 — Agentic flow (both presets)",
-        "E2E Tests",
-        "Dispatch Deploy E2E / Dispatch Overlay E2E",
-        "Single-User Narrowing E2E",
-        "Nextcloud Talk Bridge E2E / Google Chat Bridge E2E",
-        "Scan Stack Agentic E2E",
-        "Control-Target Switch Agentic E2E",
-    ):
-        # named twice: once in the Dependabot block, once in the unlabeled one
-        assert step["run"].count(lane_name) == 2, (
-            f"{lane_name!r} must be named in both summary blocks"
-        )
+    prefixes = SPENDING_PREFIXES.values()
+    for heading in SUMMARY_HEADINGS:
+        lanes = _summary_block_lanes(step["run"], heading)
+        for prefix in prefixes:
+            assert lanes.count(prefix) == 1, f"{prefix!r} must be one bullet under {heading!r}"
+    # The label gates these lanes and no other, so its block names nothing else.
+    assert sorted(_summary_block_lanes(step["run"], UNLABELED_SUMMARY_HEADING)) == sorted(prefixes)
 
 
 def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the_command() -> None:
@@ -9200,6 +9402,18 @@ def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the
     step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
     step["run"] = step["run"].replace("--add-label full-ci", "")
     with pytest.raises(AssertionError):
+        test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)
+
+
+@pytest.mark.parametrize("heading", SUMMARY_HEADINGS, ids=("dependabot", "unlabeled"))
+def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_a_lane(
+    heading: str,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    before, marker, after = step["run"].partition(heading)
+    step["run"] = before + marker + after.replace('echo "- Host Record E2E"', "", 1)
+    with pytest.raises(AssertionError, match="Host Record E2E"):
         test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)
 
 
@@ -9257,7 +9471,7 @@ def _required_lane_prefixes() -> dict[str, str]:
 def test_the_tag_gate_covers_every_spending_lane() -> None:
     """A lane added to the label gate but not to the tag gate is a lane a
     release can skip silently."""
-    assert set(_required_lane_prefixes()) == set(SPENDING_LANES)
+    assert _required_lane_prefixes() == SPENDING_PREFIXES
 
 
 def _assert_lane_prefixes_match(
@@ -9274,7 +9488,7 @@ def _assert_lane_prefixes_match(
 
 def test_the_tag_gate_names_match_the_rendered_job_names(workflow: dict[str, Any]) -> None:
     """Each prefix identifies its own lane and nothing else. The matrix lane
-    renders one job per preset, so a prefix is the only stable handle."""
+    renders a job for every preset, so a prefix is the only stable handle."""
     _assert_lane_prefixes_match(workflow, _required_lane_prefixes())
 
 
@@ -11566,6 +11780,8 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         "osprey_framework-2026.9.1.tar.gz",
         "osprey_connectors-2026.9.1-py3-none-any.whl",
         "osprey_connectors-2026.9.1.tar.gz",
+        "osprey_optimizer-2026.9.1-py3-none-any.whl",
+        "osprey_optimizer-2026.9.1.tar.gz",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1.tar.gz",
     ):
@@ -11580,6 +11796,7 @@ def _assert_release_stages_every_member_wheel(release: dict[str, Any], tmp_path:
     # osprey-connectors is absent even from a dist/ that holds it: it releases
     # on its own tags, so the framework's floor on it must resolve from PyPI.
     assert _staged_siblings(release, tmp_path) == [
+        "osprey_optimizer-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
     ], "the release gate stages the wrong sibling set"
 
@@ -11889,13 +12106,13 @@ def test_the_unit_shards_cover_the_test_tree__mutation_drops_a_matrix_shard() ->
 
 
 # ---------------------------------------------------------------------------
-# The unit lane's macOS cells are one trimmed job each
+# The unit lane's macOS cells are one job each
 # ---------------------------------------------------------------------------
 #
 # The account's macOS ceiling is 5 concurrent jobs, so a macOS cell is one
-# `include` job running the check's `macos` trim, never os x shard.
+# `include` job running the check's `macos` subset, never os x shard.
 
-UNIT_MACOS_TRIM = "macos"
+UNIT_MACOS_SUBSET = "macos"
 
 #: macOS jobs per event against the ceiling of 5: one push and three PRs fit.
 UNIT_MACOS_BUDGET = {"pull_request": 1, "other": 2}
@@ -11919,15 +12136,15 @@ def _macos_cell_problems(wf: dict[str, Any]) -> list[str]:
         problems.append(
             f"macos-latest is on the os axis, so each shard is a macOS job: {matrix['os']}"
         )
-    if UNIT_MACOS_TRIM in matrix["shard"]:
-        problems.append(f"'{UNIT_MACOS_TRIM}' is on the shard axis, so ubuntu runs it too")
-    if UNIT_MACOS_TRIM not in framework_checks.UNIT_SELECTION.trims:
-        problems.append(f"the check declares no '{UNIT_MACOS_TRIM}' trim")
+    if UNIT_MACOS_SUBSET in matrix["shard"]:
+        problems.append(f"'{UNIT_MACOS_SUBSET}' is on the shard axis, so ubuntu runs it too")
+    if UNIT_MACOS_SUBSET not in framework_checks.UNIT_SELECTION.subsets:
+        problems.append(f"the check declares no '{UNIT_MACOS_SUBSET}' subset")
     cells = _unit_macos_cells(wf)
     for event, event_cells in cells.items():
         for cell in event_cells:
-            if cell != {**cell, "os": "macos-latest", "shard": UNIT_MACOS_TRIM}:
-                problems.append(f"{event} cell is not one macOS '{UNIT_MACOS_TRIM}' job: {cell}")
+            if cell != {**cell, "os": "macos-latest", "shard": UNIT_MACOS_SUBSET}:
+                problems.append(f"{event} cell is not one macOS '{UNIT_MACOS_SUBSET}' job: {cell}")
         if len(event_cells) > UNIT_MACOS_BUDGET[event]:
             problems.append(
                 f"{event} runs {len(event_cells)} macOS jobs, over its "
@@ -11943,24 +12160,24 @@ def _macos_cell_problems(wf: dict[str, Any]) -> list[str]:
     return problems
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each(workflow: dict[str, Any]) -> None:
+def test_the_unit_macos_cells_are_one_job_each(workflow: dict[str, Any]) -> None:
     assert _macos_cell_problems(workflow) == []
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_puts_macos_on_the_axis() -> None:
+def test_the_unit_macos_cells_are_one_job_each__mutation_puts_macos_on_the_axis() -> None:
     mutated = _load_workflow()
     _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]["os"].append("macos-latest")
     assert any("on the os axis" in p for p in _macos_cell_problems(mutated))
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_runs_a_shard() -> None:
+def test_the_unit_macos_cells_are_one_job_each__mutation_runs_a_shard() -> None:
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
     matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli"', 1)
     assert any("is not one macOS 'macos' job" in p for p in _macos_cell_problems(mutated))
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_moves_the_pr_cell() -> None:
+def test_the_unit_macos_cells_are_one_job_each__mutation_moves_the_pr_cell() -> None:
     """Off the coverage cell's interpreter, a PR macOS failure no longer
     isolates to the OS."""
     mutated = _load_workflow()
@@ -11973,7 +12190,7 @@ def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_moves_the_pr_ce
     assert any("not the coverage cell's" in p for p in _macos_cell_problems(mutated))
 
 
-def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_adds_a_pr_cell() -> None:
+def test_the_unit_macos_cells_are_one_job_each__mutation_adds_a_pr_cell() -> None:
     """A second PR macOS cell lets one push and three PRs exceed the ceiling."""
     mutated = _load_workflow()
     matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
@@ -12229,9 +12446,9 @@ def test_the_lookup_lane_map_is_the_spending_lane_set(
     """Same pin as the tag gate's map: every spending lane, each prefix naming
     its own rendered job and no other."""
     lanes = lanes if lanes is not None else _full_ci_on_main_lanes()
-    assert set(lanes) == set(SPENDING_LANES), (
+    assert lanes == SPENDING_PREFIXES, (
         f"full_ci_on_main.py lanes differ from SPENDING_LANES: "
-        f"{sorted(set(lanes) ^ set(SPENDING_LANES))}"
+        f"{sorted(set(lanes.items()) ^ set(SPENDING_PREFIXES.items()))}"
     )
     jobs = _jobs(_load_workflow())
     for lane, prefix in lanes.items():
@@ -12399,12 +12616,14 @@ def test_lane_b_installs_the_published_metadata_at_the_floor(workflow: dict[str,
     """Only the connectors leave the workspace. ``--no-sources`` drops every
     workspace source (``--no-sources-package osprey-connectors`` alone leaves the
     root's pyaml-cs-osprey one, which ``uv pip install`` of the root refuses), so
-    the workspace pyaml-cs-osprey is named by its path or it would come from PyPI."""
+    the workspace pyaml-cs-osprey and osprey-optimizer are named by their paths or
+    they would come from PyPI."""
     install = _find_named_step(
         workflow, FLOOR_COMPAT_JOB, "Install the framework with the floor connectors"
     )["run"]
     assert "--no-sources " in install
     assert "-e ./packages/pyaml-cs-osprey " in install
+    assert "-e ./packages/osprey-optimizer " in install
     assert '"osprey-connectors==$FLOOR"' in install
 
 
@@ -13506,10 +13725,10 @@ def test_no_ci_step_passes_execution_flags_through_the_check_command(
 
 def test_no_ci_step_passes_execution_flags__mutation_the_pty_step_passes_v() -> None:
     mutated = _load_raw_workflow()
-    step = _find_named_step(mutated, UNIT_TEST_JOB, TERMINAL_HOST.step)
+    step = _find_named_step(mutated, TERMINAL_HOST.job, TERMINAL_HOST.step)
     step["run"] = f"{step['run'].rstrip()} -- -v"
     assert _steps_passing_execution_flags(mutated) == [
-        f"test: '{TERMINAL_HOST.step}' passes '-v' through {CHECK_SCRIPT}"
+        f"{TERMINAL_HOST.job}: '{TERMINAL_HOST.step}' passes '-v' through {CHECK_SCRIPT}"
     ]
 
 
@@ -13587,7 +13806,7 @@ def test_no_caller_step_spells_a_check__mutation_spells_actionlint() -> None:
 def test_no_caller_step_spells_a_check__mutation_spells_the_secret_scan() -> None:
     mutated = _load_raw_workflow()
     step = _find_named_step(mutated, LINT_JOB, GITLEAKS_SCAN_STEP)
-    step["run"] = 'gitleaks git --log-opts="origin/$BASE_REF..HEAD" --no-banner --redact'
+    step["run"] = 'gitleaks git --log-opts="$BASE..HEAD" --no-banner --redact'
     assert _spelled_checks(mutated) == [
         f"lint: '{GITLEAKS_SCAN_STEP}' is neither a setup step nor a call of {CHECK_SCRIPT}",
         f"lint: '{GITLEAKS_SCAN_STEP}' spells ['gitleaks git']",
@@ -13722,10 +13941,10 @@ def test_every_full_check_is_called_on_ci__mutation_runs_live_ca_on_every_cell()
     """Off its venue the check reports that it did not run and exits clean, so
     a step on a macOS cell would be green over nothing."""
     mutated = _load_raw_workflow()
-    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run live Channel Access suites in isolation")
+    step = _find_named_step(mutated, SERIAL_SUITES_JOB, LIVE_CA_STEP)
     del step["if"]
     (problem,) = _checks_missing_from_ci(mutated)
-    assert problem.startswith("live-ca: ['Run live Channel Access suites in isolation']")
+    assert problem.startswith(f"live-ca: ['{LIVE_CA_STEP}']")
 
 
 def test_every_full_check_is_called_on_ci__mutation_calls_an_exempted_check() -> None:
@@ -14093,29 +14312,19 @@ QMD_WARM_INPUT = "warm"
 #: Every step that starts the qmd sidecar, by job and step name. Each deploys
 #: the control-assistant preset with qmd left in, or (qmd-sidecar-e2e) starts
 #: the sidecar directly. Kept by hand: which module's ``osprey up`` renders a
-#: qmd service is a fact about its fixture, not about the workflow.
+#: qmd service is a fact about its fixture, not about the workflow. A lane whose
+#: fixture merges ``tests/e2e/_orm_stack.knowledge_services_off`` deploys no qmd
+#: and is not listed.
 QMD_DEPLOYING_STEPS: dict[str, tuple[str, ...]] = {
     "qmd-sidecar-e2e": (
         "Run qmd sidecar E2E",
         "Run the wall-clock budgets serially",
         "Run the multi-user shared-bundle sidecar E2E",
     ),
-    "jupyter-panel-e2e": ("Run notebook panel E2E",),
     "scan-agentic-e2e": ("Run scan stack agentic E2E",),
-    "va-substrate-equivalence-e2e": ("Run VA substrate equivalence E2E",),
-    "bluesky-web-deploy-e2e": ("Run bluesky web deploy E2E",),
-    "bluesky-queue-e2e": ("Run Bluesky queue E2E",),
-    "bluesky-sandbox-escape-e2e": ("Run bluesky sandbox escape E2E",),
-    "tiled-roundtrip-e2e": ("Run Tiled roundtrip E2E",),
     "single-user-narrowing-e2e": ("Run single-user narrowing E2E",),
     "dispatch-overlay-e2e": ("Run dispatch overlay visibility E2E",),
     "dispatch-deploy-e2e": ("Run dispatch deploy E2E",),
-    "orm-roundtrip-e2e": (
-        "Run ORM roundtrip E2E",
-        "Run grid scan roundtrip E2E",
-        "Run orbit bump sweep roundtrip E2E",
-        "Run preflight probe E2E",
-    ),
 }
 
 
@@ -14166,7 +14375,7 @@ def test_only_the_warmup_saves_the_qmd_cache(workflow: dict[str, Any]) -> None:
 
 def test_only_the_warmup_saves_the_qmd_cache__mutation_a_pr_lane_warms() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, "jupyter-panel-e2e", "Build the qmd sidecar image")
+    step = _find_named_step(mutated, "scan-agentic-e2e", "Build the qmd sidecar image")
     step["with"] = {QMD_WARM_INPUT: "true"}
     assert len(_saving_steps_outside_the_warmup(mutated)) == 1
 
@@ -14323,33 +14532,37 @@ def test_every_qmd_deploying_step_starts_the_shared_image(workflow: dict[str, An
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_variable() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    del _find_named_step(mutated, "jupyter-panel-e2e", "Run notebook panel E2E")["env"][
+    del _find_named_step(mutated, "scan-agentic-e2e", "Run scan stack agentic E2E")["env"][
         QMD_IMAGE_ENV
     ]
     assert _qmd_deploy_problems(mutated) == [
-        f"jupyter-panel-e2e: 'Run notebook panel E2E' sets {QMD_IMAGE_ENV}=None"
+        f"scan-agentic-e2e: 'Run scan stack agentic E2E' sets {QMD_IMAGE_ENV}=None"
     ]
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_build() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)["tiled-roundtrip-e2e"]["steps"]
-    steps.remove(_find_named_step(mutated, "tiled-roundtrip-e2e", "Build the qmd sidecar image"))
+    steps = _jobs(mutated)["dispatch-deploy-e2e"]["steps"]
+    steps.remove(_find_named_step(mutated, "dispatch-deploy-e2e", "Build the qmd sidecar image"))
     assert _qmd_deploy_problems(mutated) == [
-        f"tiled-roundtrip-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
+        f"dispatch-deploy-e2e: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
     ]
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_builds_too_late() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)["orm-roundtrip-e2e"]["steps"]
-    build = _find_named_step(mutated, "orm-roundtrip-e2e", "Build the qmd sidecar image")
+    steps = _jobs(mutated)["qmd-sidecar-e2e"]["steps"]
+    build = next(s for s in steps if s.get("uses") == QMD_IMAGE_ACTION)
     steps.remove(build)
     steps.insert(
-        steps.index(_find_named_step(mutated, "orm-roundtrip-e2e", "Run preflight probe E2E")),
+        steps.index(
+            _find_named_step(
+                mutated, "qmd-sidecar-e2e", "Run the multi-user shared-bundle sidecar E2E"
+            )
+        ),
         build,
     )
-    assert len(_qmd_deploy_problems(mutated)) == 3
+    assert len(_qmd_deploy_problems(mutated)) == 2
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_unlisted_caller() -> None:

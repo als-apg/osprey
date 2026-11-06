@@ -125,7 +125,7 @@ VIDEOS: tuple[DocVideo, ...] = (
         stem="osprey-demo",
         storyboard=LANDING,
         # What the landing take has always shown: the Claude Code terminal
-        # beside the Artifacts tile, with the preset's example plot.
+        # beside the Artifacts tile.
         layout=Layout(surface="terminal", active="artifacts", tiles=("artifacts",)),
         pages=("index.rst",),
         poster_step="rotate",
@@ -135,15 +135,12 @@ VIDEOS: tuple[DocVideo, ...] = (
         name="watchdog",
         stem="osprey-watchdog",
         storyboard=WATCHDOG,
-        # The operator chat with Knowledge open; no terminal, no example plot.
+        # The operator chat with Knowledge open; no terminal.
         layout=Layout(surface="chat", active="okf", tiles=("okf",)),
         pages=("how-to/safety-watchdogs.rst",),
         poster_step="dialog",
         window_s=(15.0, 60.0),
-        init_sets=(
-            f"watchdogs.{WATCHDOG_NAME}.enabled=true",
-            "config.artifact_server.example_artifact=false",
-        ),
+        init_sets=(f"watchdogs.{WATCHDOG_NAME}.enabled=true",),
         needs_env=("TYPESAFE_API_KEY",),
         history=WATCHDOG_HISTORY,
         write_switch=("va", "asked"),

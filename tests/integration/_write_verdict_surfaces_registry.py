@@ -403,6 +403,51 @@ def _chip_row(staged: Staged) -> Any:
     return (verdict.allowed, verdict.reason), _expected(case)
 
 
+def _approve_card_lock(staged: Staged) -> Any:
+    """The approve card's lock (``POST /api/terminal/write-authorizations``): the turn-on locks.
+
+    An approval is refused by the same two locks a turn-on is, read from the
+    same verdict with the pin ignored, for the login the terminal acts as.
+    """
+    import json
+    import time
+    import uuid
+
+    case = staged.case
+    if not _login_pin_ignored(case) or not _str_target(case):
+        return OUT_OF_DOMAIN
+    from osprey.interfaces.web_terminal.routes import websocket
+    from osprey.interfaces.web_terminal.routes import write_authorizations as routes
+    from osprey_connectors import write_authorization as wa
+
+    if case.owner != websocket.acting_identity():
+        return OUT_OF_DOMAIN
+    requests = staged.tmp_path / "write_requests"
+    requests.mkdir(exist_ok=True)
+    staged.monkeypatch.setenv(wa.REQUESTS_DIR_ENV_VAR, str(requests))
+    payload = {
+        "schema": 1,
+        "id": uuid.uuid4().hex,
+        "owner": case.owner,
+        "holder": "optimizer",
+        "target": case.target,
+        "channels": {"SR:A": {"min": 0.0, "max": 1.0}},
+        "steps": 1,
+        "requested_at_ns": 1,
+        "expires_at_ns": time.time_ns() + 3600 * 10**9,
+        "lease_s": 30.0,
+        "label": "",
+        "completion": "none",
+    }
+    (requests / f"{payload['id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+    facts = routes._facts(staged.config_path, payload["id"])
+    if case.target not in facts.configured:
+        return OUT_OF_DOMAIN
+    observed = facts.lock.reason if facts.lock is not None else None
+    reason = case.expect["reason"]
+    return observed, reason if reason in websocket._TURN_ON_LOCKS else None
+
+
 def _chip_post_lock(staged: Staged) -> Any:
     """The chip's POST turn-on lock (C-POST): only the turn-on locks refuse."""
     case = staged.case
@@ -691,6 +736,51 @@ def _status_position(staged: Staged) -> Any:
     return observed, (allowed, reason, expected_position(case))
 
 
+# -- a program's write authorization -----------------------------------------
+#
+# ``osprey_connectors.write_authorization`` composes the switch verdict with a
+# program's authorization. A process that names none — every row of the table —
+# gets the switch verdict unchanged, from both of its compositions: the one a
+# write executes on (with the hold) and the one a gateway is chosen on.
+
+
+def _pin_honoured_any_owner(case: Case) -> bool:
+    """A surface that takes the owner as given and honours the pin."""
+    return not case.ignore_launch_pin or not _pin_env(case)
+
+
+def _authorized_execution(staged: Staged) -> Any:
+    """The execution verdict a process naming no authorization is judged by, batch and all."""
+    case = staged.case
+    if not _pin_honoured_any_owner(case):
+        return OUT_OF_DOMAIN
+    from osprey_connectors.write_authorization import authorized_execution_verdict
+    from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
+
+    verdict = authorized_execution_verdict(
+        case.section,
+        case.target,
+        [("SR:CH:1", 1.0)],
+        authorization=None,
+        **owner_argument(case),
+    )
+    return (verdict.allowed, verdict.reason), _expected(case)
+
+
+def _authorized_gateway(staged: Staged) -> Any:
+    """The verdict a gateway is chosen on, for a process naming no authorization."""
+    case = staged.case
+    if not _pin_honoured_any_owner(case):
+        return OUT_OF_DOMAIN
+    from osprey_connectors.write_authorization import authorized_write_verdict
+    from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
+
+    verdict = authorized_write_verdict(
+        case.section, case.target, authorization=None, **owner_argument(case)
+    )
+    return (verdict.allowed, verdict.reason), _expected(case)
+
+
 # -- the registry -------------------------------------------------------------
 
 SURFACES: tuple[Surface, ...] = (
@@ -855,6 +945,14 @@ SURFACES: tuple[Surface, ...] = (
         project=_chip_post_lock,
     ),
     Surface(
+        "approve-card-lock",
+        "osprey.interfaces.web_terminal.routes.write_authorizations",
+        "write",
+        stage1=False,
+        reports_reason=False,
+        project=_approve_card_lock,
+    ),
+    Surface(
         "writes-check-hook",
         f"{_HOOKS}.osprey_writes_check",
         "write",
@@ -965,6 +1063,30 @@ SURFACES: tuple[Surface, ...] = (
         stage1=False,
         reports_reason=True,
         project=_status_position,
+    ),
+    Surface(
+        "authorized-execution",
+        "osprey_connectors.write_authorization",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_authorized_execution,
+    ),
+    Surface(
+        "authorized-execution-held",
+        "osprey_connectors.write_authorization",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_held(_authorized_execution),
+    ),
+    Surface(
+        "authorized-gateway",
+        "osprey_connectors.write_authorization",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_authorized_gateway,
     ),
 )
 

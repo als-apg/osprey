@@ -3,7 +3,6 @@
   "artifact_id": "str",
   "artifact_type": "str",
   "attachment_id": "str",
-  "category": "str",
   "created": "bool",
   "entry_id": "str",
   "focused": "bool",

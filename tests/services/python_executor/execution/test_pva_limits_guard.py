@@ -719,6 +719,7 @@ def test_async_put_within_limits_is_awaitable(monkeypatch):
     assert ctxt.puts == [("TEST:MAG:SP", 2.0)]
 
 
+@pytest.mark.usefixtures("earlier_garbage_frozen")
 @pytest.mark.filterwarnings("error::RuntimeWarning")
 def test_async_put_out_of_bounds_raises_synchronously(monkeypatch):
     """The violation surfaces at call time, so no unawaited coroutine is made."""

@@ -175,14 +175,15 @@ class TestGeneratedSaveArtifact:
         assert entry["artifact_type"] == "dashboard_html"
         assert entry["filename"].endswith(".html")
 
-    def test_explicit_type_and_category_reach_the_manifest(self, tmp_path):
-        """What the caller names wins over detection and rides along to the collector."""
+    def test_explicit_type_wins_and_a_category_is_dropped(self, tmp_path):
+        """What the caller names wins over detection; a category is deprecated
+        and ignored, so it never reaches the collector's manifest."""
         entry = _run_generated_save_artifact(
             tmp_path, {"tune_x": 0.1}, artifact_type="json", category="lattice_analysis"
         )
 
         assert entry["artifact_type"] == "json"
-        assert entry["category"] == "lattice_analysis"
+        assert "category" not in entry
 
     @pytest.mark.parametrize(
         ("obj", "expected"),

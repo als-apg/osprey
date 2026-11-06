@@ -3,7 +3,8 @@
  * OSPREY Artifact Gallery — shared state, fetch layer, and filtering.
  *
  * Owns the gallery's core mutable state (the artifact list, the selected/
- * focused artifact, the rows picked for a bulk delete, and the current-session scoping) behind explicit
+ * focused artifact, the rows picked for a bulk delete, the current-session scoping and the
+ * transcript the session view resolved its key to) behind explicit
  * get/set accessors, not raw exported `let`
  * bindings — ES modules only give importers a read-only live view of an
  * exported binding, so reassignment has to go through a function here.
@@ -41,8 +42,10 @@ let picked = new Set(); // ids picked for a bulk action; only rows the sidebar s
 /** @type {string|null} */
 let pickAnchor = null; // the row a Shift-click run starts from
 /** @type {string|null} */
-let currentSessionId = null;
+let currentSessionId = null; // the session key the host reports; null outside a session
 let showAllSessions = false;
+/** @type {string|null} */
+let heldTranscript = null; // the transcript the session view's first page resolved the key to; null otherwise
 /** @type {string|null} */
 let nextCursor = null; // the cursor the next page needs; null when none is left
 let lastSearch = ''; // the search the current page sequence was fetched with
@@ -124,21 +127,80 @@ export function setShowAllSessions(v) {
   showAllSessions = v;
 }
 
+/**
+ * The transcript the session view's listing resolved the key to (contract
+ * C6), held from its first page. Null in the all-sessions view, outside a
+ * session, and for a key the ledger has no row for.
+ * @returns {string|null}
+ */
+export function getHeldTranscript() {
+  return heldTranscript;
+}
+
+/**
+ * Whether the gallery shows one session (the sidebar's row for its key)
+ * rather than every session.
+ * @returns {boolean}
+ */
+function inSessionView() {
+  return currentSessionId !== null && currentSessionId !== '' && !showAllSessions;
+}
+
 /** @returns {boolean} whether the server holds a page not yet fetched */
 export function hasMoreArtifacts() {
   return nextCursor !== null;
 }
 
 /**
- * Whether an artifact belongs in the list the current session scope fetches.
- * A locally added artifact has to pass the same session test the fetch
- * applied, and that test admits an untagged artifact.
+ * Whether an artifact belongs in the list the current view fetches. The
+ * session view lists what its held transcript owns and the operator sees, so
+ * a held null transcript admits nothing, an unowned artifact included.
+ * Every other view admits everything.
  * @param {any} entry
  * @returns {boolean}
  */
 export function inCurrentScope(entry) {
-  if (showAllSessions || !currentSessionId) return true;
-  return !entry.session_id || entry.session_id === currentSessionId;
+  if (!inSessionView()) return true;
+  return (
+    heldTranscript !== null && entry.owner === heldTranscript && entry.operator_visible !== false
+  );
+}
+
+/**
+ * The session view's verdict on a live artifact frame (contract C6):
+ * `refetch` when a new artifact's non-empty `exec_id` matches a held entry's
+ * (the run's head changed, and the server's grouping decides which card
+ * shows); `in` when the held transcript owns it and the operator sees it;
+ * `refetch` when a new artifact carries the current key while the held
+ * transcript is null or another (the key may have moved to a new
+ * transcript); else `out`. An updated frame never refetches. Outside the
+ * session view every frame is `in`.
+ * @param {any} entry
+ * @param {'new'|'updated'} kind
+ * @returns {'in'|'out'|'refetch'}
+ */
+export function liveVerdict(entry, kind) {
+  if (!inSessionView()) return 'in';
+  const isNew = kind === 'new';
+  if (isNew && entry.exec_id && artifacts.some((a) => a.exec_id === entry.exec_id)) {
+    return 'refetch';
+  }
+  if (inCurrentScope(entry)) return 'in';
+  if (isNew && entry.session_id === currentSessionId) return 'refetch';
+  return 'out';
+}
+
+/**
+ * Whether the view applies a focus frame whose `session` is `session`
+ * (contract C6): the session view only when it equals the held transcript,
+ * so a null on either side follows none; every other view follows every
+ * focus.
+ * @param {string|null|undefined} session
+ * @returns {boolean}
+ */
+export function followsFocus(session) {
+  if (!inSessionView()) return true;
+  return heldTranscript !== null && session === heldTranscript;
 }
 
 // ---- File URL ---- //
@@ -194,20 +256,28 @@ function messageOf(e) {
  */
 
 /**
- * The listing URL for a search and the current session scope. No `limit` is
- * sent, so the server's configured page size governs.
+ * Request one listing page for a search. The session view posts the
+ * sidebar's body to `POST /api/artifacts/session-list` (contract C6), so it
+ * lists exactly the sidebar's row and a run once at its head; every other
+ * view reads the unscoped `GET /api/artifacts`. No `limit` is sent, so the
+ * server's configured page size governs.
+ * @param {boolean} sessionView
  * @param {string} search
  * @param {string|null} [cursor]
- * @returns {string}
+ * @returns {Promise<Response>}
  */
-function listingUrl(search, cursor = null) {
+function requestListing(sessionView, search, cursor = null) {
+  if (sessionView) {
+    return fetch('/api/artifacts/session-list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: currentSessionId, search, cursor, runs: 'grouped' }),
+    });
+  }
   const params = [];
   if (search) params.push('search=' + encodeURIComponent(search));
-  if (currentSessionId && !showAllSessions) {
-    params.push('session_id=' + encodeURIComponent(currentSessionId));
-  }
   if (cursor) params.push('cursor=' + encodeURIComponent(cursor));
-  return '/api/artifacts' + (params.length ? '?' + params.join('&') : '');
+  return fetch('/api/artifacts' + (params.length ? '?' + params.join('&') : ''));
 }
 
 /**
@@ -222,8 +292,9 @@ function listingUrl(search, cursor = null) {
 export async function fetchArtifacts(callbacks = {}) {
   const search = callbacks.search || '';
   const generation = ++fetchGeneration;
+  const sessionView = inSessionView();
   try {
-    const resp = await fetch(listingUrl(search));
+    const resp = await requestListing(sessionView, search);
     if (!resp.ok) {
       const errText = await resp.text();
       showErrorBanner('API error (' + resp.status + '): ' + errText);
@@ -236,6 +307,7 @@ export async function fetchArtifacts(callbacks = {}) {
     artifacts = data.artifacts || [];
     nextCursor = data.next_cursor ?? null;
     lastSearch = search;
+    heldTranscript = sessionView ? (data.transcript ?? null) : null;
     // A new search or scope is a new list: nothing in it is picked yet.
     picked = new Set();
     pickAnchor = null;
@@ -266,7 +338,7 @@ export async function fetchMoreArtifacts(callbacks = {}) {
   loadingMore = token;
   const generation = fetchGeneration;
   try {
-    const resp = await fetch(listingUrl(lastSearch, nextCursor));
+    const resp = await requestListing(inSessionView(), lastSearch, nextCursor);
     if (!resp.ok) {
       const errText = await resp.text();
       showErrorBanner('API error (' + resp.status + '): ' + errText);
@@ -326,12 +398,17 @@ export function removeArtifact(id) {
 
 /**
  * Fetch the current agent focus target, if any, and store it as
- * `focusedArtifact`. Silent on failure (matches the original: console-only).
+ * `focusedArtifact`. The session view reads its key's slot
+ * (`?session_key=`, contract C6); every other view reads the most recent
+ * focus. Silent on failure (matches the original: console-only).
  * @returns {Promise<void>}
  */
 export async function fetchFocus() {
   try {
-    const resp = await fetch('/api/focus');
+    const query = inSessionView()
+      ? '?session_key=' + encodeURIComponent(currentSessionId || '')
+      : '';
+    const resp = await fetch('/api/focus' + query);
     const data = await resp.json();
     if (data.artifact) {
       focusedArtifact = data.artifact;

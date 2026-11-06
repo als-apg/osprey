@@ -134,7 +134,6 @@ CONTAINER_HEALTH_TIMEOUT_SEC = 240.0  # docker healthcheck start_period + a few 
 SCAN_TIMEOUT_SEC = 420.0
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
@@ -192,14 +191,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # control_system.type is deliberately NOT set: the shipped preset already
     # baselines on the live stand-in, an executable connector this proof can
     # run on, and pinning it here would hide a regression in that baseline.
-    edits = {
-        "dispatch": None,
-        "services": {},
-        "config": {
-            "services.postgresql.port_host": POSTGRES_PORT,
-            "modules.web_terminals.enabled": False,
-        },
-    }
+    #
+    # `_orm_stack.knowledge_services_off` drops the agent's knowledge services
+    # (qmd, the graph store, ARIEL's Postgres, the ClickHouse record store):
+    # nothing in this proof reads them, and they are most of the stack's disk.
+    edits = _orm_stack.knowledge_services_off(
+        {
+            "dispatch": None,
+            "services": {},
+            "config": {
+                "services.postgresql.port_host": POSTGRES_PORT,
+                "modules.web_terminals.enabled": False,
+            },
+        }
+    )
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory

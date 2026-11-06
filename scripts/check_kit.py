@@ -191,6 +191,26 @@ class Lane:
     why: str
     #: Path globs; a range that touches one is told to run the job on CI.
     scope: tuple[str, ...]
+    #: The prefix of the job's rendered ``name:``; a matrix lane renders one job
+    #: per cell, so a prefix is the stable handle. Set iff the lane spends models.
+    prefix: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.why == SPENDS) != (self.prefix is not None):
+            raise ValueError(
+                f"lane {self.job}: a lane whose why is {SPENDS!r} names its job-name"
+                " prefix, and only such a lane does"
+            )
+
+
+#: The ``why`` of a lane that spends model money: it runs only under the
+#: ``full-ci`` label or the revalidation dispatch.
+SPENDS = "models"
+
+
+def spending(lanes: Iterable[Lane]) -> dict[str, str]:
+    """Each spending lane's job to its rendered-name prefix, in declaration order."""
+    return {lane.job: lane.prefix for lane in lanes if lane.prefix is not None}
 
 
 # ---------------------------------------------------------------------------

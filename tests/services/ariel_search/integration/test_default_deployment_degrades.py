@@ -177,7 +177,9 @@ class OllamaStub:
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.url = f"http://127.0.0.1:{self._server.server_address[1]}"
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -411,6 +413,16 @@ def _isolated(reserve_port, monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         _local_server, "container_fallback_urls", lambda base_url, default_port: list(fallbacks)
+    )
+    # Every server here is in-test or a closed port that refuses at once, so the
+    # query-time budgets only measure the runner's load. Widened, a reason the
+    # picture lane reports is the server's answer, never a probe that ran out.
+    monkeypatch.setattr(image_lane, "QUERY_EMBEDDING_TIMEOUT_S", 30.0)
+    real_probe = _local_server.probe
+    monkeypatch.setattr(
+        _local_server,
+        "probe",
+        lambda url, path, timeout: real_probe(url, path, max(timeout, 30.0)),
     )
     monkeypatch.setenv("OLLAMA_HOST", _closed_url(reserve_port()))
     monkeypatch.setenv("LLAMA_CPP_HOST", _closed_url(reserve_port()))

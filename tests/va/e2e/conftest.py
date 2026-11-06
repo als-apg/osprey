@@ -65,6 +65,7 @@ import yaml
 from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
+from tests._facility_file import demo_facility_document
 from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._facility_select import LaneSelection, lane_selection, second_model
 
@@ -132,8 +133,8 @@ VIEW_CONFIG: dict[str, Any] = {
 }
 
 
-def _render_view(facility: Path, root: Path) -> tuple[Any, SimulatorView]:
-    """Build ``facility`` and render its simulator view under ``root``.
+def _render_view(facility: Path, root: Path, doc: Any = None) -> tuple[Any, SimulatorView]:
+    """Build ``facility``, unless ``doc`` is its build, and render its simulator view under ``root``.
 
     The view lands where a container mounts it, ``<root>/simulator/``, rendered
     with :data:`VIEW_CONFIG`.
@@ -146,7 +147,8 @@ def _render_view(facility: Path, root: Path) -> tuple[Any, SimulatorView]:
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
 
-    doc = build_facility(facility, project_name="control_assistant")
+    if doc is None:
+        doc = build_facility(facility, project_name="control_assistant")
     write_simulator_view(
         root / VIEW_RELPATH.name,
         ViewInputs(
@@ -167,7 +169,7 @@ def _render_preset() -> tuple[Any, SimulatorView]:
     """
     root = Path(tempfile.mkdtemp(prefix="osprey-va-e2e-preset-"))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
-    return _render_view(PRESET_FACILITY_DIR, root)
+    return _render_view(PRESET_FACILITY_DIR, root, demo_facility_document())
 
 
 def _render_limits_view(document: Any) -> Path:
@@ -341,8 +343,8 @@ def _monitor_addresses(facility: Path) -> list[str]:
     """
     from importlib import metadata
 
+    from osprey.facility import TEXTURE
     from osprey.simulation.engines import ENTRY_POINT_GROUP
-    from osprey_connectors.simulation.view import TEXTURE
 
     models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
     monitors: set[str] = set()

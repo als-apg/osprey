@@ -28,9 +28,7 @@
 # helper reaches even a rebuild of an old tag. It can be missing exactly once:
 # on the pull request that first adds the helper, where the default branch does
 # not carry it yet and no build could ever find it there. The resolve step below
-# falls back to the build's own tree for that case, which is what lets the
-# helper bootstrap itself onto the default branch. Once it has landed, the
-# fallback arm never fires again.
+# falls back to the build's own tree when the default branch lacks the helper.
 #
 # Serialisation: every deploying run shares the concurrency group `docs-deploy`,
 # so two deploys can never interleave and race each other's gh-pages commits.

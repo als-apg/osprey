@@ -25,7 +25,7 @@ import yaml
 
 from osprey.facility.build import LATER_STAGES, build_facility
 from osprey.facility.errors import FacilityBuildError
-from osprey.facility.layers import HEADER, _seed_knowledge_index
+from osprey.facility.layers import HEADER
 from osprey.facility.layers.mml.importer import (
     LAYER_DIR,
     import_mml,
@@ -175,21 +175,6 @@ def test_every_seeded_file_opens_with_the_header(imported: _Imported) -> None:
     assert HEADER.startswith("# ")
     assert "facility import" in HEADER
     assert "mml" not in HEADER
-
-
-def test_the_knowledge_index_is_seeded_once(tmp_path: Path) -> None:
-    from osprey.services.facility_knowledge.okf.index import validate_index
-
-    facility = tmp_path / "facility"
-
-    written = _seed_knowledge_index(facility)
-
-    index = facility / "knowledge" / "index.md"
-    assert written == index
-    validate_index(index, bundle_root=index.parent)
-    assert index.read_bytes() == b""
-    assert _seed_knowledge_index(facility) is None
-    assert index.read_bytes() == b""
 
 
 def test_the_import_returns_each_file_it_seeded(imports: Callable[[str], _Imported]) -> None:

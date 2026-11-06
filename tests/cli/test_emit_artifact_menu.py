@@ -23,13 +23,13 @@ def test_catalog_covers_the_six_profile_list_keys() -> None:
     # Panels that are universal (always served) are not offered as opt-ins.
     panel_names = [name for name, _ in menu["web_panels"]]
     assert "artifacts" not in panel_names
-    assert "lattice" in panel_names
+    assert "okf" in panel_names
 
 
 def test_menu_offers_unselected_panels() -> None:
     # hello-world selects no panel; every built-in panel is offered.
     text = _emit("hello-world")
-    for panel in ("channel-finder", "jupyter", "lattice", "okf", "system-health"):
+    for panel in ("channel-finder", "jupyter", "okf", "system-health"):
         assert f"# - {panel}" in text
 
 

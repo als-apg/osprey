@@ -10,11 +10,14 @@ session-level hooks are called once per conftest, so each is idempotent.
 Nothing here imports ``osprey`` or the framework's ``tests`` package.
 """
 
+import gc
 import logging
 import os
 import sys
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -70,9 +73,13 @@ _PRISTINE_LOGGING = {
 # exports FORCE_COLOR otherwise turns CliRunner captures into ANSI-laced text
 # and fails seven CLI tests on pristine main — CI is green only because its
 # runners never export it. `NO_COLOR` is left alone: unset is the same default
-# CI runs under.
+# CI runs under. The host's macOS malloc-debugging settings (`MallocStackLogging`,
+# `MallocNanoZone`, ...) go too, before any child starts: each child that inherits
+# one writes a notice to its terminal that no CI runner produces.
 os.environ.pop("FORCE_COLOR", None)
 os.environ.pop("CLICOLOR_FORCE", None)
+for _key in [key for key in os.environ if key.startswith("Malloc")]:
+    os.environ.pop(_key)
 
 # Rich deliberately clamps ``TERM=dumb`` consoles to 80 columns and suppresses
 # cursor control even when a test explicitly requests ``force_terminal=True``.
@@ -833,6 +840,36 @@ def pytest_xdist_make_scheduler(config, log):
 # writers are plain functions there for suites that would rather import them
 # at module level; these are the factory fixtures that hand the same functions
 # to a test that asks for them by name.
+
+
+@contextmanager
+def earlier_garbage_left_out() -> Iterator[None]:
+    """Leave what this worker made before the block out of its collections.
+
+    A ``gc.collect()`` walks every tracked object in the process. On a worker
+    that has run a few thousand tests that is millions of objects, and the
+    walk costs seconds to over a minute on a loaded runner. It also finalizes
+    cycles earlier tests left behind, so their warnings and asyncio reports
+    land in this test. Frozen objects are left out of a collection, so inside
+    the block it covers only what was made inside it. On exit they go back to
+    the oldest generation.
+
+    The two calls move generation lists and do not walk the heap. One freeze
+    is in force at a time: ``gc.unfreeze()`` releases every frozen object,
+    so these blocks do not nest.
+    """
+    gc.freeze()
+    try:
+        yield
+    finally:
+        gc.unfreeze()
+
+
+@pytest.fixture
+def earlier_garbage_frozen() -> Iterator[None]:
+    """:func:`earlier_garbage_left_out` around one test, for a test that runs ``gc.collect()``."""
+    with earlier_garbage_left_out():
+        yield
 
 
 @pytest.fixture

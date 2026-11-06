@@ -228,7 +228,6 @@ WEB_PORTS = {
         "web",
         "artifact",
         "ariel",
-        "lattice",
         "channel_finder",
         "okf",
         "system_health",
@@ -374,7 +373,6 @@ UNAVAILABLE_REFUSAL = refusal_phrase("record_unavailable")
 OWNER_UNSCHEDULED_REFUSAL = refusal_phrase("owner_unscheduled")
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),

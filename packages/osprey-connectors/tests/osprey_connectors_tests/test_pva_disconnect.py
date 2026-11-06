@@ -32,6 +32,7 @@ import pytest
 from osprey_connectors.control_system._base import ChannelMetadata
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.errors import ChannelUnreachableError
+from osprey_connectors_tests._harness._guards import earlier_garbage_left_out
 
 PVA_ADDRESS = "SR:PVA:CURRENT"
 
@@ -314,30 +315,33 @@ def live_connector(live_pvs):
 
     conf, _ = live_pvs
     saved_env = {key: os.environ.get(key) for key in _PVA_ENV_KEYS}
-    connector = EPICSConnector()
-    asyncio.run(
-        connector.connect(
-            {
-                "timeout_s": LIVE_TIMEOUT_S,
-                "pva_channels": [f"{LIVE_PREFIX}*"],
-                "pva_gateway": {
-                    "address": "127.0.0.1",
-                    "port": int(conf["EPICS_PVAS_SERVER_PORT"]),
-                    "use_name_server": True,
-                },
-            }
+    # The module's tests run frozen, so the collection after the disconnect
+    # covers what they made and not the worker's earlier heap.
+    with earlier_garbage_left_out():
+        connector = EPICSConnector()
+        asyncio.run(
+            connector.connect(
+                {
+                    "timeout_s": LIVE_TIMEOUT_S,
+                    "pva_channels": [f"{LIVE_PREFIX}*"],
+                    "pva_gateway": {
+                        "address": "127.0.0.1",
+                        "port": int(conf["EPICS_PVAS_SERVER_PORT"]),
+                        "use_name_server": True,
+                    },
+                }
+            )
         )
-    )
-    try:
-        yield connector
-    finally:
-        asyncio.run(connector.disconnect())
-        gc.collect()
-        for key, value in saved_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+        try:
+            yield connector
+        finally:
+            asyncio.run(connector.disconnect())
+            gc.collect()
+            for key, value in saved_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 async def _wait_for(predicate, timeout: float = LIVE_TIMEOUT_S) -> None:

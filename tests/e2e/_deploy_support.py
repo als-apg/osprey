@@ -32,6 +32,18 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
     )
 
 
+#: The provider key a deploy-backed suite stands in, so a render whose web
+#: terminals need one (`osprey up` refuses an ``anthropic`` render without it)
+#: deploys. These suites never call the model; the template's own line is
+#: commented out, as a real ``.env`` starts.
+STAND_IN_PROVIDER_KEY = "ANTHROPIC_API_KEY=e2e-stand-in-not-a-key\n"
+
+
+def env_from_example(repo: Path) -> str:
+    """The ``.env`` a suite deploys with: the CLI's ``cp .env.example .env``, plus a stand-in key."""
+    return f"{(repo / '.env.example').read_text().rstrip()}\n{STAND_IN_PROVIDER_KEY}"
+
+
 def find_osprey_console_script() -> Path:
     """Locate the ``osprey`` console script for the ACTIVE interpreter.
 

@@ -378,8 +378,38 @@ def _build_dev_wheel_cached(osprey_source_root):
     return cached_wheel
 
 
-def _copy_local_framework_for_override(out_dir):
+def _members_to_stage(primary_wheel: Path, member: str | None) -> tuple[str, ...]:
+    """The workspace members whose wheels are staged beside *primary_wheel*.
+
+    Every member for the framework wheel (*member* ``None``). For a member's
+    own image (*member* a ``packages/<name>`` path), only the members that
+    wheel's base requirements name, so the image is never handed a wheel that
+    needs the framework it does not install.
+    """
+    if member is None:
+        return WORKSPACE_MEMBERS
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    required = {
+        canonicalize_name(Requirement(line).name)
+        for line in _wheel_base_requirements(primary_wheel)
+    }
+    own = canonicalize_name(Path(member).name)
+    return tuple(
+        name
+        for name in WORKSPACE_MEMBERS
+        if canonicalize_name(name) in required and canonicalize_name(name) != own
+    )
+
+
+def _copy_local_framework_for_override(out_dir, member=None):
     """Build and copy local osprey wheel to container build directory for development mode.
+
+    ``member`` names a workspace package (e.g. ``packages/osprey-optimizer``)
+    whose wheel the context installs in place of the framework's: a service
+    image built on that package alone is handed that wheel and the connectors
+    wheel it requires, and never the framework's.
 
     This function builds a wheel package from the local osprey source and copies it
     to the container build directory. This approach is cleaner and more reliable than
@@ -439,26 +469,35 @@ def _copy_local_framework_for_override(out_dir):
                 "uv pip install -e <path-to-osprey-checkout>",
             )
 
-        cached_wheel = _build_dev_wheel_cached(osprey_source_root)
+        primary_root = osprey_source_root / member if member else osprey_source_root
+        if member and not (primary_root / "pyproject.toml").exists():
+            raise DevModeUnavailableError(
+                f"the {member} workspace member is missing from the checkout ({primary_root})",
+                f"--dev builds the {member} wheel for the service image that installs it.\n"
+                f"Restore {member} in the checkout.",
+            )
+        cached_wheel = _build_dev_wheel_cached(primary_root)
 
-        # The framework wheel requires its workspace members, which pip
-        # resolves from PyPI only once a satisfying release exists there. Build
-        # each from the same checkout and stage it beside the framework wheel:
-        # the Dockerfiles' wheel layer installs every staged wheel in one pip
-        # call, so the requirements are satisfied locally.
+        # The primary wheel requires workspace members, which pip resolves
+        # from PyPI only once a satisfying release exists there. Build each
+        # from the same checkout and stage it beside the primary wheel: the
+        # Dockerfiles' wheel layer installs every staged wheel in one pip call,
+        # so the requirements are satisfied locally. The framework stages every
+        # member; a member's own image stages only the members its wheel
+        # requires (the optimizer: the connectors), never the framework's.
         cached_wheels = [cached_wheel]
         member_wheels: dict[str, tuple[Path, Path]] = {}
-        for member in WORKSPACE_MEMBERS:
-            member_root = osprey_source_root / "packages" / member
+        for staged in _members_to_stage(cached_wheel, member):
+            member_root = osprey_source_root / "packages" / staged
             if not (member_root / "pyproject.toml").exists():
                 raise DevModeUnavailableError(
-                    f"the {member} workspace member is missing from the checkout ({member_root})",
+                    f"the {staged} workspace member is missing from the checkout ({member_root})",
                     "--dev stages every workspace member wheel beside the "
-                    "framework wheel because the framework requires them.\n"
-                    f"Restore packages/{member} in the checkout.",
+                    "wheel that requires it.\n"
+                    f"Restore packages/{staged} in the checkout.",
                 )
             member_wheel = _build_dev_wheel_cached(member_root)
-            member_wheels[member] = (member_root, member_wheel)
+            member_wheels[staged] = (member_root, member_wheel)
             cached_wheels.append(member_wheel)
         _require_members_satisfy_framework(cached_wheel, member_wheels)
 

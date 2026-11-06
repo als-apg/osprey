@@ -1049,7 +1049,7 @@ class TestProjectPyproject:
         monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
-        _create_project_venv(project_path, _plan_project_venv(profile))
+        _create_project_venv(project_path, _plan_project_venv(profile, install=True))
         return tomllib.loads((project_path / "pyproject.toml").read_text())
 
     def test_records_profile_deps(self, monkeypatch, tmp_path: Path):
@@ -1155,21 +1155,31 @@ class TestLifecyclePhaseRunner:
 
         steps = [LifecycleStep(name=name, run=run)]
         # Should not raise
-        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
 
     def test_failing_step_aborts(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
         steps = [LifecycleStep(name="bad cmd", run="false")]
         with pytest.raises(BuildProfileError, match="'bad cmd' failed"):
-            _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+            _run_lifecycle_phase(
+                "pre_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+            )
 
     def test_failing_step_warns_when_no_abort(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
         steps = [LifecycleStep(name="bad validate", run="false")]
         # Should not raise
-        _run_lifecycle_phase("validate", steps, tmp_path, tmp_path, abort_on_failure=False)
+        _run_lifecycle_phase(
+            "validate",
+            steps,
+            tmp_path,
+            tmp_path,
+            venv=None,
+            repo_root=tmp_path,
+            abort_on_failure=False,
+        )
 
     def test_step_with_cwd(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
@@ -1178,7 +1188,7 @@ class TestLifecyclePhaseRunner:
         subdir.mkdir()
         steps = [LifecycleStep(name="check cwd", run="pwd", cwd="subdir")]
         # Should not raise — cwd relative to default_cwd
-        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
 
     def test_project_root_placeholder(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
@@ -1190,7 +1200,7 @@ class TestLifecyclePhaseRunner:
                 run="touch {project_root}/marker.txt",
             )
         ]
-        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
         assert marker.exists()
 
     def test_python_placeholder_is_the_running_interpreter(self, tmp_path: Path):
@@ -1212,7 +1222,7 @@ class TestLifecyclePhaseRunner:
                 ),
             )
         ]
-        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
         assert (tmp_path / "python.txt").read_text() == sys.executable
 
     def test_python_placeholder_is_replaced_in_a_shell_step(self, tmp_path: Path):
@@ -1225,7 +1235,7 @@ class TestLifecyclePhaseRunner:
                 run="echo '{python}' | cat > {project_root}/python.txt",
             )
         ]
-        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
         assert (tmp_path / "python.txt").read_text().strip() == sys.executable
 
 
@@ -1258,7 +1268,8 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
         _create_project_venv(
-            tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24", "pandas"]))
+            tmp_path,
+            _plan_project_venv(self._make_profile(["numpy>=1.24", "pandas"]), install=True),
         )
 
         assert len(calls) == 2
@@ -1290,7 +1301,9 @@ class TestCreateProjectVenv:
         monkeypatch.delenv("UV", raising=False)
         monkeypatch.setattr("shutil.which", lambda name: None)
 
-        _create_project_venv(tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"])))
+        _create_project_venv(
+            tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"]), install=True)
+        )
 
         assert len(calls) == 2
         # First call: python -m venv
@@ -1315,7 +1328,9 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to create project venv"):
-            _create_project_venv(tmp_path, _plan_project_venv(self._make_profile(["pkg"])))
+            _create_project_venv(
+                tmp_path, _plan_project_venv(self._make_profile(["pkg"]), install=True)
+            )
 
     def test_raises_on_install_failure(self, monkeypatch, tmp_path):
         """Should raise BuildProfileError when pip install fails."""
@@ -1339,7 +1354,7 @@ class TestCreateProjectVenv:
 
         with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
             _create_project_venv(
-                tmp_path, _plan_project_venv(self._make_profile(["nonexistent-xyz"]))
+                tmp_path, _plan_project_venv(self._make_profile(["nonexistent-xyz"]), install=True)
             )
 
 
@@ -1655,10 +1670,8 @@ class TestProfileExtends:
         assert "mml_get" in matlab.permissions["allow"]
 
     def test_env_merge(self, tmp_path: Path):
-        """Env is deep-merged: file overridden, required unioned, defaults merged."""
+        """Env is deep-merged: required unioned, defaults merged."""
         self._make_base(tmp_path)
-        # Create the env file that the child references
-        (tmp_path / ".env.local").write_text("API_KEY=test\n")
 
         child_path = _write_yaml(
             tmp_path / "child.yml",
@@ -1666,7 +1679,6 @@ class TestProfileExtends:
                 "extends": "base.yml",
                 "name": "Child",
                 "env": {
-                    "file": ".env.local",
                     "required": ["API_KEY", "EXTRA_VAR"],
                     "defaults": {"DEBUG": "true"},
                 },
@@ -1674,7 +1686,6 @@ class TestProfileExtends:
         )
 
         profile = load_profile(child_path)
-        assert profile.env.file == ".env.local"  # overridden
         assert "API_KEY" in profile.env.required  # from both (deduped)
         assert "EXTRA_VAR" in profile.env.required  # from child
         assert profile.env.defaults["LOG_LEVEL"] == "info"  # inherited
@@ -1905,12 +1916,12 @@ class TestWebPanelsRendering:
 
     def test_builtin_panels_rendered_from_web_panels(self, tmp_path: Path):
         """Only builtin panels listed in web_panels appear with enabled: true."""
-        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "lattice"])
+        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "system-health"])
         config = yaml.safe_load(config_path.read_text())
 
         panels = config["web"]["panels"]
         assert panels.get("ariel", {}).get("enabled") is True
-        assert panels.get("lattice", {}).get("enabled") is True
+        assert panels.get("system-health", {}).get("enabled") is True
         assert "channel-finder" not in panels
 
     def test_custom_panels_filtered_from_template_but_configurable(self, tmp_path: Path):
@@ -1952,14 +1963,14 @@ class TestWebPanelsRendering:
         override web.panels.<id>.label merges into the same dict."""
         config_path = _build_for_web_panels(
             tmp_path,
-            web_panels=["lattice"],
-            overrides={"web.panels.lattice.label": "LATTICE"},
+            web_panels=["system-health"],
+            overrides={"web.panels.system-health.label": "SYSTEM"},
         )
         config = yaml.safe_load(config_path.read_text())
 
-        lattice = config["web"]["panels"]["lattice"]
-        assert lattice["enabled"] is True
-        assert lattice["label"] == "LATTICE"
+        health = config["web"]["panels"]["system-health"]
+        assert health["enabled"] is True
+        assert health["label"] == "SYSTEM"
 
     def test_default_panel_rendered_when_set(self, tmp_path: Path):
         """Profile default_panel: ariel ends up as web.default_panel in config.yml.

@@ -1112,6 +1112,13 @@ services:
          directory it can actually see. Unconditional, like the spool pair:
          every terminal here can narrow, whatever `auth.method` says. #}
       - {{ control_context_dir_env }}={{ svc.container_control_context_dir }}
+      {#- WHERE this terminal reads the holders' requests for a program's write
+         authorization, and their write ledger: the approve card's two
+         read-only binds (below). Named here because the reader resolves both
+         through these variables and nothing else, and the entrypoint joins
+         their group off them. #}
+      - {{ write_requests_env }}={{ write_requests_container_dir }}
+      - {{ write_ledger_view_env }}={{ write_ledger_view_container_dir }}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- The bundle mount's target, named for the same entrypoint contract: the
          root phase is to iterate exactly the directories these two variables
@@ -1314,11 +1321,11 @@ services:
          back only on an unset variable, never on an empty one. #}
       - ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}
       {#- The same password one rung along: the login secret of the SELECT-only
-         role the agent's raw-SQL tool connects as, which `resolve_ariel_dsn`
-         substitutes into the readonly DSN exactly as the line above is
-         substituted into the ingestion one. Without it the tool opens no
-         read-only pool and queries through the ingestion connection instead,
-         which is a superuser on a deployment that minted nothing.
+         role the agent's raw-SQL tool connects as, which
+         `resolve_ariel_readonly_dsn` substitutes into the readonly DSN exactly
+         as the line above is substituted into the ingestion one. Without it
+         the login is refused, and the tool refuses every query; it never
+         falls back to the ingestion connection.
 
          Same gate, same per-user placement and the same `:-` mirror of the
          postgresql service template's own default, for the reasons above. #}
@@ -1595,6 +1602,18 @@ services:
       # group-writable, and the entrypoint joins its group
       # (OSPREY_GUARDED_RUN_DIR above).
       - {{ guarded_run_source }}:{{ svc.container_project_dir }}/var/guarded_run
+      # The holders' requests for a program's write authorization, READ-ONLY:
+      # a program writes them into the deployment's write ledger, and this
+      # terminal shows the ones that name its login on the approve card. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_WRITE_REQUESTS_DIR above).
+      - {{ write_requests_source }}:{{ write_requests_container_dir }}:ro
+      # The holders' whole write ledger, READ-ONLY: their self-issued grants
+      # are there, so an approval here refuses a channel one of them holds and
+      # the chip lists the ones naming this login, and the ledgers that end a
+      # grant whose lease lapsed or whose steps are spent. Grants, ledgers,
+      # leases and requests only; the same group as the requests directory above.
+      - {{ write_ledger_view_source }}:{{ write_ledger_view_container_dir }}:ro
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}
 {%- endfor %}

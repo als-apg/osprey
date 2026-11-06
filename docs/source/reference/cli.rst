@@ -35,6 +35,7 @@ names another one explicitly.
    osprey config             # Show the deployment configuration
    osprey chat               # Talk to this deployment's agent
    osprey users              # Manage web-terminal users
+   osprey write-authorization # Approve, list and revoke programs' write authorizations
    osprey feedback           # Read feedback sent from the web terminals
    osprey profile            # Validate and inspect build profiles
    osprey health             # Check system health
@@ -682,6 +683,57 @@ secrets go to the job log.
 See :doc:`/how-to/deploy-a-facility` for the walkthrough that uses these
 verbs end to end.
 
+.. _cli-osprey-write-authorization:
+
+osprey write-authorization
+==========================
+
+Approve, list and revoke a program's bounded write authorization without a web
+terminal (see :ref:`how-to-write-from-a-program`). Inside a deployment repo, or
+with ``--repo DIRECTORY``, the verbs act on the deployment's control-context
+tree as the login a request names, and read the requests from
+``var/write_ledger/requests`` and, for a program run on the host, from each
+login's own ``authorizations/requests``. Outside a deployment they act on this account's
+own state directory: the owner is this account, as on a laptop with no
+terminal.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 46 28
+
+   * - Verb
+     - What it does
+     - Also accepts
+   * - ``approve REQUEST``
+     - Show a request (a file, or its id) and approve it: the grant is written
+       under the owner's record lock, with ``approver.identity`` this account
+       and ``surface: "cli"``. Refused, with nothing written, for a target
+       the deployment does not configure, a ``never`` or unknown tier (judged
+       as the program's own writes will be: by the staged login map for a
+       request in ``var/write_ledger``, by the rendered config for one filed on
+       the host), a range
+       outside the limits database, a channel with no numeric range there, and
+       a channel another program of the same owner holds (``auth_overlap``).
+     - ``--owner LOGIN``, ``--config FILE``, ``--yes``
+   * - ``list``
+     - The requests waiting for approval and the authorizations, each in force
+       or not, with the steps used of the total; one whose steps are used or
+       whose lease lapsed is not in force. A program's self-issued grant, written at
+       *allowed* into ``var/write_ledger``, is listed too, marked self-issued.
+       Grants that ended over an hour ago are pruned.
+     - ``--owner LOGIN``, ``--json``
+   * - ``revoke ID``
+     - Mark one authorization revoked, a self-issued one included; the
+       holder's next write is refused.
+     - ``--owner LOGIN``
+
+.. code-block:: bash
+
+   osprey write-authorization list
+   osprey write-authorization approve 3f2a…9c1e
+   osprey write-authorization approve ./request.json --yes
+   osprey write-authorization revoke 3f2a…9c1e
+
 osprey feedback
 ===============
 
@@ -1232,7 +1284,10 @@ the current directory is used.
 
 ``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
    Print one ``<model>: <status>`` line per served physics model, sorted by
-   name, where the status is ``ok`` or the model's error text. One
+   name, where the status is ``ok``, ``no deck`` for a model that names no deck
+   and wires no channel (it is not built, by design, and its channels are the
+   texture's), or ``FAILED:`` followed by the model's error text. The command
+   exits 1 when any model failed, after printing every line. One
    ``log: <absolute path>`` line per model follows, naming the log the
    simulator appends to under ``var/simulator/``, each followed by any
    scenario-overlap records from that log. ``--target`` selects the control

@@ -104,7 +104,9 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
 )
+from osprey.optimizer_connection import DEFAULT_OPTIMIZER_PORT, optimizer_url
 from osprey.port_layout import resolve_port_base
+from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 __all__ = [
     "Consumer",
@@ -423,6 +425,16 @@ def _bluesky_server_on(config: Mapping[str, Any]) -> bool:
     return bluesky_server_enabled(config)
 
 
+def _optimizer_server_on(config: Mapping[str, Any]) -> bool:
+    return _servers_enabled(
+        config, "optimizer", default=FRAMEWORK_SERVERS["optimizer"].default_enabled
+    )
+
+
+def _optimizer_port_set(config: Mapping[str, Any]) -> bool:
+    return bool(dotted_get(config, "services.optimizer.port"))
+
+
 def _launch_token_needed(lane: str) -> Predicate:
     # A lane is bound at render time to ONE control target, so the token that
     # arms a queue start there is granted on that target's write posture and no
@@ -694,6 +706,10 @@ def _bridge_dial(config: Mapping[str, Any]) -> Dial | None:
     return _host_port(url, DEFAULT_BRIDGE_PORT)
 
 
+def _optimizer_dial(config: Mapping[str, Any]) -> Dial | None:
+    return _host_port(optimizer_url(config), DEFAULT_OPTIMIZER_PORT)
+
+
 def _second_lane_dial(lane: str) -> Dialer:
     # resolve_bridge_url(lane) for a second lane: its own `<PREFIX>_BRIDGE_URL`
     # wins outright, else the loopback URL of its published port — there is
@@ -951,8 +967,8 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),
             # The SELECT-only role the agent's raw-SQL path connects as. Same
             # entitlement as the owner password: a container that derives an
-            # ARIEL DSN derives both rungs of it, and without this one the SQL
-            # tool falls back to the ingestion connection with a warning.
+            # ARIEL DSN derives both logins, and without this one the read-only
+            # login is refused and the SQL tool refuses every query.
             CredentialGrant("ARIEL_DB_READONLY_PASSWORD", config_needs_ariel_password),
         ),
         names_external=_ariel_database_named,
@@ -1122,6 +1138,23 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         service="dispatch_worker",
         no_client_reach=True,
         note="the worker dials the render's project, never the reverse",
+    ),
+    "optimizer": ReachContract(
+        service="optimizer",
+        consumers=(
+            Consumer(
+                name="optimizer MCP server",
+                switch_key="claude_code.servers.optimizer.enabled",
+                is_on=_optimizer_server_on,
+                # The build writes services.optimizer.port wherever it deploys
+                # the optimizer, and projects it into an attached render; a
+                # render without it would dial the layout slot on a guess.
+                resolves=_optimizer_port_set,
+                dial=_optimizer_dial,
+            ),
+        ),
+        projected=(ProjectedKey("services.optimizer.port", gate=_optimizer_server_on),),
+        note="optimizer_url dials the published port on loopback",
     ),
     **_outbound_only_contracts(),
 }

@@ -6,8 +6,8 @@ on:
       - 'v*.*.*'  # Triggers on version tags like v2026.5.0
 
 # PAIRED PUBLISHING: the framework and the workspace members that version with
-# it (today pyaml-cs-osprey: same v-tags, same describe — see its
-# pyproject.toml) build and publish from one v-tag, always carrying the same
+# it (today osprey-optimizer and pyaml-cs-osprey: same v-tags, same describe —
+# see their pyproject.toml) build and publish from one v-tag, always carrying the same
 # number. osprey-connectors is NOT one of them: it has its own calendar stream
 # on its own osprey-connectors-v* tags and publishes from
 # release-connectors.yml, so nothing here builds or uploads it. The framework
@@ -84,7 +84,7 @@ jobs:
         TAG_NAME: ${{ github.ref_name }}
         # The model-spending lanes, one per line: <ci.yml job id>=<rendered
         # job-name prefix>. A prefix, because `agentic-per-preset` is a matrix
-        # that renders one job per preset. tests/deployment/
+        # that renders a job for every preset. tests/deployment/
         # test_ci_workflow_wiring.py pins this list against ci.yml, so a renamed
         # lane fails a unit test, not a release.
         REQUIRED_LANES: |
@@ -130,6 +130,7 @@ jobs:
       # this list to the workspace members minus osprey-connectors.
       run: |
         uv build
+        uv build --package osprey-optimizer
         uv build --package pyaml-cs-osprey
 
     - name: Verify built versions match tag
@@ -214,15 +215,12 @@ jobs:
       # the floating uv defaults to: a pre-release is taken only where nothing
       # stable satisfies a requirement — which includes a requirement that names
       # one, since no stable satisfies `==X.YbN` — the policy the resolvers
-      # deployments use behave like. Since uv 0.12 that is what `if-necessary`
-      # means (stable first, a pre-release only when every stable candidate is
-      # rejected, transitive dependencies included); the older
-      # `if-necessary-or-explicit` is now its deprecated alias and warns. Before
-      # 0.12, `if-necessary` admitted a pre-release only for a package with no
-      # stable release at all, but setup-uv installs the current uv. After the
-      # cut-over the framework's floor names a stable connectors release
-      # (osprey-connectors 2026.10.0, published before the floor is raised), so
-      # this resolves the stable one and a connectors beta is never absorbed.
+      # deployments use behave like. With uv ≥ 0.12, `if-necessary` means
+      # stable first, a pre-release only when every stable candidate is
+      # rejected, transitive dependencies included; `if-necessary-or-explicit`
+      # is its deprecated alias. setup-uv installs the current uv. The
+      # framework's floor names a stable osprey-connectors release, so this
+      # resolves a stable one and a connectors beta is never absorbed.
       run: |
         mkdir -p /tmp/sibling
         for wheel in dist/*.whl; do
@@ -235,6 +233,15 @@ jobs:
         uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling \
           --prerelease if-necessary
         osprey --version
+        # The framework's `optimizer` extra names osprey-optimizer, whose wheel
+        # the loop above staged with the other members. The base only: the
+        # `service` extra is the optimizer image's, and its pins (torch, xopt)
+        # are checked by that image's build.
+        FRAMEWORK_WHEEL=$(ls "$PWD"/dist/osprey_framework-*.whl)
+        uv venv /tmp/optimizer-check
+        uv pip install --python /tmp/optimizer-check/bin/python \
+          "osprey-framework[optimizer] @ file://$FRAMEWORK_WHEEL" --find-links /tmp/sibling
+        /tmp/optimizer-check/bin/python -c "import osprey, osprey_optimizer.models.api, osprey_optimizer.environments.spec"
 
   publish-to-pypi:
     name: Publish to PyPI

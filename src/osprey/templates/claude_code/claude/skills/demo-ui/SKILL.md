@@ -2,7 +2,7 @@
 name: demo-ui
 description: >
   Run a short, scripted demonstration of the agent driving the web workspace —
-  opening panels as tabs of the workspace tiles, creating an artifact and focusing it,
+  opening panels in the workspace tiles, creating an artifact and focusing it,
   composing a named layout on the panel rail — so an audience watches the agent
   and the UI move together. Use this whenever someone asks for a demo,
   walkthrough, tour, or showcase of the web terminal, the panels, or the
@@ -16,7 +16,7 @@ summary: Scripted UI demos — panel choreography, artifacts, layouts
 
 The point of these demos is not the content the agent produces. It is the **visible
 coupling**: the operator says something in the chat, and the workspace around the
-chat reacts — a panel opens as a tab and shows, the gallery jumps to a new figure, and
+chat reacts — a panel opens in a tile, the gallery jumps to a new figure, and
 agent-driven moves that touch a rail entry (switch, show, register) flash a brief
 accent-colored glow on it — the UI's own proof that the agent, not the presenter,
 made the move. A hidden panel's entry simply vanishes, no glow.
@@ -28,22 +28,21 @@ happens. Everything below is built around that.
 
 The left **rail** is a membership list: an entry exists only while its panel is a
 member; an off-rail panel waits in the "+" catalog. The workspace is a set of
-**tiles, each holding tabs**: one tab per open panel, one of them showing. Each
-tile's header lists its tabs and carries the showing tab's own buttons.
+**tiles, each showing one panel**. Each tile's header carries that panel's name,
+its own buttons, Pop out and ×.
 
 Two axes, and the verb names which one it moves. `open_panel` puts a panel on
-screen — it becomes the showing tab of the service tile used last, nothing
-resizes, and the active marker moves on the rail; the tab it covered stays one
-click away with its state intact. A panel that is already open is shown where it
-is. The Agent pane is always its own tile and never the target: with no service
-tile open, the panel opens as a new tile beside it.
-`close_panel_tab` closes one tab (the tile shows its neighbour) and
-`close_panel_tile` closes a whole tile; both leave the rail entry.
-`add_panel_to_rail` and `remove_panel_from_rail` move membership instead: adding
-brings the entry back with a glow but puts nothing on screen, and removing takes
-the entry away (and with it any open tab — an unlaunchable panel is not left
-stranded). The chat is the Agent pane, operator-only — never script the agent
-driving it.
+screen — it takes the service tile used last, replacing the panel that tile
+showed, nothing resizes, and the active marker moves on the rail; the panel it
+replaced stays one click away on the rail with its state intact. A panel that is
+already open is focused where it is. The Agent pane is always its own tile and
+never the target: with no service tile open, the panel opens as a new tile
+beside it. `close_panel` closes the tile showing a panel and leaves the rail
+entry. `add_panel_to_rail` and `remove_panel_from_rail` move membership instead:
+adding brings the entry back with a glow but puts nothing on screen, and
+removing takes the entry away (and with it any tile showing the panel — an
+unlaunchable panel is not left stranded). The chat is the Agent pane,
+operator-only — never script the agent driving it.
 
 ## The rail verbs ask
 
@@ -51,8 +50,8 @@ On a stock build `add_panel_to_rail`, `remove_panel_from_rail` and
 `register_panel` each prompt the operator for approval, so a prompt appears
 inside every rail beat below. Narrate it rather than working around it — the
 same gate the audience is there to see — and let the operator answer it. The
-on-screen verbs — `open_panel`, `close_panel_tab`, `close_panel_tile` and
-`arrange_workspace` — do not ask on a stock build.
+on-screen verbs — `open_panel`, `close_panel` and `arrange_workspace` — do not
+ask on a stock build.
 
 A deployment that wants those beats to run uninterrupted sets
 `config.approval.tools.add_panel_to_rail: skip` in its profile's `config:` block —
@@ -91,20 +90,21 @@ that each step is legible.
 I search the channel database" beats "calling open_panel with panel_id
 channel-finder." The audience is watching a colleague work, not reading a log.
 
-**Leave the workspace as you found it.** Record the open tiles, their tabs and
-showing tabs, and the rail membership at the start, and restore them at the end
-— close every tab you opened that was not open before. Demos get run twice in a
-row, and often on someone's real working session — a demo that rearranges an
-operator's layout and walks away is a demo they won't let you run again.
+**Leave the workspace as you found it.** Record the open tiles, the panel each one
+shows, and the rail membership at the start, and restore them at the end — put
+back the panels your opens replaced, and close every tile that was not open
+before. Demos get run twice in a row, and often on someone's real working
+session — a demo that rearranges an operator's layout and walks away is a demo
+they won't let you run again.
 
-**Adapt to the deployment.** Panel IDs vary — `lattice` or `okf` may not exist here.
+**Adapt to the deployment.** Panel IDs vary — `okf` or `bluesky` may not exist here.
 Always read the live inventory first and demo the panels this deployment actually
 has. Never guess an ID; a failed call mid-demo is the one error the audience *will*
 notice.
 
 ## Before starting
 
-Call `list_panels`. It returns the open tiles with their tabs and showing tab,
+Call `list_panels`. It returns the open tiles and the panel each one shows,
 the active panel, every panel with its `visible` flag (visible = has a rail
 entry), and any `presets` (named layouts) the
 deployment defines. This is both the precondition check and the script you are
@@ -127,17 +127,17 @@ the agent can reach every one of them.
    is for, in one line each. Say which one is showing now.
 2. **Switch** — `open_panel` through two or three of them, pausing on each with a
    sentence about what an operator uses it for. Tell the audience to watch each
-   one arrive as a new tab of the same tile, with nothing resizing, and the
-   active marker move on the rail. Choose panels that look different from each
+   one take the place of the last in the same tile, with nothing resizing, and
+   the active marker move on the rail. Choose panels that look different from each
    other; three similar-looking pages is a dull tour.
 3. **Reshape** — `remove_panel_from_rail` on one panel: its rail entry vanishes
-   and its tab closes — say it now waits in the "+" catalog. Then
+   and the tile showing it closes — say it now waits in the "+" catalog. Then
    `add_panel_to_rail` it back and point at the glow as its entry returns. The
    rail is the set of surfaces relevant to the task at hand, and it can be
    trimmed to fit.
-4. **Restore** — `close_panel_tab` on the tabs the tour opened, `open_panel`
-   back to whatever was showing at the start, and confirm the workspace is as it
-   was.
+4. **Restore** — `open_panel` back to whatever was showing at the start (it takes
+   the place of the tour's last panel), `close_panel` on any tile the tour added,
+   and confirm the workspace is as it was.
 
 ## 2. Artifact drop
 
@@ -176,7 +176,7 @@ different surfaces on the rail.
    `arrange_workspace(layout=...)`, and mention the deployment can name it in
    the profile's `panel_presets:` field as that layout, then `osprey build`, so
    it becomes one click for everyone.
-4. **Restore** the starting rail membership, tiles and showing tabs.
+4. **Restore** the starting rail membership, tiles and the panel each one shows.
 
 ## 4. Grand tour
 

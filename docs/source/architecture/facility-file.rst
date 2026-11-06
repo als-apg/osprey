@@ -178,6 +178,55 @@ into a temporary directory, adds the response check of a Middle Layer import,
 and writes nothing into the repo. Tier, app and image renders are checked by
 ``osprey build`` alone.
 
+.. _architecture-facility-settings:
+
+Settings the facility decides
+=============================
+
+A few profile settings take their value from the facility: the build derives
+each one from the facility file or tree when the profile leaves it unstated. A
+stated value is an override checked against the facility, the one block of
+derived keys where a stated value is not refused.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 25 25
+
+   * - Key
+     - Stated at
+     - Derived from
+     - A stated value must
+   * - ``control_system.connector.virtual_accelerator.probe_channel``
+     - the key
+     - the first readback, by address, of the served models; only for a
+       render that carries the simulator's block
+     - be a channel of the facility file, as must a stated stand-in probe
+   * - ``health.categories.archiver.checks``
+     - ``va_archiver.freshness_channel``
+     - the probe's channel, for a profile with a ``va_archiver:`` block
+     - be a channel of the facility file
+   * - ``simulation.default_scenarios``
+     - the key
+     - never derived
+     - name only scenarios the facility serves: its own and the built-in ``still``
+   * - ``ariel.vocabulary.enabled``
+     - the key
+     - ``true`` when the tree ships ``ariel/vocabulary.yml``
+     - when ``true`` with no path, have that file in the tree
+   * - ``ariel.vocabulary.path``
+     - the key
+     - the shipped ``data/facility/ariel/vocabulary.yml``
+     - while the vocabulary is on, name a file, resolved against the project
+       root
+   * - ``channel_finder.benchmark.dataset_path``
+     - the key
+     - ``data/benchmarks/queries.json`` when the tree ships benchmark query
+       sources
+     - have benchmark query sources in the tree
+
+A value the facility contradicts stops the build with a ``profile-invalid``
+line naming the key.
+
 The views
 =========
 
@@ -332,7 +381,15 @@ view. A model whose engine raises while building or reading it (over a deck
 that does not load, say) is left failed: its status channel carries the
 engine's error text, and every other model and every texture channel is still
 served. ``osprey sim status`` prints one ``<model>: <status>`` line per served
-model, ``ok`` or that text, and names each model's log.
+model, ``ok`` or ``FAILED:`` and that text, exits 1 when a model failed, and
+names each model's log. ``osprey health`` reads the same channels on every
+simulator the deployment serves from a container (the ``va`` and ``standin``
+targets) and reports a failed model as an ``error`` row of its ``simulator``
+category, since the container itself keeps serving and stays healthy.
+
+A model that names no deck and wires no channel is not a failure: nothing is
+built for it, its status is ``no deck``, and every channel of that machine is
+the texture's.
 
 How the composite serves the models over Channel Access and PVAccess is in
 :doc:`virtual-accelerator`.

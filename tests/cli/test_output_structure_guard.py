@@ -322,6 +322,12 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "alone -- for a caller redirecting it into a file, the same class as "
         "users_cmd's byte render.",
     ),
+    "cli/write_authorization_cmd.py": (
+        1,
+        "`write-authorization list --json`'s `click.echo(json.dumps(...))`. The "
+        "branch runs inside output.machine_mode(), so every human line is on "
+        "stderr and this is the one document on stdout, which scripts parse.",
+    ),
     "cli/profile_cmd.py": (
         1,
         "profile card's `click.echo(json.dumps(rows))`. The --json branch runs "

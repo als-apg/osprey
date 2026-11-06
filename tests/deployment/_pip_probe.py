@@ -109,12 +109,14 @@ def deps_pip_calls(body: str, tmp_path: Path, env: dict[str, str]) -> list[list[
 
 
 def primer_pip_argv(body: str, tmp_path: Path, env: dict[str, str]) -> list[str]:
-    """The argv of the deps layer's framework install, as ``pip`` received it.
+    """The argv of the deps layer's framework (or optimizer) install, as ``pip`` received it.
 
     Runs the body through :func:`deps_pip_calls` and returns the argv of the
-    first ``pip install`` naming ``osprey-framework``.
+    first ``pip install`` naming ``osprey-framework`` or, in the optimizer's
+    image, ``osprey-optimizer``.
     """
     calls = deps_pip_calls(body, tmp_path, env)
-    primers = [c for c in calls if "install" in c and any("osprey-framework" in a for a in c)]
-    assert primers, f"no framework install reached pip; calls: {calls}"
+    primed = ("osprey-framework", "osprey-optimizer")
+    primers = [c for c in calls if "install" in c and any(d in a for a in c for d in primed)]
+    assert primers, f"no framework (or optimizer) install reached pip; calls: {calls}"
     return primers[0]

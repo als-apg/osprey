@@ -372,8 +372,12 @@ async def test_spool_lines_written_while_down_are_ingested_after_a_restart(confi
             answer = await client.get("/v1/read/recent_audit", headers=_auth("alice"))
             return answer.json()["status"] == "ok" and _names(answer.json()) == {"while-down"}
 
+        async def segment_deleted():
+            # The consumer deletes a segment only after its lines are readable.
+            return not list((spool / "alice").iterdir())
+
         await _eventually(ingested)
-    assert not list((spool / "alice").iterdir()), "the committed segment is deleted"
+        await _eventually(segment_deleted)
 
 
 class _Down:
@@ -581,3 +585,127 @@ def test_agent_record_serve_is_registered_and_lazy():
     result = CliRunner().invoke(cli, ["agent-record", "serve", "--help"])
     assert result.exit_code == 0
     assert "--host" in result.output and "--port" in result.output
+
+
+# --- list_sessions ``before``: the session list's pages over the wire ---------------------
+
+_PAGED_OLD = "33333333-cccc-4ccc-8ccc-333333333333"
+_PAGED_NEW = "22222222-bbbb-4bbb-8bbb-222222222222"
+
+
+def _turn(session: str, n: int, kind: str, at: datetime, text: str) -> c.Entry:
+    return c.Entry(
+        key=f"cc:operator:{session}:u{n}:0",
+        kind=kind,
+        ts=at,
+        identity="operator",
+        body={"text": text},
+        inserted_at=at,
+        session_id=session,
+    )
+
+
+def _paged_seed(base: datetime) -> list[c.Entry]:
+    rows = [
+        _turn(_PAGED_OLD, 1, c.KIND_PROMPT, base, "the old one"),
+        _turn(_PAGED_OLD, 2, c.KIND_ANSWER, base + timedelta(seconds=1), "ok"),
+        _turn(_PAGED_NEW, 0, c.KIND_PROMPT, base + timedelta(minutes=1), "newer"),
+    ]
+    rows += [
+        _turn(_PAGED_NEW, n, c.KIND_ANSWER, base + timedelta(minutes=1, seconds=n), f"a{n}")
+        for n in range(1, 30)
+    ]
+    return rows
+
+
+@pytest.fixture
+def served_record(config, env, backend, monkeypatch):
+    """The service on a real port over the embedded backend, scanning 10 rows a read."""
+    from functools import partial
+
+    from osprey.agent_record import reader as rd
+    from osprey.interfaces._serving import run_app_server
+
+    monkeypatch.setattr(
+        service, "RecordReader", partial(rd.RecordReader, limits=rd.Limits(scan_rows=10))
+    )
+    with run_app_server(service.create_app(config=config, backend=backend, env=env)) as base:
+        yield base
+
+
+def test_before_round_trips_and_reaches_sessions_past_the_newest_scan(served_record, backend):
+    from osprey.agent_record.client import RecordClient
+
+    base = NOW - timedelta(hours=2)
+    backend.append(_paged_seed(base))
+    client = RecordClient(served_record, "operator", _token("operator"), timeout=10.0)
+
+    newest = client.list_sessions()
+    assert newest.available and not newest.complete
+    assert [r["session_id"] for r in newest.data] == [_PAGED_NEW]
+    assert newest.data[0]["truncated"] is True
+
+    older = client.list_sessions(before=base + timedelta(minutes=1))
+    assert older.available and older.complete, older.reason
+    assert [r["session_id"] for r in older.data] == [_PAGED_OLD]
+    assert older.data[0]["prompt"] == "the old one"
+    assert older.data[0]["message_count"] == 2
+
+
+def test_an_older_service_refuses_before_and_the_client_says_so(served_record, monkeypatch):
+    from osprey.agent_record.client import RecordClient
+
+    monkeypatch.setitem(
+        service.READ_METHODS, "list_sessions", service._Method(optional=("since", "limit"))
+    )
+    client = RecordClient(served_record, "operator", _token("operator"), timeout=10.0)
+    answer = client.list_sessions(before=NOW)
+    assert not answer.available and answer.refused
+    assert "unknown parameter(s): before" in (answer.unavailable or "")
+    # A service that is simply down is not a refusal.
+    down = RecordClient("http://127.0.0.1:9", "operator", _token("operator"), timeout=1.0)
+    assert not down.list_sessions().refused
+
+
+async def test_list_sessions_takes_before_and_refuses_a_bad_one(config, env, backend):
+    backend.append(_paged_seed(NOW - timedelta(hours=2)))
+    async with _serving(service.create_app(config=config, backend=backend, env=env)) as client:
+        op = _auth("operator")
+        ok = await client.get(
+            "/v1/read/list_sessions",
+            params={"before": (NOW - timedelta(hours=1)).isoformat()},
+            headers=op,
+        )
+        assert ok.status_code == 200, ok.text
+        assert [r["session_id"] for r in ok.json()["data"]] == [_PAGED_NEW, _PAGED_OLD]
+        bad = await client.get("/v1/read/list_sessions", params={"before": "soon"}, headers=op)
+        assert bad.status_code == 400 and "before" in bad.json()["reason"]
+
+
+def test_known_sessions_round_trips_and_asks_again_past_a_cut(served_record, backend):
+    from osprey.agent_record.client import RecordClient
+    from osprey.mcp_server import session as session_record
+
+    backend.append(_paged_seed(NOW - timedelta(hours=2)))
+    client = RecordClient(served_record, "operator", _token("operator"), timeout=10.0)
+    unknown = "44444444-dddd-4ddd-8ddd-444444444444"
+
+    narrowed = client.list_sessions(session_ids=[_PAGED_OLD, unknown], limit=2)
+    assert narrowed.available and narrowed.complete, narrowed.reason
+    assert [r["session_id"] for r in narrowed.data] == [_PAGED_OLD]
+
+    # _PAGED_NEW alone fills the 10-row scan; the second read finds _PAGED_OLD.
+    known, _ = session_record.known_sessions([_PAGED_NEW, _PAGED_OLD, unknown], client=client)
+    assert known == {_PAGED_NEW, _PAGED_OLD}
+
+    down = RecordClient("http://127.0.0.1:9", "operator", _token("operator"), timeout=1.0)
+    assert session_record.known_sessions([_PAGED_OLD], client=down)[0] is None
+    assert session_record.known_sessions([], client=down)[0] == set()
+
+
+async def test_list_sessions_refuses_an_empty_session_ids(config, env, backend):
+    async with _serving(service.create_app(config=config, backend=backend, env=env)) as client:
+        bad = await client.get(
+            "/v1/read/list_sessions", params={"session_ids": " , "}, headers=_auth("operator")
+        )
+        assert bad.status_code == 400 and "session_ids" in bad.json()["reason"]

@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility import TEXTURE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ENGINE_ROLES,
     PLANES,
     REFRESH,
     SCENARIOS_DIR,
-    TEXTURE,
     VARIABLES_FILE,
     VIEW_RELPATH,
     Binding,
@@ -118,18 +118,6 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     ]
     assert view.scenario_dir("nominal") == demo_view / SCENARIOS_DIR / "nominal"
     assert view.document(VARIABLES_FILE)["schema"] == variables["schema"]
-
-
-@pytest.mark.parametrize("still", ["all", [{"model": "SR"}], [1.0]], ids=["word", "map", "number"])
-def test_a_view_stating_a_still_other_than_a_list_of_addresses_is_refused(
-    demo_view: Path, still: Any
-) -> None:
-    document = _raw(demo_view, "scenarios.json")
-    document["scenarios"] = [{"name": "quiet", "still": still}]
-    (demo_view / "scenarios.json").write_text(json.dumps(document), encoding="utf-8")
-
-    with pytest.raises(ViewSchemaError, match="not a list of addresses"):
-        SimulatorView.open(demo_view).scenarios()
 
 
 def test_a_channels_motion_envelope_follows_its_seed_and_the_active_scenarios(

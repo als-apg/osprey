@@ -64,19 +64,23 @@ _PERMISSION_RULE = re.compile(
 )
 
 
-def _project(tmp_path, *, writes, servers=None, write_tools=None, drop_hooks=(), extra=None):
-    """Build a project, set its tier and servers, and return ``(manager, dir, config)``."""
+def _build(tmp_path):
+    """Build a control-assistant project with its facility views, and return its directory."""
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
-    manager = TemplateManager()
-    project_dir = create_project_as_built(
-        manager,
+    return create_project_as_built(
+        TemplateManager(),
         facility_views=True,
         project_name=f"killswitch-tier-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
+
+
+def _configure(project_dir, *, writes, servers=None, write_tools=None, drop_hooks=(), extra=None):
+    """Set a built project's tier and servers, and return ``(manager, dir, config)``."""
+    manager = TemplateManager()
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     config["control_system"]["writes"] = writes
     if write_tools is not None:
@@ -96,6 +100,11 @@ def _project(tmp_path, *, writes, servers=None, write_tools=None, drop_hooks=(),
         manifest["artifacts"] = artifacts
         manifest_path.write_text(json.dumps(manifest))
     return manager, project_dir, config
+
+
+def _project(tmp_path, **kwargs):
+    """Build a project, set its tier and servers, and return ``(manager, dir, config)``."""
+    return _configure(_build(tmp_path), **kwargs)
 
 
 def _ctx(tmp_path, **kwargs) -> dict:

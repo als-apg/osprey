@@ -19,11 +19,11 @@ import yaml
 from osprey.cli.build_profile_archiver import FRESHNESS_CONFIG_KEY, VAArchiverConfig
 from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.records import ChannelSelection, FacilityRecords
-from osprey.facility.served import (
+from osprey.facility.served import resolve_served
+from osprey.facility.settings import (
     NO_READBACK_WARNING,
     SERVED_PROBE_KEYS,
-    resolve_served,
-    served_channel_fill,
+    fill_facility_settings,
 )
 from osprey_connectors.types import (
     LIVE_STANDIN,
@@ -46,12 +46,29 @@ RENDERED: dict[str, Any] = {
 }
 
 
+#: A facility directory that ships nothing: the channel rows alone derive.
+NO_TREE = Path(__file__).parent / "no-facility-tree"
+
+
+def _served_fill(
+    records: FacilityRecords,
+    rendered: Mapping[str, Any],
+    profile: Mapping[str, Any],
+    va_archiver: VAArchiverConfig | None,
+    *,
+    reported: set[str] | None = None,
+) -> dict[str, Any]:
+    return fill_facility_settings(
+        records, NO_TREE, NO_TREE.parent, rendered, profile, va_archiver, reported=reported
+    )
+
+
 def _fill(
     document: Mapping[str, Any],
     profile: Mapping[str, Any] | None = None,
     va_archiver: VAArchiverConfig | None = None,
 ) -> dict[str, Any]:
-    return served_channel_fill(FacilityRecords(document), RENDERED, profile or {}, va_archiver)
+    return _served_fill(FacilityRecords(document), RENDERED, profile or {}, va_archiver)
 
 
 def _is_readback(channel: Mapping[str, Any]) -> bool:
@@ -130,7 +147,7 @@ def test_the_warning_prints_once_per_build(capsys: pytest.CaptureFixture[str]) -
     records = FacilityRecords({"channels": []})
     reported: set[str] = set()
     for _render in range(3):
-        served_channel_fill(records, RENDERED, {}, None, reported=reported)
+        _served_fill(records, RENDERED, {}, None, reported=reported)
     assert capsys.readouterr().err == f"{NO_READBACK_WARNING}\n"
 
 
@@ -138,10 +155,8 @@ def test_a_render_with_no_simulator_block_gains_no_simulator_target(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     records = FacilityRecords({"channels": []})
-    assert served_channel_fill(records, {}, {}, None) == {}
-    assert (
-        served_channel_fill(FacilityRecords({"channels": [_channel("A:RB")]}), {}, {}, None) == {}
-    )
+    assert _served_fill(records, {}, {}, None) == {}
+    assert _served_fill(FacilityRecords({"channels": [_channel("A:RB")]}), {}, {}, None) == {}
     assert capsys.readouterr().err == ""
 
 
@@ -204,9 +219,7 @@ def test_the_profile_states_the_served_models_over_the_render() -> None:
         "channels": [_channel("A:RB"), _channel("Z:RB")],
     }
     rendered = {**RENDERED, "simulation": {"models": ["OFF"]}}
-    fill = served_channel_fill(
-        FacilityRecords(document), rendered, {"simulation.models": ["ON"]}, None
-    )
+    fill = _served_fill(FacilityRecords(document), rendered, {"simulation.models": ["ON"]}, None)
     assert fill[VA_PROBE_KEY] == "Z:RB"
 
 

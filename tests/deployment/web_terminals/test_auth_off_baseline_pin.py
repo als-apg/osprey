@@ -85,6 +85,12 @@ exceptions:
      the ``./var/guarded_run`` bind on every per-user container. A guarded run keeps its per-target lock
      there, shared with every other container that runs the agent; nothing
      about it depends on a login.
+  8a. **the write-authorization binds** — ``OSPREY_WRITE_REQUESTS_DIR`` with the
+     read-only ``./var/write_ledger/requests`` bind, and
+     ``OSPREY_WRITE_LEDGER_VIEW_DIR`` with the read-only ``./var/write_ledger``
+     bind, on every per-user container. The approve card reads programs'
+     requests, and the chip their self-issued grants and ledgers; nothing about
+     it depends on a login.
   9. **the render badge** — every user card names the render it runs, here
      the default tier every roster states. It names the image's project
      tier, carries no account, role or claim, and renders the same under
@@ -414,7 +420,6 @@ _RENDERED_FAMILIES = (
     "web",
     "artifact",
     "ariel",
-    "lattice",
     "channel_finder",
     "okf",
     "system_health",
@@ -529,6 +534,14 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # reaped, whatever the method; it carries no account, role or claim.
         # Count 2 = alice + bob (nginx runs no browser).
         "    init: true": 2,
+        # A program's write authorization — the SIXTEENTH exception to SC6.
+        # Every terminal reads the holders' requests and their whole write
+        # ledger read-only, whatever the method: grants, ledgers and requests,
+        # no account, role or claim. Count 2 = alice + bob.
+        "      - OSPREY_WRITE_REQUESTS_DIR=/opt/osprey/write_authorization/requests": 2,
+        "      - OSPREY_WRITE_LEDGER_VIEW_DIR=/opt/osprey/write_authorization/ledger_view": 2,
+        "      - ./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro": 2,
+        "      - ./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro": 2,
     }
 )
 
@@ -558,6 +571,11 @@ _RETIRED_COMPOSE_LINES = frozenset(
         "      - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}",
     }
 )
+
+#: The retired LATTICE panel's per-user port line, port-masked as the edit
+#: script sees it. The panel and its port family are gone, so the line is
+#: deleted from the `token` render, not replaced.
+_RETIRED_PANEL_COMPOSE_LINES = frozenset({"      - OSPREY_LATTICE_DASHBOARD_PORT=<port>"})
 
 #: The per-user healthcheck comment as the pre-feature render worded it, when
 #: `osprey web`'s bare default was the fixed constant 8087. The port-block
@@ -823,6 +841,10 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
         assert line in compose, (
             f"the frozen baseline lacks the retired store line it is said to carry: {line!r}"
         )
+    for line in _RETIRED_PANEL_COMPOSE_LINES:
+        assert line in _masked(compose), (
+            f"the frozen baseline lacks the retired panel line it is said to carry: {line!r}"
+        )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
     for line in _REPLACED_NGINX_LINES:
@@ -967,7 +989,10 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
     for name in _ARTIFACTS:
         old, new, opcodes = _opcodes(name)
         replaceable = (
-            _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES | _RETIRED_COMPOSE_LINES
+            _REPLACED_COMPOSE_LINES
+            | _REWORDED_COMPOSE_LINES
+            | _RETIRED_COMPOSE_LINES
+            | _RETIRED_PANEL_COMPOSE_LINES
             if name == "docker-compose.web.yml"
             else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES
             if name == "nginx.conf"

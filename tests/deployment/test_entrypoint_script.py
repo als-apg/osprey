@@ -68,6 +68,12 @@ SIMULATOR_LOG_VAR = "OSPREY_SIMULATOR_LOG_DIR"
 #: Guarded runs' per-target locks, shared by every container that
 #: runs the agent, each under its own uid.
 GUARDED_RUN_VAR = "OSPREY_GUARDED_RUN_DIR"
+#: Programs' write-authorization requests, bound READ-ONLY into every web
+#: terminal, which shows them on the approve card. Outside ``var/``.
+WRITE_REQUESTS_VAR = "OSPREY_WRITE_REQUESTS_DIR"
+#: The programs' whole write ledger, bound READ-ONLY into every web terminal for
+#: their self-issued grants. Outside ``var/``.
+WRITE_LEDGER_VIEW_VAR = "OSPREY_WRITE_LEDGER_VIEW_DIR"
 #: The control-target bind this container WRITES: one owner directory, the
 #: account this service acts for.
 CONTROL_DIR_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
@@ -93,6 +99,8 @@ RENDER_NAMED_VARS = frozenset(
         MIRROR_VAR,
         SIMULATOR_LOG_VAR,
         GUARDED_RUN_VAR,
+        WRITE_REQUESTS_VAR,
+        WRITE_LEDGER_VIEW_VAR,
         AGENT_RECORD_SPOOL_VAR,
         AGENT_RECORD_DIR_VAR,
         AGENT_RECORD_ARCHIVE_VAR,
@@ -226,14 +234,17 @@ class TestScriptShape:
                 flags=re.MULTILINE,
             ), var
 
-    def test_the_read_only_tree_is_the_only_read_probe(self, text: str):
-        """The mode is per VARIABLE, not per container: the tree is bound
-        read-only, so a write probe on it would report today's "records will be
-        dropped" warning for a directory nothing in this container writes —
-        which is the false alarm that made the probe a separate helper."""
+    def test_the_read_only_binds_are_the_only_read_probes(self, text: str):
+        """The mode is per VARIABLE, not per container: the tree and the
+        programs' requests are bound read-only, so a write probe on either would
+        report today's "records will be dropped" warning for a directory nothing
+        in this container writes — which is the false alarm that made the probe
+        a separate helper."""
         body = _dispatcher_body(text)
-        assert f'probe_mounted_dir {CONTROL_TREE_VAR} "${{{CONTROL_TREE_VAR}:-}}" read' in body
-        for var in sorted(RENDER_NAMED_VARS - {CONTROL_TREE_VAR}):
+        read_only = {CONTROL_TREE_VAR, WRITE_REQUESTS_VAR, WRITE_LEDGER_VIEW_VAR}
+        for var in sorted(read_only):
+            assert f'probe_mounted_dir {var} "${{{var}:-}}" read' in body, var
+        for var in sorted(RENDER_NAMED_VARS - read_only):
             assert f'probe_mounted_dir {var} "${{{var}:-}}" write' in body, var
 
     def test_the_probe_is_not_nested_in_the_join(self, text: str):

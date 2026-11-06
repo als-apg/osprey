@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from click.testing import CliRunner
@@ -22,7 +22,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.facility import TEXTURE
 from osprey.facility.render import FACILITY_FILE, facility_digest
-from osprey.facility.served import BENCHMARK_DATASET_PATH
+from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -151,7 +151,7 @@ def test_a_facility_stop_ends_the_build_before_the_venv(
     """The one build here without ``--skip-deps``: the venv step is a spy that must not run."""
     from osprey.cli import build_cmd
 
-    def venv_spy(*args: Any, **kwargs: Any) -> list[str]:
+    def venv_spy(*args: Any, **kwargs: Any) -> NoReturn:
         raise AssertionError("the project venv was created before the facility stop")
 
     monkeypatch.setattr(build_cmd, "_create_project_venv", venv_spy)

@@ -153,10 +153,10 @@ class PortSlot:
     """One framework-owned host port, declared as an offset from the base.
 
     Attributes:
-        name: Slot name. For a per-index slot this is exactly the registry
-            port-family name (``FRAMEWORK_WEB_SERVERS[key].port_family or
-            key``), which is what binds the layout to the registry; a
-            reconciliation test pins the two sets against each other.
+        name: Slot name. For a per-index slot this is exactly the
+            ``FRAMEWORK_WEB_SERVERS`` registry key, which is what binds the
+            layout to the registry; a reconciliation test pins the two sets
+            against each other.
         offset: Distance from ``port_base``. For an indexed slot this is the
             base of the slot's band and the index is added to it.
         tier: Display section this slot belongs to. Surfaces group their rows
@@ -206,13 +206,13 @@ LAYOUT: tuple[PortSlot, ...] = (
     # the key named here is the one that actually moves it: moving
     # ``services.bluesky.port`` moves both lanes.
     PortSlot("bluesky_second_lane", 81, "services", "services.bluesky.port"),
+    PortSlot("optimizer", 82, "services", "services.optimizer.port"),
     # Virtual-accelerator instance n >= 2, at index n - 2. Instance 1 is the
     # Channel Access exception and is not in the block at all.
     PortSlot("va_standin", 90, "services", "services.live_standin.port"),
     PortSlot("web", 100, "panels", "modules.web_terminals.web_base_port", True),
     PortSlot("artifact", 200, "panels", "modules.web_terminals.artifact_base_port", True),
     PortSlot("ariel", 300, "panels", "modules.web_terminals.ariel_base_port", True),
-    PortSlot("lattice", 400, "panels", "modules.web_terminals.lattice_base_port", True),
     PortSlot(
         "channel_finder",
         500,

@@ -145,9 +145,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     code — so :meth:`ServerLauncher._probe_status` reports the redirect itself.
     """
 
-    def redirect_request(  # type: ignore[no-untyped-def]
-        self, _req, _fp, _code, _msg, _headers, _newurl
-    ):
+    def redirect_request(self, _req, _fp, _code, _msg, _headers, _newurl):
         """Never follow: the listener's own first response is the verdict."""
         return
 
@@ -794,7 +792,7 @@ def _resolve_dotted(config: dict, dotted: str) -> object:
     for key in dotted.split("."):
         if not isinstance(obj, dict):
             return None
-        obj = obj.get(key)  # type: ignore[union-attr]
+        obj = obj.get(key)
     return obj
 
 

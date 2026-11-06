@@ -86,13 +86,14 @@ class ConnectorFactory:
         Build a control system connector and its type config, without connecting.
 
         Args:
-            config: Control system configuration dict with keys:
+            config: Control system configuration dict, or None to load it
+                from the global config. Its keys:
+
                 - type: Connector type (e.g., 'epics', 'virtual_accelerator').
                   Defaults to the simulator served in process, with a warning,
                   when unset, so an under-specified config never reaches live
                   hardware.
                 - connector: Dict with connector-specific configs
-                If None, loads from global config
             control_target: The control target this connector is being built
                 for — ``live``, ``va`` or ``standin``. Stamped on the instance
                 as ``_control_target`` and used to index the per-target
@@ -248,14 +249,15 @@ class ConnectorFactory:
         Create and configure an archiver connector.
 
         Args:
-            config: Archiver configuration dict with keys:
+            config: Archiver configuration dict, or None to load it from the
+                global config. Its keys:
+
                 - type: Connector type (e.g., 'epics_archiver', 'mock_archiver').
                   Defaults to 'mock_archiver' with a warning when unset, so a
                   config that omits the archiver section stays serviceable.
                 - settings: The selected connector's settings, handed to
                   connect() whole. A short-named connector's own-name block is
                   read when settings is absent; both at once raise ValueError.
-                If None, loads from global config
 
         Returns:
             Initialized and connected ArchiverConnector

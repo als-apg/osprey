@@ -132,7 +132,7 @@ class DrainCallbacks:
     settle the store status."""
 
     give_up: Callable[[str, dict[str, Any]], Any]
-    """Abandon an entry: notify the user / file a give-up issue. ``(message_id,
+    """Abandon an entry: post the give-up notice to the user. ``(message_id,
     entry)``. The drain marks the entry terminal only AFTER this returns — a
     notice that fails to send leaves the entry queued for the next cycle (a
     lost give-up notice is silence, worse than the rare duplicate a race could

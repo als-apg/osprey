@@ -32,10 +32,12 @@ from osprey_connectors.control_system._va_in_process_connector import (
     simulation_state_dir,
 )
 from osprey_connectors.simulation import OVERLAP_EVENT
+from tests._facility_file import demo_facility_document
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._simulator_view import (
     IN_PROCESS_CONFIG,
     SR_ERROR,
+    add_deck_models,
     register_stub_engine,
     write_simulator_view,
 )
@@ -86,8 +88,72 @@ def test_a_failing_sr_scenario_prints_the_engines_error(deployment: Path) -> Non
 
     result = _status(deployment)
 
+    assert result.exit_code == 1, result.output
+    assert f"SR: FAILED: scenario sr-broken: {SR_ERROR}" in result.output.splitlines()
+
+
+def test_a_model_whose_deck_is_missing_fails_and_the_others_serve(deployment: Path) -> None:
+    add_deck_models(_view(deployment))
+
+    result = _status(deployment)
+
+    lines = result.output.splitlines()
+    assert result.exit_code == 1, result.output
+    (ar,) = [line for line in lines if line.startswith("AR: ")]
+    assert ar.startswith("AR: FAILED: [Errno 2] No such file or directory")
+    assert "decks/AR.json" in ar
+    assert "SR: ok" in lines
+
+
+def test_a_model_with_no_deck_is_not_built_and_is_no_failure(deployment: Path) -> None:
+    add_deck_models(_view(deployment))
+    (_view(deployment) / "decks").mkdir()
+    (_view(deployment) / "decks" / "AR.json").write_text("{}", encoding="utf-8")
+
+    result = _status(deployment)
+
+    lines = result.output.splitlines()
     assert result.exit_code == 0, result.output
-    assert f"SR: scenario sr-broken: {SR_ERROR}" in result.output.splitlines()
+    assert "AR: ok" in lines
+    assert "BR: no deck (not built by design; its channels are the texture's)" in lines
+    records = [
+        json.loads(line)
+        for line in (deployment / "var" / "simulator" / "BR.log")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert [record["event"] for record in records] == ["unbuilt"]
+    assert records[0]["status"] == "no deck"
+
+
+def test_a_failed_model_on_a_va_target_is_named_with_its_error(
+    lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey_connectors.factory import ConnectorFactory
+
+    config = (
+        "control_system:\n  type: virtual_accelerator\n"
+        "  connector:\n    virtual_accelerator:\n      host: localhost\n"
+    )
+    add_deck_models(write_simulator_view(stub_build(lifecycle_repo, config=config)))
+    ar_error = "scenario ar-errors: FileNotFoundError: /data/simulator/decks/AR.json"
+    connector = _StatusChannels(
+        {"ca:SIM:AR:STATUS": ar_error, "ca:SIM:BR:STATUS": "no deck", "ca:SIM:SR:STATUS": "ok"}
+    )
+
+    async def create(section: dict, control_target: str | None = None) -> _StatusChannels:
+        del section, control_target
+        return connector
+
+    monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", create)
+
+    result = _status(lifecycle_repo, "--target", "va")
+
+    lines = result.output.splitlines()
+    assert result.exit_code == 1, result.output
+    assert f"AR: FAILED: {ar_error}" in lines
+    assert "BR: no deck (not built by design; its channels are the texture's)" in lines
+    assert "SR: ok" in lines
 
 
 def test_the_printed_log_is_the_file_the_composite_appended_to(deployment: Path) -> None:
@@ -191,8 +257,8 @@ def test_a_virtual_accelerator_target_reports_each_models_status_channel(
 
     result = _status(lifecycle_repo, *args)
 
-    assert result.exit_code == 0, result.output
-    assert f"SR: {SR_ERROR}" in result.output.splitlines()
+    assert result.exit_code == 1, result.output
+    assert f"SR: FAILED: {SR_ERROR}" in result.output.splitlines()
     assert connector.read == ["ca:SIM:SR:STATUS"]
     assert connector.disconnected
     assert asked == [args[1] if args else None]
@@ -318,14 +384,13 @@ def test_list_names_the_views_scenarios_and_marks_the_active_set(deployment: Pat
 
 
 def test_list_names_the_built_in_still(lifecycle_repo: Path) -> None:
-    from osprey.facility.build import build_facility
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view as render_simulator_view
 
     stub_build(lifecycle_repo, config=IN_PROCESS_CONFIG)
     facility = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
-    doc = build_facility(facility, project_name="example")
+    doc = demo_facility_document()
     config = {"control_system": {"type": "virtual_accelerator"}}
     render_simulator_view(
         _view(lifecycle_repo),

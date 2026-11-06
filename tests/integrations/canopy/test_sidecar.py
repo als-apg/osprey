@@ -159,13 +159,15 @@ class Deployment:
     def sidecar(self, user: str = "alice", *, data: str = "stay", front: str = "stay"):
         deployment = self
 
+        # ``-S``: the stub is stdlib-only test code, and without ``site`` it does not
+        # start coverage (~0.2 s a start under pyproject's subprocess patch, for no data).
         class _Stubbed(CanopySidecar):
             def _front_command(self, fd):
-                return [sys.executable, str(deployment.stub), str(deployment.dump), "front",
+                return [sys.executable, "-S", str(deployment.stub), str(deployment.dump), "front",
                         str(fd), front]  # fmt: skip
 
             def _data_command(self, fd):
-                return [sys.executable, str(deployment.stub), str(deployment.dump), "data",
+                return [sys.executable, "-S", str(deployment.stub), str(deployment.dump), "data",
                         str(fd), data]  # fmt: skip
 
         built = _Stubbed(self.root / "agent-data" / user, "", None, payload_dir=self.payload)
@@ -985,7 +987,7 @@ class TestEnvironments:
             "CONFIG_FILE": config,
             "OSPREY_CONFIG": config,
             "CANOPY_EPICS__BACKEND": BACKEND_PATH,
-            "CANOPY_MODULES": "hare,vole,fox,mole,converter",
+            "CANOPY_MODULES": "hare,vole,formula-engine,mole,converter",
             "CANOPY_API_KEYS_FILE": str(key_dir / "data.keys"),
             "CANOPY_CLOSED_META": "1",
             "CANOPY_VOLE__GLOBAL_BYTES_MAX": "1024",
@@ -1207,7 +1209,7 @@ class TestKeyFiles:
         write_key = (key_dir / "front.write").read_text().strip()
         access = (key_dir / "front.access").read_text().strip()
         assert (key_dir / "data.keys").read_text() == (
-            f"{read_key}:read@hare+fox+mole+converter\n{write_key}:read+write@hare\n"
+            f"{read_key}:read@hare+formula-engine+mole+converter\n{write_key}:read+write@hare\n"
         )
         assert len({access, read_key, write_key}) == 3
         assert sidecar.auth_headers == {"X-Canopy-Access": access}
@@ -1218,7 +1220,7 @@ class TestKeyFiles:
         assert (
             set(sidecar_module.FRONT_MODULES) == set(sidecar_module.FRONT_CALLED_MODULES) & mounted
         )
-        assert sidecar_module.FRONT_MODULES == ("hare", "fox", "mole", "converter")
+        assert sidecar_module.FRONT_MODULES == ("hare", "formula-engine", "mole", "converter")
         assert "vole" not in sidecar_module.FRONT_MODULES
 
     def test_no_secret_is_in_a_childs_environment_or_argv(self, deployment):

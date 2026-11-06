@@ -1,8 +1,8 @@
 """Shared-splitter contract: one divider implementation, every resizable pane.
 
 The OKF knowledge panel, the artifact gallery's browse view, the PLAN panel,
-the LATTICE control sidebar, and the settings drawer all put a draggable
-divider between two panes. Hand-copying that implementation per host lets the
+ARIEL's rail/list/reader screen, and the
+settings drawer all put a draggable divider between two panes. Hand-copying that implementation per host lets the
 copies drift — a grip pill as a child element in one and a ``::after`` in
 another, disagreeing hover treatments, keyboard and ARIA support in only some
 — because nothing fails when a copy stops matching. This is that missing
@@ -83,11 +83,12 @@ SPLITTER_HOSTS = [
         styles=(f"{_IFACE}/bluesky_web/panels/bluesky/panel.css",),
     ),
     Host(
-        label="lattice",
-        html=f"{_IFACE}/lattice_dashboard/static/index.html",
-        js=f"{_IFACE}/lattice_dashboard/static/js/ui.js",
+        label="ariel",
+        html=f"{_IFACE}/ariel/static/index.html",
+        js=f"{_IFACE}/ariel/static/js/layout.js",
+        # Two handles, both between side-by-side panes: rail|list, list|reader.
         orientations=frozenset({"vertical"}),
-        styles=(f"{_IFACE}/lattice_dashboard/static/dashboard.css",),
+        styles=(f"{_IFACE}/ariel/static/css/layout.css",),
     ),
     Host(
         label="drawer",

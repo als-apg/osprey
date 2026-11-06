@@ -153,7 +153,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from osprey import bluesky_tool_names
 from osprey.agent_runner import SDKWorkflowResult, ToolTrace
@@ -866,15 +865,20 @@ def assert_authored_scan_executed(result: SDKWorkflowResult) -> tuple[str | None
     )
 
 
+def _column_names(data: dict[str, Any]) -> list[str]:
+    """The column names a ``get_run_data`` answer states, in row order."""
+    return [column["name"] for column in data.get("columns") or []]
+
+
 def _numeric_series(data: dict[str, Any], column: str) -> list[tuple[int, float]]:
     """``(row index, value)`` for every numeric cell of ``column``.
 
     Rows are positional lists aligned with ``columns`` — the bridge route's
-    wire shape (``{"columns": [...], "rows": [[...], ...]}``), not dicts. A
-    non-numeric or missing cell is a dropout and is simply absent from the
-    result, which is what lets callers measure coverage as well as span.
+    wire shape (``{"columns": [{"name", "unit"}, ...], "rows": [[...], ...]}``),
+    not dicts. A non-numeric or missing cell is a dropout and is simply absent
+    from the result, which is what lets callers measure coverage as well as span.
     """
-    columns = data.get("columns") or []
+    columns = _column_names(data)
     if column not in columns:
         return []
     idx = columns.index(column)
@@ -928,7 +932,7 @@ def assert_run_is_live(
     moves exactly and a dead one is exactly flat. A future VA that adds noise
     wants a real floor passed here rather than a looser comparison baked in.
     """
-    columns = data.get("columns") or []
+    columns = _column_names(data)
     rows = data.get("rows") or []
     corrector_columns = [c for c in columns if c in set(correctors)]
     bpm_columns = [c for c in columns if c in set(bpms)]
@@ -1001,7 +1005,7 @@ def assert_hysteresis_loop_measured(
        for a future VA that adds measurement noise, not a claim about the
        present one.
     """
-    columns = data.get("columns") or []
+    columns = _column_names(data)
     rows = data.get("rows") or []
     corrector_columns = [c for c in columns if c in set(correctors)]
     bpm_columns = [c for c in columns if c in set(bpms)]
@@ -1016,7 +1020,7 @@ def assert_hysteresis_loop_measured(
 
     def _series(column: str) -> list[tuple[int, float]]:
         # Rows are positional lists aligned with `columns` — the route's wire
-        # shape (`{"columns": [...], "rows": [[...], ...]}`), not dicts.
+        # shape (`{"columns": [{"name", "unit"}, ...], "rows": [[...], ...]}`).
         idx = columns.index(column)
         pairs = []
         for i, row in enumerate(rows):
@@ -1577,12 +1581,17 @@ def _read(*, is_error: bool = False, data: str = _ORM_RUN_DATA, run_id: str = "r
     )
 
 
-def _figure(*, is_error: bool = False, run_id: str = "run-1") -> ToolTrace:
-    """A ``get_run_figure`` trace of ``run_id`` — the other way a run is read back."""
+def _figure(
+    *, is_error: bool = False, run_id: str = "run-1", result: str | None = None
+) -> ToolTrace:
+    """A ``get_run_figure`` trace of ``run_id`` — the other way a run is read back.
+    ``result`` replaces the placeholder payload when a test needs the real one."""
+    if result is None:
+        result = '{"code": "no_such_run"}' if is_error else '{"partial": false, "panels": []}'
     return ToolTrace(
         name=GET_RUN_FIGURE,
         input={"run_id": run_id},
-        result='{"code": "no_such_run"}' if is_error else '{"partial": false, "panels": []}',
+        result=result,
         is_error=is_error,
     )
 
@@ -1590,7 +1599,7 @@ def _figure(*, is_error: bool = False, run_id: str = "run-1") -> ToolTrace:
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["corrector_01", "corrector_02", "corrector_03"],
     "readbacks": ["bpm_01", "bpm_17", "bpm_23"],
-    "span_a": 1.0,
+    "span": 1.0,
     "num": 9,
 }
 
@@ -1708,7 +1717,7 @@ def test_floor_accepts_draft_assembled_across_two_calls() -> None:
     is incremental, so the state the add sees is the fold of both — grading a
     single call's ``plan_args_patch`` would wrongly fail this correct run."""
     traces = [
-        _draft(patch={"correctors": ["corrector_01"], "span_a": 1.0}),
+        _draft(patch={"correctors": ["corrector_01"], "span": 1.0}),
         _draft(plan_name=None, patch={"readbacks": ["bpm_01"], "num": 9}),
         _add(),
         _start(),
@@ -1853,6 +1862,31 @@ def test_floor_takes_the_plan_figure_as_reading_the_run_back() -> None:
     assert not _floor_passes(refused_figure)
 
 
+# The shape of the envelope ``get_run_figure`` raises when the bridge could not
+# read the run's rows; the floor reads only its error flag, never its wording.
+_UNREADABLE_FIGURE_RESULT = json.dumps(
+    {
+        "error": True,
+        "error_type": "service_unavailable",
+        "error_message": "",
+        "suggestions": [],
+        "details": {"reason": "source_unavailable", "source": "tiled"},
+    }
+)
+
+
+@pytest.mark.harness_benchmark
+def test_floor_takes_a_remedy_after_a_refused_figure_as_reading_the_run_back() -> None:
+    """A refused figure read does not close the floor, but either remedy its
+    error names does: the same run's rows as a table, or the figure read again."""
+    refused = _figure(run_id="run-7", is_error=True, result=_UNREADABLE_FIGURE_RESULT)
+    launched = [_draft(patch=_ORM_ARGS), _add(run_id="run-7"), _start()]
+
+    assert not _floor_passes([*launched, refused])
+    assert _floor_passes([*launched, refused, _read(run_id="run-7")])
+    assert _floor_passes([*launched, refused, _figure(run_id="run-7")])
+
+
 # A ``queue_add`` result captured verbatim off a live deployed stack, with the
 # ``armed`` key spliced in by hand when the bridge began reporting it. FastMCP
 # surfaces a ``str``-returning tool as structured content under a single
@@ -1864,10 +1898,10 @@ _LIVE_ENVELOPED_ADD_RESULT = (
     r'{"result":"{\"run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"revision\": 5, \"item\":'
     r" {\"item_type\": \"plan\", \"name\": \"orm\", \"kwargs\": {\"correctors\": "
     r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
-    r"\"span_a\": 2.0, \"num\": 5, \"sweep\": \"bidirectional\"}, \"meta\": "
+    r"\"span\": 2.0, \"num\": 5, \"sweep\": \"bidirectional\"}, \"meta\": "
     r"{\"osprey_run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"osprey_plan\": {\"name\": "
     r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": "
-    r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span_a\": 2.0, \"num\": 5, \"sweep\": "
+    r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span\": 2.0, \"num\": 5, \"sweep\": "
     r"\"bidirectional\"}}}, \"user\": \"Queue Server API User\", \"user_group\": \"primary\", "
     r'\"item_uid\": \"c575be41-db28-4047-a667-2b434408be8d\"}, \"armed\": true}"}'
 )
@@ -2326,7 +2360,11 @@ _HYST_ARGS: dict[str, Any] = {
 #: response node and never moves. One responding, agreeing BPM is the floor's
 #: requirement, so the flat one must not fail a healthy run.
 _HYST_RUN_DATA: dict[str, Any] = {
-    "columns": ["corrector_01", "bpm_01", "bpm_02"],
+    "columns": [
+        {"name": "corrector_01", "unit": None},
+        {"name": "bpm_01", "unit": None},
+        {"name": "bpm_02", "unit": None},
+    ],
     "rows": [[s, 2.0 * s, 0.0] for s in _HYST_ARGS["settings"]],
 }
 
@@ -2471,7 +2509,7 @@ def test_hysteresis_data_floor_rejects_a_monotonic_ramp() -> None:
     loop, however many points it carries."""
     ramp = [-1.0 + i * 0.25 for i in range(9)]
     data = {
-        "columns": ["corrector_01", "bpm_01"],
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
         "rows": [[s, 2.0 * s] for s in ramp],
     }
     with pytest.raises(AssertionError, match="reversed direction"):
@@ -2491,7 +2529,10 @@ def test_hysteresis_data_floor_rejects_disagreeing_passes() -> None:
         elif current > previous:
             direction = 1.0
         rows.append([current, 2.0 * current + (1.5 if direction < 0 else 0.0)])
-    data = {"columns": ["corrector_01", "bpm_01"], "rows": rows}
+    data = {
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
+        "rows": rows,
+    }
     with pytest.raises(AssertionError, match="responded to the loop and agreed"):
         assert_hysteresis_loop_measured(data, ["corrector_01"], ["bpm_01"])
 
@@ -2501,7 +2542,7 @@ def test_hysteresis_data_floor_rejects_an_unresponsive_machine() -> None:
     """Every BPM flat means the loop measured nothing — a dead pair, not a
     hysteresis check."""
     data = {
-        "columns": ["corrector_01", "bpm_01"],
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
         "rows": [[s, 0.0] for s in _HYST_ARGS["settings"]],
     }
     with pytest.raises(AssertionError, match="responded to the loop and agreed"):
@@ -2520,7 +2561,12 @@ def test_hysteresis_data_floor_rejects_an_unresponsive_machine() -> None:
 #: both BPMs answering on every row. Written positionally, the bridge's own
 #: wire shape.
 _LIVE_ORM_DATA: dict[str, Any] = {
-    "columns": ["corrector_01", "corrector_02", "bpm_01", "bpm_02"],
+    "columns": [
+        {"name": "corrector_01", "unit": None},
+        {"name": "corrector_02", "unit": None},
+        {"name": "bpm_01", "unit": None},
+        {"name": "bpm_02", "unit": None},
+    ],
     "rows": [
         [s, -s, 9.0 * s, 6.2 * s] for s in [-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0]
     ],
@@ -2540,7 +2586,7 @@ def test_liveness_floor_rejects_an_undriven_machine() -> None:
     """Every corrector parked at one setting. The sequence can still complete
     — stage, queue, start, read — so only a data floor catches it."""
     data = {
-        "columns": ["corrector_01", "bpm_01"],
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
         "rows": [[0.0, 0.0] for _ in range(9)],
     }
     with pytest.raises(AssertionError, match="no wired corrector moved"):
@@ -2553,7 +2599,11 @@ def test_liveness_floor_rejects_flat_readbacks() -> None:
     nothing was listening to. This is the shape that leaves an agent with
     nothing real to report."""
     data = {
-        "columns": ["corrector_01", "bpm_01", "bpm_02"],
+        "columns": [
+            {"name": "corrector_01", "unit": None},
+            {"name": "bpm_01", "unit": None},
+            {"name": "bpm_02", "unit": None},
+        ],
         "rows": [[s, 0.0, 0.0] for s in [-1.0, -0.5, 0.0, 0.5, 1.0]],
     }
     with pytest.raises(AssertionError, match="no wired BPM answered"):
@@ -2566,7 +2616,10 @@ def test_liveness_floor_rejects_dropped_readbacks() -> None:
     the span alone would call that live, which is why coverage is checked."""
     rows: list[list[Any]] = [[s, None] for s in [-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5]]
     rows += [[0.75, 6.75], [1.0, 9.0]]
-    data = {"columns": ["corrector_01", "bpm_01"], "rows": rows}
+    data = {
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
+        "rows": rows,
+    }
     with pytest.raises(AssertionError, match="no wired BPM answered"):
         assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
 
@@ -2575,7 +2628,10 @@ def test_liveness_floor_rejects_dropped_readbacks() -> None:
 def test_liveness_floor_rejects_an_empty_table() -> None:
     """A completed sequence over an empty table — what a dead stack produces
     and what the structural floor happily accepts."""
-    data = {"columns": ["corrector_01", "bpm_01"], "rows": []}
+    data = {
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
+        "rows": [],
+    }
     with pytest.raises(AssertionError, match="a measurement needs points"):
         assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
 
@@ -2585,7 +2641,10 @@ def test_liveness_floor_rejects_unwired_columns() -> None:
     """Columns that name no registered device mean the run measured some
     other machine — or a renamed one nobody noticed."""
     data = {
-        "columns": ["something_else", "another_thing"],
+        "columns": [
+            {"name": "something_else", "unit": None},
+            {"name": "another_thing", "unit": None},
+        ],
         "rows": [[s, 2.0 * s] for s in [-1.0, 0.0, 1.0]],
     }
     with pytest.raises(AssertionError, match="no wired corrector column"):
@@ -2597,7 +2656,7 @@ def test_liveness_floor_honours_an_explicit_noise_floor() -> None:
     """A response below the caller's noise floor is not a signal. Pins the
     knob a future noisy VA needs, so it cannot rot unnoticed."""
     data = {
-        "columns": ["corrector_01", "bpm_01"],
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
         "rows": [[s, 0.001 * s] for s in [-1.0, -0.5, 0.0, 0.5, 1.0]],
     }
     assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
@@ -3325,42 +3384,8 @@ def _describe_queue_deployment(repo: Path) -> None:
     measurement models: the render then offers no pyAML skill, no measurement
     prompt section and no measurement tool, and a measurement request has the
     queue as its one route.
-
-    The prompts ask for two correctors swept across the range they are allowed,
-    so the bounded corrector's model gets a second bounded corrector: the first
-    corrector of the other plane, given the bounded corrector's band. The
-    record goes into this throwaway tree only, read back through the same
-    limits render the build enforces.
     """
     shutil.rmtree(repo / "data" / "facility" / "measurement")
-
-    from osprey_connectors.simulation.view import SimulatorView
-
-    limits = _orm_stack.channel_limits(repo)
-    view = SimulatorView.open(SimulatorView.path_for_project(repo.parent / f"{repo.name}.limits"))
-    found = _facility_select.bounded_corrector_of(view)
-    assert found is not None, "the facility's limits.yaml bounds no corrector"
-    bounded, _readback, model = found
-    binding = view.binding(bounded)
-    assert binding is not None, f"corrector {bounded} has no served binding"
-    other_plane = sorted(
-        b.address
-        for b in view.bindings(engine_role="setpoint", model=model)
-        if b.plane is not None and b.plane != binding.plane
-    )
-    assert other_plane, f"model {model} wires no corrector of a second plane"
-
-    limits_file = repo / "data" / "facility" / "limits.yaml"
-    document = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
-    band = limits[bounded]
-    document["records"].append(
-        {
-            "address": other_plane[0],
-            "min_value": band["min_value"],
-            "max_value": band["max_value"],
-        }
-    )
-    limits_file.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
 def _assert_no_pyaml_surface(repo: Path) -> None:
@@ -3561,7 +3586,7 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     attempt's plan on the hardware too, and read back a run it never launched —
     a floor satisfied by someone else's run.
 
-    The five steps, and why each is needed:
+    The six steps, and why each is needed:
 
     1. ``POST /queue/abort`` — the only surface that stops a plan already
        moving hardware (``POST /queue/stop`` merely halts the queue AFTER the
@@ -3604,6 +3629,17 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
        authoring is exactly what dooms the reruns meant to rescue it. Unlike
        the draft's leak this one is not self-limiting: every attempt leaves
        one more shortcut behind.
+    6. ``DELETE /runs/{id}`` for every finished run ``GET /runs`` lists —
+       empty the runs surface, after step 4 has removed the requeued copy so
+       nothing pending or running is left on it. The bridge's own ungated
+       route, never Redis.
+
+    Why the runs surface too. A live test's agent reads the run history to
+    find what the operator means, and another lane's run in it is a candidate
+    the request never meant: an agent asked to re-arm "the scan that was
+    stopped" rightly refuses to choose between its own stopped run and the one
+    the abort lane left behind. Every lane starts with a runs surface that
+    holds only what the lane itself creates.
     """
     if "deployed_scan_stack" not in request.fixturenames:
         return
@@ -3682,6 +3718,8 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
         f"{[i.get('item_uid') for i in snapshot.get('items') or []]}"
     )
 
+    _queue_drive.clear_finished_runs(BRIDGE_URL)
+
 
 # ---------------------------------------------------------------------------
 # The live tests. One operator request each, run against the one deployed
@@ -3710,7 +3748,6 @@ ORM_OPERATOR_REQUEST = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: builds the VA/bridge/bluesky-web images and deploys the full queue
 # stack — runs in its own CI job, never the shared e2e-tests lane (the
@@ -3804,7 +3841,6 @@ GRID_OPERATOR_REQUEST = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild
@@ -3913,7 +3949,6 @@ def _authoring_promoted(repo: Path) -> Iterator[None]:
         settings_path.write_bytes(original)
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild
@@ -4310,7 +4345,6 @@ def assert_no_start_request_was_filed(traces: list[ToolTrace]) -> None:
     )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild
@@ -4598,7 +4632,6 @@ ABORT_OPERATOR_REQUEST = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild
@@ -4687,7 +4720,6 @@ REARM_OPERATOR_REQUEST = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild

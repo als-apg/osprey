@@ -283,6 +283,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
         "va_archiver",
         "watchdogs",
         "bluesky_web",
+        "optimizer",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -526,7 +527,7 @@ def test_a_marker_stops_covering_a_comment_out_of_reach() -> None:
 def test_the_refusal_names_the_marker_that_declares_a_port_foreign() -> None:
     """A rule is readable where it fires, or it is read nowhere.
 
-    The marker's shape is spelled in the pattern above, in the one bundled preset that uses
+    The marker's shape is spelled in the pattern above, in the only bundled preset that uses
     it and in the fixture that copies that preset byte for byte. The failure message is the
     only one of the four that a contributor editing a preset arrives at.
     """
@@ -551,7 +552,7 @@ def test_no_comment_freezes_the_channel_finder_mode(preset: str, mode: str) -> N
     carried, which described the mode as a fact and went stale the moment
     ``osprey set channel_finder_mode=`` moved it.
 
-    The two presets asked are the ones that spell the field. For a preset that
+    The presets asked are the ones that spell the field. For a preset that
     leaves it to the commented template, setting the mode retires that template,
     which is a difference in the offered keys rather than in frozen prose.
     """

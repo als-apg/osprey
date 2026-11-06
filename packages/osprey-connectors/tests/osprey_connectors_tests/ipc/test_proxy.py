@@ -642,6 +642,7 @@ async def test_an_error_the_child_sent_is_marked_as_the_childs(teardown):
     assert proxy.dead_reason is None
 
 
+@pytest.mark.usefixtures("earlier_garbage_frozen")
 async def test_an_abandoned_request_failing_later_is_not_logged_as_unhandled(teardown, caplog):
     """A request nobody waits for any more can still be failed — by a dying
     pipe, say — and asyncio must not log that failure as an unhandled error."""

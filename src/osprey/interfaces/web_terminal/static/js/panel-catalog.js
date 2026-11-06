@@ -118,11 +118,10 @@ export const PANEL_ICONS = Object.freeze({
   artifacts: 'layers',
   events: 'activity',
   ariel: 'book-open',
-  lattice: 'hexagon',
   okf: 'library',
   'channel-finder': 'radio',
-  bluesky: 'flask',
-  'system-health': 'activity',
+  bluesky: 'chart-scatter',
+  'system-health': 'stethoscope',
 });
 
 /** The glyph of a panel {@link PANEL_ICONS} does not name. */
@@ -152,7 +151,6 @@ export const PANEL_DESCRIPTIONS = Object.freeze({
   events: 'Event dispatcher dashboard',
   ariel: 'Search the electronic logbook',
   'channel-finder': 'Find control-system channels by name or property',
-  lattice: 'Optics of the lattice models the simulator serves',
   okf: 'Browse the facility knowledge bundle',
   'system-health': 'Health checks for the framework and its services',
   bluesky: 'Write plans, run the queue and watch live results',
@@ -248,11 +246,6 @@ export const PANELS = [
     id: 'channel-finder',
     label: labelOf('channel-finder'),
     configEndpoint: '/api/channel-finder-server',
-  },
-  {
-    id: 'lattice',
-    label: labelOf('lattice'),
-    configEndpoint: '/api/lattice-server',
   },
   // The sidecar panels, from the page's stamp, where the notebook panel has
   // always sat in the roster.

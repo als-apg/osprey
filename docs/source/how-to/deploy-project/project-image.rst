@@ -27,8 +27,8 @@ every project.
 Overview
 ========
 
-Every project built by ``osprey build`` includes a reference container
-recipe at the project root:
+Every ``osprey build`` renders a reference container recipe into ``build/``
+(and its image-context copy under ``build/.image/<project>/build/``):
 
 - ``Dockerfile`` — an image definition that installs the agent CLI and OSPREY,
   copies the project in, relocates its recorded paths, and serves the web
@@ -36,14 +36,11 @@ recipe at the project root:
 - ``.dockerignore`` — keeps secrets (``.env``) and host-specific state
   (``.venv``, ``.git``, ``var/``) out of the image.
 
-Both files are **generated, then yours to edit in place**: change them freely,
-but keep ``.dockerignore`` — the build depends on it, and it is what keeps your
-``.env`` secrets out of the image. ``osprey build`` never touches either
-file.
-
-An edit made in ``build/`` lasts only until the next ``osprey build``, which
-re-renders both from the framework. To make a customization durable, put your
-version in the source zone's ``project/`` mirror instead:
+Both files are re-rendered from the framework on every build, so an edit made
+in ``build/`` lasts only until the next ``osprey build``. To customize them, put
+your version in the source zone's ``project/`` mirror instead. Keep ``.env``
+excluded in a ``.dockerignore`` of your own; the build also strips every
+``.env`` file except ``.env.example`` from the image context.
 
 .. code-block:: text
 
@@ -62,6 +59,34 @@ See :doc:`../build-profiles` for the profile's convention directories.
    — but the two meet in one place: a deploy that includes the dispatch
    worker, the ARIEL sync service or the record archive builds this same
    project image (tagged ``<project>:local``) for them to run.
+
+Keeping repo files out of the image
+===================================
+
+The image carries your deployment repo. To keep repo files out of it —
+notebooks, scratch directories, large analysis output — list them in a
+``.dockerignore`` at the repo root, beside ``profile.yml``. The syntax is
+Docker's, and patterns are anchored at the repo root:
+
+.. code-block:: text
+
+   # my-facility/.dockerignore
+   notebooks/
+   *.h5
+
+Here ``*.h5`` drops ``x.h5`` at the root but not ``data/x.h5``; write
+``**/*.h5`` for every depth. Two rules hold whatever the file says:
+
+- it cannot bring back what OSPREY excludes: ``.env`` files, ``.git``,
+  ``build/`` and the repo's Claude Code files stay out;
+- a pattern that would remove a build input — ``data/``, the convention
+  directories, ``tiers/``, ``apps/``, the trigger file, ``profile.yml``,
+  a repo-local ``extends:`` base, the selected host-variant profile, an
+  enabled watchdog's directory —
+  fails the build, naming the pattern.
+
+This file is yours; the rendered ``build/.dockerignore`` described above is
+OSPREY's list of what it always keeps out.
 
 Quickstart
 ==========
@@ -307,7 +332,7 @@ tool's default and the build behaves exactly as before.
 
    (``/etc/ssl/certs/ca-bundle.crt`` is the RHEL-family spelling of the system
    bundle; Debian-family hosts use ``/etc/ssl/certs/ca-certificates.crt``.)
-   These are the same three variables the image sets for its own inside —
+   These are three of the four variables the image sets for its own inside —
    exported here, they cover the host-side build, which reads them from the
    shell rather than from the deployment's env files.
 

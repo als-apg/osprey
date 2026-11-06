@@ -55,11 +55,13 @@ from osprey.services.archiver_recorder.config import (
 )
 from osprey_connectors.simulation.archive import waveform_collection, waveform_document
 from osprey_connectors.simulation.view import VARIABLES_SCHEMA
-
-# The session-scoped MongoDB container, reused rather than re-declared: one
-# container for the whole test session, skipping cleanly without Docker.
 from tests._simulator_view import view_channel
-from tests.connectors.conftest import mongodb_container  # noqa: F401
+
+# xdist_group("docker"): the tests that write to a real MongoDB use the
+# session's ``mongodb_container`` (tests/conftest.py), and the docker group puts
+# them on the worker that already runs it for the connector tests, so they share
+# its container instead of starting one of their own.
+pytestmark = pytest.mark.xdist_group("docker")
 
 
 def _settings(**overrides) -> RecorderSettings:
@@ -1034,7 +1036,7 @@ async def test_idling_logs_once_not_every_poll(
 
 
 @pytest.fixture
-def archive_collection(mongodb_container):  # noqa: F811
+def archive_collection(mongodb_container):
     """A clean collection plus the settings pointing at it."""
     from pymongo import MongoClient
 
@@ -1148,7 +1150,7 @@ def test_stored_documents_carry_the_shape_the_connector_reads(archive_collection
 
 async def _connected_reader(
     settings: RecorderSettings,
-    mongodb_container,  # noqa: F811
+    mongodb_container,
     password: str,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1179,7 +1181,7 @@ async def _connected_reader(
 
 async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     archive_collection,
-    mongodb_container,  # noqa: F811
+    mongodb_container,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Write, store and read back through the connector, each under the channel's address.
@@ -1223,7 +1225,7 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
 
 async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     archive_collection,
-    mongodb_container,  # noqa: F811
+    mongodb_container,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A channel named after a field of the archive's own documents keeps that field intact.

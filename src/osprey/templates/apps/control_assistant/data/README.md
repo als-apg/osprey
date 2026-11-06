@@ -68,7 +68,7 @@ ships:
   straight and arc in beam order, every magnet, corrector and BPM with its
   status and readbacks, and the sector's vacuum;
 - `sr/orbit-feedback` — storage-ring orbit feedback: the BPM orbit and
-  corrector readbacks, the DCCT, the orbit RMS per plane as CANOPY Fox
+  corrector readbacks, the DCCT, the orbit RMS per plane as CANOPY Formula Engine
   formulas, and one corrector setpoint input;
 - the transfer-line panels `gtl/GTL` and `bts/BTS`, with the screens and
   images they embed under `common/`.

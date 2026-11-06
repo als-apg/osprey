@@ -342,10 +342,8 @@ def _web_server_address(key: str) -> Callable[[Path, pytest.MonkeyPatch], tuple[
     def run(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
         from osprey.registry.web import resolve_web_server_address
 
-        definition = FRAMEWORK_WEB_SERVERS[key]
-        family = definition.port_family or key
         _host, port = resolve_web_server_address(key, CONFIG)
-        return port, default_port(family, 0, base=PORT_BASE)
+        return port, default_port(key, 0, base=PORT_BASE)
 
     return run
 
@@ -594,7 +592,7 @@ CASES: tuple[Case, ...] = (
             f"resolve_web_server_address[{key}]",
             "the config it is handed",
             _web_server_address(key),
-            (FRAMEWORK_WEB_SERVERS[key].port_family or key,),
+            (key,),
         )
         for key in sorted(FRAMEWORK_WEB_SERVERS)
     ),
@@ -604,7 +602,7 @@ CASES: tuple[Case, ...] = (
         "base_ports_from_config",
         "base= keyword, no default",
         _base_ports,
-        ("web", "artifact", "ariel", "lattice", "channel_finder", "okf", "system_health"),
+        ("web", "artifact", "ariel", "channel_finder", "okf", "system_health"),
     ),
     Case(
         "mcp_server.http.web_terminal_url",

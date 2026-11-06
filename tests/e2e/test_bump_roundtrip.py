@@ -116,7 +116,6 @@ from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA/bridge/Tiled image build + deploy -- runs in the
     # dedicated orm-roundtrip-e2e CI job alongside test_orm_roundtrip.py and
@@ -511,7 +510,9 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         # landing on a real deployment's default 10000 block.
         port_base=21900,
         timeout=BUILD_TIMEOUT_SEC,
-        extra_config=EXTRA_CONFIG,
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(EXTRA_CONFIG),
     )
 
     # The bump's geometry is chosen from the device file the build staged, so
@@ -911,7 +912,7 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
         "event, which also shifts every step's row out of position"
     )
 
-    columns = data["columns"]
+    columns = [column["name"] for column in data["columns"]]
     rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
     assert len(rows) == EXPECTED_ROWS
     measured = _Measured(stack, columns, rows)
