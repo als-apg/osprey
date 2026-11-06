@@ -50,6 +50,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   setServiceRedock: (/** @type {() => void} */ fn) => {
     redock.fn = fn;
   },
+  applyingSessionLayout: () => false,
   onDragGesture: () => [],
 }));
 // The one question the adapter asks the pop-out seam: whether a panel lives

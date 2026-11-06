@@ -22,15 +22,17 @@
   overflow-x: hidden;
 }
 
-/* The resize handle (sidebar-resize.js): a 6 px hit area on the sidebar's
-   right edge, outside the flex flow, that shows a 2 px line on hover and an
-   accent line while focused or dragged. */
+/* The resize handle (sidebar-resize.js): a 12 px hit area along the sidebar's
+   right edge, outside the flex flow (the sidebar clips overflow, so the zone
+   sits inside the edge). The edge shows a 2 px accent line on hover and a 3 px
+   one while focused or dragged; the zone takes the col-resize cursor, and the
+   whole page does for the length of a drag. */
 .sidebar > .sidebar-resize {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 6px;
+  width: 12px;
   cursor: col-resize;
   touch-action: none;
   outline: none;
@@ -48,12 +50,21 @@
 }
 
 .sidebar-resize:hover::after {
-  background: var(--border-default);
+  background: var(--color-accent);
+  opacity: 0.55;
 }
 
 .sidebar-resize:focus-visible::after,
 .sidebar-resize.dragging::after {
+  width: 3px;
   background: var(--color-accent);
+  opacity: 1;
+}
+
+html[data-sidebar-resizing],
+html[data-sidebar-resizing] * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 
 /* Height budget: the head, the control-system block, search, the groups and
@@ -67,10 +78,12 @@
 }
 
 .sidebar > .sidebar-sections {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .sidebar-sections > * {
@@ -114,7 +127,13 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
   min-height: 0;
 }
 
+/* The tree is a column that gives way to its boxes, so a box scrolls once the
+   room runs out (the dragged group, or the rail in automatic sizing) and
+   otherwise takes its content's height. */
 .sidebar-group > .sidebar-row > [data-session-tree] {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
   min-height: 52px;
 }
 
@@ -222,6 +241,90 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
   }
 }
 
+/* Folding (sidebar-fold.js): a double-click on the heading leaves only the
+   heading. */
+.sidebar-group-head .sidebar-group-name {
+  outline: none;
+}
+
+.sidebar-group-head .sidebar-group-name:focus-visible {
+  box-shadow: 0 0 0 2px var(--surface-focus);
+}
+
+html:not([data-sidebar="collapsed"]) .sidebar-group[data-folded] {
+  flex: none;
+  height: auto;
+  overflow: hidden;
+}
+
+html:not([data-sidebar="collapsed"]) .sidebar-group[data-folded] > :not(.sidebar-group-head) {
+  display: none;
+}
+
+/* The Workspace divider (sidebar-divider.js): a zero-height row between
+   groups, so it shifts nothing; a 1 px faint line with a 10 px hit zone
+   across it. As on the sidebar's edge handle, hover, focus and drag draw an
+   accent line. The group it sizes reads --sidebar-group-height. */
+.sidebar-divider {
+  position: relative;
+  height: 0;
+  outline: none;
+  z-index: 1;
+}
+
+.sidebar-divider::before {
+  content: "";
+  position: absolute;
+  inset: -5px 0;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.sidebar-divider::after {
+  content: "";
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  top: 0;
+  height: 1px;
+  background: var(--surface-hairline);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: background var(--duration-instant) ease;
+}
+
+.sidebar-divider:hover::after {
+  height: 2px;
+  background: var(--color-accent);
+  opacity: 0.55;
+}
+
+.sidebar-divider:focus-visible::after,
+.sidebar-divider.dragging::after {
+  height: 2px;
+  background: var(--color-accent);
+  opacity: 1;
+}
+
+.sidebar-divider[hidden],
+html[data-sidebar="collapsed"] .sidebar-divider {
+  display: none;
+}
+
+html[data-sidebar-dividing],
+html[data-sidebar-dividing] * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
+/* #panel-rail outranks the shrinking rule for the session tree's group above. */
+html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-sized]:not([data-folded]) {
+  flex: none;
+  height: var(--sidebar-group-height);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .sidebar-group-rename {
   flex: 1;
   min-width: 0;
@@ -260,6 +363,25 @@ html[data-sidebar="collapsed"] .sidebar :is(
 }
 
 /* ---- Panel rows: health and drag states (panel-rail.js) ---- */
+
+/* The surfaced panel: the session tree's selected look (sidebar-artifacts.css)
+   — a quiet tint, the accent icon and a thin accent bar; the label keeps its
+   resting colour and weight. */
+.sidebar .panel-rail-button[aria-current="page"] {
+  background: var(--accent-tint-06);
+  color: var(--text-secondary);
+}
+
+.sidebar .panel-rail-button[aria-current="page"]:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.sidebar .panel-rail-button[aria-current="page"]::before {
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+}
 
 .sidebar .panel-rail-button.disabled,
 .sidebar .panel-rail-button.unreachable,
@@ -319,14 +441,6 @@ html[data-sidebar="collapsed"] .sidebar :is(
 
 /* ---- The Agent row: open, closed, waiting ---- */
 
-.sidebar-agent-dot {
-  width: 6px;
-  height: 6px;
-  margin-left: auto;
-  margin-right: var(--space-1);
-  background: var(--color-success);
-}
-
 .sidebar-open-hint {
   display: none;
   margin-left: auto;
@@ -341,16 +455,6 @@ html[data-agent="closed"] #sidebar-agent-row .osprey-nav-icon {
 
 html[data-agent="closed"] #sidebar-agent-row .osprey-nav-label {
   color: var(--text-muted);
-}
-
-/* Closed is a shape (a hollow circle), not only a hue. */
-html[data-agent="closed"] #sidebar-agent-row .sidebar-agent-dot {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--text-muted);
-}
-
-html[data-agent="closed"] #sidebar-agent-row:is(:hover, :focus-visible) .sidebar-agent-dot {
-  display: none;
 }
 
 html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(:hover, :focus-visible) .sidebar-open-hint {
@@ -433,6 +537,8 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
 }
 
 .sidebar-flyout [data-session-tree] {
+  display: flex;
+  flex-direction: column;
   max-height: calc(12 * 26px);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -625,8 +731,7 @@ html[data-sidebar="collapsed"] :is(
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,
-  .sidebar-open-hint,
-  .sidebar-agent-dot
+  .sidebar-open-hint
 ) {
   display: none;
 }

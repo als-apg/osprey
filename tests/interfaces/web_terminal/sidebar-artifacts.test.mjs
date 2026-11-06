@@ -4,11 +4,13 @@
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifacts.test.mjs
  *
  * The Agent row's tree lists the operator's sessions (session-model.js, real
- * here, over a stubbed hub), each expanding to its artifacts grouped by form,
- * loaded lazily through the artifacts panel's `session-list` and counted by
- * one `session-summary` per page of sessions. These tests pin the data flow
- * (what loads when), the clicks (a session name switches and reveals, an
- * artifact opens without switching and records last-artifact), the viewer's
+ * here, over a stubbed hub), each expanding to its artifacts grouped by form
+ * (Kind mode, stored per test), loaded lazily through the artifacts panel's
+ * `session-list` and counted by one `session-summary` per page of sessions.
+ * These tests pin the data flow (what loads when), the clicks (only the
+ * current session opens; another session's name switches and reveals, the
+ * current one's folds, an artifact opens without switching and records
+ * last-artifact), the viewer's
  * focus rules and pager, and the live counts.
  *
  * Collaborators that need a running page are mocked (the chat console, the
@@ -273,9 +275,16 @@ function boxIds(sid) {
     : null;
 }
 
-/** @param {Element} el */
-function click(el) {
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+/** @param {Element} el @param {number} [detail]  the click count */
+function click(el, detail = 1) {
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
+}
+
+/** A double-click: two clicks, the second with `detail` 2, then dblclick. @param {Element} el */
+function dblclick(el) {
+  click(el, 1);
+  click(el, 2);
+  el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
 }
 
 /**
@@ -327,6 +336,9 @@ beforeEach(async () => {
   vi.setSystemTime(Date.UTC(2026, 9, 30, 12, 0));
   document.documentElement.setAttribute('data-facility-timezone', 'UTC');
   localStorage.clear();
+  // Written against Kind mode, which an operator must choose (Activity is the
+  // default; see the tree-mode test below).
+  localStorage.setItem('osprey-sidebar-artifacts-view', 'kind');
   mocks.streaming = false;
   mocks.terminal = false;
   for (const fn of Object.values(mocks))
@@ -417,8 +429,8 @@ describe('the data', () => {
 
   test('a scroll to the end of a box loads the next page of its open groups', async () => {
     await boot();
-    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('[data-tree-disc]')));
-    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T2}:plots"]`)));
+    // Entering T2 reveals its last-open b1, which opens the plots group.
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
     await settle();
     expect(boxIds(T2)).toEqual(['b1']);
     const box = /** @type {HTMLElement} */ (tree().querySelector(`[data-session-box="${T2}"]`));
@@ -453,17 +465,121 @@ describe('the data', () => {
 /* ---- expansion and clicks ---------------------------------------------- */
 
 describe('expansion and clicks', () => {
-  test('▸ browses additively; a session-name click collapses the others', async () => {
+  test('with no mode stored the tree opens in Activity mode', async () => {
+    localStorage.removeItem('osprey-sidebar-artifacts-view');
     await boot();
-    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('[data-tree-disc]')));
+    expect(mod.treeView()).toBe('activity');
+    expect(tree().querySelector('[data-group-head]')).toBeNull();
+  });
+
+  test('only the current session is open: the others are folded, with no disclosure', async () => {
+    await boot();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T1).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).toBeNull();
+    expect(tree().querySelectorAll('[data-session-box]')).toHaveLength(1);
+    expect(boxIds(T1)).not.toBeNull();
+  });
+
+  test('a non-current session never opens in place: any click on its row enters it', async () => {
+    await boot();
+    mocks.streaming = true;
+    mocks.showConfirm.mockImplementation((spec) => spec.onDismiss());
+    // The slot where a disclosure would be, the dot and the count: each one
+    // asks to switch (Cancel here), and none opens the row without switching.
+    for (const part of ['.osprey-tree-disc', '.osprey-dot', '.osprey-tree-n']) {
+      click(/** @type {Element} */ (sessionRowEl(T2).querySelector(part)));
+      await settle();
+      expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+    }
+    expect(mocks.showConfirm).toHaveBeenCalledTimes(3);
+    expect(pointer.getPointer()).toBe(K1);
+  });
+
+  test('switching collapses the previous session and opens the new one, even if it was folded', async () => {
+    await boot();
+    // Fold the current session first: the switch still opens the next one.
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    expect(sessionRowEl(T1).querySelector('[data-tree-disc]')).toBeNull();
+    expect(tree().querySelector(`[data-session-box="${T1}"]`)).toBeNull();
+  });
+
+  test('a session switched to from elsewhere (the pointer moves) opens and the old one folds', async () => {
+    await boot();
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    pointer.setPointer('77777777-7777-4777-8777-777777777777');
+    await settle();
+    const fresh = /** @type {HTMLElement} */ (tree().querySelector('.osprey-tree-session.active'));
+    expect(fresh.getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('a double-click on the current session folds it (once), and on another enters it open', async () => {
+    await boot();
+    dblclick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    dblclick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
     await settle();
     expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+
+    dblclick(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
     expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test("a click on the current session's name or disclosure folds and unfolds it, and nothing else", async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    const calls = fetchMock.mock.calls.length;
+
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    expect(sessionRowEl(T1).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('[data-tree-disc]')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('[data-tree-disc]')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
 
     click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
     await settle();
     expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
-    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+
+    expect(mocks.resumeSession).not.toHaveBeenCalled();
+    expect(mocks.openTerminalPanel).not.toHaveBeenCalled();
+    expect(mocks.activateTab).not.toHaveBeenCalled();
+    expect(pointer.getPointer()).toBe(K1);
+    // No reveal: the session's rows were loaded, so nothing is fetched.
+    expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
+  test('openInAgent on the current session opens the Agent pane and keeps it unfolded', async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+
+    await mod.openInAgent(T1);
+    await settle();
+
+    expect(mocks.openTerminalPanel).toHaveBeenCalled();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
     expect(mocks.resumeSession).not.toHaveBeenCalled();
   });
 
@@ -536,17 +652,16 @@ describe('expansion and clicks', () => {
   test('an artifact click shows it without switching, records last-artifact, and brings an undocked panel up', async () => {
     await boot();
     mocks.hasDockedTile.mockReturnValue(false);
-    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('[data-tree-disc]')));
-    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T2}:plots"]`)));
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
     await settle();
 
-    click(artifactRowEl('b1'));
+    click(artifactRowEl('a2'));
     await settle();
 
-    expect(shown()).toBe('b1');
+    expect(shown()).toBe('a2');
     expect(pointer.getPointer()).toBe(K1);
-    expect(requests(`/api/sessions/${T2}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
-      { artifact_id: 'b1' },
+    expect(requests(`/api/sessions/${T1}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
+      { artifact_id: 'a2' },
     ]);
     expect(mocks.activateTab).toHaveBeenCalledWith('artifacts', { userInitiated: true });
   });
@@ -726,5 +841,57 @@ describe('live updates', () => {
       'updated',
       expect.objectContaining({ title: 'Renamed' })
     );
+  });
+});
+
+/* ---- the highlight ------------------------------------------------------ */
+
+describe('the highlight: at most one row, the one the Artifacts panel shows', () => {
+  const selected = () =>
+    [...document.querySelectorAll('[data-session-tree] [aria-selected="true"]')].map(
+      (el) => /** @type {HTMLElement} */ (el).dataset.id
+    );
+  const dockChanged = () => document.dispatchEvent(new CustomEvent('osprey-dock-view-changed'));
+
+  test("only one row is selected, and a switch clears the old session's", async () => {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    click(artifactRowEl('a2'));
+    await settle();
+    expect(selected()).toEqual(['a2']);
+
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+
+    expect(shown()).toBe('b1');
+    expect(selected()).toEqual(['b1']);
+    expect(tree().querySelector('[data-id="a2"]')).toBeNull();
+  });
+
+  test('closing the Artifacts panel clears the highlight; reopening it brings it back', async () => {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    click(artifactRowEl('a2'));
+    await settle();
+    expect(selected()).toEqual(['a2']);
+
+    mocks.hasDockedTile.mockReturnValue(false);
+    dockChanged();
+    expect(selected()).toEqual([]);
+
+    mocks.hasDockedTile.mockReturnValue(true);
+    dockChanged();
+    expect(selected()).toEqual(['a2']);
+  });
+
+  test('with the Artifacts panel off view no row is selected, whatever it would show', async () => {
+    mocks.hasDockedTile.mockReturnValue(false);
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    expect(shown()).toBeTruthy();
+    expect(selected()).toEqual([]);
   });
 });

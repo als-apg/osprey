@@ -157,6 +157,8 @@ function onHubFrame(data) {
   if (data?.type === 'session_transcript') {
     if (loaded.some((r) => r.session_key === data.session_key) || data.session_key === getPointer())
       refresh();
+  } else if (data?.type === 'session_deleted') {
+    forgetSession(data.transcript_id);
   } else if (data?.type === 'session_named') {
     const row = loaded.find((r) => r.transcript_id === data.transcript_id);
     if (!row) return;
@@ -164,6 +166,17 @@ function onHubFrame(data) {
     row.naming = data.naming;
     notify('named');
   }
+}
+
+/**
+ * Drop a deleted session's row (the delete's answer, or a `session_deleted`
+ * frame from another tab's delete).
+ * @param {string} transcriptId
+ */
+export function forgetSession(transcriptId) {
+  const before = loaded.length;
+  loaded = loaded.filter((r) => r.transcript_id !== transcriptId);
+  if (loaded.length !== before) notify('rows');
 }
 
 /**
