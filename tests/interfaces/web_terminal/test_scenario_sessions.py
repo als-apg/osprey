@@ -176,6 +176,19 @@ def test_scenario_sessions_fresh_lay_down_fills_every_store_and_deletes_seed(hub
     assert entry.timestamp.startswith(str(_first_turn_at(1, 1).date()))
 
 
+def test_scenario_sessions_refuses_a_transcript_id_that_is_not_a_uuid(hub):
+    document = _seed_document()
+    document["sessions"][0]["parts"][0]["transcript_id"] = "../../escaped"
+    hub.seed.write_text(json.dumps(document))
+
+    report = scenario_sessions.lay_down_scenario_sessions(hub.app)
+
+    assert report.incomplete == (KEY_1,)
+    assert not report.seed_removed
+    assert not (hub.sessions_dir.parent.parent / "escaped.jsonl").exists()
+    assert list(hub.sessions_dir.parent.parent.rglob("escaped.jsonl")) == []
+
+
 def test_scenario_sessions_without_seed_file_is_a_no_op(hub):
     report = scenario_sessions.lay_down_scenario_sessions(hub.app)
 

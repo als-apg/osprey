@@ -21,6 +21,7 @@ import base64
 import json
 import logging
 import os
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -177,6 +178,10 @@ def _lay_down_session(
         raise ValueError(f"a seeded session needs a key, got {key!r}")
     parts_raw = raw["parts"]
     transcript_ids = [part["transcript_id"] for part in parts_raw]
+    # Each id names a file under the transcript dir: only a canonical UUID may.
+    for tid in transcript_ids:
+        if not isinstance(tid, str) or str(uuid.UUID(tid)) != tid:
+            raise ValueError(f"session {key}: transcript id {tid!r} is not a canonical UUID")
     plain = {k: v for k, v in raw.items() if k not in _SESSION_EXTRA_KEYS}
     plain["parts"] = [{k: v for k, v in p.items() if k != "transcript_id"} for p in parts_raw]
     resolved = from_dict(plain, prefix=f"session {key}")
