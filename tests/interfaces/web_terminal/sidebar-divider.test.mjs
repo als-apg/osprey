@@ -115,6 +115,16 @@ describe('the Workspace divider', () => {
     expect(divider().getAttribute('aria-valuetext')).toBe('Automatic');
   });
 
+  test('aria-valuenow follows the tree when it grows after init', async () => {
+    await boot();
+    expect(divider().getAttribute('aria-valuenow')).toBe('200');
+    Object.defineProperty(group('workspace'), 'offsetHeight', { value: 253, configurable: true });
+    qs(group('workspace'), '.sidebar-row').append(document.createElement('div'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(divider().getAttribute('aria-valuenow')).toBe('253');
+    expect(divider().getAttribute('aria-valuetext')).toBe('Automatic');
+  });
+
   test('aria-valuenow is the rendered height kept within the limits, and the live height in a drag', async () => {
     await boot();
     const ws = group('workspace');

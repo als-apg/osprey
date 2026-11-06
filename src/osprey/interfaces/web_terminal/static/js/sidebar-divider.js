@@ -265,8 +265,20 @@ export function initSidebarDivider(railOrNull) {
     divider.hidden =
       isGroupFolded(group.getAttribute('data-group') ?? '') ||
       root.getAttribute('data-sidebar') === 'collapsed';
-    // Read after measure(): the height the group renders at, kept in range
-    // (a short tree can render under the minimum); a drag's live height as is.
+    updateAria();
+  }
+
+  /**
+   * The separator's value, read from the group as it renders now (a short
+   * tree can render under the minimum, so it is kept in range; a set height
+   * or a drag's live height is used as is). Called after every paint and
+   * whenever the tree changes under an unchanged paint, so it never goes
+   * stale. Aria writes are not observed, so this never feeds itself.
+   */
+  function updateAria() {
+    const group = workspace();
+    if (!group) return;
+    const height = dragHeight ?? storedHeight();
     const now = height ?? clamp(group.offsetHeight);
     divider.setAttribute('aria-valuemin', String(MIN_HEIGHT));
     divider.setAttribute('aria-valuemax', String(maxHeight()));
@@ -357,9 +369,13 @@ export function initSidebarDivider(railOrNull) {
     for (const el of Array.from(rail.parentElement.children)) if (el !== rail) sizes.observe(el);
   }
   // The tree re-renders on its own (sessions arrive, a box loads its rows):
-  // its floors follow. Style and aria writes are not observed, so measuring
-  // never feeds itself.
-  new MutationObserver(measure).observe(rail, {
+  // its floors and the separator's value follow. Not paint(): that sets
+  // `hidden`, which this observer watches. Style and aria writes are not
+  // observed, so measuring never feeds itself.
+  new MutationObserver(() => {
+    measure();
+    updateAria();
+  }).observe(rail, {
     childList: true,
     subtree: true,
     attributes: true,
