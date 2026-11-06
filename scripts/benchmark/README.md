@@ -129,6 +129,10 @@ scripts/benchmark/matrix.py --only cborg-coder --parallel 1
 scripts/benchmark/matrix.py --parallel 4
 scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
 
+# Re-render the published copy the docs page links to:
+scripts/benchmark/matrix_dashboard.py --results-dir results --artifact \
+    --out docs/source/_static/benchmark-dashboard.html
+
 # Full clean restart on the benchmark box + live local dashboard:
 bash scripts/benchmark/matrix_restart.sh
 scripts/benchmark/matrix_dashboard_live.sh
