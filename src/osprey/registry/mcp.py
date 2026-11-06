@@ -33,6 +33,7 @@ from osprey_connectors.posture_store import (
     DISPATCH_RUN_ENV_VAR,
     LAUNCH_POSTURE_ENV_VAR,
 )
+from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
 from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
@@ -1386,6 +1387,10 @@ POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
 #: value would file a session's records under another session's name.
 TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 
+#: The session a write's hold is read for. Spelled here because its connectors
+#: owner, ``posture_store._SESSION_KEY_ENV_VAR``, is private.
+SESSION_ID_ENV = "OSPREY_SESSION_ID"
+
 #: The per-target posture a python-executor sandbox was LAUNCHED under.
 #: Imported rather than re-spelled: unlike the names above, its owner
 #: (:mod:`osprey_connectors.posture_store`) is a package the registry may
@@ -1460,6 +1465,10 @@ DISPATCH_RUN_ENV = DISPATCH_RUN_ENV_VAR
 #: makes a process a dispatch job, whose owner is "no owner". A spec that could
 #: set it could present that ownerless answer where an owner's narrowing should
 #: have been read; its only legitimate source is the dispatch launcher.
+#: ``OSPREY_SESSION_ID`` and ``OSPREY_SESSION_HOLD_DIR`` decide which session's
+#: hold a write is judged against: the spawn sites stamp both and the agent's
+#: MCP children inherit them. A spec that could set either could name another
+#: session or a hold root with no flags in it, which sheds the hold.
 NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     *IDENTITY_ENV_LADDER,
     POSTURE_ENV_VAR,
@@ -1472,6 +1481,8 @@ NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     CONTROL_CONTEXT_TREE_ENV,
     CONTROL_CONTEXT_DIR_ENV,
     DISPATCH_RUN_ENV,
+    SESSION_ID_ENV,
+    HOLD_DIR_ENV_VAR,
 )
 
 #: Env markers a server spec's ``env:`` may not set — the framework owns them.

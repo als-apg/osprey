@@ -8,8 +8,8 @@ the changelog. Application code imports OSPREY only through this module (and
 framework modules behind these names are internal and may move.
 
 The write chain an application meets is the framework's own:
-:func:`check_approved_call` runs the login's tier, :func:`write_verdict` and
-the approval record for one call; :func:`command_write` fires commands under
+:func:`check_approved_call` runs the login's tier, the execution verdict (the
+write verdict plus the session's hold) and the approval record for one call; :func:`command_write` fires commands under
 the run :func:`lock`; :func:`refusal_phrase` words a refusal.
 """
 
