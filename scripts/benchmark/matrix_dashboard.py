@@ -706,8 +706,8 @@ def main() -> int:
         # timestamp, auto-refresh or running-now line — just title and data.
         H.append(f"<h1>{title}</h1>")
         H.append(
-            f"<p class=sub>Open-weight &amp; self-hosted models across the "
-            f"<code>tests/e2e/</code> suite · {len(models)} model{'s' if len(models) != 1 else ''} × {len(SEEDS)} seeds</p>"
+            f"<p class=sub>Open-weight &amp; self-hosted models on OSPREY's agentic tests, "
+            f"Tier 1 and Tier 2 · {len(models)} model{'s' if len(models) != 1 else ''} × {len(SEEDS)} seeds</p>"
         )
     else:
         H.append(f"<h1>{title}</h1>")
@@ -948,25 +948,27 @@ def main() -> int:
             f"carrying an <code>agentic</code> marker, whose tier, title and description are "
             f"re-derived from live collection every cell — run once per seed with reruns off, "
             f"so every result is a first attempt. Tier 3, facility-scale tasks, is planned. "
-            f"The run set is <code>tests/e2e/</code>"
         )
     else:
-        what = f"The <b>{n_txt}</b> model-driving e2e tests of <code>tests/e2e/</code>"
+        what = f"The <b>{n_txt}</b> model-driving e2e tests. "
     if exclusions:
-        excl_html = ", ".join(
-            f"<code title='{html.escape(reason)}'>{html.escape(os.path.basename(rel))}</code>"
+        # The names stay one click away: the page names tests by what they ask,
+        # never by file.
+        excl_items = "".join(
+            f"<li><code>{html.escape(os.path.basename(rel))}</code> — {html.escape(reason)}</li>"
             for rel, reason in exclusions
         )
         scope = (
-            f"{what} minus the {len(exclusions)} files that don't call an LLM and/or don't "
-            f"route through the model under test (hover for the reason: {excl_html}). They are "
-            f"forced"
+            f"{what}{len(exclusions)} e2e files that don't drive a model are not on the board. "
+            f"The tests are forced"
+        )
+        excl_details = (
+            f"<details><summary>The {len(exclusions)} files not on the board</summary>"
+            f"<ul>{excl_items}</ul></details>"
         )
     else:
-        scope = (
-            f"{what} minus the files that don't call an LLM and/or don't route through the "
-            f"model under test. They are forced"
-        )
+        scope = f"{what}The tests are forced"
+        excl_details = ""
     # The judge each cell ran with, as the worker recorded it; results that
     # predate the field name none.
     judges = sorted({d["judge"] for d in runs.values() if d.get("judge")})
@@ -990,7 +992,7 @@ def main() -> int:
         + "Latency figures come from the agent SDK's own "
         "accounting of each query (<code>OSPREY_E2E_QUERY_LOG</code>) and from per-test wall time; "
         "a self-hosted model's speed depends on its hardware, named under each model with its "
-        "provider.</footer>"
+        "provider." + excl_details + "</footer>"
     )
     H.append("</div>")
 

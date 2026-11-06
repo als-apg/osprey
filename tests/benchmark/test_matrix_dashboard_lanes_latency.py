@@ -190,6 +190,11 @@ def test_rendered_page_groups_by_tier_and_shows_only_models_with_data(tmp_path):
     assert "<summary>Diagnose a beam dump</summary>" in page
     assert "<b>asks</b> Diagnose a beam dump?" in page
     assert "<div class=file>test_hard.py::test_diagnosis</div>" in page
+    # the excluded files are one sentence; their names sit in a collapsed list
+    footer = page[page.index("<footer>") :]
+    assert "e2e files that don't drive a model are not on the board" in footer
+    assert footer.index("<details>") < footer.index("test_llm_providers.py")
+    assert "tests/e2e/</code> suite" not in page
     # Tier 2 counts each model's first-attempt passes
     assert re.search(r"first-attempt passes</td>\s*<td>1/1</td>", page)
     # models from earlier runs with no results here get no empty row
