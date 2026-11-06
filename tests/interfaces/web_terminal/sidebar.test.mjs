@@ -61,8 +61,8 @@ const SIDEBAR_HTML = `
       <div class="sidebar-sections" id="panel-rail" role="list">
         <div class="sidebar-group" data-group="workspace" role="listitem"
              aria-labelledby="sidebar-workspace-label">
-          <div class="osprey-section-label sidebar-group-head">
-            <span class="sidebar-group-name" id="sidebar-workspace-label">Workspace</span>
+          <div class="osprey-section-label sidebar-group-head" hidden>
+            <span class="sidebar-group-name" id="sidebar-workspace-label">Sessions</span>
           </div>
 
           <div class="sidebar-row" id="sidebar-agent-wrap">

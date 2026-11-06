@@ -2,7 +2,7 @@
 /* OSPREY Web Terminal — the sidebar's panel rows (DOM renderer)
  *
  * The labelled sidebar lists the panels inside `#panel-rail`, sorted into the
- * operator's groups (sidebar-groups.js): `Workspace` and `Tools` to begin
+ * operator's groups (sidebar-groups.js): the headless `Sessions` and `Tools` to begin
  * with, then renamed, reordered or joined by groups of the operator's own.
  * The Agent row is always the first row of the first group. Every other row
  * sits in the group the model places it in, and within a group the rows keep
@@ -63,8 +63,8 @@
  *   <div id="panel-rail" role="list">
  *     <div class="sidebar-group" data-group="workspace" role="listitem"
  *          aria-labelledby="panel-rail-workspace-label">
- *       <div class="osprey-section-label sidebar-group-head">
- *         <span class="sidebar-group-name" id="panel-rail-workspace-label">Workspace</span>
+ *       <div class="osprey-section-label sidebar-group-head" hidden>
+ *         <span class="sidebar-group-name" id="panel-rail-workspace-label">Sessions</span>
  *       </div>
  *       <div class="osprey-list-empty sidebar-group-empty" data-group-empty hidden>…</div>
  *       <button class="osprey-nav-row panel-rail-button disabled" data-panel-id="events"

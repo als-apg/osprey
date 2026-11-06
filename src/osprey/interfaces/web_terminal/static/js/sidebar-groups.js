@@ -2,11 +2,20 @@
 /* OSPREY Web Terminal — the sidebar's groups
  *
  * The sidebar sorts its panel rows into named groups. Three are built in,
- * `workspace` ("Workspace"), `tools` ("Tools") and `system` ("System"); an operator can rename
- * them, add groups of their own, move any group up or down the sidebar, and
- * delete the groups they added. Every row except the Agent row can move to
- * another group. The Agent row is always the first row of the first group,
- * because the Agent pane is the anchor of the workspace.
+ * `workspace` ("Sessions"), `tools` ("Tools") and `system` ("System"); an
+ * operator can rename Tools and System, add groups of their own, move those
+ * groups up or down the sidebar, and delete the groups they added. Every row
+ * except the Agent row can move to another group. The Agent row is always the
+ * first row of the first group, because the Agent pane is the anchor of the
+ * workspace.
+ *
+ * HEADLESS. The `workspace` group holds the Agent row and its session tree,
+ * and it has no heading: it is always the first group, it is never renamed,
+ * moved or folded, and nothing moves above it. Its name, "Sessions", is its
+ * accessible name and what the rows' "Move to" menus call it; a row moves
+ * into it from there, or by a drag above the next group's heading. A stored
+ * value that names it otherwise, or places it lower, is read with its name
+ * and place restored, without a version change: the next change stores it so.
  *
  * MODEL. The groups are the operator's own arrangement, so they live in this
  * browser, per user, and never on the server. One JSON value is stored under
@@ -82,7 +91,7 @@ const MAX_LABEL_LENGTH = 40;
 
 /** The built-in groups, in their default order. */
 const BUILTIN_GROUPS = Object.freeze([
-  Object.freeze({ id: 'workspace', label: 'Workspace' }),
+  Object.freeze({ id: 'workspace', label: 'Sessions' }),
   Object.freeze({ id: 'tools', label: 'Tools' }),
   Object.freeze({ id: 'system', label: 'System' }),
 ]);
@@ -102,6 +111,12 @@ const DEFAULT_SYSTEM = Object.freeze(['events', 'system-health']);
 /** The id of a group the operator added. */
 const CUSTOM_ID = /^g-[0-9a-f]{8}$/;
 
+/** The group with no heading: always first, never renamed, moved or folded. */
+export const HEADLESS_GROUP = 'workspace';
+
+/** The name the headless group always has. */
+const HEADLESS_LABEL = 'Sessions';
+
 // ---- Model ----
 
 /**
@@ -112,6 +127,15 @@ const CUSTOM_ID = /^g-[0-9a-f]{8}$/;
  */
 export function isBuiltinGroup(id) {
   return BUILTIN_GROUPS.some((group) => group.id === id);
+}
+
+/**
+ * Whether `id` names the group that has no heading (the Agent row's group).
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isHeadlessGroup(id) {
+  return id === HEADLESS_GROUP;
 }
 
 /**
@@ -186,7 +210,7 @@ function validModel(value) {
     if (!isBuiltinGroup(id) && !CUSTOM_ID.test(id)) return null;
     if (typeof label !== 'string' || !label || cleanLabel(label) !== label) return null;
     ids.add(id);
-    copy.push({ id, label });
+    copy.push({ id, label: isHeadlessGroup(id) ? HEADLESS_LABEL : label });
   }
   for (const group of BUILTIN_GROUPS) {
     if (ids.has(group.id)) continue;
@@ -194,6 +218,9 @@ function validModel(value) {
     ids.add(group.id);
     copy.push({ id: group.id, label: group.label });
   }
+  // The headless group heads the sidebar, wherever an older value put it.
+  const headless = copy.findIndex((group) => isHeadlessGroup(group.id));
+  copy.unshift(...copy.splice(headless, 1));
   if (!placement || typeof placement !== 'object' || Array.isArray(placement)) return null;
   const places = emptyPlacement();
   // An older value placed Events and Health without System to choose (or
@@ -338,12 +365,14 @@ export function moveToGroup(panelId, groupId) {
 
 /**
  * Rename a group. The name is trimmed and cut to 40 characters, and a name
- * that is empty after the trim keeps the old one.
+ * that is empty after the trim keeps the old one. The headless group keeps
+ * its name.
  * @param {string} id
  * @param {string} label
  * @returns {boolean} whether the name changed
  */
 export function renameGroup(id, label) {
+  if (isHeadlessGroup(id)) return false;
   const model = loadGroups();
   const group = model.groups.find((g) => g.id === id);
   const clean = cleanLabel(label);
@@ -405,7 +434,8 @@ export function removeGroup(id) {
 }
 
 /**
- * Move a group one place up or down the sidebar.
+ * Move a group one place up or down the sidebar. The headless group never
+ * moves, and no group moves above it.
  * @param {string} id
  * @param {'up' | 'down'} dir
  * @returns {boolean} whether the group moved (not past either end)
@@ -415,6 +445,7 @@ export function reorderGroup(id, dir) {
   const at = model.groups.findIndex((group) => group.id === id);
   const to = dir === 'up' ? at - 1 : at + 1;
   if (at < 0 || to < 0 || to >= model.groups.length) return false;
+  if (isHeadlessGroup(id) || isHeadlessGroup(model.groups[to].id)) return false;
   [model.groups[at], model.groups[to]] = [model.groups[to], model.groups[at]];
   commit(model);
   return true;
@@ -447,7 +478,8 @@ const wiredHeadings = new WeakSet();
 /**
  * Give a group element its heading: the `.osprey-section-label` that holds
  * the group's name. A heading the page shipped with its name is adopted as it
- * is; any other heading gets one built. The group is labelled by its name. A
+ * is; any other heading gets one built. The group is labelled by its name;
+ * the headless group's heading is hidden, and names it all the same. A
  * right-click anywhere on the heading, or Shift+F10 / the menu key while
  * focus is in it, opens the group's menu.
  * @param {HTMLElement} groupEl - a `.sidebar-group[data-group]`
@@ -474,6 +506,8 @@ export function paintGroupHeading(groupEl, group, nameId) {
   if (!name.id) name.id = nameId;
   name.textContent = group.label;
   groupEl.setAttribute('aria-labelledby', name.id);
+  // A hidden name still names the group for assistive technology.
+  heading.hidden = isHeadlessGroup(group.id);
   if (!wiredHeadings.has(heading)) {
     wiredHeadings.add(heading);
     wireHeading(heading);
@@ -541,18 +575,19 @@ function focusGroupName(railEl, groupId) {
 
 /**
  * Open a group's menu at a viewport position: Rename, New group below, Move
- * up, Move down, and Delete group for a group the operator added.
+ * up, Move down, and Delete group for a group the operator added. The
+ * headless group has no menu, and Move up stops below it.
  * @param {HTMLElement} railEl - the rail the group's element is in
  * @param {string} id
  * @param {number} x
  * @param {number} y
  * @param {HTMLElement} [anchorEl] - the heading the menu belongs to
- * @returns {boolean} whether the menu opened (not for an unknown group)
+ * @returns {boolean} whether the menu opened (not for an unknown or the headless group)
  */
 export function openGroupMenu(railEl, id, x, y, anchorEl) {
   const { groups } = loadGroups();
   const at = groups.findIndex((group) => group.id === id);
-  if (at < 0) return false;
+  if (at < 0 || isHeadlessGroup(id)) return false;
 
   /** @type {MenuItem[]} */
   const items = [
@@ -563,7 +598,7 @@ export function openGroupMenu(railEl, id, x, y, anchorEl) {
     },
     {
       label: 'Move up',
-      disabled: at === 0,
+      disabled: at === 0 || isHeadlessGroup(groups[at - 1].id),
       run: () => {
         reorderGroup(id, 'up');
         focusGroupName(railEl, id);
@@ -603,13 +638,15 @@ export function openGroupMenu(railEl, id, x, y, anchorEl) {
  * the pointer moves focus to wherever the pointer went.
  *
  * A collapsed sidebar shows no names, so it opens no field: a group made
- * there keeps its default name until the operator renames it.
+ * there keeps its default name until the operator renames it. The headless
+ * group shows no name, so it opens none either.
  * @param {HTMLElement} railEl - the rail the group's element is in
  * @param {string} groupId
  * @returns {boolean} whether the field opened
  */
 export function startGroupRename(railEl, groupId) {
   if (document.documentElement.getAttribute('data-sidebar') === 'collapsed') return false;
+  if (isHeadlessGroup(groupId)) return false;
   const groupEl = groupElement(railEl, groupId);
   const name = /** @type {HTMLElement | null | undefined} */ (
     groupEl?.querySelector(`.${NAME_CLASS}`)

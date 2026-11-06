@@ -84,10 +84,19 @@ describe('folding a group', () => {
   });
 
   test('the folded state is restored on the next boot', async () => {
+    localStorage.setItem(FOLDED, JSON.stringify(['tools']));
+    await boot();
+    expect(group('tools').hasAttribute('data-folded')).toBe(true);
+    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+  });
+
+  test('the headless Sessions group never folds, whatever is stored', async () => {
     localStorage.setItem(FOLDED, JSON.stringify(['workspace']));
     await boot();
-    expect(group('workspace').hasAttribute('data-folded')).toBe(true);
-    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+    dbl(head('workspace'));
+    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+    expect(stored(FOLDED)).toEqual(['workspace']);
   });
 
   test('headings carry no chevron, and a stale one is removed', async () => {
