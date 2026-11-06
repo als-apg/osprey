@@ -75,7 +75,7 @@ import { refreshCodeReviewTab } from './code-review-tab.js';
  * @property {(id: string, options?: {userInitiated?: boolean, auto?: boolean}) => void} activate
  * @property {(id: string, url: string) => void} navigate - point a panel's iframe at `url`
  * @property {() => string | null} getActive - the locally surfaced panel id
- * @property {() => void} resetActive - forget the surfaced panel, leaving the rail accent alone
+ * @property {() => void} resetActive - forget the surfaced panel; the rail accent follows the dock
  * @property {() => void} clearActive - forget the surfaced panel AND clear its rail accent and stamp
  * @property {(message: string) => void} renderEmpty - paint the empty-workspace placeholder
  * @property {(frame: AgentActivityEvent) => void} reportActivity - hand a frame to the strip seam
@@ -410,8 +410,8 @@ function surfaceOp(before, after, focus, agent) {
   const keys = new Set(tilesOf(after).flatMap((t) => t.tabs));
   if (tookEffect > 0 || active === null || keys.has(active)) return;
   // A refused activation leaves the view on a panel the op took away: clear
-  // the accent and the stamp too. Nothing tried (a close) keeps the rail
-  // accent on the panel that is one click away again.
+  // the accent and the stamp too. Nothing tried (a close) leaves the accent to
+  // the dock, which re-derives it once the close settles.
   if (surfaced.length > 0) c.clearActive();
   else c.resetActive();
   if (tiles.length === 0) c.renderEmpty('No panels visible');

@@ -364,6 +364,25 @@ html[data-sidebar="collapsed"] .sidebar :is(
 
 /* ---- Panel rows: health and drag states (panel-rail.js) ---- */
 
+/* The surfaced panel: the session tree's selected look (sidebar-artifacts.css)
+   — a quiet tint, the accent icon and a thin accent bar; the label keeps its
+   resting colour and weight. */
+.sidebar .panel-rail-button[aria-current="page"] {
+  background: var(--accent-tint-06);
+  color: var(--text-secondary);
+}
+
+.sidebar .panel-rail-button[aria-current="page"]:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.sidebar .panel-rail-button[aria-current="page"]::before {
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+}
+
 .sidebar .panel-rail-button.disabled,
 .sidebar .panel-rail-button.unreachable,
 .sidebar .panel-rail-button.failed {

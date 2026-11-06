@@ -451,36 +451,24 @@ describe('an artifact row', () => {
   });
 });
 
-describe('the highlight', () => {
-  test('marks the row page load points at, without selecting it', () => {
+describe('the selection', () => {
+  test('no row is selected without a shown artifact', () => {
     const plain = rows.artifactRow(entry('a', 'markdown', '2026-10-30T10:00:00Z'), {
       shownId: null,
-      highlightId: 'a',
     });
-    expect(plain.dataset.highlight).toBe('');
-    expect(cls(plain)).toContain('osprey-tree-highlight');
     expect(plain.getAttribute('aria-selected')).toBe('false');
-    const other = rows.artifactRow(entry('b', 'markdown', '2026-10-30T10:00:00Z'), {
-      shownId: null,
-      highlightId: 'a',
-    });
-    expect(other.hasAttribute('data-highlight')).toBe(false);
   });
 
-  test('reaches a run head and a run part', () => {
+  test('reaches a run head and a run part, one row at a time', () => {
     const parts = [{ id: 'p', role: 'preview', title: 'x', form: 'documents' }];
-    const headHit = rows.runTreeRows(head('h', 'succeeded', parts), {
-      shownId: null,
-      highlightId: 'h',
-      open: false,
-    });
-    expect(/** @type {HTMLElement} */ (headHit[0]).dataset.highlight).toBe('');
-    const partHit = rows.runTreeRows(head('h', 'succeeded', parts), {
-      shownId: null,
-      highlightId: 'p',
-      open: true,
-    });
-    expect(/** @type {HTMLElement} */ (partHit[1]).dataset.highlight).toBe('');
+    const selected = (/** @type {HTMLElement[]} */ list) =>
+      list.filter((r) => r.getAttribute('aria-selected') === 'true').map((r) => r.dataset.id);
+    expect(
+      selected(rows.runTreeRows(head('h', 'succeeded', parts), { shownId: 'h', open: true }))
+    ).toEqual(['h']);
+    expect(
+      selected(rows.runTreeRows(head('h', 'succeeded', parts), { shownId: 'p', open: true }))
+    ).toEqual(['p']);
   });
 });
 

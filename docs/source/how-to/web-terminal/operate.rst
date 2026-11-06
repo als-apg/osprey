@@ -574,7 +574,8 @@ Runs and artifacts also have **Delete…**.
 
 A reload, a new tab or another device resumes your last session and its
 layout. Its last-open artifact is shown in the Artifacts panel if that panel
-is docked, otherwise highlighted in the tree. The command
+is docked, otherwise revealed in the tree. The tree highlights only the
+artifact the Artifacts panel shows. The command
 palette finds your sessions and artifacts (by name, kind, or session name);
 opening a result enters its session. The Artifacts panel has no sidebar row;
 open it from the palette.

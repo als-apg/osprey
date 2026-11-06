@@ -30,9 +30,16 @@
  *
  * PAGE LOAD. Once the listing has the active row, its last-open artifact is
  * revealed once, without the open rule: with the Artifacts panel docked it is
- * shown there; otherwise the layout stays as it is and the artifact is
- * highlighted in the tree, its session, group and run opened. app.js runs it
- * once ({@link revealOnLoad}); a key change ends the highlight.
+ * shown there; otherwise the layout stays as it is and the tree only opens its
+ * session, group and run and scrolls to it. app.js runs it once
+ * ({@link revealOnLoad}).
+ *
+ * THE HIGHLIGHT. At most one artifact row is selected (`aria-selected`): the
+ * one the Artifacts panel shows, and none while that panel is not on view
+ * (no tile, no pop-out window). It is derived on every render from the
+ * session in use and the dock, so a switch, a close and a re-render all redraw
+ * it from scratch; panel-manager's `osprey-dock-view-changed` re-renders the
+ * tree when the panel comes on or goes off view.
  *
  * THE VIEWER. The artifacts iframe shows ONE artifact, told with
  * `osprey-artifact-select`; this module forwards the shown artifact's update
@@ -59,6 +66,7 @@ import { contributeLocal } from './tile-header-contrib.js';
 import * as iframeSync from './panel-iframe-sync.js';
 import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
+import { isPoppedOut } from './popout.js';
 import { setServiceMenuExtras } from './panel-menu-policy.js';
 import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
 import * as store from './sidebar-artifact-listing.js';
@@ -100,8 +108,6 @@ function freshState() {
     focusId: null,
     /** @type {string | null} */
     shownId: null,
-    /** @type {string | null} */
-    highlightId: null,
   };
 }
 
@@ -125,6 +131,8 @@ let treeAbort = new AbortController();
 let stream = null;
 let streamOpened = false;
 let lastHeader = '';
+/** Whether the Artifacts panel was on view at the last render. */
+let panelWasOnView = false;
 
 // ---- Ids ----
 
@@ -165,6 +173,8 @@ function initSessionTree() {
   document.addEventListener('scroll', pager.onScroll, { capture: true, passive: true, signal });
   document.addEventListener('osprey-sidebar-rendered', render, { signal });
   document.addEventListener('osprey-artifact-opened', onArtifactOpened, { signal });
+  // panel-manager.js's DOCK_VIEW_EVENT (not imported: tests mock that module).
+  document.addEventListener('osprey-dock-view-changed', onDockView, { signal });
   pager.watch(document.querySelectorAll(TREE_SELECTOR), signal);
   model.subscribe(onModelChange);
   onSurfaceChange(() => render());
@@ -232,10 +242,7 @@ async function summarize(all = false) {
 /** @param {{reason: string}} change */
 function onModelChange({ reason }) {
   // The session switched to always opens; the fold was the previous one's.
-  if (reason === 'pointer' || reason === 'switched') {
-    state.highlightId = null;
-    state.activeFolded = false;
-  }
+  if (reason === 'pointer' || reason === 'switched') state.activeFolded = false;
   if (reason === 'rows') void summarize();
   render();
 }
@@ -445,6 +452,14 @@ function menuExtras() {
   );
 }
 
+/** Whether the Artifacts panel is on view: docked in a tile, or in its own window. */
+const panelOnView = () => hasDockedTile(ARTIFACTS_PANEL_ID) || isPoppedOut(ARTIFACTS_PANEL_ID);
+
+/** The dock changed: redraw the highlight when the panel came on or went off view. */
+function onDockView() {
+  if (served && panelOnView() !== panelWasOnView) render();
+}
+
 /** Show the Artifacts panel through the open rule: a docked one is focused in place. */
 function showArtifactsPanel() {
   if (!hasDockedTile(ARTIFACTS_PANEL_ID)) activateTab(ARTIFACTS_PANEL_ID, { userInitiated: true });
@@ -469,8 +484,7 @@ function openGroupsOf(treeId) {
  */
 function boxRows(treeId) {
   const common = {
-    shownId: state.shownId,
-    highlightId: state.highlightId,
+    shownId: panelWasOnView ? state.shownId : null,
     openRuns: state.openRuns,
   };
   const open = openGroupsOf(treeId);
@@ -519,6 +533,7 @@ function render() {
   const shown = served ? resolveShown() : null;
   const changed = (shown?.id ?? null) !== state.shownId;
   state.shownId = shown?.id ?? null;
+  panelWasOnView = served && panelOnView();
   for (const tree of document.querySelectorAll(TREE_SELECTOR)) {
     const el = document.activeElement;
     const focusedId = el instanceof HTMLElement && tree.contains(el) ? el.dataset.id : null;
@@ -561,7 +576,7 @@ function scrollToShown(id = state.shownId) {
 
 /**
  * Page load (OR-3): reveal the active row's last-open artifact without the
- * open rule, shown in a docked Artifacts panel or else highlighted in the tree
+ * open rule, shown in a docked Artifacts panel or else scrolled to in the tree
  * with the layout untouched. app.js calls it once the listing has the row.
  * @returns {boolean} whether it ran (not before the row is listed and served)
  */
@@ -576,7 +591,7 @@ export function revealOnLoad() {
  * Reveal an artifact of a session: fetch it, put it into its group (its run
  * opened), scroll to it and show it. On page load (`onLoad`) the open rule is
  * not called, and without a docked Artifacts panel the artifact is only
- * highlighted, the layout left as it is. `keepLayout` skips the open rule
+ * scrolled to, the layout left as it is. `keepLayout` skips the open rule
  * too: after a switch the panels are the session's layout's to decide.
  * @param {string} treeId
  * @param {string | null} id  the pick, or null for the session's newest
@@ -599,10 +614,10 @@ async function reveal(treeId, id, onLoad = false, keepLayout = false) {
     if (form) openGroupsOf(treeId).add(form);
     if (runKey) state.openRuns.add(runKey);
   }
-  if (onLoad && !hasDockedTile(ARTIFACTS_PANEL_ID)) state.highlightId = entry.id;
-  else if (!model.pick()) model.setPick(entry.id);
+  const onlyScroll = onLoad && !hasDockedTile(ARTIFACTS_PANEL_ID);
+  if (!onlyScroll && !model.pick()) model.setPick(entry.id);
   render();
-  scrollToShown(state.highlightId ?? state.shownId);
+  scrollToShown(onlyScroll ? entry.id : state.shownId);
   if (!onLoad && !keepLayout) showArtifactsPanel();
 }
 
@@ -690,7 +705,6 @@ export async function openInAgent(treeId) {
  * @param {string} id
  */
 function pickArtifact(id) {
-  state.highlightId = null;
   model.setPick(id);
   model.recordLastArtifact(held(id));
   render();
@@ -721,5 +735,6 @@ export function resetSidebarArtifacts() {
   treeStarted = false;
   forms = rows.treeForms(null);
   state = freshState();
+  panelWasOnView = false;
   model.resetSessionModel();
 }

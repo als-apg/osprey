@@ -67,7 +67,7 @@ const {
     // manager registers to re-run its landing once it is. Settled by default,
     // so a test that does not model a restore lands at the first health settle.
     bootSettled: true,
-    restored: /** @type {(() => void) | null} */ (null),
+    restored: /** @type {(() => void)[]} */ ([]),
     // Whether the apply being replayed is a session's own layout (applyDock).
     sessionApply: false,
   },
@@ -95,7 +95,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   bootLayoutSettled: () => dockState.bootSettled,
   applyingSessionLayout: () => dockState.sessionApply,
   setLayoutRestoredHook: (/** @type {() => void} */ fn) => {
-    dockState.restored = fn;
+    dockState.restored.push(fn);
     if (dockState.bootSettled) fn();
   },
   onDragGesture: () => [],
@@ -104,7 +104,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
 /** Announce the boot layout as final, as dock-workspace does after its restore. */
 function settleBootLayout() {
   dockState.bootSettled = true;
-  dockState.restored?.();
+  for (const fn of dockState.restored) fn();
 }
 
 // The terminal verbs the context menu binds live outside panel-manager's own
@@ -290,7 +290,7 @@ beforeEach(() => {
   getDockApi.mockImplementation(() => dockState.api);
   dockState.api = null;
   dockState.bootSettled = true;
-  dockState.restored = null;
+  dockState.restored = [];
   dockState.sessionApply = false;
   // The pop-out seam (popout.js) rolls call on a BroadcastChannel at boot,
   // which the test environment does not provide. Unstubbed with the rest.
@@ -1403,6 +1403,14 @@ async function bootWorkspace({
   // restored tile — what dock-workspace builds before the manager boots.
   const apply = await import(DOCK_APPLY_PATH);
   const holder = apply.initLayoutHolder({ api, guard: (/** @type {() => any} */ fn) => fn() });
+  // dock-workspace (mocked here) records each focus change on the holder, as
+  // its wireHolderSync does: the rail accent is derived from that focus.
+  api.onDidActivePanelChange(() => {
+    if (holder.applying) return;
+    const key = apply.keyOfPanelId(api.activePanel?.id);
+    const tile = api.activePanel?.group?.id;
+    if (key !== null && typeof tile === 'string') holder.show(tile, key);
+  });
   // dock-workspace (mocked here) tells the holder which panels left for their
   // own windows; the holder's pop-outs ride beside the layout in every report.
   const { onPopoutChange } = await import(POPOUT_PATH);
@@ -1810,6 +1818,89 @@ describe('a whole-layout apply (a reset) keeps the panel the operator was on', (
     expect(tileTabs(holder)).toEqual([['terminal']]);
     expect(dockedTiles(api)).toEqual([]);
     expect(activeStamp()).toBeNull();
+  });
+});
+
+describe('the rail accent is derived from the dock layout on screen', () => {
+  // A tool row is accented iff its panel is what the service tile the operator
+  // used last shows (else the first service tile) in the CURRENT layout —
+  // re-derived after a session's layout is applied and after every dock change,
+  // so no accent outlives the tile it marked.
+  /** @param {string} id @returns {HTMLElement} */
+  const entry = (id) =>
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
+    );
+  const accented = () =>
+    [...document.querySelectorAll('.panel-rail-button.active')].map((el) =>
+      el.getAttribute('data-panel-id')
+    );
+  const current = () =>
+    [...document.querySelectorAll('.panel-rail-button[aria-current="page"]')].map((el) =>
+      el.getAttribute('data-panel-id')
+    );
+  const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
+  const TERMINAL_TILE = { tile: 'tt', tabs: ['terminal'] };
+
+  /** session-layout.js's switch: the next session's own layout is applied. @param {any} layout */
+  const switchTo = async (layout) => {
+    dockState.sessionApply = true;
+    (await pageHolder()).restore(layout);
+    dockState.redock?.();
+    dockState.sessionApply = false;
+  };
+
+  test('a switch to a layout without the accented panel clears its row', async () => {
+    await bootWorkspace({ panels: ['okf', 'ariel', 'channel-finder'] });
+    entry('channel-finder').click();
+    expect(accented()).toEqual(['channel-finder']);
+
+    // The next session shows ariel: Channels is not on screen there.
+    await switchTo(rowOf(['ariel'], TERMINAL_TILE));
+    expect(accented()).not.toContain('channel-finder');
+    expect(entry('channel-finder').hasAttribute('aria-current')).toBe(false);
+
+    // And one with the Agent pane alone accents nothing.
+    await switchTo(TERMINAL_LAYOUT);
+    expect(accented()).toEqual([]);
+    expect(current()).toEqual([]);
+    expect(activeStamp()).toBeNull();
+  });
+
+  test('a switch to a layout that shows a panel accents that panel', async () => {
+    const { holder } = await bootWorkspace({ panels: ['okf', 'ariel', 'channel-finder'] });
+    expect(accented()).toEqual(['okf']);
+
+    await switchTo(rowOf(['channel-finder'], TERMINAL_TILE));
+
+    expect(tileTabs(holder)).toEqual([['channel-finder'], ['terminal']]);
+    expect(accented()).toEqual(['channel-finder']);
+    expect(current()).toEqual(['channel-finder']);
+    expect(activeStamp()).toBe('channel-finder');
+  });
+
+  test('an agent close of the accented tile hands the accent to the tile left on screen', async () => {
+    const { api, op } = await bootWorkspace({ panels: ['okf', 'ariel'] });
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    expect(accented()).toEqual(['ariel']);
+
+    op('close', { key: 'ariel' });
+    await settled(() => expect(dockedTiles(api)).toEqual(['okf']));
+    api.fireLayout();
+
+    expect(accented()).toEqual(['okf']);
+  });
+
+  test('a close that leaves no service tile clears the accent', async () => {
+    const { api, op } = await bootWorkspace({ panels: ['okf'] });
+    expect(accented()).toEqual(['okf']);
+
+    op('close', { key: 'okf' });
+    await settled(() => expect(dockedTiles(api)).toEqual([]));
+    api.fireLayout();
+
+    expect(accented()).toEqual([]);
   });
 });
 
