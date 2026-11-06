@@ -18,7 +18,8 @@ each of them, so a new suite cannot reintroduce the leak by forgetting to stamp.
 
 from __future__ import annotations
 
-from contextlib import ExitStack, contextmanager
+import os
+from contextlib import ExitStack, contextmanager, redirect_stderr
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -496,19 +497,26 @@ def _engine_skip_reason(engine: str) -> str | None:
     The probe is the fixture's own launch, so the reason text is the one its
     skip would give. On a host without the binary the launch fails before any
     browser starts; Playwright is stopped on every path, as in the fixture.
+
+    The probe runs at collection, outside output capture, and Playwright hands
+    its Node driver ``sys.stderr``'s descriptor: the session's real stderr, a
+    pipe the xdist controller writes its report to. Node switches an inherited
+    pipe to non-blocking while it runs, and a controller write that meets a
+    full pipe then fails with ``BlockingIOError``. The driver gets ``/dev/null``.
     """
     if engine not in _ENGINE_SKIP_REASONS:
         reason = None
         if not _PLAYWRIGHT_AVAILABLE:
             reason = "playwright package not installed"
         else:
-            pw = sync_playwright().start()
-            try:
-                getattr(pw, engine).launch(headless=True).close()
-            except Exception as exc:
-                reason = f"{engine} binary not available: {exc}"
-            finally:
-                pw.stop()
+            with open(os.devnull, "w") as sink, redirect_stderr(sink):
+                pw = sync_playwright().start()
+                try:
+                    getattr(pw, engine).launch(headless=True).close()
+                except Exception as exc:
+                    reason = f"{engine} binary not available: {exc}"
+                finally:
+                    pw.stop()
         _ENGINE_SKIP_REASONS[engine] = reason
     return _ENGINE_SKIP_REASONS[engine]
 
