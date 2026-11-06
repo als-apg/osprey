@@ -63,6 +63,12 @@ PLOT_MARGIN_S = 600.0
 PLOT_STEP_S = 2.0
 #: The window a plot shows, ending at its turn, when its channels carry no event.
 PLOT_QUIET_WINDOW_S = 1800.0
+#: The read whose stated window a turn's plot shows: what the agent fetched.
+_READ_TOOL = ("controls", "archiver_read")
+#: ``archiver_read``'s relative spellings (``30m ago``), in seconds per unit.
+_AGO_UNIT_S = {"s": 1.0, "m": 60.0, "h": 3600.0, "d": 86400.0, "w": 604800.0}
+#: A positive channel whose samples span more decades than this reads on a log axis.
+_LOG_DECADES = 2.0
 #: Plotly names a figure's ``div`` with a random uuid unless told otherwise.
 PLOT_DIV_ID = "osprey-session-plot"
 
@@ -255,11 +261,13 @@ def plot_series(
 ) -> PlotSeries:
     """The samples a turn's plot shows.
 
-    The window spans the archiver events the turn's channels carry, widened by
-    :data:`PLOT_MARGIN_S` either side and sampled every :data:`PLOT_STEP_S`
-    from the first event's instant, so every event lands on a sample. A turn
-    whose channels carry no event shows the :data:`PLOT_QUIET_WINDOW_S` before
-    its prompt.
+    A turn whose ``archiver_read`` states ``start_time`` and ``end_time`` shows
+    that window, read against the turn's own instant: the plot is the data the
+    agent fetched. Otherwise the window spans the archiver events the turn's
+    channels carry, widened by :data:`PLOT_MARGIN_S` either side; a turn whose
+    channels carry no event shows the :data:`PLOT_QUIET_WINDOW_S` before its
+    prompt. Samples are :data:`PLOT_STEP_S` apart on a grid through the first
+    event in the window, so every event lands on a sample.
 
     Args:
         archive: The archive composite of the active set at ``anchor_s``.
@@ -269,7 +277,8 @@ def plot_series(
         tz: The facility zone an ``at_when`` event is placed in.
 
     Raises:
-        ValueError: The turn names no channel the archive holds.
+        ValueError: The turn names no channel the archive holds, or its
+            ``archiver_read`` states a window it cannot place.
     """
     channels = [c for c in turn.turn.channels if c in set(archive.scalar_addresses)]
     if not channels:
@@ -278,13 +287,20 @@ def plot_series(
             "is archived, so there is nothing to plot"
         )
     instants = _event_instants(events, channels, anchor_s, tz)
-    if instants:
-        first = min(instants)
-        start = first - PLOT_MARGIN_S
+    stated = _stated_window(turn, tz)
+    if stated is not None:
+        start, stop = stated
+        instants = [t for t in instants if start <= t <= stop]
+    elif instants:
+        start = min(instants) - PLOT_MARGIN_S
         stop = max(instants) + PLOT_MARGIN_S
     else:
         stop = math.floor(turn.at.timestamp())
         start = stop - PLOT_QUIET_WINDOW_S
+    if instants:
+        # Step back from the first event so the grid passes through it.
+        first = min(instants)
+        start = first - math.floor((first - start) / PLOT_STEP_S) * PLOT_STEP_S
     count = int((stop - start) // PLOT_STEP_S) + 1
     t_s = tuple(start + index * PLOT_STEP_S for index in range(count))
     samples = archive.samples(channels, t_s)
@@ -292,6 +308,71 @@ def plot_series(
         t_s=t_s,
         values={address: tuple(float(v) for v in samples[address]) for address in channels},
     )
+
+
+def _read_units(turn: ResolvedTurn) -> dict[str, str]:
+    """Each channel's unit, as the turn's ``archiver_read`` result states it."""
+    from osprey.simulation.sessions import ToolStep
+
+    units: dict[str, str] = {}
+    for step in turn.turn.steps:
+        if not isinstance(step, ToolStep) or (step.server, step.name) != _READ_TOOL:
+            continue
+        if isinstance(step.result, Mapping):
+            for address, read in step.result.items():
+                if isinstance(read, Mapping) and isinstance(read.get("unit"), str):
+                    units[str(address)] = read["unit"]
+    return units
+
+
+def _spans_decades(values: Sequence[float]) -> bool:
+    """Whether *values* are all positive and span more than :data:`_LOG_DECADES`."""
+    positive = [v for v in values if math.isfinite(v)]
+    if not positive or min(positive) <= 0:
+        return False
+    return math.log10(max(positive) / min(positive)) > _LOG_DECADES
+
+
+def _stated_window(turn: ResolvedTurn, tz: ZoneInfo) -> tuple[float, float] | None:
+    """The ``start_time``/``end_time`` the turn's ``archiver_read`` states, in epoch
+    seconds, or ``None`` when it reads nothing.
+
+    The spellings are the tool's own (``now``, ``30m ago``, ISO-8601, a naive time
+    facility-local), placed against the turn's instant instead of the clock.
+    """
+    from osprey.simulation.sessions import ToolStep
+
+    for step in turn.turn.steps:
+        if isinstance(step, ToolStep) and (step.server, step.name) == _READ_TOOL:
+            start = _stated_instant(step.input.get("start_time"), turn.at, tz)
+            stop = _stated_instant(step.input.get("end_time", "now"), turn.at, tz)
+            if not start < stop:
+                raise ValueError(
+                    f"turn at {turn.at.isoformat()}: its archiver_read window "
+                    f"{step.input.get('start_time')!r}..{step.input.get('end_time')!r} is empty"
+                )
+            return start, stop
+    return None
+
+
+def _stated_instant(spelling: Any, at: datetime, tz: ZoneInfo) -> float:
+    """One ``archiver_read`` time, read as the tool reads it, at the turn's instant *at*."""
+    text = str(spelling or "now").strip().lower()
+    if text == "now":
+        return at.timestamp()
+    if text.endswith(" ago") and text[-5:-4] in _AGO_UNIT_S:
+        try:
+            return at.timestamp() - float(text[:-5]) * _AGO_UNIT_S[text[-5:-4]]
+        except ValueError:
+            pass
+    try:
+        stated = datetime.fromisoformat(str(spelling).strip())
+    except ValueError:
+        raise ValueError(
+            f"turn at {at.isoformat()}: archiver_read time {spelling!r} is not 'now', "
+            "'<n><s|m|h|d|w> ago' or ISO-8601"
+        ) from None
+    return (stated if stated.tzinfo else stated.replace(tzinfo=tz)).timestamp()
 
 
 def _event_instants(
@@ -329,18 +410,41 @@ def _render_plot(
         raise ValueError(f"{where}: {exc}") from exc
     axis = [datetime.fromtimestamp(t, tz).strftime("%Y-%m-%d %H:%M:%S") for t in series.t_s]
     channels = list(series.values)
-    figure = make_subplots(specs=[[{"secondary_y": len(channels) > 1}]])
-    for index, address in enumerate(channels):
+    units = _read_units(turn)
+    # One panel per channel on a shared time axis: two magnitudes never share a
+    # scale, and the moment they move together lines up vertically.
+    figure = make_subplots(
+        rows=len(channels),
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        subplot_titles=channels,
+    )
+    for row, address in enumerate(channels, start=1):
+        values = list(series.values[address])
         figure.add_trace(
-            go.Scatter(x=axis, y=list(series.values[address]), mode="lines", name=address),
-            secondary_y=index > 0,
+            go.Scatter(x=axis, y=values, mode="lines", name=address, showlegend=False),
+            row=row,
+            col=1,
         )
-    figure.update_layout(title={"text": spec.title}, xaxis_title=f"Time ({tz.key})")
-    if len(channels) > 1:
-        # A second channel of a different magnitude reads on its own axis, as the
-        # turn's own plotting code draws it.
-        figure.update_yaxes(title_text=channels[0], secondary_y=False)
-        figure.update_yaxes(title_text=channels[1], secondary_y=True)
+        figure.update_yaxes(
+            title_text=units.get(address, ""),
+            type="log" if _spans_decades(values) else "linear",
+            exponentformat="power" if _spans_decades(values) else "none",
+            row=row,
+            col=1,
+        )
+    for instant in _event_instants(events, channels, anchor_s, tz):
+        if series.t_s[0] <= instant <= series.t_s[-1]:
+            at = datetime.fromtimestamp(instant, tz)
+            figure.add_vline(
+                x=at.strftime("%Y-%m-%d %H:%M:%S"),
+                line_dash="dot",
+                line_width=1,
+                line_color="rgba(128,128,128,0.8)",
+            )
+    figure.update_xaxes(title_text=f"Time ({tz.key})", row=len(channels), col=1)
+    figure.update_layout(title={"text": spec.title}, hovermode="x unified", showlegend=False)
     html = figure.to_html(include_plotlyjs=False, full_html=True, div_id=PLOT_DIV_ID)
     step = _producing_step(turn, spec, _PLOT_TOOLS)
     return _payload(spec, step.name if step is not None else _PLOT_TOOLS[0], html)

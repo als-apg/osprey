@@ -204,8 +204,7 @@ def test_the_archive_drops_and_spikes_at_the_plotted_instant(
     at = seconds.index(event)
     seeded, _spans = _seeded(project, config, seconds)
     base = _base(project, seconds)
-    # Only the stretch around the burst: with rf-thermal active the plot's axis also
-    # reaches back to that scenario's beam dump on the same DCCT (see the xfail below).
+    # Only the stretch around the burst, where the two scenarios' events cannot mix.
     near = [i for i, t in enumerate(seconds) if abs(t - event) <= NEAR_S]
     at = near.index(at)
 
@@ -245,15 +244,9 @@ def test_the_dense_sample_at_the_burst_is_the_plotted_peak(project: Path, plot) 
     assert document[field_name(SR07)] == plot[SR07]["y"][at]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "plot_series spans every anchored event on the turn's channels in the active "
-        "set: with rf-thermal's 4-days-ago DCCT beam dump active, the 'around 14:32' "
-        "plot runs ~3.5 days at 2 s and its current minimum is that dump, not the burst"
-    ),
-)
 def test_the_loss_plot_stays_around_the_burst_with_the_default_set(plot) -> None:
+    """rf-thermal's beam dump days earlier on the same DCCT stays out: the plot shows
+    the window the turn's archiver_read stated, not every event in the active set."""
     seconds = _axis_seconds(plot[DCCT]["x"])
     event = _event_instant()
 
