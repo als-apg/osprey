@@ -1840,7 +1840,7 @@ async def attachment_to_workspace_artifact(
     moving its own browser to Workspace after a successful response.  With a
     ``session_key`` (the web terminal key the host gave the ARIEL panel) the
     picture belongs to that session's current transcript; without one it is
-    an untagged (Earlier) artifact.
+    an untagged artifact no session owns.
     """
     from osprey.services.ariel_search.attachments.artifacts import (
         save_viewable_picture_as_artifact,

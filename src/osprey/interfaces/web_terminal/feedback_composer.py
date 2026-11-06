@@ -72,7 +72,7 @@ OWNED_ARTIFACTS_HEADER = "artifacts this session owns (titles and ids only)"
 """Header of the owned block: the session's sidebar row in the gallery."""
 
 NEARBY_ARTIFACTS_HEADER = (
-    "unowned Earlier artifacts from the same time window "
+    "artifacts no session owns, from the same time window "
     "(not this session's; may come from the chat panel or a CLI conversation)"
 )
 """Header of the weaker, time-windowed block of artifacts no session owns.
@@ -375,12 +375,12 @@ def select_artifacts(
     scope: SessionScope | None,
     event_timestamps: list[Any],
 ) -> tuple[list[ArtifactEntry], bool]:
-    """The unowned Earlier artifacts in the session's time window.
+    """The artifacts no session owns in the session's time window.
 
     Returns ``(nearby, window_ok)``:
 
     * ``nearby`` — operator-visible entries no session owns (``owner_of`` is
-      ``None``: listed under Earlier in the gallery), the shipped example left
+      ``None``: in no session's row of the gallery), the shipped example left
       out, stamped inside the session's time window. CLI-conversation
       artifacts qualify: the hub ledger has no row for their tag. These are a
       weaker claim than the owned section and callers must present them as

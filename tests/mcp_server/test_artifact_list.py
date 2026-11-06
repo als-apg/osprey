@@ -158,8 +158,8 @@ async def test_watchdog_dispatch_and_example_never_list(store, list_tool):
 
 
 @pytest.mark.asyncio
-async def test_all_names_every_owner_and_earlier(store, list_tool, web_session):
-    """Req 5: scope="all" lists every sidebar row plus Earlier, each naming its owner."""
+async def test_all_names_every_owner_and_null_for_unowned(store, list_tool, web_session):
+    """Req 5: scope="all" lists every visible artifact, each naming its owner or null."""
     from osprey.stores import session_ledger
 
     session_ledger.append(web_session.state_dir, OTHER_KEY, OTHER_KEY, session_ledger.EPOCH)
@@ -178,8 +178,8 @@ async def test_all_names_every_owner_and_earlier(store, list_tool, web_session):
     assert owners == {
         mine.id: web_session.transcript,
         theirs.id: OTHER_KEY,
-        untagged.id: "Earlier",
-        cli.id: "Earlier",  # req 16: a CLI conversation sits under Earlier in a web listing
+        untagged.id: None,
+        cli.id: None,  # req 16: a CLI conversation has no owner in a web listing
     }
 
 
@@ -239,7 +239,7 @@ async def test_an_unreadable_ledger_answers_unavailable(store, list_tool, web_se
     everything = await _list(list_tool, scope="all")
     assert everything["ledger"] == "unavailable"
     assert everything["entries"][0]["artifact_id"] == entry.id
-    assert everything["entries"][0]["owner"] == "Earlier"
+    assert everything["entries"][0]["owner"] is None
 
 
 # ---- rows, cap, totals (reqs 9, 11) -----------------------------------------

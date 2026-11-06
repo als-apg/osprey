@@ -352,7 +352,7 @@ describe('standalone: the session view is the sidebar row', () => {
     expect(state.getArtifacts().map((a) => a.id)).toEqual(['s1', 's2']);
   });
 
-  test('with a held null transcript an Earlier artifact is not admitted', async () => {
+  test('with a held null transcript an unowned artifact is not admitted', async () => {
     transcript = null;
     sessionListed = [];
     await enterSession();

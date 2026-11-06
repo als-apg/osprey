@@ -659,7 +659,7 @@ describe('paging', () => {
     expect(inCurrentScope({ id: 'x', owner: 'T2' })).toBe(true);
   });
 
-  test('a held null transcript admits nothing, not even an Earlier artifact', async () => {
+  test('a held null transcript admits nothing, not even an unowned artifact', async () => {
     await loadSessionView('k1', null);
     expect(inCurrentScope({ id: 'e', owner: null, operator_visible: true })).toBe(false);
     expect(inCurrentScope({ id: 'e', operator_visible: true })).toBe(false);

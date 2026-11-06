@@ -92,8 +92,8 @@ username, which travel either way.
 - its chat history,
 - the terminal scrollback,
 - an artifact inventory listing **titles and ids only**, in two sections: the
-  artifacts this session owns (its row in the gallery sidebar), and unowned
-  Earlier artifacts from the same time window.
+  artifacts this session owns (its row in the gallery sidebar), and artifacts
+  no session owns from the same time window.
 
 The second section is not this session's work: it may come from the chat panel
 or a CLI conversation. Only titles and ids appear — never contents — but a

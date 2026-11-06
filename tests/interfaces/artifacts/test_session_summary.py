@@ -416,7 +416,6 @@ class TestSessionListScope:
     def test_only_the_key_target_answers_a_transcript(self, client, state_dir):
         _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
         assert "transcript" not in _page(client, {"session": T1})
-        assert "transcript" not in _page(client, {"earlier": True})
         assert "transcript" not in _page(client, {"sessions": [T1]})
 
     def test_search_narrows_inside_a_row(self, client, store, state_dir):
@@ -428,7 +427,7 @@ class TestSessionListScope:
         _text(store, "Vacuum", minute=2, session_id=KEY)
         plot = _plot(store, "beam orbit", minute=3, session_id=KEY)
         _text(store, "beam elsewhere", minute=4, session_id=KEY_2)  # not this row
-        loose = _text(store, "BEAM untagged", minute=5)
+        _text(store, "BEAM untagged", minute=5)  # in no row
         _text(store, "vacuum untagged", minute=6)
 
         assert _ids(_listed(client, {"session": T1, "search": "beam"})) == sorted(
@@ -437,7 +436,6 @@ class TestSessionListScope:
         assert _ids(_page(client, {"key": KEY, "search": "beam"})["artifacts"]) == sorted(
             [beam.id, plot.id]
         )
-        assert _ids(_page(client, {"earlier": True, "search": "beam"})["artifacts"]) == [loose.id]
         narrowed = _page(client, {"sessions": [T1], "search": "beam", "form": "plots"})
         assert _ids(narrowed["pages"][T1]["artifacts"]) == [plot.id]
         # Without search the row is whole.

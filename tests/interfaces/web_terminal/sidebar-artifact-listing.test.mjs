@@ -4,7 +4,7 @@
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifact-listing.test.mjs
  *
  * A listing is the artifacts panel's `POST /api/artifacts/session-list` seen
- * through the hub's proxy: one session (or the active key, or Earlier),
+ * through the hub's proxy: one session (or the active key),
  * optionally one form, always `runs: "grouped"`, never the retired `run=`
  * filter. These tests pin the request it builds (through the per-user prefix),
  * the page sequence (a first page replaces and supersedes, the next page

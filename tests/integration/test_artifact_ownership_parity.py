@@ -436,7 +436,6 @@ def test_watchdog_and_dispatch_artifacts_carrying_a_key_are_owned_by_nobody(worl
     assert {world.store.get_entry(i).session_id for i in stray} == {KEY_A}
     for transcript in world.oracle():
         assert not stray & _ids(_sidebar(world, transcript))
-    assert not stray & _ids(_post(world, "/api/artifacts/session-list", {"earlier": True}))
     every = _artifact_list(monkeypatch, KEYLESS_ENV, scope="all", last_n=200)
     assert not stray & _listed(every)
 
@@ -492,18 +491,15 @@ def test_the_cli_listing_is_its_post_clear_artifacts(world, monkeypatch):
     assert _listed(listing) == world.cli_post_clear()
 
 
-def test_every_cli_artifact_is_in_earlier_and_its_counts(world):
-    earlier = _post(world, "/api/artifacts/session-list", {"earlier": True, "runs": "grouped"})
-    earlier_ids = _ids(earlier)
-    assert world.cli_all() <= earlier_ids
-    assert world.ids["cli_run_notebook"] not in earlier_ids  # a part lists under its head
+def test_every_cli_artifact_has_no_owner_in_the_web_listings(world, monkeypatch):
+    every = _artifact_list(monkeypatch, WEB_ENV[KEY_A], scope="all", last_n=200)
+    owners = {row["artifact_id"]: row["owner"] for row in every["entries"]}
+    assert world.cli_all() <= owners.keys()
+    assert {owners[i] for i in world.cli_all()} == {None}
+    assert world.ids["cli_run_notebook"] not in owners  # a part lists under its head
 
     counts = _post(world, "/api/artifacts/session-summary", {"sessions": list(CURRENT.values())})
-    assert counts["earlier"]["total"] == len(earlier_ids)
-    by_form: dict[str, int] = {}
-    for artifact in earlier["artifacts"]:
-        by_form[artifact["form"]] = by_form.get(artifact["form"], 0) + 1
-    assert counts["earlier"]["by_form"] == by_form
+    assert counts["owned_total"] == sum(len(ids) for ids in world.oracle().values())
     for transcript in world.oracle():
         assert not world.cli_all() & _ids(_sidebar(world, transcript))
 
@@ -520,8 +516,9 @@ def test_the_keyless_listing_is_empty_with_a_reason(world, monkeypatch):
     page = _session_page(world, None)
     assert page["entries"] == [] and page["session"] is None and page["reason"]
 
-    earlier = _ids(_post(world, "/api/artifacts/session-list", {"earlier": True}))
-    assert world.ids["keyless"] in earlier
+    every = _artifact_list(monkeypatch, WEB_ENV[KEY_A], scope="all", last_n=200)
+    owners = {row["artifact_id"]: row["owner"] for row in every["entries"]}
+    assert owners[world.ids["keyless"]] is None
 
 
 # ---- carried r3-CF-1: the seed tripwire --------------------------------------------

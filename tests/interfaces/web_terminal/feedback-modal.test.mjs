@@ -704,7 +704,7 @@ describe('feedback modal state — disclosure popover', () => {
       'Nothing leaves this page until you click an action button.',
       'recorded on this deployment',
       'the artifacts this session owns',
-      'unowned Earlier artifacts from the same time window',
+      'artifacts no session owns from the same time window',
       'not this session’s',
     ]) {
       expect(FEEDBACK_DISCLOSURE_PARAGRAPHS.join('\n\n')).toContain(phrase);
@@ -715,7 +715,7 @@ describe('feedback modal state — disclosure popover', () => {
     const artifacts = FEEDBACK_DISCLOSURE_PARAGRAPHS.find((p) => p.includes('titles and ids only'));
     expect(artifacts).toBe(
       'The artifact inventory lists titles and ids only — the artifacts this session ' +
-        'owns, plus unowned Earlier artifacts from the same time window, which are not ' +
+        'owns, plus artifacts no session owns from the same time window, which are not ' +
         'this session’s and may include work from the chat panel or a CLI conversation.'
     );
     expect(artifacts).not.toContain('tagged');

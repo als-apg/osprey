@@ -865,7 +865,7 @@ def test_the_owned_section_is_the_read_transcripts_after_a_clear(env: _Env, path
         _artifact("before-clear", "2026-08-20T18:00:10+00:00", SESSION_ID),
         _artifact("after-clear", "2026-08-20T18:01:00+00:00", SESSION_ID),
         _artifact("other-tab", "2026-08-20T18:01:00+00:00", OTHER_KEY),
-        _artifact("earlier", "2026-08-20T18:01:00+00:00"),
+        _artifact("unowned", "2026-08-20T18:01:00+00:00"),
     ]
 
     if path == "/api/feedback":
@@ -878,7 +878,7 @@ def test_the_owned_section_is_the_read_transcripts_after_a_clear(env: _Env, path
     owned = _section(text, OWNED_ARTIFACTS_HEADER)
     nearby = _section(text, NEARBY_ARTIFACTS_HEADER)
     assert "after-clear" in owned
-    assert "earlier" in nearby and "earlier" not in owned
+    assert "unowned" in nearby and "unowned" not in owned
     # The key's earlier transcript and another tab own theirs: in neither section.
     assert "before-clear" not in text
     assert "other-tab" not in text
@@ -891,13 +891,13 @@ def test_with_the_ledger_unavailable_only_stamped_artifacts_are_owned(env: _Env)
         _artifact("other-tab", "2026-08-20T18:01:00+00:00", OTHER_KEY),
         _artifact("stamped", "2026-08-20T18:01:00+00:00", transcript_id=SESSION_ID),
         _artifact("stamped-other", "2026-08-20T18:01:00+00:00", transcript_id=THIRD_TRANSCRIPT),
-        _artifact("earlier", "2026-08-20T18:01:00+00:00"),
+        _artifact("unowned", "2026-08-20T18:01:00+00:00"),
     ]
 
     text = _bundle(env)
 
     assert "stamped" in _section(text, OWNED_ARTIFACTS_HEADER)
-    assert "earlier" in _section(text, NEARBY_ARTIFACTS_HEADER)
+    assert "unowned" in _section(text, NEARBY_ARTIFACTS_HEADER)
     for absent in ("keyed", "other-tab", "stamped-other"):
         assert absent not in text
 

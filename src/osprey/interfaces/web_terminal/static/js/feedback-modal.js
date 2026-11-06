@@ -69,11 +69,11 @@ export const PASTE_STEP_OPEN = Object.freeze({
  * The artifact-inventory time-window sentence. The server-side composer states
  * the same rule in its own block header (`feedback_composer.NEARBY_ARTIFACTS_HEADER`);
  * the two surfaces are worded independently and neither imports the other.
- * The window's artifacts are the gallery's Earlier ones — owned by no session —
- * so the sentence must not let them read as this session's.
+ * The window's artifacts are ones no session owns, so the sentence must not
+ * let them read as this session's.
  */
 const ARTIFACT_WINDOW_DISCLOSURE =
-  'plus unowned Earlier artifacts from the same time window, which are not ' +
+  'plus artifacts no session owns from the same time window, which are not ' +
   'this session’s and may include work from the chat panel or a CLI conversation';
 
 /**

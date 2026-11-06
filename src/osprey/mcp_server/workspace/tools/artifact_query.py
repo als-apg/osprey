@@ -57,8 +57,6 @@ _LIST_DEFAULT = 20
 _LIST_MAX = 200
 #: A row's description is the first line of the artifact's, cut to this length.
 _ROW_DESCRIPTION_MAX = 160
-#: The owner a ``scope="all"`` row names when no session owns it.
-_EARLIER = "Earlier"
 _DISPATCH_HINT = "; read the artifacts you were given by their ids (artifact_read)"
 
 
@@ -97,8 +95,9 @@ async def artifact_list(
     ``scope="session"`` (default) lists what the current conversation owns:
     the artifacts the gallery sidebar files under this session's row. After a
     ``/clear`` it starts empty. ``scope="all"`` lists every session's artifacts
-    and names each row's ``owner`` (a transcript id, or ``"Earlier"``); reach
-    for it only when asked about other or earlier sessions.
+    and names each row's ``owner`` (a transcript id, or ``null`` when no
+    session owns it); reach for it only when asked about other or earlier
+    sessions.
 
     Rows are compact, one per run (a run's code and outputs are parts of it),
     newest first; read one with ``artifact_read(artifact_id)``. Narrow with
@@ -169,7 +168,7 @@ async def artifact_list(
         for entry, key, label in rows[:last_n]:
             row = _row(entry, key, label)
             if scope == "all":
-                row["owner"] = owner_of(entry, ledger if ledger_ok else None) or _EARLIER
+                row["owner"] = owner_of(entry, ledger if ledger_ok else None)
             shown.append(row)
 
         answer.update(

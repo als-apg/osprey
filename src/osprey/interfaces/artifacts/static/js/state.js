@@ -154,7 +154,7 @@ export function hasMoreArtifacts() {
 /**
  * Whether an artifact belongs in the list the current view fetches. The
  * session view lists what its held transcript owns and the operator sees, so
- * a held null transcript admits nothing, an Earlier artifact included.
+ * a held null transcript admits nothing, an unowned artifact included.
  * Every other view admits everything.
  * @param {any} entry
  * @returns {boolean}

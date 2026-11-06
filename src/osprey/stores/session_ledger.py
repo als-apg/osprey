@@ -27,8 +27,8 @@ the session meta's tombstone keeps it from being written back.
 
 **A damaged file is not an outage.** :func:`load` answers an empty ledger for a
 file that is unreadable, not JSON or the wrong shape, and logs it; the next
-:func:`append` rewrites the file whole from what survived. Ownership then falls
-back to "Earlier" for the affected artifacts rather than failing a listing.
+:func:`append` rewrites the file whole from what survived. The affected
+artifacts then have no owner rather than failing a listing.
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ Four behaviours are pinned here:
   raising when the session is dead or absent.
 * ``collect_material`` keeps the artifacts the read transcript owns as its
   gallery sidebar row lists them (``owned_by`` + ``listed_rows``), and
-  ``select_artifacts`` keeps only the *unowned* Earlier artifacts of the
+  ``select_artifacts`` keeps only the artifacts *no session owns* in the
   session's time window, built from *parsed* timestamps only and compared as
   aware datetimes, never strings — transcripts stamp ``…Z`` while
   :class:`ArtifactEntry` stamps ``…+00:00``, and those two suffixes do not
@@ -319,7 +319,7 @@ def test_collect_material_owned_section_equals_the_read_transcripts_sidebar_row(
     after = _save(real_store, "after", session_id=SESSION_ID, at="2026-08-20T11:30:00+00:00")
     after_run = _run(real_store, session_id=SESSION_ID, at="2026-08-20T11:40:00+00:00")
     _save(real_store, "other-tab", session_id=OTHER_KEY, at="2026-08-20T10:45:00+00:00")
-    _save(real_store, "earlier", session_id="", at="2026-08-20T10:50:00+00:00")
+    _save(real_store, "unowned", session_id="", at="2026-08-20T10:50:00+00:00")
 
     material = collect_material(
         _reader(), real_store, SESSION_ID, "", {}, scope=scope_for(transcript, LEDGER, True)
@@ -548,7 +548,7 @@ def test_select_artifacts_excludes_what_another_transcript_owns():
 
 
 def test_select_artifacts_includes_cli_conversation_artifacts():
-    """A ``cli:`` tag names no hub ledger row: the gallery lists it under Earlier."""
+    """A ``cli:`` tag names no hub ledger row: no session row lists it in the gallery."""
     cli = _entry("cli", "2026-08-20T11:00:00.000000+00:00", session_id="cli:abc")
 
     nearby, _ = select_artifacts([cli], SCOPE, WINDOW_EVENTS)
@@ -771,7 +771,7 @@ def test_render_bundle_nearby_block_uses_the_exact_header():
     text, _ = render_bundle(_material(), GENEROUS_BUDGET)
 
     assert NEARBY_ARTIFACTS_HEADER == (
-        "unowned Earlier artifacts from the same time window "
+        "artifacts no session owns, from the same time window "
         "(not this session's; may come from the chat panel or a CLI conversation)"
     )
     assert OWNED_ARTIFACTS_HEADER == "artifacts this session owns (titles and ids only)"
@@ -786,7 +786,7 @@ def _section(text: str, header: str) -> str:
     return body.split("\n## ", 1)[0]
 
 
-def test_render_bundle_lists_an_earlier_artifact_only_under_the_unowned_header():
+def test_render_bundle_lists_an_unowned_artifact_only_under_the_unowned_header():
     text, _ = render_bundle(_material(), GENEROUS_BUDGET)
 
     owned = _section(text, OWNED_ARTIFACTS_HEADER)
