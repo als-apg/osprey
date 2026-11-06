@@ -2,9 +2,8 @@
 /* OSPREY Web Terminal — the session tree's artifact listings
  *
  * One listing is one paged `POST /api/artifacts/session-list` of the artifacts
- * panel: a session's artifacts (`{session}`), the active key's (`{key}`), the
- * operator's unowned ones (`{earlier: true}`), optionally one form's (`form`),
- * always with `runs: "grouped"` so a run lists once, at its head. Pages walk
+ * panel: a session's artifacts (`{session}`) or the active key's (`{key}`),
+ * optionally one form's (`form`), always with `runs: "grouped"` so a run lists once, at its head. Pages walk
  * the server's opaque `next_cursor`.
  *
  * A first page replaces what the listing holds and bumps a generation, so a
@@ -51,9 +50,9 @@ export const SESSION_SUMMARY_PATH = `${ARTIFACTS_BASE}/api/artifacts/session-sum
  */
 
 /**
- * What a listing lists: exactly one of `session`, `key`, `earlier`, and an
- * optional form.
- * @typedef {{session?: string, key?: string, earlier?: true, form?: string}} ListingScope
+ * What a listing lists: exactly one of `session` and `key`, and an optional
+ * form.
+ * @typedef {{session?: string, key?: string, form?: string}} ListingScope
  */
 
 /**
@@ -111,8 +110,7 @@ export async function fetchFocusedId() {
  * The session summary for one page of transcript ids, or null on failure.
  * @param {string[]} sessions
  * @returns {Promise<{counts: Record<string, {total: number, by_form: Record<string, number>}>,
- *   earlier: {total: number, by_form: Record<string, number>}, owned_total: number,
- *   ledger: string} | null>}
+ *   owned_total: number, ledger: string} | null>}
  */
 export async function fetchSummary(sessions) {
   try {
@@ -314,9 +312,6 @@ export function createListing({ scope, onChange, limit }) {
 
 /* ---- The tree's data: listings, summary counts, live frames ---------- */
 
-/** The Earlier pseudo-session's id in the tree. */
-export const EARLIER = '';
-
 /** Sessions summarized per request: one page of `GET /api/sessions`. */
 const SUMMARY_PAGE = 200;
 
@@ -347,20 +342,15 @@ export function writeTreeView(view) {
 }
 
 /**
- * What a tree id lists: a transcript, a key (`key:<K>`, a session the
- * listing has not caught up with), or Earlier ('').
+ * What a tree id lists: a transcript, or a key (`key:<K>`, a session the
+ * listing has not caught up with).
  * @param {string} treeId
  * @param {string} [form]
  * @returns {ListingScope}
  */
 export function scopeOf(treeId, form = '') {
   /** @type {ListingScope} */
-  const scope =
-    treeId === EARLIER
-      ? { earlier: true }
-      : treeId.startsWith('key:')
-        ? { key: treeId.slice(4) }
-        : { session: treeId };
+  const scope = treeId.startsWith('key:') ? { key: treeId.slice(4) } : { session: treeId };
   if (form) scope.form = form;
   return scope;
 }
@@ -371,7 +361,8 @@ export function scopeOf(treeId, form = '') {
  * The session tree's data: one listing per session (`${treeId}|`) and per
  * open group (`${treeId}|${form}`), every entry seen by id, the summary
  * counts, and the run keys already counted. Live frames count once per run
- * (`exec_id`, else id), only when `operator_visible`, by the listed form.
+ * (`exec_id`, else id), only when `operator_visible` and owned, by the listed
+ * form.
  * @param {{onChange: () => void}} options
  */
 export function createTreeData({ onChange }) {
@@ -386,8 +377,6 @@ export function createTreeData({ onChange }) {
   const totals = {
     /** @type {Record<string, FormCounts>} */
     counts: {},
-    /** @type {FormCounts} */
-    earlier: { total: 0, by_form: {} },
     ownedTotal: 0,
   };
 
@@ -434,34 +423,33 @@ export function createTreeData({ onChange }) {
     for (const summary of answers) {
       if (!summary) continue;
       Object.assign(totals.counts, summary.counts ?? {});
-      totals.earlier = summary.earlier ?? totals.earlier;
       totals.ownedTotal = summary.owned_total ?? totals.ownedTotal;
     }
     return true;
   }
 
-  /** @param {ArtifactEntry} entry @param {number} delta */
+  /** An unowned entry counts nowhere. @param {ArtifactEntry} entry @param {number} delta */
   function bump(entry, delta) {
     const form = entry.form;
-    if (!form) return;
-    const bucket =
-      entry.owner == null
-        ? totals.earlier
-        : (totals.counts[entry.owner] ??= { total: 0, by_form: {} });
+    if (!form || entry.owner == null) return;
+    const bucket = (totals.counts[entry.owner] ??= { total: 0, by_form: {} });
     bucket.total = Math.max(0, bucket.total + delta);
     bucket.by_form[form] = Math.max(0, (bucket.by_form[form] ?? 0) + delta);
-    if (entry.owner != null) totals.ownedTotal = Math.max(0, totals.ownedTotal + delta);
+    totals.ownedTotal = Math.max(0, totals.ownedTotal + delta);
   }
 
   /**
    * Put an entry into the loaded listings of its session (and `extra`, the
-   * active key's listing when the entry is the active session's).
+   * active key's listing when the entry is the active session's). An unowned
+   * entry has no session's.
    * @param {ArtifactEntry} entry
    * @param {string[]} extra
    */
   function place(entry, extra) {
-    const treeId = entry.owner ?? EARLIER;
-    const keys = [`${treeId}|`, ...(entry.form ? [`${treeId}|${entry.form}`] : []), ...extra];
+    const treeId = entry.owner;
+    const own =
+      treeId == null ? [] : [`${treeId}|`, ...(entry.form ? [`${treeId}|${entry.form}`] : [])];
+    const keys = [...own, ...extra];
     for (const key of keys) {
       const listing = listings.get(key);
       if (listing?.loaded) listing.add(entry);
@@ -544,7 +532,7 @@ export function createTreeData({ onChange }) {
       ensureLoaded(listing);
       return { entries: listing.entries, counts: null };
     }
-    const bucket = treeId === EARLIER ? totals.earlier : totals.counts[treeId];
+    const bucket = totals.counts[treeId];
     /** @type {Record<string, number> | null} */
     const counts = bucket ? { ...bucket.by_form } : null;
     /** @type {ArtifactEntry[]} */
@@ -635,7 +623,6 @@ export function createTreeData({ onChange }) {
     held.clear();
     counted.clear();
     totals.counts = {};
-    totals.earlier = { total: 0, by_form: {} };
     totals.ownedTotal = 0;
   }
 

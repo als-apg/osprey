@@ -39,10 +39,10 @@ const SESSION_SELECTOR = '.osprey-tree-session[data-session-id]';
 const GROUP_SELECTOR = '[data-group-head]';
 const RUN_SELECTOR = '.osprey-list-row.osprey-tree-run[data-id]';
 const ARTIFACT_SELECTOR = '.osprey-list-row[data-id]';
-/** Top-level rows Expand/Collapse all acts on: sessions and Earlier. Only a
- * row with a disclosure folds (the session in use, Earlier); another session
- * opens only by switching to it. */
-const TOP_SELECTOR = `${SESSION_SELECTOR}, [data-tree-earlier]`;
+/** Top-level rows Expand/Collapse all acts on: the sessions. Only a row with
+ * a disclosure folds (the session in use); another session opens only by
+ * switching to it. */
+const TOP_SELECTOR = SESSION_SELECTOR;
 
 // ---- Row lookups ----
 
@@ -384,7 +384,7 @@ export function runMenuItems(head, entry) {
 // ---- Opening ----
 
 /**
- * The menu a tree row offers, or null when it offers none (Earlier, "more").
+ * The menu a tree row offers, or null when it offers none ("more").
  * Artifact and run rows read their entry first (pin state, run parts).
  * @param {Element} target
  * @returns {Promise<{row: HTMLElement, label: string, items: MenuItem[]} | null>}

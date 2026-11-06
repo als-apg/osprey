@@ -594,7 +594,7 @@ def listed_form(
 
 
 def operator_visible(entry: ArtifactEntry) -> bool:
-    """Whether *entry* belongs in the operator's session tree, counts and Earlier.
+    """Whether *entry* belongs in the operator's session tree and its counts.
 
     Dispatch-run artifacts (non-empty ``run_id``) and watchdog judge artifacts
     (``origin == "watchdog"``) do not; the palette search still finds them.
@@ -624,7 +624,7 @@ def _row_fields(row: Any) -> tuple[str, str, Any]:
 
 
 def owner_of(entry: ArtifactEntry, ledger: Ledger | None) -> str | None:
-    """The transcript that owns *entry*, or ``None`` (it is listed under Earlier).
+    """The transcript that owns *entry*, or ``None`` (no session lists it).
 
     1. ``metadata.transcript_id`` when stamped;
     2. else, when ``entry.session_id`` is a ledger key, the transcript of that

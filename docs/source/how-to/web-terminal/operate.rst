@@ -553,8 +553,7 @@ sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
 A script run is one row with a dot for **succeeded**, **failed** or **not
 run** (none while it runs); its approval preview, code and outputs are its
 parts. A run that was never run
-opens on its proposed code. **Earlier** holds your artifacts that have no
-session; **More sessions** loads older ones.
+opens on its proposed code. **More sessions** loads older ones.
 
 - Click a session name to switch to it: its layout comes back as you left it
   (panels, tiles, sizes, the Agent pane, and each panel's page where the hub

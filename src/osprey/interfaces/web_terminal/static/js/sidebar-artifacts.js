@@ -3,8 +3,7 @@
  *
  * The Agent row wraps the tree: the operator's sessions (session-model.js),
  * each expanding to its artifacts grouped by day (Activity mode, the default)
- * or by form (Kind mode), then the Earlier row (artifacts no session owns),
- * "More sessions", and a notice when the session history is cut short or
+ * or by form (Kind mode), then "More sessions", and a notice when the session history is cut short or
  * unreadable.
  * The rows are drawn by sidebar-artifact-rows.js; this module owns the data,
  * the clicks and the viewer.
@@ -98,8 +97,6 @@ function freshState() {
     view: 'activity',
     /** The session in use folded by the operator (reset on a switch). */
     activeFolded: false,
-    /** Whether the Earlier row is open. */
-    earlierOpen: false,
     /** Open form groups per session. @type {Map<string, Set<string>>} */
     openGroups: new Map(),
     /** Open runs, by run key. @type {Set<string>} */
@@ -148,14 +145,6 @@ function treeIdOf(row) {
 function activeTreeId() {
   const row = model.activeRow();
   return row ? treeIdOf(row) : null;
-}
-
-/**
- * The tree id an artifact belongs under: its owner's, or Earlier.
- * @param {ArtifactEntry} entry
- */
-function treeIdOfEntry(entry) {
-  return entry.owner ?? store.EARLIER;
 }
 
 // ---- Init / teardown ----
@@ -289,18 +278,21 @@ function activeListing() {
 }
 
 /**
- * The listing the pager walks for an artifact: its own session's.
+ * The listing the pager walks for an artifact: its own session's, or null for
+ * one no session owns (no pager).
  * @param {ArtifactEntry} entry
+ * @returns {Listing | null}
  */
 function pagerListing(entry) {
-  if (inActiveSession(entry)) return /** @type {Listing} */ (activeListing());
-  return data.listingOf(treeIdOfEntry(entry));
+  if (inActiveSession(entry)) return activeListing();
+  return entry.owner == null ? null : data.listingOf(entry.owner);
 }
 
 /** @param {1 | -1} delta */
 async function step(delta) {
   const shown = held(state.shownId);
-  const target = shown ? await data.stepFrom(pagerListing(shown), shown.id, delta) : null;
+  const listing = shown ? pagerListing(shown) : null;
+  const target = shown && listing ? await data.stepFrom(listing, shown.id, delta) : null;
   if (!target || !served) return;
   model.setPick(target.id);
   model.recordLastArtifact(target);
@@ -308,7 +300,8 @@ async function step(delta) {
 
 /** @param {ArtifactEntry | null} shown */
 function pagerPosition(shown) {
-  return shown ? data.position(pagerListing(shown), shown.id) : null;
+  const listing = shown ? pagerListing(shown) : null;
+  return shown && listing ? data.position(listing, shown.id) : null;
 }
 
 // ---- Recording ----
@@ -356,7 +349,7 @@ function extraListings(entry) {
   return active && inActiveSession(entry) ? [`key:${active.session_key}|`] : [];
 }
 
-/** Whether an entry's owner is a loaded row (no owner = Earlier, always known). @param {ArtifactEntry} entry */
+/** Whether an entry's owner is a loaded row (no owner: nothing to load). @param {ArtifactEntry} entry */
 const knownOwner = (entry) => entry.owner == null || model.sessionOfArtifact(entry) !== null;
 
 /** @param {any} frame */
@@ -515,11 +508,6 @@ function treeNodes() {
     nodes.push(node);
     if (open) nodes.push(rows.sessionBox(treeId, boxRows(treeId)));
   }
-  if (served && data.totals.earlier.total > 0) {
-    const open = state.earlierOpen;
-    nodes.push(rows.earlierRow({ count: data.totals.earlier.total, open }));
-    if (open) nodes.push(rows.sessionBox(store.EARLIER, boxRows(store.EARLIER)));
-  }
   if (model.hasMore())
     nodes.push(rows.moreSessionsRow(Math.max(0, data.totals.ownedTotal - loadedTotal)));
   const record = model.recordState();
@@ -629,7 +617,6 @@ function onClick(event) {
   const tree = target?.closest(TREE_SELECTOR);
   if (!target || !tree) return;
   const session = target.closest('.osprey-tree-session[data-session-id]');
-  const earlier = target.closest('[data-tree-earlier]');
   const disc = target.closest('[data-tree-disc]');
   if (session instanceof HTMLElement) {
     // A double-click's second click is the same gesture: it never undoes the
@@ -642,10 +629,6 @@ function onClick(event) {
       render();
     } else void openInAgent(treeId);
     return;
-  }
-  if (earlier) {
-    state.earlierOpen = !state.earlierOpen;
-    return render();
   }
   if (target.closest('[data-tree-more]')) return void model.loadMore();
   const head = target.closest('[data-group-head]');
