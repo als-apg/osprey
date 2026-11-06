@@ -145,6 +145,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -161,9 +162,16 @@ from osprey.services.bluesky_bridge.queue_backend import is_queue_active
 from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
-from tests.e2e._deploy_support import wait_for_health
+from tests.e2e._deploy_support import (
+    checkout_revision,
+    host_stack_lock,
+    images_built_for,
+    record_images_built,
+    wait_for_health,
+)
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
+from tests.e2e.provider import forced_model
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
@@ -3170,6 +3178,12 @@ BRIDGE_IMAGE = _orm_stack.bridge_image(PROJECT_NAME)
 VA_IMAGE = _orm_stack.va_image(PROJECT_NAME)
 PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 
+#: The stack's project name and ports are fixed, so one runs per host at a time:
+#: parallel benchmark cells queue on this lock instead of colliding. The stamp
+#: beside it records the revision a benchmark run last built the images at.
+STACK_LOCK = Path(tempfile.gettempdir()) / f"osprey-{PROJECT_NAME}.lock"
+IMAGES_STAMP = Path(tempfile.gettempdir()) / f"osprey-{PROJECT_NAME}.images-revision"
+
 #: Everything this module deep-merges into ``_orm_stack.profile_edits()``:
 #: host-port moves ``init_args`` has no ``--set`` hook for, plus the approval
 #: policy the headless agent needs. Note the two ALTITUDES, which is the
@@ -3402,7 +3416,16 @@ def _assert_no_pyaml_surface(repo: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedScanStack]:
+def _host_stack_turn() -> Iterator[None]:
+    """This cell's turn on the host's one plan stack, held until it is torn down."""
+    with host_stack_lock(STACK_LOCK):
+        yield
+
+
+@pytest.fixture(scope="module")
+def deployed_scan_stack(
+    tmp_path_factory: pytest.TempPathFactory, _host_stack_turn: None
+) -> Iterator[DeployedScanStack]:
     """Build and ``osprey up --dev`` the plan stack; tear it down after.
 
     One stack for the whole module: nothing here is per-test state (the queue
@@ -3450,7 +3473,13 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # the gate tests move it to `asked` (approval_hook_armed_for).
     arm_deployed_queue_owner(repo, position="allowed")
 
-    _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
+    # A benchmark cell (a forced model) reuses the images the run already built
+    # at this revision: the cells queue for this stack, and a rebuild per cell
+    # would multiply into hours. Every other run rebuilds, as it may be testing
+    # uncommitted changes.
+    revision = checkout_revision()
+    if forced_model() is None or not images_built_for(IMAGES_STAMP, revision):
+        _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
     try:
@@ -3487,6 +3516,8 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
+        if forced_model() is not None:
+            record_images_built(IMAGES_STAMP, revision)
         try:
             wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:

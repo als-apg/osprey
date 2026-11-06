@@ -52,13 +52,11 @@ Run locally (~40 min cold, ~5 warm):
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -69,7 +67,13 @@ from pydantic import BaseModel, Field
 
 from tests.e2e import _orm_stack
 from tests.e2e._deploy_diagnostics import dead_container_logs
-from tests.e2e._deploy_support import run_command
+from tests.e2e._deploy_support import (
+    checkout_revision,
+    host_stack_lock,
+    images_built_for,
+    record_images_built,
+    run_command,
+)
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.ariel_picture import assert_no_ariel_errors, assert_viewed_in_logbook_turn
 from tests.e2e.fixtures.chart_value_reading import plot_spec as fixture
@@ -111,7 +115,6 @@ POSTGRES_PORT_HOST = 15532
 #: built at. Both live beside each other in the host's temp directory.
 STACK_LOCK = Path(tempfile.gettempdir()) / f"osprey-{PROJECT_NAME}.lock"
 IMAGES_STAMP = Path(tempfile.gettempdir()) / f"osprey-{PROJECT_NAME}.images-revision"
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 BUILD_TIMEOUT_SEC = 600
 DEPLOY_UP_TIMEOUT_SEC = 2400
@@ -295,54 +298,6 @@ def _build_project(output_dir: Path) -> Path:
     return repo
 
 
-@contextmanager
-def host_stack_lock(path: Path) -> Iterator[None]:
-    """Hold this lane's host-wide stack lock for the duration of the block.
-
-    An advisory ``flock``, so the operating system releases it when the holder
-    dies: a crashed cell never leaves the host locked.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
-def _checkout_revision() -> str | None:
-    """The checked-out commit, or ``None`` when it cannot be read (always rebuild then)."""
-    try:
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if head.returncode != 0:
-        return None
-    return head.stdout.strip() or None
-
-
-def images_built_for(stamp: Path, revision: str | None) -> bool:
-    """Whether this lane's images were last built at *revision*."""
-    if revision is None or not stamp.is_file():
-        return False
-    return stamp.read_text(encoding="utf-8").strip() == revision
-
-
-def record_images_built(stamp: Path, revision: str | None) -> None:
-    """Record that this lane's images now match *revision*; an unknown one records nothing."""
-    if revision is None:
-        stamp.unlink(missing_ok=True)
-        return
-    stamp.write_text(revision, encoding="utf-8")
-
-
 def _dead_containers() -> str:
     return dead_container_logs(_orm_stack.project_prefix(PROJECT_NAME))
 
@@ -424,7 +379,7 @@ def deployed_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     with host_stack_lock(STACK_LOCK):
         repo = _build_project(base)
         _orm_stack.seed_repo_env(repo)
-        revision = _checkout_revision()
+        revision = checkout_revision()
         if not images_built_for(IMAGES_STAMP, revision):
             _orm_stack.force_image_rebuild(_orm_stack.va_image(PROJECT_NAME))
         project = _orm_stack.project_prefix(PROJECT_NAME)
