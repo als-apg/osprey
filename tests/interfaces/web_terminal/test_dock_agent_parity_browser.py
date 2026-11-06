@@ -1345,6 +1345,50 @@ def test_two_steps_in_a_row_and_a_stale_base(tmp_path, chromium_browser):
         assert hub.errors == []
 
 
+#: Delay the page's reading of every /api/panel-op-result answer: the server has
+#: recorded the layout (and the agent's call has returned its rev) while the dock
+#: has not yet taken that rev as its ack.
+_SLOW_OP_ANSWER_JS = """
+(ms) => {
+  const fetch0 = window.fetch;
+  window.fetch = async (input, init) => {
+    const response = await fetch0(input, init);
+    if (String(input).includes('/api/panel-op-result')) {
+      await new Promise((r) => setTimeout(r, ms));
+    }
+    return response;
+  };
+}
+"""
+
+
+def test_a_second_step_arriving_before_the_first_answer_lands(tmp_path, chromium_browser):
+    """The returned ``rev`` holds even when the next op beats the dock's ack.
+
+    The agent's call returns as soon as the server records the dock's answer;
+    the dock reads that answer's ``rev`` a moment later. A second op carrying
+    the returned rev can reach the dock in between, and it must be run after
+    the first op's answer is taken, not refused ``stale_base`` against the
+    ack the dock had before it.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        b = S("b")
+        _restore(page, hub, MATRIX_START)
+        page.evaluate(_SLOW_OP_ANSWER_JS, 1500)
+        rev = _tool("list_panels")["rev"]
+        dropped = _tool("drop_panel", source={"tab": b}, target={"outer": "right"}, base_rev=rev)
+        (b_tile,) = _tiles_holding(dropped["layout"], [b])
+        moved = _tool(
+            "drop_panel", source={"tile": b_tile}, target={"outer": "left"}, base_rev=dropped["rev"]
+        )
+        assert moved["rev"] > dropped["rev"]
+        after = _settle(page)
+        _assert_returned_is_shown(moved, after, "drop then drop, answer slow")
+        assert after["shape"] == S("row[b,a,c,terminal]"), after["shape"]
+
+
 def test_an_agent_op_mid_drag_applies_after_the_drag(tmp_path, chromium_browser):
     """An op that arrives while a person drags waits for the drop, then shows.
 

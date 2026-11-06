@@ -173,16 +173,30 @@ describe('a session row', () => {
     const ev = await rightClick($('.osprey-tree-title'));
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
-      'Open in Agent',
       'Group by Kind',
       'Group by Activity',
       'Rename…',
-      'Use automatic name',
       'Export transcript',
       'Copy ID',
       'Delete…',
     ]);
     expect(menuRow('Group by Kind').getAttribute('aria-checked')).toBe('true');
+    expect(menuRow('Open in Agent')).toBeUndefined();
+  });
+
+  test('Use automatic name appears only on a hand-named session', async () => {
+    $('[data-session-id="t1"]').dataset.titleSource = 'auto';
+    await rightClick($('.osprey-tree-title'));
+    expect(menuRow('Use automatic name')).toBeUndefined();
+    document.querySelector('.rail-context-menu')?.remove();
+    $('[data-session-id="t1"]').dataset.titleSource = 'user';
+    await rightClick($('.osprey-tree-title'));
+    expect(menuLabels()).toContain('Use automatic name');
+    menuRow('Use automatic name').click();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    const [url, init] = /** @type {any} */ (globalThis.fetch).mock.calls[0];
+    expect(url).toBe('/api/sessions/t1/title');
+    expect(JSON.parse(init.body)).toEqual({ title: '' });
   });
 
   test('Rename… edits in place; an empty name puts the automatic one back', async () => {
@@ -225,12 +239,6 @@ describe('a session row', () => {
     spy.mockRestore();
   });
 
-  test('Open in Agent opens the session through the controller, never as a click that folds', async () => {
-    await rightClick($('.osprey-tree-title'));
-    menuRow('Open in Agent').click();
-    await vi.waitFor(() => expect(controller.openInAgent).toHaveBeenCalledWith('t1'));
-  });
-
   test('Group by Activity applies the mode through the controller', async () => {
     await rightClick($('.osprey-tree-title'));
     menuRow('Group by Activity').click();
@@ -245,7 +253,7 @@ describe('a session row', () => {
     });
     $('.osprey-tree-title').dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
-    await vi.waitFor(() => expect(menuLabels()[0]).toBe('Open in Agent'));
+    await vi.waitFor(() => expect(menuLabels()[0]).toBe('Group by Kind'));
   });
 });
 
@@ -419,5 +427,54 @@ describe('an artifact row', () => {
     const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
     outside.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(false);
+  });
+});
+
+describe('behind the hub prefix (/u/alice)', () => {
+  beforeEach(() => {
+    /** @type {any} */ (window).__OSPREY_PREFIX__ = '/u/alice';
+  });
+  afterEach(() => {
+    delete (/** @type {any} */ (window).__OSPREY_PREFIX__);
+  });
+
+  test('rename PUTs the title under the prefix', async () => {
+    await menus.putTitle('t1', 'New name');
+    const [url, init] = /** @type {any} */ (globalThis.fetch).mock.calls[0];
+    expect(url).toBe('/u/alice/api/sessions/t1/title');
+    expect(init.method).toBe('PUT');
+  });
+
+  test('delete DELETEs the session under the prefix', async () => {
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Delete…').click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
+    const ui = { done: vi.fn(), error: document.createElement('div') };
+    await confirm.showConfirm.mock.calls[0][0].onConfirm(ui);
+    expect(globalThis.fetch).toHaveBeenCalledWith('/u/alice/api/sessions/t1', {
+      method: 'DELETE',
+    });
+  });
+
+  test('the transcript export link carries the prefix', () => {
+    let href = '';
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+      href = document.body.querySelector('a[download]')?.getAttribute('href') ?? '';
+    });
+    try {
+      menus.exportTranscript('t1');
+    } finally {
+      click.mockRestore();
+    }
+    expect(href).toBe('/u/alice/api/sessions/t1/transcript.md');
+  });
+
+  test('Pin goes under the prefix', async () => {
+    await rightClick($('[data-id="a1"]'));
+    menuRow('Pin').click();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    expect(/** @type {any} */ (globalThis.fetch).mock.calls[0][0]).toBe(
+      '/u/alice/panel/artifacts/api/artifacts/a1/pin'
+    );
   });
 });
