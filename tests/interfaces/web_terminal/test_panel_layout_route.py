@@ -1,11 +1,12 @@
 """Tests for ``POST /api/panel-layout`` and the layout half of ``GET /api/panels``.
 
 The layout report is how a browser's dock tells the server what the operator's
-workspace actually looks like: the dock layout tree (tiles, their tabs, the showing
-tab, the terminal) plus the page's ``client_id``. The server validates it with
-``dock_layout``, records the reporting client as the current one and mints a
-``rev`` that the ack returns. It is report-only: last-writer-wins, never broadcast,
-and content-deduped so an applied arrangement converges instead of ping-ponging.
+workspace actually looks like: the dock layout tree (its tiles, the panel each
+one shows, the terminal) plus the page's ``client_id``. The server validates it
+with ``dock_layout`` and OSPREY's one-panel-per-tile rule, records the reporting
+client as the current one and mints a ``rev`` that the ack returns. It is
+report-only: last-writer-wins, never broadcast, and content-deduped so an
+applied arrangement converges instead of ping-ponging.
 """
 
 from __future__ import annotations
@@ -23,7 +24,15 @@ LAYOUT = {
     "split": "row",
     "items": [
         {"tile": "1", "tabs": ["terminal"], "showing": "terminal", "size": 0.4},
-        {"tile": "2", "tabs": ["lattice", "ariel"], "showing": "ariel", "size": 0.6},
+        {"tile": "2", "tabs": ["ariel"], "showing": "ariel", "size": 0.6},
+    ],
+}
+#: LAYOUT with LATTICE in tile 2, in place of ARIEL.
+REPLACED = {
+    "split": "row",
+    "items": [
+        {"tile": "1", "tabs": ["terminal"], "showing": "terminal", "size": 0.4},
+        {"tile": "2", "tabs": ["lattice"], "showing": "lattice", "size": 0.6},
     ],
 }
 TERMINAL_ONLY = {"tile": "1", "tabs": ["terminal"], "showing": "terminal"}
@@ -73,9 +82,7 @@ class TestStore:
     def test_a_changed_layout_mints_a_higher_rev(self):
         client = _make_client()
         first = _report(client, LAYOUT).json()["rev"]
-        moved = copy.deepcopy(LAYOUT)
-        moved["items"][1]["showing"] = "lattice"
-        second = _report(client, moved).json()
+        second = _report(client, REPLACED).json()
         assert second["updated"] is True
         assert second["rev"] > first
 
@@ -186,13 +193,11 @@ class TestDedupe:
         assert again["updated"] is True
         assert again["rev"] == first["rev"] + 1
 
-    def test_a_showing_tab_change_mints_a_rev(self):
+    def test_another_panel_in_a_tile_mints_a_rev(self):
         client = _make_client()
         first = _report(client, LAYOUT).json()
-        shown = copy.deepcopy(LAYOUT)
-        shown["items"][1]["showing"] = "lattice"
 
-        assert _report(client, shown).json()["rev"] == first["rev"] + 1
+        assert _report(client, REPLACED).json()["rev"] == first["rev"] + 1
 
     def test_a_dock_report_after_a_dock_less_one_is_news(self):
         client = _make_client()
@@ -204,13 +209,30 @@ class TestValidation:
     def test_unknown_key_is_rejected_and_lists_valid_ids(self):
         client = _make_client()
         bad = copy.deepcopy(LAYOUT)
-        bad["items"][1]["tabs"].append("nope")
+        bad["items"][1].update(tabs=["nope"], showing="nope")
         resp = _report(client, bad)
         assert resp.status_code == 422
         detail = resp.json()["detail"]
         assert "nope" in detail
         for valid in ("ariel", "lattice", "artifacts", "grafana"):
             assert valid in detail
+
+    def test_a_tile_holding_two_panels_is_refused_one_panel_per_tile(self):
+        """A valid tree by the engine's grammar, but OSPREY's dock shows one panel per tile."""
+        client = _make_client()
+        rev = _report(client, LAYOUT).json()["rev"]
+        crowded = copy.deepcopy(LAYOUT)
+        crowded["items"][1].update(tabs=["lattice", "ariel"], showing="ariel")
+
+        resp = _report(client, crowded)
+
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == (
+            "layout.items[1].tabs: one_panel_per_tile: a tile holds one panel; to show "
+            "several, put them side by side in tiles of their own"
+        )
+        assert client.app.state.dock_layout == LAYOUT
+        assert client.app.state.dock_layout_rev == rev
 
     def test_a_c_layout_refusal_names_the_reason(self):
         client = _make_client()

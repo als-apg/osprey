@@ -14,6 +14,7 @@ from osprey.services.ariel_search.entry_fields import (
     EntryFieldError,
     EntryFieldOptionsUnavailable,
     check_declarations,
+    check_follows_up,
     coerce_entry_value,
     entry_field_descriptors,
     resolve_entry_write,
@@ -76,7 +77,7 @@ def test_declaration_duplicate_name_refused():
 
 
 @pytest.mark.parametrize(
-    "name", ["tags", "sync_status", "created_via", "session_metadata", "title"]
+    "name", ["tags", "sync_status", "created_via", "session_metadata", "title", "follows_up"]
 )
 def test_declaration_reserved_name_refused(name):
     """Every reserved name is refused."""
@@ -512,6 +513,7 @@ def _resolve(
     tags=None,
     created_via="ariel-web",
     session_metadata=None,
+    follows_up=None,
 ):
     return resolve_entry_write(
         example_descriptors(declare_logbook=True) if descriptors is None else descriptors,
@@ -521,6 +523,7 @@ def _resolve(
         tags=["beam"] if tags is None else tags,
         created_via=created_via,
         session_metadata=session_metadata,
+        follows_up=follows_up,
     )
 
 
@@ -672,3 +675,92 @@ def test_resolve_does_not_mutate_inputs():
     assert declared == {"book": "ops", "sync_status": "synced"}
     assert tags == ["beam"]
     assert session == {"user": "op"}
+
+
+def test_declaration_follows_up_facet_refused():
+    """follows_up is refused as a facet too, so it can never become a filter dimension."""
+    exc = _refused([_field("follows_up", facet=True)], "follows_up")
+    assert "reserved" in str(exc)
+
+
+def test_resolve_follows_up_reaches_both_metadata_dicts():
+    """A follow-up id lands in the adapter and the local metadata, even with no declarations."""
+    result = _resolve({}, descriptors=[], logbook="ops", follows_up="e-1")
+    assert result.adapter_metadata == {"follows_up": "e-1"}
+    assert result.local_metadata["follows_up"] == "e-1"
+
+
+def test_resolve_follows_up_alongside_declared_values():
+    """With declarations the follow-up sits beside the declared values in both dicts."""
+    result = _resolve({"book": "ops"}, follows_up="e-1")
+    assert result.adapter_metadata["follows_up"] == "e-1"
+    assert result.adapter_metadata["book"] == "ops"
+    assert result.local_metadata["follows_up"] == "e-1"
+
+
+def test_resolve_without_follows_up_leaves_the_key_out():
+    """No follow-up leaves the key out of both dicts."""
+    result = _resolve({"book": "ops"})
+    assert "follows_up" not in result.adapter_metadata
+    assert "follows_up" not in result.local_metadata
+
+
+def test_resolve_ignores_follows_up_in_declared_values():
+    """A follows_up key among the declared values is not a declared field and is dropped."""
+    result = _resolve({"book": "ops", "follows_up": "e-9"}, descriptors=[_field("book")])
+    assert "follows_up" not in result.adapter_metadata
+    assert "follows_up" not in result.local_metadata
+
+
+class _Entries:
+    """A stand-in for ``repository.get_entry`` holding a fixed set of ids."""
+
+    def __init__(self, *ids: str) -> None:
+        self.ids = set(ids)
+        self.calls: list[str] = []
+
+    async def __call__(self, entry_id: str):
+        self.calls.append(entry_id)
+        return {"entry_id": entry_id} if entry_id in self.ids else None
+
+
+@pytest.mark.parametrize("metadata", [None, {}, {"follows_up": None}, {"follows_up": ""}])
+async def test_follows_up_absent_means_none(metadata):
+    """A missing key, null and the empty string all mean no follow-up, with no lookup."""
+    entries = _Entries("e-1")
+    assert await check_follows_up(metadata, entries) is None
+    assert entries.calls == []
+
+
+async def test_follows_up_known_id_returned():
+    """An id ARIEL holds is returned unchanged."""
+    entries = _Entries("e-1")
+    assert await check_follows_up({"follows_up": "e-1", "other": 1}, entries) == "e-1"
+    assert entries.calls == ["e-1"]
+
+
+@pytest.mark.parametrize("value", [7, 0, False, True, ["e-1"], {"id": "e-1"}, 1.5])
+async def test_follows_up_non_string_refused(value):
+    """Any non-string value other than null is refused, naming the field."""
+    entries = _Entries("e-1")
+    with pytest.raises(EntryFieldError) as info:
+        await check_follows_up({"follows_up": value}, entries)
+    assert info.value.field == "follows_up"
+    assert entries.calls == []
+
+
+async def test_follows_up_unknown_id_refused():
+    """An id ARIEL does not hold is refused, naming the field and the id."""
+    with pytest.raises(EntryFieldError) as info:
+        await check_follows_up({"follows_up": "e-404"}, _Entries("e-1"))
+    assert info.value.field == "follows_up"
+    assert "e-404" in info.value.message
+
+
+async def test_follows_up_own_id_refused():
+    """An entry cannot follow up itself, even when ARIEL holds its id."""
+    entries = _Entries("e-1")
+    with pytest.raises(EntryFieldError) as info:
+        await check_follows_up({"follows_up": "e-1"}, entries, entry_id="e-1")
+    assert info.value.field == "follows_up"
+    assert entries.calls == []

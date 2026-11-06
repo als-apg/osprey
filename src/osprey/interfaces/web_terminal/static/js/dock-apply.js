@@ -2,15 +2,18 @@
 /* OSPREY Web Terminal — Dock Layout Holder
  *
  * The holder is the dock's single source of truth: the current dock layout
- * (the engine's dock form — tiles of tabs keyed by bare panel ids plus
- * `terminal`), the focused tile, the last tile that showed a service, the
- * panels living in their own pop-out windows, the close records an undo
- * reopens, the server `rev` last acknowledged and whether the layout changed
- * since. Its writers are:
+ * (the engine's dock form — tiles keyed by bare panel ids plus `terminal`,
+ * each tile holding ONE panel, OSPREY's rule in dock-policy.js), the focused
+ * tile, the last tile that showed a service, the panels living in their own
+ * pop-out windows, the close records an undo reopens, the server `rev` last
+ * acknowledged and whether the layout changed since. Its writers are:
  *
- *   - `run(op)`        an engine operation (open, close, move, ...);
- *   - `restore(l)`     a saved dock (validated, normalised, no undo record);
- *   - `show(tile, k)`  a person showed a tab: dockview already shows it, so
+ *   - `run(op)`        an engine operation (open, close, move, ...); a result
+ *                      giving a tile several panels is refused by the policy's
+ *                      name and changes nothing;
+ *   - `restore(l)`     a saved dock (validated, normalised, no undo record); a
+ *                      tile saved with several panels keeps the one it showed;
+ *   - `show(tile, k)`  a person focused a tile: dockview already shows it, so
  *                      the holder records it and does NOT re-apply;
  *   - `resized(l, px)` a sash gesture or a dock size change: sizes only, from a
  *                      tree of the same shape, never re-applied;
@@ -20,7 +23,7 @@
  * test_dock_mutator_guard.py, keeps it so). Applying a layout is one
  * `api.fromJSON(toSerialized(layout, px))`:
  *
- *   - group id = tile id, a group's views = the tile's tabs, active = showing;
+ *   - group id = tile id, a group's one view = the tile's panel, active = showing;
  *   - the `iframe:` prefix of service panels is added here and stripped here
  *     (`fromSerialized`), nowhere else; `terminal` keeps its own id;
  *   - every serialized panel carries the 40 px minimums (dockview reads them off
@@ -31,11 +34,11 @@
  *     ends, so dockview's drag source still exists for its own `dragend`;
  *   - keyboard focus is saved and restored across it: the terminal's xterm (its
  *     subtree is moved, never rebuilt — createComponent hands dockview the same
- *     adopted node) and a focused header tab, re-found by tile and key.
+ *     adopted node) and a focused header bar, re-found by tile and key.
  *
- * This module imports nothing but the engine, so the pure repair
- * (dock-reconcile.js) and the placement rules (dock-open.js) can read its
- * vocabulary without pulling the page in.
+ * This module imports nothing but the engine and the policy (which imports
+ * the engine alone), so the pure repair (dock-reconcile.js) and the placement
+ * rules (dock-open.js) can read its vocabulary without pulling the page in.
  */
 
 import {
@@ -52,6 +55,7 @@ import {
   reopen,
   validateLayout,
 } from '/static/vendor/dock-engine.mjs';
+import { ONE_PANEL_PER_TILE, crowdedTile, onePanelPerTile } from './dock-policy.js';
 
 /** @typedef {import('/static/vendor/dock-engine.mjs').Layout} Layout */
 /** @typedef {import('/static/vendor/dock-engine.mjs').Tile} Tile */
@@ -79,7 +83,7 @@ import {
  */
 
 /**
- * What reopening a stored tab in a new session needs beyond its key: the
+ * What reopening a stored panel in a new session needs beyond its key: the
  * title and params its dockview panel is built with.
  * @typedef {object} PanelRecord
  * @property {string} [title]
@@ -88,7 +92,7 @@ import {
 
 /** The terminal/chat card's layout key, which is also its dockview id (never prefixed). */
 export const TERMINAL_KEY = 'terminal';
-/** Dock tab title of the Agent pane. A real title makes the pane a first-class
+/** Dock panel title of the Agent pane. A real title makes the pane a first-class
  *  tile; the bar it adopts (dock-tab.js) is the visible label. Stored layouts
  *  carrying an older title (`SESSION`, or the empty string from before the pane
  *  was titled) are healed on the next apply, which writes this one. */
@@ -101,11 +105,11 @@ export const PLACEHOLDER_PREFIX = 'iframe:';
  *  createComponent does not know it, so it returns its neutral fallback element:
  *  the empty content node dock-iframe.js lays its iframe over. */
 export const PLACEHOLDER_COMPONENT = 'dock-iframe-placeholder';
-/** Attribute a header tab carries its bare key on; focus is re-found by it. */
+/** Attribute a header bar carries its bare key on; focus is re-found by it. */
 export const TAB_KEY_ATTRIBUTE = 'data-panel-key';
 /** Close records kept for undo. */
 const CLOSED_CAP = 50;
-/** Macrotask turns a focus restore waits for a rebuilt tab to appear. */
+/** Macrotask turns a focus restore waits for a rebuilt bar to appear. */
 const RESTORE_TURNS = 10;
 
 const HORIZONTAL = 'HORIZONTAL';
@@ -336,7 +340,7 @@ export function isSerializedDockview(value) {
 /**
  * @typedef {object} SavedFocus
  * @property {HTMLElement} element
- * @property {{ key: string, tile: string|null } | null} bar  set for a header tab
+ * @property {{ key: string, tile: string|null } | null} bar  set for a header bar
  */
 
 /**
@@ -363,17 +367,16 @@ function saveFocus(api) {
 }
 
 /**
- * Where a saved tab focus goes after a rebuild: the same tab in its tile, else
- * the showing tab of the tile now holding the key, else of the tile it was in.
+ * Where a saved bar focus goes after a rebuild: the bar of the tile now
+ * holding the key, else the bar of the tile it was in.
  * @param {{ key: string, tile: string|null }} bar
  * @param {Layout|null} layout
  * @returns {{ tile: string, key: string } | null}
  */
 function focusTarget(bar, layout) {
-  const was = bar.tile === null ? null : findTile(layout, bar.tile);
-  if (was && was.tabs.includes(bar.key)) return { tile: was.tile, key: bar.key };
   const holder = tilesOf(layout).find((t) => t.tabs.includes(bar.key));
-  if (holder) return { tile: holder.tile, key: holder.showing };
+  if (holder) return { tile: holder.tile, key: bar.key };
+  const was = bar.tile === null ? null : findTile(layout, bar.tile);
   return was ? { tile: was.tile, key: was.showing } : null;
 }
 
@@ -433,7 +436,7 @@ function restoreFocus(api, saved, layout) {
 // --- shape helpers -------------------------------------------------------------------
 
 /**
- * Whether two layouts are the same tree up to sizes and showing tabs.
+ * Whether two layouts are the same tree up to sizes.
  * @param {Layout|null} a
  * @param {Layout|null} b
  * @returns {boolean}
@@ -486,19 +489,6 @@ function withSizes(held, sized) {
   if (sized.size === undefined) delete next.size;
   else next.size = sized.size;
   return next;
-}
-
-/**
- * `layout` with tile `id` showing `key` (a copy; the input is untouched).
- * @param {Layout} layout
- * @param {string} id
- * @param {string} key
- * @returns {Layout}
- */
-function withShowing(layout, id, key) {
-  if (isTile(layout))
-    return layout.tile === id ? { ...layout, tabs: [...layout.tabs], showing: key } : layout;
-  return { ...layout, items: layout.items.map((item) => withShowing(item, id, key)) };
 }
 
 // --- the holder ----------------------------------------------------------------------
@@ -628,13 +618,18 @@ export function createLayoutHolder(deps = {}) {
 
     /**
      * Run an engine operation on the held layout; a changed result is kept and
-     * applied, a record is kept for undo, `focus` moves the focused tile.
+     * applied, a record is kept for undo, `focus` moves the focused tile. A
+     * result giving a tile several panels breaks the policy: it is refused by
+     * name (`refusal: 'one_panel_per_tile'`) and nothing changes.
      * @param {(layout: Layout|null, ctx: OpContext) => OpResult} op
-     * @returns {OpResult}
+     * @returns {OpResult & {refusal?: string}}
      */
     run(op) {
       const result = op(layout, holder.context());
       if (!result) return result;
+      if (result.changed && crowdedTile(result.layout) !== null) {
+        return { layout, changed: false, refusal: ONE_PANEL_PER_TILE };
+      }
       if (result.record) {
         closed.push(result.record);
         if (closed.length > CLOSED_CAP) closed.shift();
@@ -661,13 +656,18 @@ export function createLayoutHolder(deps = {}) {
 
     /**
      * Replace the layout with a saved dock: validated and normalised, no undo
-     * record. False (and nothing changes) for an invalid layout.
+     * record. A tile saved with several panels (a dock stored by the release
+     * that had tabs) keeps the one it showed; the others leave the dock and
+     * keep their sidebar rows. False (and nothing changes) for an invalid
+     * layout.
      * @param {unknown} input
      * @returns {boolean}
      */
     restore(input) {
       if (input !== null && !validateLayout(input, { form: 'dock' }).valid) return false;
-      layout = input === null ? null : normalize(structuredClone(/** @type {Layout} */ (input)));
+      const saved = input === null ? null : structuredClone(/** @type {Layout} */ (input));
+      const kept = onePanelPerTile(saved).layout;
+      layout = kept === null ? null : normalize(kept);
       dirty = true;
       track();
       void holder.apply();
@@ -675,8 +675,9 @@ export function createLayoutHolder(deps = {}) {
     },
 
     /**
-     * A person showed `key` in `tile` (dockview already shows it): record it
-     * and focus the tile, without re-applying.
+     * A person focused `tile`, which shows `key` (dockview already shows it):
+     * record the focus, without re-applying. False for a tile the dock does
+     * not hold, or one not showing `key`.
      * @param {string} tile
      * @param {string} key
      * @returns {boolean}
@@ -684,10 +685,6 @@ export function createLayoutHolder(deps = {}) {
     show(tile, key) {
       const found = findTile(layout, tile);
       if (!layout || !found || !found.tabs.includes(key)) return false;
-      if (found.showing !== key) {
-        layout = withShowing(layout, tile, key);
-        dirty = true;
-      }
       focusedTile = tile;
       track();
       return true;

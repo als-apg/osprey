@@ -120,7 +120,7 @@ The agent cites entries by ID. Give it your logbook's address for one entry and 
    ariel:
      entry_url_template: "https://logbook.example.org/entry/{entry_id}"
 
-``{entry_id}`` is replaced with the entry's URL-encoded id, and the ARIEL tools return the result as ``entry_url`` beside each entry. The agent links that URL as given and never builds one of its own, so without the key it shows plain IDs. Entries created through ARIEL and not yet published to the logbook get no link. The key, the tools that carry the URL and what a malformed template does are in :ref:`config-ariel-entry-url`.
+``{entry_id}`` is replaced with the entry's URL-encoded id, and the ARIEL tools return the result as ``entry_url`` beside each entry. The agent links that URL as given and never builds one of its own, so without the key it shows plain IDs. Entries that exist only in ARIEL (written directly by the agent, or saved local-only) get no link. The key, the tools that carry the URL and what a malformed template does are in :ref:`config-ariel-entry-url`.
 
 Sidecar Metadata
 ~~~~~~~~~~~~~~~~
@@ -180,7 +180,7 @@ A logbook that files entries by book, shift day or run can ask the author for th
            scans = await self._scans_on(values.get("day"))   # your logbook's lookup
            return [{"value": s.id, "label": s.title} for s in scans]
 
-**Declarations.** A field's type is one of ``text``, ``int``, ``float``, ``bool``, ``date``, ``select`` or ``dynamic_select``. A ``select`` carries its ``options``. A ``dynamic_select`` gets its choices from ``get_entry_field_options``, which receives only the values of the fields it ``depends_on``, already coerced to their types. ``depends_on`` names static fields only, never another ``dynamic_select``. The adapter looks the choices up with its own service-side credentials, never the author's.
+**Declarations.** A field's type is one of ``text``, ``int``, ``float``, ``bool``, ``date``, ``select`` or ``dynamic_select``. A ``select`` carries its ``options``. A ``dynamic_select`` gets its choices from ``get_entry_field_options``, which receives only the values of the fields it ``depends_on``, already coerced to their types. ``facet: true`` makes a field a filter dimension: a facet in the web rail, a ``filters`` key and a ``name:value`` search operator. ``depends_on`` names static fields only, never another ``dynamic_select``. The adapter looks the choices up with its own service-side credentials, never the author's.
 
 **Values.** Each submitted value is coerced to its declared type before it is stored. ``int``, ``float`` and ``bool`` become JSON numbers and booleans (``bool`` also reads ``true``/``1``/``yes``/``on`` and ``false``/``0``/``no``/``off``), ``date`` becomes ``YYYY-MM-DD``, and the other types stay strings. Surrounding whitespace is stripped and an empty value counts as not given. A declared ``default`` only pre-fills the form; it never fills a value the author left out.
 
@@ -200,7 +200,7 @@ ARIEL refuses a declaration or a value in these cases:
      - Refused when
      - Error
    * - Declarations, checked before anything renders or writes
-     - A duplicate name, an unknown type, a ``select`` without options, a ``depends_on`` that names an undeclared or dynamic field, or a reserved name.
+     - A duplicate name, an unknown type, a ``select`` without options, a ``depends_on`` that names an undeclared or dynamic field, a ``facet`` that is not a boolean, a facet named ``author``, ``source_system``, ``tags``, ``time`` or ``enhancement``, or a reserved name.
      - Stops the form and the write paths with one error naming the adapter and the field.
    * - Reserved names
      - The adapter declares ``tags``, ``sync_status``, ``created_via``, ``session_metadata`` or ``title``. These belong to ARIEL and cannot be declared.
@@ -229,7 +229,7 @@ The checks are about shape: type, options, required, range, and the choices the 
 Entry Attachments
 ~~~~~~~~~~~~~~~~~
 
-By default an entry's files stay in ARIEL: the text reaches the facility logbook, and the submit response says the files were saved to ARIEL only. An adapter whose logbook takes files declares ``supports_attachments = True``. Its ``create_entry`` then receives each file as a local path in ``request.attachment_paths``, valid only while the call runs, and must publish every one of them before it returns.
+By default an entry's files stay in ARIEL: the text reaches the facility logbook, and the submit response says the files were saved to this Logbook only. An adapter whose logbook takes files declares ``supports_attachments = True``. Its ``create_entry`` then receives each file as a local path in ``request.attachment_paths``, valid only while the call runs, and must publish every one of them before it returns.
 
 .. code-block:: python
 
@@ -464,7 +464,7 @@ The built-in enhancement modules:
 
       **Module:** ``enhancement/qmd_export/`` (entry point: ``exporter.py``)
 
-      Writes one markdown file per entry into the **qmd mirror**, the corpus the qmd search sidecar indexes. It is what makes the ``hybrid`` :doc:`search mode <search-modes>` able to answer anything. The shipped templates enable the exporter and the sidecar together, and they have to stay that way: either one alone is useless. Entries created through the ARIEL panel or the agent's ``entry_create`` tool are mirrored inline at creation time (best-effort), so they become hybrid-searchable without waiting for the next enhancement run.
+      Writes one markdown file per entry into the **qmd mirror**, the corpus the qmd search sidecar indexes. It is what makes the ``hybrid`` :doc:`search mode <search-modes>` able to answer anything. The shipped templates enable the exporter and the sidecar together, and they have to stay that way: either one alone is useless. Entries created through the Logbook panel or the agent's ``entry_create`` tool are mirrored inline at creation time (best-effort), so they become hybrid-searchable without waiting for the next enhancement run.
 
       **Configuration:**
 
@@ -617,9 +617,8 @@ ships a service that runs it in a container. To deploy it:
    when the newest ingestion is older than the expected cadence; the threshold
    is under `How the Service Behaves`_.
 
-The profile key is ``ariel_sync``; the compose service it renders is
-``ariel-sync`` (container ``<project>-ariel-sync``). Both names refer to this
-one service.
+The profile key ``ariel_sync`` renders the compose service ``ariel-sync``
+(container ``<project>-ariel-sync``): two spellings of this one service.
 
 How the Service Behaves
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -676,6 +675,9 @@ itself.
    host, but inside a bridge-networked container ``localhost`` is the container
    itself, so the sync cannot reach the database. Either write a URI the
    container can resolve, or remove the key and let the address be derived.
+
+   An authored URI also needs ``ariel.database.readonly_uri`` for the agent's
+   SQL tool to be served (see :ref:`config-ariel-database-readonly-uri`).
 
 **The qmd mirror directory.** When ``ariel.enhancement_modules.qmd_export`` is
 enabled with a ``mirror_path``, the host directory it names is bind-mounted into

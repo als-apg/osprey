@@ -17,9 +17,9 @@ rests on:
 * that the row cap and the query timeout are enforced by the *store* rather
   than by a client-side slice.
 
-One store, seeded once per module with the graph view the control-assistant
-build writes (``data/graph/facility.ttl``) through the same primitives
-``osprey up`` uses.
+One store, the session's, wiped and seeded once per module with the graph
+view the control-assistant build writes (``data/graph/facility.ttl``) through
+the same primitives ``osprey up`` uses.
 
 Skips are loud and only ever about the host.  If Docker is not reachable the
 whole module skips with that reason; if Docker *is* reachable every test here
@@ -58,7 +58,7 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     WatchedStore,
-    watched_graphdb_store,
+    wiped_graphdb_store,
 )
 from tests.integration._graph_oracles import (
     GRAPH_DEVICE_COUNT_CYPHER,
@@ -143,8 +143,8 @@ def _requires_a_real_store(graph_mcp_plugin_dir: Path) -> None:
     """
 
 
-def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[WatchedStore]:
-    """Start a store, seed it through the real seeder, and yield it watched.
+def _seeded_store(shared: WatchedStore, ttl_text: str, label: str) -> Iterator[WatchedStore]:
+    """Wipe the session's store, seed it through the real seeder, and yield it watched.
 
     Seeding goes through :mod:`~osprey.services.facility_knowledge.seeder.graph_seeder`
     rather than raw Cypher because that is the path ``osprey up`` takes —
@@ -154,32 +154,31 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[Watch
     the store's watch: a seeding step that gets no answer fails naming this
     store and the state its container was in.
     """
-    store_label = f"graphdb for {label}"
-    with watched_graphdb_store(plugin_dir, label=store_label) as store:
-        from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.facility_knowledge.seeder import graph_seeder
 
-        with (
-            store.reading(),
-            graph_seeder.open_session(
-                store.uri,
-                GRAPHDB_TEST_USERNAME,
-                GRAPHDB_TEST_PASSWORD,
-                database=GRAPHDB_TEST_DATABASE,
-            ) as session,
-        ):
-            bootstrap = graph_seeder.bootstrap(session)
-            assert bootstrap.ok, bootstrap.message
-            imported = graph_seeder.import_ttl(session, ttl_text)
-            assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
-            graph_seeder.write_marker(
-                session,
-                graph_seeder.ttl_sha256(ttl_text),
-            )
-            logger.info(
-                f"{label}: seeded {imported.triples_loaded} triples, "
-                f"{graph_seeder.resource_count(session)} Resource nodes"
-            )
-        yield store
+    store = wiped_graphdb_store(shared, label=f"graphdb for {label}")
+    with (
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
+        bootstrap = graph_seeder.bootstrap(session)
+        assert bootstrap.ok, bootstrap.message
+        imported = graph_seeder.import_ttl(session, ttl_text)
+        assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
+        graph_seeder.write_marker(
+            session,
+            graph_seeder.ttl_sha256(ttl_text),
+        )
+        logger.info(
+            f"{label}: seeded {imported.triples_loaded} triples, "
+            f"{graph_seeder.resource_count(session)} Resource nodes"
+        )
+    yield store
 
 
 @pytest.fixture(scope="module")
@@ -196,9 +195,9 @@ def demo_corpus(built_control_assistant: BuiltProject) -> Path:
 
 
 @pytest.fixture(scope="module")
-def demo_store(graph_mcp_plugin_dir: Path, demo_corpus: Path) -> Iterator[WatchedStore]:
-    """A store seeded with the generated demo corpus."""
-    yield from _seeded_store(graph_mcp_plugin_dir, demo_corpus.read_text(encoding="utf-8"), "demo")
+def demo_store(graphdb_session_store: WatchedStore, demo_corpus: Path) -> Iterator[WatchedStore]:
+    """The session's store, wiped and seeded with the generated demo corpus."""
+    yield from _seeded_store(graphdb_session_store, demo_corpus.read_text(encoding="utf-8"), "demo")
 
 
 # ---------------------------------------------------------------------------

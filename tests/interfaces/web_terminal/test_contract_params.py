@@ -52,6 +52,7 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
@@ -60,7 +61,6 @@ from tests.interfaces._launchers import (
     launch_ariel,
     launch_artifacts,
     launch_channel_finder,
-    launch_lattice_dashboard,
     launch_okf_panel,
     launch_web_terminal,
 )
@@ -166,10 +166,11 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
 ):
     """artifacts gallery.js's session-change receiver drops foreign-origin messages.
 
-    ``fetchArtifacts()`` appends ``?session_id=<currentSessionId>`` to its own
-    request whenever ``currentSessionId`` is set (and ``showAllSessions`` is
-    false), so the request URL is the observable signal for whether the
-    receiver actually updated ``currentSessionId``. The genuine handler also
+    ``fetchArtifacts()`` posts ``{"key": <currentSessionId>, ...}`` to
+    ``/api/artifacts/session-list`` whenever ``currentSessionId`` is set (and
+    ``showAllSessions`` is false), and reads the unscoped ``GET /api/artifacts``
+    otherwise, so the request (its URL and body) is the observable signal for
+    whether the receiver actually updated ``currentSessionId``. The genuine handler also
     calls ``fetchArtifacts()`` itself on acceptance, so the positive-control
     request below needs no extra UI action to trigger it.
     """
@@ -197,8 +198,11 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
         with page.expect_request(lambda r: "/api/artifacts" in r.url) as rejected_info:
             page.locator("#sidebar-menu-btn").click()
             page.locator("#refresh-btn").click()
-        assert "evil-session-999" not in rejected_info.value.url
-        assert "session_id" not in rejected_info.value.url
+        rejected = rejected_info.value
+        assert "session-list" not in rejected.url
+        assert "session_id" not in rejected.url
+        assert "evil-session-999" not in rejected.url
+        assert "evil-session-999" not in (rejected.post_data or "")
 
         # Act -- genuine same-origin session-change (positive control).
         with page.expect_request(lambda r: "/api/artifacts" in r.url) as accepted_info:
@@ -209,7 +213,10 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
         # Assert -- accepted: the handler's own fetchArtifacts() call carries
         # the new session id, proving the rejection assertion above would
         # have caught a real leak.
-        assert "session_id=contract-test-session" in accepted_info.value.url
+        accepted = accepted_info.value
+        assert accepted.url.endswith("/api/artifacts/session-list")
+        assert accepted.method == "POST"
+        assert json.loads(accepted.post_data)["key"] == "contract-test-session"
 
         page.close()
 
@@ -298,7 +305,9 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
         page.on("websocket", _on_websocket)
 
         page.goto(base_url, wait_until="load")
-        expect(page.locator('button[data-panel-id="artifacts"]')).to_be_visible(timeout=10_000)
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="terminal"]:not(.disabled)')
+        ).to_be_visible(timeout=10_000)
         # Confirm the socket is actually OPEN (not just created) by polling
         # the already-attached framesent listener for the resize handshake
         # frame terminal.js's onOpen sends first. A one-shot
@@ -399,14 +408,6 @@ _CHROME_CONTRACT_PANELS = [
         launch_channel_finder,
         "",
         ".app-logo",
-        "osprey-display-menu",
-        _toggle_via_display_menu,
-    ),
-    (
-        "lattice_dashboard",
-        launch_lattice_dashboard,
-        "",
-        ".topbar-logo",
         "osprey-display-menu",
         _toggle_via_display_menu,
     ),

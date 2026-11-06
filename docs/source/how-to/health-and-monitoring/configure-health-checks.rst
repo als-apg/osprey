@@ -217,11 +217,11 @@ health MCP server alike, with no ``PYTHONPATH`` to arrange. A plugin that will
 not load never takes the suite down: it reports one ``error`` row under the
 ``plugins`` category, naming the entry and what went wrong.
 
-The web dashboard (``SYSTEM`` panel)
-------------------------------------
+The web dashboard (Health panel)
+--------------------------------
 
 In a Web Terminal build that ships panels, the same **poll-class** results are
-served as a read-only browser dashboard — the ``SYSTEM`` tab. It never runs
+served as a read-only browser dashboard — the Health tab. It never runs
 ``on_demand`` checks, so a browser can never trigger a costly probe; those
 categories render as cards carrying a copyable ``osprey health --full`` hint.
 The tab appears only when ``system-health`` is in the build's ``web_panels``

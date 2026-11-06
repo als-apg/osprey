@@ -120,9 +120,17 @@ const reply = (body, status = 200) => ({
 /** The list the server holds, served by `GET /api/artifacts`. */
 let listed = [art('a1'), art('a2')];
 
-/** @param {string} url */
-function route(url) {
+/** The session view's list and the transcript its key resolves to, served by `POST /api/artifacts/session-list`. */
+let sessionListed = [art('s1', { owner: 'T1', operator_visible: true })];
+/** @type {string|null} */
+let transcript = 'T1';
+
+/** @param {string} url @param {any} [init] */
+function route(url, init) {
   const path = new URL(url, 'http://gallery').pathname;
+  if (path === '/api/artifacts/session-list' && init?.method === 'POST') {
+    return reply({ artifacts: sessionListed, next_cursor: null, transcript, ledger: 'ok' });
+  }
   if (path === '/api/artifacts') return reply({ artifacts: listed, next_cursor: null });
   if (path === '/api/focus') return reply({ focused: false, artifact: null });
   const one = path.match(/^\/api\/artifacts\/(.+)$/);
@@ -169,7 +177,9 @@ beforeEach(() => {
       original(type, listener, options);
     });
   }
-  fetchMock = vi.fn(async (/** @type {string} */ url) => route(url));
+  sessionListed = [art('s1', { owner: 'T1', operator_visible: true })];
+  transcript = 'T1';
+  fetchMock = vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => route(url, init));
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('requestAnimationFrame', () => 0);
   events = stubEventSource();
@@ -297,5 +307,167 @@ describe('embedded: the hub says when the shown artifact changed', () => {
     expect(paths()).toEqual(['/api/artifacts']);
     expect(state.getArtifacts().map((a) => a.id)).toEqual(['a3', 'a1', 'a2']);
     expect(mocks.openComposeModal).toHaveBeenCalledWith({ artifact_id: 'a1' });
+  });
+});
+
+describe('standalone: the session view is the sidebar row', () => {
+  /** Load the standalone page and have the host name session key k1. */
+  async function enterSession() {
+    await load('');
+    fromHub({ type: 'osprey-session-change', session_id: 'k1' });
+    await settle();
+  }
+
+  /** The session-list requests the page made. */
+  const sessionLists = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url) === '/api/artifacts/session-list');
+
+  test('no session id shows all sessions through GET /api/artifacts', async () => {
+    await load('');
+
+    expect(paths()).toContain('/api/artifacts');
+    expect(sessionLists()).toEqual([]);
+    expect(state.getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
+  });
+
+  test('a session key posts the exact gallery body and holds the transcript', async () => {
+    await enterSession();
+
+    expect(sessionLists()).toHaveLength(1);
+    const [, init] = sessionLists()[0];
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ key: 'k1', search: '', cursor: null, runs: 'grouped' });
+    expect(state.getHeldTranscript()).toBe('T1');
+    expect(state.getArtifacts().map((a) => a.id)).toEqual(['s1']);
+  });
+
+  test('a new artifact the held transcript owns is added without a request', async () => {
+    await enterSession();
+    fetchMock.mockClear();
+
+    events.emit({ type: 'artifact', ...art('s2', { owner: 'T1', operator_visible: true }) });
+    await settle();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.getArtifacts().map((a) => a.id)).toEqual(['s1', 's2']);
+  });
+
+  test('with a held null transcript an unowned artifact is not admitted', async () => {
+    transcript = null;
+    sessionListed = [];
+    await enterSession();
+    expect(state.getHeldTranscript()).toBeNull();
+    fetchMock.mockClear();
+
+    events.emit({
+      type: 'artifact',
+      ...art('e1', { owner: null, operator_visible: true, session_id: '' }),
+    });
+    await settle();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.getArtifacts()).toEqual([]);
+  });
+
+  test('a result frame for a run whose preview is held triggers a refetch', async () => {
+    sessionListed = [art('head', { owner: 'T1', operator_visible: true, exec_id: 'run-1' })];
+    await enterSession();
+    fetchMock.mockClear();
+    sessionListed = [art('result', { owner: 'T1', operator_visible: true, exec_id: 'run-1' })];
+
+    events.emit({
+      type: 'artifact',
+      ...art('result', { owner: 'T1', operator_visible: true, exec_id: 'run-1' }),
+    });
+    await settle();
+
+    expect(sessionLists()).toHaveLength(1);
+    expect(state.getArtifacts().map((a) => a.id)).toEqual(['result']);
+  });
+
+  test('a new artifact carrying the key under another transcript triggers a refetch', async () => {
+    await enterSession();
+    fetchMock.mockClear();
+
+    events.emit({
+      type: 'artifact',
+      ...art('moved', { owner: 'T2', operator_visible: true, session_id: 'k1' }),
+    });
+    await settle();
+
+    expect(sessionLists()).toHaveLength(1);
+  });
+
+  test('an updated frame does not refetch', async () => {
+    sessionListed = [art('head', { owner: 'T1', operator_visible: true, exec_id: 'run-1' })];
+    await enterSession();
+    fetchMock.mockClear();
+
+    events.emit({
+      type: 'artifact_updated',
+      ...art('other', { owner: 'T2', session_id: 'k1', exec_id: 'run-1', pinned: true }),
+    });
+    await settle();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('a same-key change refetches and keeps the all-sessions toggle', async () => {
+    await enterSession();
+    state.setShowAllSessions(true);
+    fetchMock.mockClear();
+
+    fromHub({ type: 'osprey-session-change', session_id: 'k1' });
+    await settle();
+
+    expect(state.getShowAllSessions()).toBe(true);
+    expect(state.getCurrentSessionId()).toBe('k1');
+    expect(paths()).toEqual(['/api/artifacts']);
+  });
+
+  test('a new key resets the all-sessions toggle', async () => {
+    await enterSession();
+    state.setShowAllSessions(true);
+    fetchMock.mockClear();
+
+    fromHub({ type: 'osprey-session-change', session_id: 'k2' });
+    await settle();
+
+    expect(state.getShowAllSessions()).toBe(false);
+    expect(JSON.parse(sessionLists()[0][1].body).key).toBe('k2');
+  });
+
+  test('with a held null transcript a focus frame is ignored', async () => {
+    transcript = null;
+    sessionListed = [];
+    await enterSession();
+    state.setFocusedArtifact(null);
+    fetchMock.mockClear();
+
+    events.emit({ type: 'focus', domain: 'artifact', id: 'a1', session: null });
+    events.emit({ type: 'focus', domain: 'artifact', id: 'a1', session: 'T1' });
+    await settle();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.getFocusedArtifact()).toBeNull();
+  });
+
+  test("a focus frame for the held transcript is followed; another transcript's is not", async () => {
+    await enterSession();
+    state.setFocusedArtifact(null);
+
+    events.emit({ type: 'focus', domain: 'artifact', id: 's1', session: 'T2' });
+    expect(state.getFocusedArtifact()).toBeNull();
+
+    events.emit({ type: 'focus', domain: 'artifact', id: 's1', session: 'T1' });
+    expect(state.getFocusedArtifact()?.id).toBe('s1');
+  });
+
+  test('the all-sessions view follows every focus', async () => {
+    await load('');
+    state.setFocusedArtifact(null);
+
+    events.emit({ type: 'focus', domain: 'artifact', id: 'a2', session: null });
+    expect(state.getFocusedArtifact()?.id).toBe('a2');
   });
 });

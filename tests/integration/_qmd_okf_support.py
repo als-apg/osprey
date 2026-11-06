@@ -7,39 +7,43 @@ a collected helper module would report its imports as test failures.
 Each module is the entry point for a different half of the feature. What
 belongs to the sidecar itself rather than to either half — its port, the image
 check, the ``/health`` wait and the re-index wait — lives in the ARIEL lane's
-sibling helper and is imported from there; the image tag comes from the
-environment so the CI lane and a local run name it the same way.
+sibling helper and is imported from there; the image tag is the ARIEL
+helper's ``qmd_sidecar_image()``.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 import pytest
 
 from tests._container_support import is_docker_available, start_or_fail, stop_quietly
 from tests.integration._qmd_ariel_support import SIDECAR_CONTAINER_PORT as _SIDECAR_PORT
-from tests.integration._qmd_ariel_support import require_sidecar_image, wait_for_health
+from tests.integration._qmd_ariel_support import (
+    SIDECAR_HEALTH_CEILING,
+    SIDECAR_REINDEX_CEILING,
+    SIDECAR_ROUND_S,
+    qmd_sidecar_image,
+    require_sidecar_image,
+    wait_for_health,
+)
 
 logger = logging.getLogger(__name__)
-
-#: The sidecar image, honouring ``OSPREY_QMD_IMAGE`` — the same variable the
-#: rendered compose fragment overrides ``image:`` with, and the one the CI lane
-#: sets to the tag it just built. The default is the locally verified tag, so a
-#: developer run needs no environment at all.
-#:
-#: Whether a missing image is a skip or a loud failure depends on which of those
-#: two callers is asking; :func:`require_sidecar_image` owns that rule and states
-#: why it has to be conditional.
-QMD_SIDECAR_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
 
 #: Container-side mount point for the OKF bundle, and the collection it is
 #: indexed under. The collection name is the contract every OKF query filters
 #: on (``okf.bundle.OKF_COLLECTION``); a test asserts the two agree rather than
 #: restating the literal.
 SIDECAR_BUNDLE_TARGET = "/corpus/okf"
+
+#: Seconds each test of the OKF sidecar module may take, setup included. The
+#: longest chain one test can hit is one sidecar boot, whose ``/health`` wait is
+#: bounded by :data:`SIDECAR_HEALTH_CEILING`, then the drafting test's re-index
+#: wait, bounded by :data:`SIDECAR_REINDEX_CEILING`; each may run one
+#: :data:`SIDECAR_ROUND_S` past its ceiling, so the wait's own failure lands
+#: before this mark kills the test.
+SIDECAR_OKF_TEST_TIMEOUT = SIDECAR_HEALTH_CEILING + SIDECAR_REINDEX_CEILING + 2 * SIDECAR_ROUND_S
 
 #: Marker poll interval the lane runs the sidecar with. Far below the shipped
 #: default, because every freshness assertion here waits on it — the *mechanism*
@@ -97,7 +101,7 @@ def start_okf_sidecar(request: pytest.FixtureRequest, bundle_root: Path):
     from osprey.services.facility_knowledge.okf.bundle import OKF_COLLECTION
 
     def build():
-        container = DockerContainer(QMD_SIDECAR_IMAGE)
+        container = DockerContainer(qmd_sidecar_image())
         container.with_env("OSPREY_QMD_COLLECTIONS", f"{OKF_COLLECTION}={SIDECAR_BUNDLE_TARGET}")
         container.with_env("OSPREY_QMD_MARKER_POLL_INTERVAL", MARKER_POLL_INTERVAL)
         # Effectively disable the fallback sweep. The freshness test must prove
@@ -113,7 +117,7 @@ def start_okf_sidecar(request: pytest.FixtureRequest, bundle_root: Path):
         return container
 
     container, port = start_or_fail(
-        build, label=f"qmd OKF sidecar ({QMD_SIDECAR_IMAGE})", port=_SIDECAR_PORT
+        build, label=f"qmd OKF sidecar ({qmd_sidecar_image()})", port=_SIDECAR_PORT
     )
     request.addfinalizer(lambda: stop_quietly(container))
 

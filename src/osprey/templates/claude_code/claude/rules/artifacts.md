@@ -8,9 +8,14 @@ description: How to create, save, and reuse artifacts in the OSPREY gallery
 ## Reuse First
 
 When the user references previous work or wants to act on it (log it, share it,
-re-analyze it), call `artifact_list()` BEFORE creating anything new.
-Use `tool=` or `category=` to narrow results. Reuse existing artifact IDs
-rather than recreating content.
+re-analyze it), call `artifact_list()` BEFORE creating anything new. It lists
+this conversation's artifacts only; if none match, say so — pass `scope="all"`
+only when the user asks about earlier work. Use `tool=` or `form=` (Runs, Plots,
+Trends, Tables, Documents, Dashboards, Images, Data — or a registered extension
+type's key) to narrow results. Reuse existing artifact IDs rather than
+recreating content. A dispatched run lists nothing: read the artifacts it was
+given by their ids with `artifact_read`. `artifact_delete_all` reaches this
+conversation's artifacts only; delete another's with `artifact_delete` by id.
 
 ## Creating Artifacts
 
@@ -39,11 +44,11 @@ save_artifact(df.describe(), title="BPM Statistics")
 
 # Computed results as JSON — a dict saves as json
 save_artifact({"tune_x": 0.21, "tune_y": 0.31}, title="Tunes",
-              artifact_type="json", category="lattice_analysis")
+              artifact_type="json")
 ```
 
-`artifact_type=` overrides the detected type; `category=` groups it in the
-gallery. Results computed in code are saved from that code — never copied
+`artifact_type=` overrides the detected type; the gallery groups the artifact
+by what it is. Results computed in code are saved from that code — never copied
 into a tool call afterwards.
 
 ### A file on disk, or text you already have — `artifact_register` MCP tool
@@ -54,7 +59,6 @@ your reply. Nothing is serialized; the content is stored as given:
 - `file_path` — register a file already on disk
 - `content` + `content_type` — store literal text; `content_type` is required
   and is one of `markdown`, `html`, `text`, `json`
-- `category` — optional gallery category for grouping. See the type registry for valid categories.
 
 `artifact_register` never runs Python and cannot take a live object.
 
@@ -83,8 +87,8 @@ immediately. The gallery scrolls to the artifact and shows its preview. A
 subagent does not focus: it files its answer and hands back the id (see
 "Subagent Hand-Backs").
 
-The user's current gallery selection is automatically included in your context
-via the `UserPromptSubmit` hook (reads `focus_state.txt`). Use this to
+The `[Gallery Focus]` block in your context carries this conversation's
+gallery selection and the artifacts pinned in it (`artifact_pin`). Use it to
 understand what the user is looking at.
 
 ## Subagent Hand-Backs

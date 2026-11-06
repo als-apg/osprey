@@ -327,9 +327,10 @@ class TestResolveServers:
             "open_panel_set",
             "arrange_workspace",
             "drop_panel",
-            "close_panel_tab",
-            "close_panel_tile",
+            "close_panel",
         } <= allow
+        # One close verb: a tile shows one panel, so it closes with it.
+        assert sorted(tool for tool in allow if tool.startswith("close_")) == ["close_panel"]
         assert allow.isdisjoint(gated)
         assert gated <= ask
         # A literal matcher per tool: the approval hook and the SDK's disallow
@@ -339,35 +340,20 @@ class TestResolveServers:
         assert {f"mcp__osprey_workspace__{tool}" for tool in gated} <= matchers
 
     def test_workspace_read_back_tools_are_auto_approved(self):
-        """The artifact and lattice read-backs resolve to silent-allow.
+        """The artifact read-backs resolve to silent-allow.
 
-        ``artifact_pin`` and the five lattice verbs below were unclassified —
-        in neither list — so nothing pinned which side of the split they land
-        on, and the disjointness assertion above stays green either way. They
-        are named here because each is either a read of state the agent just
-        produced or a write to the simulation's own scratch state:
-        ``lattice_set_baseline`` sets a fresh baseline, so
-        ``lattice_clear_baseline`` is undone by it; the dashboard's model switch
-        also re-initialises the state. None of it reaches hardware, so a prompt
-        per call would buy nothing.
-
-        ``lattice_clear_baseline`` is allow-listed here and still blocked under
-        the headless read-only floor, which classifies it side-effecting from
-        its name — that is the intended posture, not a contradiction.
+        ``artifact_pin`` was unclassified — in neither list — so nothing pinned
+        which side of the split it lands on, and the disjointness assertion
+        above stays green either way. It reads back state the agent just
+        produced and reaches no hardware, so a prompt per call would buy
+        nothing.
         """
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
         allow = set(workspace["permissions_allow"])
         ask = set(workspace["permissions_ask"])
-        read_back = {
-            "artifact_pin",
-            "lattice_get_data",
-            "lattice_get_figure",
-            "lattice_get_settings",
-            "lattice_update_settings",
-            "lattice_clear_baseline",
-        }
+        read_back = {"artifact_pin"}
         assert read_back <= allow
         assert ask.isdisjoint(read_back)
 
@@ -1175,6 +1161,50 @@ class TestArielAttachmentView:
             "mcp__ariel__attachment_to_artifact",
             "mcp__ariel2__attachment_to_artifact",
         } <= set(allow)
+
+
+class TestArielSqlTool:
+    """``ariel_sql_tool`` decides whether the agent is offered sql_query."""
+
+    _CFG = {"servers": {"ariel": {"enabled": True}, "ariel2": {"extends": "ariel"}}}
+
+    @staticmethod
+    def _by_name(cfg, offered):
+        ctx = _base_ctx(ariel_sql_tool=offered)
+        return {s["name"]: s for s in resolve_servers(cfg, ctx)}
+
+    def test_withheld_from_the_server_and_every_clone(self):
+        offered = self._by_name(self._CFG, True)
+        withheld = self._by_name(self._CFG, False)
+        for name in ("ariel", "ariel2"):
+            assert withheld[name]["permissions_allow"] == [
+                t for t in offered[name]["permissions_allow"] if t != "sql_query"
+            ]
+            assert "sql_query" not in withheld[name]["permissions_ask"]
+
+    def test_offered_by_default(self):
+        servers = {s["name"]: s for s in resolve_servers(self._CFG, _base_ctx())}
+        for name in ("ariel", "ariel2"):
+            assert "sql_query" in servers[name]["permissions_allow"]
+
+    def test_withholding_leaves_the_framework_template_untouched(self):
+        self._by_name(self._CFG, False)
+        assert "sql_query" in FRAMEWORK_SERVERS["ariel"].permissions_allow
+
+    @staticmethod
+    def _settings_allow(offered):
+        from osprey.cli.templates.manager import TemplateManager
+
+        rendering = TestTemplateRendering()
+        ctx = rendering._full_ctx(ariel_sql_tool=offered, _claude_code_config=TestArielSqlTool._CFG)
+        rendered = rendering._render(TemplateManager(), "claude_code/claude/settings.json.j2", ctx)
+        return json.loads(rendered)["permissions"]["allow"]
+
+    def test_rendered_allow_list_is_the_one_without_sql_query(self):
+        offered = self._settings_allow(True)
+        withheld = self._settings_allow(False)
+        assert {"mcp__ariel__sql_query", "mcp__ariel2__sql_query"} <= set(offered)
+        assert withheld == [p for p in offered if not p.endswith("__sql_query")]
 
 
 # ---------------------------------------------------------------------------

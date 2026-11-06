@@ -17,18 +17,21 @@ those callers tag themselves via
 are dropped here — the frames are *agent* activity.
 
 **The caller is never blocked.** ``notify_agent_activity`` performs a blocking
-HTTP POST, and ``ArtifactStore.delete_everything`` fires the delete listener once per
-removed entry — a "clear the gallery" call would otherwise stall for one POST
-per artifact, on whatever thread (or event loop) invoked it. The listener
+HTTP POST, and ``ArtifactStore.delete_owned`` (behind ``artifact_delete_all``)
+fires the delete listener once per removed entry — a bulk delete would otherwise
+stall for one POST per artifact, on whatever thread (or event loop) invoked it. The listener
 callbacks therefore only enqueue onto a :class:`queue.Queue`; a single daemon
 worker thread drains the queue and does the POSTs.
 
 **Bookkeeping never emits.** An ``execute`` run auto-saves a notebook artifact
-and a ``code_output`` record alongside whatever the code deliberately produced.
-Emitting for those would turn one agent action into three strip entries, so
-they are filtered out here; the run's own channel emit is that action's signal.
-The executor marks both with ``metadata[RUN_RECORD_KEY]``, so a notebook the
-code saves on purpose from inside the run still emits. Deliberate saves —
+and a result record alongside whatever the code deliberately produced, and the
+approval hook saves a review preview before it. Emitting for those would turn
+one agent action into several strip entries, so they are filtered out here; the
+run's own channel emit is that action's signal. They are told by their run part
+(``metadata.run_part`` of ``preview``/``code``/``result``, or the legacy shapes
+:func:`~osprey.stores.artifact_store.run_role` reads, or the legacy
+``metadata[RUN_RECORD_KEY]``), so a run's ``output`` — a notebook the code saves
+on purpose from inside the run included — still emits. Deliberate saves —
 figures, ``save_artifact()``, the ``create_*`` tools, ``archiver_read`` /
 ``phoebus_snapshot`` persists — emit one frame per entry.
 
@@ -57,7 +60,11 @@ import threading
 from typing import TYPE_CHECKING
 
 from osprey.mcp_server.http import notify_agent_activity
-from osprey.stores.artifact_store import RUN_RECORD_KEY, current_artifact_mutation_actor
+from osprey.stores.artifact_store import (
+    RUN_RECORD_KEY,
+    current_artifact_mutation_actor,
+    run_role,
+)
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactEntry
@@ -72,9 +79,6 @@ _KIND = "artifact"
 #: Tool names reported for the two mutation types.
 _SAVE_TOOL = "artifact_save"
 _DELETE_TOOL = "artifact_delete"
-
-#: Category of the per-execution result record the python executor writes.
-_BOOKKEEPING_CATEGORY = "code_output"
 
 #: Backlog bound. When the web terminal is unreachable each notify costs up to
 #: a second, so a bulk delete can outrun the worker; the frames are
@@ -134,10 +138,15 @@ def notify_bulk_delete(scope: str, count: int) -> None:
 
 
 def _is_bookkeeping(entry: ArtifactEntry) -> bool:
-    """Return True when *entry* is a by-product of a run rather than an action."""
-    if entry.category == _BOOKKEEPING_CATEGORY:
-        return True
-    return entry.metadata.get(RUN_RECORD_KEY) is True
+    """Return True when *entry* is a by-product of a run rather than an action.
+
+    Any run part but ``output`` is bookkeeping; an entry stamped with an
+    explicit ``run_part`` is judged by that alone, and an unstamped legacy
+    entry also by its ``RUN_RECORD_KEY`` mark.
+    """
+    if entry.metadata.get("run_part") is not None:
+        return run_role(entry) != "output"
+    return run_role(entry) != "output" or entry.metadata.get(RUN_RECORD_KEY) is True
 
 
 def _detail_for(entry: ArtifactEntry) -> str:

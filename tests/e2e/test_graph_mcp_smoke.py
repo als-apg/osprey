@@ -608,7 +608,6 @@ def _print_run(result: Any, prose: str, prompt: str) -> None:
     print("  --- end prose ---\n")
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.agentic_benchmark
 @pytest.mark.requires_als_apg

@@ -41,7 +41,6 @@ from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
-from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 from osprey_connectors.types import (
     RETIRED_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
@@ -59,9 +58,13 @@ from .build_profile_document import (
     _normalize_empty_collections,
     _read_profile_document,
 )
-from .build_profile_merge import resolve_profile_document
+from .build_profile_merge import refuse_inputs_outside_repository, resolve_profile_document
 from .build_profile_model import SERVICE_AXES, BuildProfile
-from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY
+from .build_profile_presets import (
+    PRESET_DATA_BUNDLE_KEY,
+    PRESET_FACILITY_KEY,
+    bundled_service_names,
+)
 from .build_profile_schema import (
     DEFAULT_DEVIATION_MARKER,
     BlueskyConfig,
@@ -166,6 +169,7 @@ def load_profile_document(path: Path) -> LoadedProfile:
     # packaged data bundle this profile's tree came from. Stamped here rather
     # than parsed, because no key of the resolved document says it.
     profile.inherited_preset = document.inherited_preset
+    refuse_inputs_outside_repository(document)
     profile.validate(document.root_dir)
     return LoadedProfile(
         profile=profile,
@@ -383,6 +387,11 @@ _WARNED_MCP_SERVER_KEYS: set[tuple[str, str]] = set()
 # and a silently ignored ``package:`` would leave the built environment missing
 # what the facility asked for.
 _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
+
+# Keys recognized inside the ``env:`` block, derived from its dataclass like the
+# bluesky set below. Closed so a key the schema does not declare is refused
+# rather than silently ignored.
+_KNOWN_ENV_KEYS = frozenset(f.name for f in fields(EnvConfig))
 
 
 # Keys recognized inside the ``bluesky:`` block, derived from the dataclass the
@@ -616,7 +625,7 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
     """Reject unrecognized keys in a closed profile block, naming every one at once.
 
     The shared body behind the closed-schema blocks this module parses — the
-    top level, ``environment``, ``dispatch``, ``bluesky``, ``provenance``, the
+    top level, ``env``, ``environment``, ``dispatch``, ``bluesky``, ``provenance``, the
     virtual-accelerator blocks and the closed blocks inside ``config:``
     (:func:`reject_unknown_closed_config_keys`) — so an operator meets one
     wording whichever of them they mistyped. Two closed blocks parsed elsewhere answer in their
@@ -650,15 +659,6 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
     )
 
 
-#: The file that makes a directory a service template, bundled or custom.
-_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
-
-#: The second instance of the virtual accelerator, rendered off the same
-#: template under a service key of its own. Its block keeps its own manifest
-#: rows (``services.live_standin.*``): the instance is told apart by them.
-LIVE_STANDIN_SERVICE = LIVE_STANDIN_PORT_KEY.split(".")[1]
-
-
 def service_family(name: str) -> str:
     """The service whose manifest rows close the ``services.<name>`` block.
 
@@ -668,28 +668,6 @@ def service_family(name: str) -> str:
     service — the live stand-in included — is its own family.
     """
     return LANE_ONE if name in SECOND_LANE_KEYS.values() else name
-
-
-@lru_cache(maxsize=1)
-def bundled_service_names() -> frozenset[str]:
-    """Every service key whose block OSPREY's own template reads.
-
-    The template directories shipped under ``osprey/templates/services``, plus
-    the instances rendered off one of them: the second plan lanes and the live
-    stand-in. A custom service is not here — its template is the facility's
-    own, so its block stays open.
-    """
-    import osprey.templates
-
-    root = Path(osprey.templates.__file__).parent / "services"
-    if not root.is_dir():
-        return frozenset()
-    templates = {
-        entry.name
-        for entry in root.iterdir()
-        if entry.is_dir() and (entry / _SERVICE_TEMPLATE_FILE).is_file()
-    }
-    return frozenset(templates | set(SECOND_LANE_KEYS.values()) | {LIVE_STANDIN_SERVICE})
 
 
 @lru_cache(maxsize=1)
@@ -1647,11 +1625,11 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     )
 
     env_raw = _block(raw, "env")
+    _reject_unknown_block_keys(env_raw, _KNOWN_ENV_KEYS, "env")
     env = EnvConfig(
         required=env_raw.get("required", []),
         pinned=env_raw.get("pinned", []),
         defaults=env_raw.get("defaults", {}),
-        file=env_raw.get("file"),
     )
 
     environment = _parse_environment(raw)

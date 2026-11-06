@@ -1,15 +1,21 @@
 // @ts-check
-/* OSPREY Web Terminal — the rows of the sidebar's artifact lists (layout F)
+/* OSPREY Web Terminal — the rows of the sidebar's artifact tree
  *
- * Builds what the Artifacts and Script runs lists draw: group heads, one row
- * per artifact (kind icon, title, time) and the line an empty list shows. The
- * rows and heads are the shared list primitives of primitives.css
- * (`.osprey-list-row`, `.osprey-list-head`, `.osprey-list-empty`); a row is a
- * listbox option whose `aria-selected` marks the artifact the viewer shows.
+ * Pure DOM builders for the session tree: the Agent row's disclosure, one row
+ * per agent session (its title, or "naming…" while the name is pending, and
+ * the server's artifact count), a per-session scroll box, form group heads
+ * with the server's counts, run rows (a status dot for succeeded, failed and
+ * not run, none while in flight; the output count; the parts underneath) and
+ * artifact rows (marked "run" or "interactive"). After the sessions come the
+ * "More sessions" row and the notice rows. Activity mode bands a session's
+ * rows by the facility day: Today, Yesterday, Older. Indents follow a 4/16/28/40 px ladder
+ * (.osprey-tree-d0 … d3, sidebar-artifacts.css).
  *
- * Two groupings: Types maps the artifact type to Reports, Plots, Tables,
- * Notebooks, Data or Other; Activity sorts by the facility day: Today,
- * Yesterday, Earlier. Inside a group the newest comes first. All text goes in
+ * Artifact rows are the shared list primitives of primitives.css
+ * (`.osprey-list-row`): a listbox option whose `aria-selected` marks the
+ * artifact the viewer shows. Session rows, heads, bands and notices are
+ * role="presentation", so the listbox owns only options. The builders keep no
+ * state: what is open and what is shown is passed in. All text goes in
  * through textContent.
  *
  * @module sidebar-artifact-rows
@@ -17,38 +23,12 @@
 
 import { icon } from '/design-system/js/icons.js';
 import { facilityDayKey, formatFacilityTime } from '/design-system/js/facility-time.js';
+import { isMacPlatform } from '/design-system/js/platform.js';
 
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
 
-/** @typedef {'types' | 'activity'} ListView */
-
-/**
- * The Types groups, in the order they are drawn, with the artifact types each
- * holds. A type no group names (a newer one) falls into Other.
- * @type {readonly {label: string, icon: string, types: readonly string[]}[]}
- */
-export const KINDS = [
-  { label: 'Reports', icon: 'file-text', types: ['markdown', 'text', 'html'] },
-  {
-    label: 'Plots',
-    icon: 'chart-line',
-    types: ['plot_html', 'plot_png', 'image', 'dashboard_html'],
-  },
-  { label: 'Tables', icon: 'table', types: ['table_html'] },
-  { label: 'Notebooks', icon: 'notebook', types: ['notebook'] },
-  { label: 'Data', icon: 'database', types: ['json', 'file', 'binary'] },
-  { label: 'Other', icon: 'layers', types: [] },
-];
-
-/** The icon of every Script runs row. */
+/** The icon of every run row. */
 export const RUN_ICON = 'bash';
-
-/**
- * @typedef {object} RowsState
- * @property {string | null} shownId  the artifact the viewer shows
- * @property {boolean} loaded         a first page has arrived
- * @property {boolean} failed         the last first page failed
- */
 
 /**
  * @param {ArtifactEntry} entry
@@ -56,60 +36,6 @@ export const RUN_ICON = 'bash';
  */
 export function titleOf(entry) {
   return entry.title || entry.filename || entry.id;
-}
-
-/**
- * The Types group of an artifact.
- * @param {ArtifactEntry} entry
- */
-export function kindOf(entry) {
-  const type = entry.artifact_type ?? '';
-  return KINDS.find((kind) => kind.types.includes(type)) ?? KINDS[KINDS.length - 1];
-}
-
-/**
- * Group newest-first entries for a view: by type group in KINDS order, or by
- * facility day. Empty groups are kept, so callers can rely on the order.
- * @param {ArtifactEntry[]} entries
- * @param {ListView} view
- * @returns {{label: string, entries: ArtifactEntry[]}[]}
- */
-export function groupEntries(entries, view) {
-  if (view === 'types') {
-    return KINDS.map((kind) => ({
-      label: kind.label,
-      entries: entries.filter((a) => kindOf(a) === kind),
-    }));
-  }
-  const today = facilityDayKey(new Date());
-  const yesterday = dayBefore(today);
-  /** @type {ArtifactEntry[]} */
-  const todays = [];
-  /** @type {ArtifactEntry[]} */
-  const yesterdays = [];
-  /** @type {ArtifactEntry[]} */
-  const earlier = [];
-  for (const entry of entries) {
-    const day = facilityDayKey(entry.timestamp);
-    if (day === today) todays.push(entry);
-    else if (day === yesterday) yesterdays.push(entry);
-    else earlier.push(entry);
-  }
-  return [
-    { label: 'Today', entries: todays },
-    { label: 'Yesterday', entries: yesterdays },
-    { label: 'Earlier', entries: earlier },
-  ];
-}
-
-/**
- * The entries in the order a view draws them.
- * @param {ArtifactEntry[]} entries  newest first
- * @param {ListView} view
- * @returns {ArtifactEntry[]}
- */
-export function drawnOrder(entries, view) {
-  return groupEntries(entries, view).flatMap((group) => group.entries);
 }
 
 /**
@@ -121,39 +47,6 @@ export function drawnOrder(entries, view) {
 function dayBefore(dayKey) {
   const [y, m, d] = dayKey.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
-}
-
-/**
- * The Artifacts list: group heads and rows, narrowed by a title filter.
- * @param {ArtifactEntry[]} entries  newest first
- * @param {RowsState & {view: ListView, filter: string}} options
- * @returns {Node[]}
- */
-export function artifactRows(entries, { view, filter, shownId, loaded, failed }) {
-  const query = filter.trim().toLowerCase();
-  const visible = query ? entries.filter((a) => titleOf(a).toLowerCase().includes(query)) : entries;
-  /** @type {Node[]} */
-  const nodes = [];
-  for (const group of groupEntries(visible, view)) {
-    if (!group.entries.length) continue;
-    nodes.push(listHead(group.label));
-    for (const entry of group.entries) nodes.push(listRow(entry, kindOf(entry).icon, shownId));
-  }
-  if (nodes.length || !loaded) return nodes;
-  if (query && entries.length) return [listEmpty('No artifacts match')];
-  return [listEmpty(failed ? 'Artifacts are unavailable' : 'No artifacts yet')];
-}
-
-/**
- * The Script runs list: its rows, newest first, with no groups.
- * @param {ArtifactEntry[]} entries  newest first
- * @param {RowsState} options
- * @returns {Node[]}
- */
-export function runRows(entries, { shownId, loaded, failed }) {
-  if (entries.length) return entries.map((entry) => listRow(entry, RUN_ICON, shownId));
-  if (!loaded) return [];
-  return [listEmpty(failed ? 'Script runs are unavailable' : 'No script runs yet')];
 }
 
 /**
@@ -197,27 +90,18 @@ function rowTime(timestamp) {
   return formatFacilityTime(timestamp, { month: 'short', day: 'numeric' });
 }
 
-/*
- * The lists are listboxes, which own only options: a group label or the empty
- * note takes role="presentation" so it is not an unnamed child of the listbox.
+/**
+ * A row the listbox does not own as an option: role="presentation".
+ * @param {string} className
+ * @param {string} [text]
+ * @returns {HTMLDivElement}
  */
-
-/** @param {string} label */
-function listHead(label) {
-  const head = document.createElement('div');
-  head.className = 'osprey-list-head';
-  head.setAttribute('role', 'presentation');
-  head.textContent = label;
-  return head;
-}
-
-/** @param {string} text */
-function listEmpty(text) {
-  const empty = document.createElement('div');
-  empty.className = 'osprey-list-empty';
-  empty.setAttribute('role', 'presentation');
-  empty.textContent = text;
-  return empty;
+function plainRow(className, text) {
+  const row = document.createElement('div');
+  row.className = className;
+  row.setAttribute('role', 'presentation');
+  if (text !== undefined) row.textContent = text;
+  return row;
 }
 
 /**
@@ -234,132 +118,442 @@ export function rowIn(list, id) {
   return null;
 }
 
+/* ------------------------------------------------------------------------ */
+/* The session tree                                                          */
+/* ------------------------------------------------------------------------ */
+
 /**
- * The Artifacts ⋯ menu, built once into the skeleton's empty popover: a
- * Group by section with the Types and Activity radios, a separator, then
- * All sessions (a checkbox) and Refresh. The caller keeps the radios' and the
- * checkbox's `aria-checked` in step with the grouping and the scope.
- * @param {HTMLElement} menu
+ * A session row as `GET /api/sessions` lists it (the fields the row draws).
+ * @typedef {object} SessionRow
+ * @property {string} transcript_id
+ * @property {string | null} [title]
+ * @property {'pending' | 'done' | 'failed'} [naming]
+ * @property {'live' | 'idle'} [state]
+ * @property {boolean} [truncated]
  */
-export function fillArtifactMenu(menu) {
-  if (menu.querySelector('[data-art-all-sessions]')) return;
-  if (!menu.hasAttribute('aria-label')) menu.setAttribute('aria-label', 'Artifact options');
-  const title = document.createElement('div');
-  title.className = 'osprey-popover-title';
-  title.id = 'sidebar-artifacts-menu-group-label';
-  title.textContent = 'Group by';
-  const group = document.createElement('div');
-  group.setAttribute('role', 'group');
-  group.setAttribute('aria-labelledby', title.id);
-  group.append(
-    title,
-    viewItem('types', 'types', 'Types'),
-    viewItem('activity', 'history', 'Activity')
+
+/**
+ * A part of a run, as a run head's `run_parts` lists it.
+ * @typedef {object} RunPart
+ * @property {string} id
+ * @property {'preview' | 'code' | 'output' | 'result'} role
+ * @property {string} [title]
+ * @property {string | null} [form]
+ */
+
+/**
+ * The listing payload fields the tree reads on top of {@link ArtifactEntry}.
+ * @typedef {ArtifactEntry & {
+ *   form?: string | null,
+ *   exec_id?: string,
+ *   run_part?: string,
+ *   run_status?: 'succeeded' | 'failed' | 'not_run' | null,
+ *   run_parts?: RunPart[],
+ *   interactive?: boolean,
+ * }} TreeEntry
+ */
+
+/** @typedef {{key: string, label: string, icon: string}} TreeForm */
+
+/**
+ * The base forms in their fixed order (artifact_forms.BASE_FORMS), each with
+ * the icon its head and rows draw. Labels come from the registry when it has
+ * them; these are the fallback while it has not loaded.
+ * @type {readonly TreeForm[]}
+ */
+const BASE_FORMS = [
+  { key: 'runs', label: 'Runs', icon: 'bash' },
+  { key: 'plots', label: 'Plots', icon: 'chart-line' },
+  { key: 'trends', label: 'Trends', icon: 'activity' },
+  { key: 'tables', label: 'Tables', icon: 'table' },
+  { key: 'documents', label: 'Documents', icon: 'file-text' },
+  { key: 'dashboards', label: 'Dashboards', icon: 'workspace' },
+  { key: 'images', label: 'Images', icon: 'crosshair' },
+  { key: 'data', label: 'Data', icon: 'database' },
+];
+
+/** The icon of a form no group names (an unregistered extension type). */
+const FALLBACK_ICON = 'layers';
+
+/** The titles of a run's parts other than its outputs, in the order drawn. */
+const PART_TITLES = /** @type {const} */ ({
+  preview: 'Approval preview',
+  code: 'Code',
+  result: 'Result',
+});
+
+/** The dot of each settled run status; a run in flight draws none. */
+const RUN_DOTS = /** @type {const} */ ({
+  succeeded: { cls: 'ok', label: 'Succeeded' },
+  failed: { cls: 'err', label: 'Failed' },
+  not_run: { cls: 'hollow', label: 'Not run' },
+});
+
+/**
+ * The tree's groups, in the order they are drawn: the base forms, then the
+ * registered extension types (each drawing its base form's icon), from the
+ * `/api/type-registry` answer.
+ * @param {{base_forms?: {key: string, label: string}[],
+ *          extension_types?: {key: string, label: string, base_form: string}[]} | null} registry
+ * @returns {TreeForm[]}
+ */
+export function treeForms(registry) {
+  const iconOf = (/** @type {string} */ key) =>
+    BASE_FORMS.find((f) => f.key === key)?.icon ?? FALLBACK_ICON;
+  const base = registry?.base_forms?.length
+    ? registry.base_forms.map((f) => ({ key: f.key, label: f.label, icon: iconOf(f.key) }))
+    : BASE_FORMS.map((f) => ({ ...f }));
+  const extensions = (registry?.extension_types ?? []).map((t) => ({
+    key: t.key,
+    label: t.label,
+    icon: iconOf(t.base_form),
+  }));
+  return [...base, ...extensions];
+}
+
+/**
+ * The Agent row's disclosure: a chevron that says whether the sessions show.
+ * @param {boolean} open
+ * @returns {HTMLElement}
+ */
+export function agentDisclosure(open) {
+  const disc = document.createElement('span');
+  disc.className = 'osprey-tree-agent-disc';
+  disc.dataset.treeAgentDisc = '';
+  disc.setAttribute('aria-expanded', String(open));
+  disc.append(icon(open ? 'chevron-down' : 'chevron-right'));
+  return disc;
+}
+
+/**
+ * The modifier click that expands or collapses every session, as this
+ * platform names it.
+ * @returns {string}
+ */
+export function allSessionsClick() {
+  return isMacPlatform() ? '⌥-click' : 'Alt+click';
+}
+
+/**
+ * One session row: a disclosure (on the active row, and on any row the
+ * operator opened with expand-all; no other session opens without switching
+ * to it), the live dot, the title (or "naming…"), the artifact count from the
+ * session summary (`data-count` once it is summarized). The title's tooltip
+ * says what a click does and names the expand-all click.
+ * @param {SessionRow} session
+ * @param {{active: boolean, open: boolean, count: number, summarized?: boolean}} options
+ * @returns {HTMLElement}
+ */
+export function sessionRow(session, { active, open, count, summarized = false }) {
+  const pending = session.naming === 'pending';
+  const title = treeSpan(
+    'osprey-tree-title',
+    session.title || (pending ? 'naming…' : 'Untitled session')
   );
-  const sep = document.createElement('div');
-  sep.className = 'osprey-popover-sep';
-  sep.setAttribute('role', 'separator');
-  const allSessions = menuItem('menuitemcheckbox', 'history', 'All sessions');
-  allSessions.dataset.artAllSessions = '';
-  allSessions.setAttribute('aria-checked', 'false');
-  allSessions.append(checkMark());
-  const refresh = menuItem('menuitem', 'refresh', 'Refresh');
-  refresh.dataset.artRefresh = '';
-  menu.append(group, sep, allSessions, refresh);
+  if (pending) title.classList.add('pending');
+  title.title = title.textContent ?? '';
+  title.dataset.tipDetail = `${active ? 'Click to fold or unfold' : 'Click to switch to it'} · ${allSessionsClick()} to expand or collapse all`;
+  const dot = document.createElement('span');
+  dot.className = `osprey-dot ${session.state === 'live' ? 'ok' : 'hollow'}`;
+  const row = topRow('osprey-tree-session', open, [dot, title], active || open);
+  row.dataset.sessionId = session.transcript_id;
+  if (active) row.classList.add('active');
+  if (summarized) row.dataset.count = String(count);
+  if (pending && session.title) row.append(treeSpan('osprey-tree-naming', 'naming…'));
+  row.append(treeSpan('osprey-tree-n', String(count)));
+  return row;
 }
 
 /**
- * A Group by radio of the ⋯ menu.
- * @param {string} view
- * @param {string} iconName
- * @param {string} label
+ * The "More sessions" row, ending a tree that holds one page of sessions.
+ * @param {number} count  sessions with artifacts not loaded yet
+ * @returns {HTMLElement}
  */
-function viewItem(view, iconName, label) {
-  const item = menuItem('menuitemradio', iconName, label);
-  item.dataset.artView = view;
-  item.setAttribute('aria-checked', 'false');
-  item.append(checkMark());
-  return item;
+export function moreSessionsRow(count) {
+  const row = plainRow('osprey-tree-more osprey-tree-d0');
+  row.dataset.treeMore = '';
+  row.append(
+    treeSpan('osprey-tree-label', 'More sessions'),
+    treeSpan('osprey-tree-n', String(count))
+  );
+  return row;
 }
 
-/** The check a menu's radio or checkbox shows while it is on. */
-function checkMark() {
-  const check = icon('check');
-  check.classList.add('osprey-popover-check');
-  return check;
+/** The text of each notice row. */
+const NOTICES = /** @type {const} */ ({
+  incomplete: 'Session history may be incomplete',
+  unavailable: 'Session history unavailable',
+});
+
+/**
+ * A notice row: the session history was cut short, or could not be read.
+ * @param {'incomplete' | 'unavailable'} kind
+ * @returns {HTMLElement}
+ */
+export function noticeRow(kind) {
+  const notice = plainRow('osprey-tree-notice', NOTICES[kind]);
+  notice.dataset.treeNotice = kind;
+  return notice;
 }
 
 /**
- * @param {string} role
- * @param {string} iconName
- * @param {string} label
+ * A session's rows inside its own scroll box, or the line an empty session
+ * shows.
+ * @param {string} sessionId  the tree id: a transcript id, or `key:<K>`
+ * @param {Node[]} children
+ * @returns {HTMLElement}
+ */
+export function sessionBox(sessionId, children) {
+  const box = document.createElement('div');
+  box.className = 'osprey-tree-box';
+  box.setAttribute('role', 'group');
+  box.dataset.sessionBox = sessionId;
+  box.append(...(children.length ? children : [plainRow('osprey-tree-empty', 'No artifacts yet')]));
+  return box;
+}
+
+/**
+ * A form group's head: disclosure, icon, label and the server's count.
+ * @param {TreeForm} form
+ * @param {{sessionId: string, count: number, open: boolean}} options
+ * @returns {HTMLElement}
+ */
+export function groupHead(form, { sessionId, count, open }) {
+  const node = plainRow('osprey-tree-head osprey-tree-d1');
+  node.setAttribute('aria-expanded', String(open));
+  node.dataset.groupHead = `${sessionId}:${form.key}`;
+  node.append(
+    icon(open ? 'chevron-down' : 'chevron-right'),
+    treeSpan('osprey-tree-label', form.label),
+    treeSpan('osprey-tree-n', String(count))
+  );
+  return node;
+}
+
+/**
+ * @typedef {object} TreeRowState
+ * @property {string | null} shownId  the artifact the viewer shows, null while it is off view
+ */
+
+/**
+ * An artifact row, marked "interactive" (a plotly figure) and "run" (an
+ * output of a script run, listed in its form group too).
+ * @param {TreeEntry} entry
+ * @param {TreeRowState & {iconName?: string, depth?: number}} options
  * @returns {HTMLButtonElement}
  */
-function menuItem(role, iconName, label) {
-  const item = document.createElement('button');
-  item.type = 'button';
-  item.className = 'osprey-popover-item';
-  item.setAttribute('role', role);
-  item.append(icon(iconName), document.createTextNode(label));
-  return item;
+export function artifactRow(entry, { shownId, iconName, depth = 2 }) {
+  const row = treeRow(entry, iconName ?? iconOfForm(entry.form), shownId, depth);
+  const markers = [];
+  if (entry.interactive) markers.push('interactive');
+  if (entry.run_part === 'output' && entry.exec_id) markers.push('run');
+  for (const text of markers) row.querySelector('time')?.before(treeSpan('osprey-tree-meta', text));
+  return row;
 }
 
 /**
- * Run `fn` on every element of the page that matches.
- * @param {string} selector
- * @param {(el: HTMLElement) => void} fn
+ * A run's rows: its head (a status dot unless in flight, the output count or
+ * "not run", a disclosure when it has parts) and, open, its outputs then its
+ * Approval preview and Code.
+ * @param {TreeEntry} head
+ * @param {TreeRowState & {open: boolean}} options
+ * @returns {HTMLElement[]}
  */
-export function each(selector, fn) {
-  for (const el of document.querySelectorAll(selector)) {
-    if (el instanceof HTMLElement) fn(el);
+export function runTreeRows(head, { shownId, open }) {
+  const row = treeRow(head, RUN_ICON, shownId, 2);
+  row.classList.add('osprey-tree-run');
+  row.dataset.run = head.exec_id || head.id;
+  const status = head.run_status ?? null;
+  row.dataset.runStatus = status ?? 'running';
+  const title = row.querySelector('.osprey-list-title');
+  if (status && RUN_DOTS[status]) {
+    const dot = document.createElement('span');
+    dot.className = `osprey-dot ${RUN_DOTS[status].cls}`;
+    dot.title = RUN_DOTS[status].label;
+    title?.before(dot);
   }
-}
-
-/**
- * The counts on the Artifacts row, in the flyout and on the Script runs row.
- * @param {import('./sidebar-artifact-listing.js').Listing} artifacts
- * @param {import('./sidebar-artifact-listing.js').Listing} runs
- * @param {string} panelId - the artifacts panel, whose row carries the count
- */
-export function drawCounts(artifacts, runs, panelId) {
-  each('[data-art-count]', (el) => showCount(el, artifacts));
-  each('[data-runs-count]', (el) => showCount(el, runs));
-  // The collapsed sidebar names its rows in tooltips; these carry the count.
-  each(`.osprey-nav-row[data-panel-id="${panelId}"]`, (row) => {
-    row.dataset.tip = `Artifacts · ${artifacts.total}`;
-  });
-  each('#sidebar-runs-toggle', (row) => {
-    row.dataset.tip = `Script runs · ${runs.total}`;
-  });
-}
-
-/**
- * @param {HTMLElement} el
- * @param {import('./sidebar-artifact-listing.js').Listing} listing
- */
-function showCount(el, listing) {
-  el.textContent = String(listing.total);
-  el.hidden = !listing.loaded || listing.total === 0;
-}
-
-/**
- * Take the lists' rows and counts off the page.
- * @param {string[]} listIds
- * @param {string} panelId - the artifacts panel, whose row carries the count
- */
-export function undrawLists(listIds, panelId) {
-  for (const listId of listIds) {
-    const list = document.getElementById(listId);
-    list?.replaceChildren();
-    list?.removeAttribute('aria-busy');
+  const parts = (head.run_parts ?? []).filter((p) => p.id !== head.id);
+  const outputs = parts.filter((p) => p.role === 'output');
+  const meta = status === 'not_run' ? 'not run' : outputs.length ? String(outputs.length) : '';
+  if (meta) row.querySelector('time')?.before(treeSpan('osprey-tree-meta', meta));
+  if (!parts.length) return [row];
+  row.setAttribute('aria-expanded', String(open));
+  const disc = icon(open ? 'chevron-down' : 'chevron-right');
+  disc.classList.add('osprey-tree-disc');
+  disc.setAttribute('data-tree-disc', '');
+  row.prepend(disc);
+  if (!open) return [row];
+  const others = Object.keys(PART_TITLES).flatMap((role) => parts.filter((p) => p.role === role));
+  /** @type {HTMLElement[]} */
+  const kids = outputs.map((part) =>
+    treeRow({ id: part.id, title: part.title ?? part.id }, iconOfForm(part.form), shownId, 3)
+  );
+  for (const part of others) {
+    const kid = treeRow(
+      { id: part.id, title: PART_TITLES[/** @type {keyof typeof PART_TITLES} */ (part.role)] },
+      'notebook',
+      shownId,
+      3
+    );
+    kid.classList.add('osprey-tree-part');
+    kids.push(kid);
   }
-  each('[data-art-count], [data-runs-count]', (el) => {
-    el.hidden = true;
-  });
-  each(`.osprey-nav-row[data-panel-id="${panelId}"]`, (row) => {
-    row.dataset.tip = 'Artifacts';
-  });
-  each('#sidebar-runs-toggle', (row) => {
-    row.dataset.tip = 'Script runs';
-  });
+  return [row, ...kids];
+}
+
+/**
+ * A session's rows in Kind mode: one head per form with rows (the server's
+ * count when it has one), in form order; the open groups list their rows,
+ * Runs as run rows. Run parts (`form` null) are never top-level rows.
+ * @param {TreeEntry[]} entries  newest first, as session-list returns them
+ * @param {TreeRowState & {
+ *   forms: TreeForm[],
+ *   sessionId: string,
+ *   counts: Record<string, number> | null,
+ *   openGroups: Set<string>,
+ *   openRuns: Set<string>,
+ * }} options
+ * @returns {HTMLElement[]}
+ */
+export function kindRows(entries, { forms, sessionId, counts, openGroups, openRuns, shownId }) {
+  /** @type {Map<string, TreeEntry[]>} */
+  const byForm = new Map();
+  for (const entry of entries) {
+    if (!entry.form) continue;
+    const list = byForm.get(entry.form) ?? [];
+    list.push(entry);
+    byForm.set(entry.form, list);
+  }
+  const known = new Set(forms.map((f) => f.key));
+  const drawn = [
+    ...forms,
+    ...[...byForm.keys()]
+      .filter((key) => !known.has(key))
+      .map((key) => ({ key, label: key, icon: FALLBACK_ICON })),
+  ];
+  /** @type {HTMLElement[]} */
+  const nodes = [];
+  for (const form of drawn) {
+    const mine = byForm.get(form.key) ?? [];
+    const count = counts ? (counts[form.key] ?? 0) : mine.length;
+    if (!count) continue;
+    const open = openGroups.has(form.key);
+    nodes.push(groupHead(form, { sessionId, count, open }));
+    if (!open) continue;
+    for (const entry of mine) {
+      if (form.key === 'runs') {
+        nodes.push(...runTreeRows(entry, { shownId, open: openRuns.has(runKey(entry)) }));
+      } else {
+        nodes.push(artifactRow(entry, { shownId, iconName: form.icon }));
+      }
+    }
+  }
+  return nodes;
+}
+
+/**
+ * A session's rows in Activity mode: banded Today, Yesterday, Older by the
+ * facility day, newest first, a run per row (its outputs and parts listed
+ * only under it).
+ * @param {TreeEntry[]} entries  newest first
+ * @param {TreeRowState & {openRuns: Set<string>}} options
+ * @returns {HTMLElement[]}
+ */
+export function activityRows(entries, { shownId, openRuns }) {
+  const today = facilityDayKey(new Date());
+  const yesterday = dayBefore(today);
+  /** @type {HTMLElement[]} */
+  const nodes = [];
+  const labelOf = (/** @type {TreeEntry} */ e) => {
+    const day = e.timestamp ? facilityDayKey(e.timestamp) : '';
+    return day === today ? 'Today' : day === yesterday ? 'Yesterday' : 'Older';
+  };
+  // A heading only separates bands: none while every row falls in one.
+  const banded = new Set(entries.filter((e) => e.form).map(labelOf)).size > 1;
+  let band = '';
+  for (const entry of entries) {
+    if (!entry.form) continue;
+    const isHead = entry.form === 'runs';
+    if (!isHead && entry.exec_id && entry.run_part === 'output') continue;
+    const label = labelOf(entry);
+    if (banded && label !== band) {
+      band = label;
+      nodes.push(plainRow('osprey-tree-day osprey-tree-d1', label));
+    }
+    if (isHead) {
+      nodes.push(...runTreeRows(entry, { shownId, open: openRuns.has(runKey(entry)) }));
+    } else {
+      nodes.push(artifactRow(entry, { shownId }));
+    }
+  }
+  return nodes;
+}
+
+/**
+ * The key a run's open state is kept under: its `exec_id`, else its id.
+ * @param {TreeEntry} head
+ */
+export function runKey(head) {
+  return head.exec_id || head.id;
+}
+
+/**
+ * @param {string | null | undefined} form
+ * @returns {string}
+ */
+function iconOfForm(form) {
+  return BASE_FORMS.find((f) => f.key === form)?.icon ?? FALLBACK_ICON;
+}
+
+/**
+ * A tree row: a list row at an indent, selected when shown.
+ * @param {ArtifactEntry} entry
+ * @param {string} iconName
+ * @param {string | null} shownId
+ * @param {number} depth
+ * @returns {HTMLButtonElement}
+ */
+function treeRow(entry, iconName, shownId, depth) {
+  const row = listRow(entry, iconName, shownId);
+  row.classList.add('osprey-tree-row', `osprey-tree-d${depth}`);
+  return row;
+}
+
+/**
+ * A session-level row: disclosure first, then `kids`.
+ * Without `foldable` an empty slot of the disclosure's width keeps the titles
+ * aligned.
+ * @param {string} className
+ * @param {boolean} open
+ * @param {Node[]} kids
+ * @param {boolean} [foldable]
+ * @returns {HTMLElement}
+ */
+function topRow(className, open, kids, foldable = true) {
+  const row = plainRow(`${className} osprey-tree-d0`);
+  row.setAttribute('aria-expanded', String(open));
+  /** @type {Element} */
+  let disc;
+  if (foldable) {
+    disc = icon(open ? 'chevron-down' : 'chevron-right');
+    disc.setAttribute('data-tree-disc', '');
+  } else {
+    disc = document.createElement('span');
+    disc.setAttribute('aria-hidden', 'true');
+  }
+  disc.classList.add('osprey-tree-disc');
+  row.append(disc, ...kids);
+  return row;
+}
+
+/**
+ * @param {string} className
+ * @param {string} text
+ * @returns {HTMLSpanElement}
+ */
+function treeSpan(className, text) {
+  const span = document.createElement('span');
+  span.className = className;
+  span.textContent = text;
+  return span;
 }

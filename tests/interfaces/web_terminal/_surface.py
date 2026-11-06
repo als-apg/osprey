@@ -1,7 +1,7 @@
 """Browser helpers for the Agent tile's two surfaces.
 
-The tile opens on the chat. The terminal is a per-tab opt-in from the tile's ⋯
-menu (agent-surface.js), and a tab that opted in reopens on it.
+The tile opens on the chat. The terminal is a per-tab opt-in from the session
+switcher's footer row (agent-surface.js), and a tab that opted in reopens on it.
 """
 
 from __future__ import annotations
@@ -37,20 +37,24 @@ def arm_terminal_tab(page: Page, *, scope: str = "") -> None:
 
 
 def open_terminal(page: Page) -> None:
-    """Open the terminal from the chat's ⋯ menu, the way an operator does."""
+    """Open the terminal from the chat's session switcher, the way an operator does."""
     from playwright.sync_api import expect
 
-    page.locator(".op-session-more").click()
-    page.locator(".op-surface-row", has_text="Open terminal").click()
+    page.locator("span.op-session-label").click()
+    page.locator(
+        "#session-switcher-menu .session-switcher-surface", has_text="Open terminal"
+    ).click()
     expect(page.locator("html")).to_have_attribute("data-agent-surface", "terminal")
     expect(page.locator("#terminal-container")).to_be_visible()
 
 
 def back_to_chat(page: Page) -> None:
-    """Go back to the chat from the terminal header's ⋯ menu."""
+    """Go back to the chat from the terminal header's session switcher."""
     from playwright.sync_api import expect
 
-    page.locator("#terminal-more-btn").click()
-    page.locator(".op-surface-row", has_text="Back to chat").click()
+    page.locator("#terminal-label").click()
+    page.locator(
+        "#session-switcher-menu .session-switcher-surface", has_text="Back to chat"
+    ).click()
     expect(page.locator("html")).not_to_have_attribute("data-agent-surface", "terminal")
     expect(page.locator("#operator-container")).to_be_visible()

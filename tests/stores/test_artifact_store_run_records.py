@@ -41,8 +41,11 @@ class TestIsRunRecord:
     def test_an_absent_key_is_not_a_run_record(self, store):
         assert is_run_record(_save(store, "Result")) is False
 
-    def test_the_code_output_category_marks_a_run_record(self, store):
-        assert is_run_record(_save(store, "Output", category="code_output")) is True
+    def test_a_stored_code_output_category_marks_a_run_record(self, store):
+        """A save no longer records a category; one already in the index still counts."""
+        entry = _save(store, "Output")
+        store.update_entry_metadata(entry.id, category="code_output")
+        assert is_run_record(store.get_entry(entry.id)) is True
 
     def test_the_approval_tool_source_marks_a_run_record(self, store):
         assert is_run_record(_save(store, "Review", tool_source="osprey_approval")) is True
