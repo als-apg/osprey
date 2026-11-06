@@ -218,7 +218,7 @@ class Delta:
 #: Provider catalog entries ``providers.yml`` carries beyond the frozen fixtures.
 #: Every render lists the whole catalog under ``api.providers``, so every document
 #: of every frozen cell gains them.
-_CATALOG_ADDITIONS = ("openrouter",)
+_CATALOG_ADDITIONS = ("openrouter", "vllm")
 
 
 #: The leaves the three-way write switch moves in every render, root, tier or

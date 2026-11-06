@@ -454,3 +454,77 @@ def test_drive_writes_markers_and_resumes(tmp_path, monkeypatch):
         cfg, results_dir=results, parallel=2, only=None, providers={"als-apg"}, extra_env={}
     )
     assert calls == []
+
+
+# --- the shipped grid --------------------------------------------------------
+
+
+def _shipped(monkeypatch) -> matrix.MatrixConfig:
+    pytest.importorskip("yaml")
+    monkeypatch.setenv("ALS_APG_BASE_URL", GATEWAY_ORIGIN)
+    return matrix.load_config(matrix.DEFAULT_CONFIG)
+
+
+def test_shipped_grid_is_the_open_models_and_the_current_claude_references(monkeypatch):
+    cfg = _shipped(monkeypatch)
+
+    by_provider: dict[str, set[str]] = {}
+    for row in cfg.models:
+        by_provider.setdefault(row["provider"], set()).add(row["id"])
+    assert by_provider == {
+        "cborg": {
+            "gpt-oss-20b",
+            "gpt-oss-120b",
+            "gemma-4",
+            "cborg-coder",
+            "google/qwen-3-coder",
+            "google/qwen-3",
+        },
+        "als-apg": {"claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"},
+    }
+    assert {c.seed for c in matrix.expand_grid(cfg)} == {1, 2, 3}
+
+
+def test_shipped_grid_judges_every_cell_with_haiku_5_5_on_als_apg(monkeypatch):
+    cfg = _shipped(monkeypatch)
+
+    for name, provider in cfg.providers.items():
+        assert provider["judge"] == {"via": "als-apg", "model": "claude-haiku-5-5"}, name
+
+
+def test_main_hands_the_selection_to_every_cell(monkeypatch):
+    seen: dict[str, str] = {}
+
+    def fake_drive(_cfg, **kwargs):
+        seen.update(kwargs["extra_env"])
+        return 0
+
+    monkeypatch.setenv("ALS_APG_BASE_URL", GATEWAY_ORIGIN)
+    monkeypatch.setattr(matrix, "drive", fake_drive)
+
+    matrix.main(["--select", "vacuum_burst or sector_bpms"])
+    assert seen["OSPREY_BENCH_SELECT"] == "vacuum_burst or sector_bpms"
+
+    # Unselected, the variable is blanked so an exported one cannot narrow a run.
+    seen.clear()
+    monkeypatch.setenv("OSPREY_BENCH_SELECT", "stale")
+    matrix.main([])
+    assert seen["OSPREY_BENCH_SELECT"] == ""
+
+
+@pytest.mark.usefixtures("keys")
+def test_run_cell_tells_the_worker_where_the_results_go(tmp_path, monkeypatch):
+    """The worker writes its summary where drive() looks for it on resume."""
+    seen: dict[str, str] = {}
+
+    def fake_call(_argv, *, env, **_kwargs):
+        seen.update(env)
+        return 0
+
+    monkeypatch.setattr(matrix.subprocess, "call", fake_call)
+    cell = matrix.build_cell(_cfg(), {"id": "gpt-oss-20b", "provider": "cborg"}, 1)
+    results = tmp_path / "smoke"
+    results.mkdir()
+
+    matrix.run_cell(cell, results, results / "matrix.log", {})
+    assert seen["OSPREY_BENCH_RESULTS_DIR"] == str(results.resolve())

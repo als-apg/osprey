@@ -62,6 +62,11 @@ Any model ID from CBORG's catalogue works in the ``models`` list — the
 *Benchmark snapshot* box on this page shows which ones hold up in practice. The
 provider list and the keys behind it are in :doc:`configure-providers`.
 
+For a model you serve yourself with vLLM, the packaged ``vllm`` provider is
+keyless and points at ``http://localhost:8000/v1``; set ``VLLM_BASE_URL`` for a
+server elsewhere and list its ``--served-model-name`` under ``models`` in your
+copy of ``providers.yml``.
+
 Which models are known to work
 ------------------------------
 
@@ -91,8 +96,12 @@ whole run is declared in one file, ``scripts/benchmark/matrix.yaml`` — each ro
 names a ``provider`` and a model ``id``; the launcher resolves credentials,
 derives the route (proxy for OpenAI-protocol models, direct for Anthropic),
 wires the judge, and runs one isolated worker per (model, seed) cell. Adding a
-model — or a provider like the local DeepSeek (``ds4``) server — is a config
-edit, not a script edit.
+model — or a self-hosted ``vllm`` server — is a config edit, not a script edit.
+Every answer the tests judge is graded by ``claude-haiku-5-5`` on als-apg. Each
+test sits in one of two lanes: the **capability** lane (``agentic_benchmark``,
+tasks the model itself can fail; the headline score) and the **harness** lane
+(``harness_benchmark``, model-independent safety and plumbing checks, scored
+apart).
 
 .. code-block:: bash
 
@@ -102,104 +111,85 @@ edit, not a script edit.
    # one model (substring filter), serially
    scripts/benchmark/matrix.py --only gpt-oss-20b --parallel 1
 
+   # a smoke run: only the tests a pytest -k expression selects
+   scripts/benchmark/matrix.py --only gpt-oss-20b --select vacuum_burst --results-dir results-smoke
+
    # the whole grid, then render the dashboard
    scripts/benchmark/matrix.py --parallel 4
    scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
 
+   # re-render the copy this page links to
+   scripts/benchmark/matrix_dashboard.py --results-dir results --artifact \
+       --out docs/source/_static/benchmark-dashboard.html
+
 The dashboard derives every count from the run data at render time — it never
 hard-codes a number, so it stays accurate as the suite grows.
 
-.. admonition:: Benchmark snapshot — OSPREY v2026.6.2
+.. admonition:: Benchmark snapshot — OSPREY [FULL-RUN: version]
    :class: important
 
-   Pass rates for the open and self-hosted models below, measured on the
-   model-driving subset of the e2e suite; single-seed Anthropic columns are a
-   control/ceiling reference.
+   Capability-lane pass rates on the model-driving subset of the e2e suite.
+   The judge changed to ``claude-haiku-5-5``, so these numbers are not
+   comparable with the June and October 2026 runs.
 
-   - **Measured against:** OSPREY ``v2026.6.2``
-   - **Run:** 2026-06-25 · open subjects via CBORG · Anthropic reference columns via als-apg · ``deepseek-v4`` self-hosted on a Mac Studio (keyless ``ds4`` server, single seed)
-   - **Scope:** the model-driving subset of ``tests/e2e/`` — 36 tests per seed
-   - **Scoring:** pass rate = passed / (passed + failed + timeout + errors); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.
+   - **Measured against:** OSPREY ``[FULL-RUN: version]``
+   - **Run:** [FULL-RUN: date] · open models via CBORG · ``kolibri-1`` self-hosted on vLLM · Anthropic references via als-apg · 3 seeds each
+   - **Scope:** 212 tests per seed: 38 in the capability lane, 174 in the harness lane
+   - **Scoring:** pass rate = passed / (passed + failed + timeout + errors); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over the three seeds.
 
    .. list-table::
       :header-rows: 1
-      :widths: 26 12 10 10 10 12
+      :widths: 30 20 16 16
 
       * - Model
         - Provider
-        - Seed 1
-        - Seed 2
-        - Seed 3
-        - Mean
+        - Capability (mean)
+        - Harness (mean)
       * - ``cborg-coder``
         - CBORG
-        - 94%
-        - 97%
-        - 92%
-        - **94%**
+        - [FULL-RUN]
+        - [FULL-RUN]
       * - ``gemma-4``
         - CBORG
-        - 89%
-        - 94%
-        - 92%
-        - **92%**
+        - [FULL-RUN]
+        - [FULL-RUN]
       * - ``qwen-3-coder``
         - CBORG
-        - 94%
-        - 83%
-        - 94%
-        - **91%**
+        - [FULL-RUN]
+        - [FULL-RUN]
       * - ``gpt-oss-120b``
         - CBORG
-        - 92%
-        - 81%
-        - 81%
-        - **84%**
+        - [FULL-RUN]
+        - [FULL-RUN]
       * - ``qwen-3``
         - CBORG
-        - 89%
-        - 78%
-        - 83%
-        - **83%**
+        - [FULL-RUN]
+        - [FULL-RUN]
       * - ``gpt-oss-20b``
         - CBORG
-        - 67%
-        - 67%
-        - 56%
-        - **63%**
-      * - ``deepseek-v4-flash``
-        - ds4 · macstudio
-        - 94%
-        - N/A
-        - N/A
-        - **94%**
-      * - ``deepseek-v4-pro``
-        - ds4 · macstudio
-        - 97%
-        - N/A
-        - N/A
-        - **97%**
-      * - ``claude-haiku-4-5-20251001`` *(ref)*
+        - [FULL-RUN]
+        - [FULL-RUN]
+      * - ``kolibri-1``
+        - vLLM · self-hosted
+        - [FULL-RUN]
+        - [FULL-RUN]
+      * - ``claude-haiku-5-5`` *(ref)*
         - als-apg
-        - 100%
-        - —
-        - —
-        - **100%**
-      * - ``claude-sonnet-4-6`` *(ref)*
+        - [FULL-RUN]
+        - [FULL-RUN]
+      * - ``claude-sonnet-5-5`` *(ref)*
         - als-apg
-        - 100%
-        - —
-        - —
-        - **100%**
-      * - ``claude-opus-4-6`` *(ref)*
+        - [FULL-RUN]
+        - [FULL-RUN]
+      * - ``claude-opus-5-5`` *(ref)*
         - als-apg
-        - 100%
-        - —
-        - —
-        - **100%**
+        - [FULL-RUN]
+        - [FULL-RUN]
 
-   Anthropic columns are single-seed control/ceiling references. These figures are
-   a point-in-time snapshot and *will* drift — regenerate with ``scripts/benchmark/``.
+   Anthropic models are a control/ceiling reference. These figures are a
+   point-in-time snapshot and *will* drift — regenerate with ``scripts/benchmark/``.
+
+   .. FULL-RUN: re-render _static/benchmark-dashboard.html with the --artifact command above.
 
    :download:`Download the full interactive dashboard (HTML) <../../_static/benchmark-dashboard.html>`
 

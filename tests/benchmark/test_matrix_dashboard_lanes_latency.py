@@ -139,3 +139,27 @@ def test_running_cell_takes_its_provider_from_the_worker_log(tmp_path):
     (results / "k__seed2.run.log").write_text(">> model=k seed=2 provider=ds4 route=proxy\n")
     runs = dash.load(str(results))
     assert dash.provider_of("k", runs) == "ds4"
+
+
+def test_rendered_artifact_names_the_judge_the_runs_recorded(tmp_path):
+    results = tmp_path / "results"
+    _write_results(results)
+    summary = json.loads((results / "m__seed1.json").read_text())
+    summary["judge"] = "claude-haiku-5-5"
+    (results / "m__seed1.json").write_text(json.dumps(summary))
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [
+            sys.executable,
+            str(_BENCH / "matrix_dashboard.py"),
+            "--results-dir",
+            str(results),
+            "--out",
+            str(out),
+            "--artifact",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    assert "graded by <code>claude-haiku-5-5</code>" in out.read_text()
