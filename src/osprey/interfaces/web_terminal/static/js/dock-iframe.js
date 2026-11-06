@@ -74,11 +74,11 @@ import {
   PLACEHOLDER_PREFIX,
   TERMINAL_KEY,
   getLayoutHolder,
+  isDetached,
 } from './dock-apply.js';
 import { closeKeys, openPanel } from './dock-open.js';
 import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { flashElement } from '/design-system/js/highlight.js';
-import { isPoppedOut } from './popout.js';
 
 /**
  * One tracked service panel: its cached iframe (created/owned by panel-manager),
@@ -95,8 +95,6 @@ import { isPoppedOut } from './popout.js';
  * @property {number} [lastH]
  * @property {HTMLElement} [glowEl]
  * @property {HTMLElement} [noticeEl]
- * @property {HTMLElement} [standIn]  what the tile shows while the iframe
- *   lives in an attached window (attached-popout.js); drawn in its place
  */
 
 const OVERLAY_CLASS = 'dock-iframe-overlay';
@@ -198,7 +196,7 @@ function ensureOverlay() {
  * @param {boolean} on
  */
 export function setIframePointerShield(on) {
-  for (const e of managed.values()) shownOf(e).style.pointerEvents = on ? 'none' : 'auto';
+  for (const e of managed.values()) e.iframe.style.pointerEvents = on ? 'none' : 'auto';
 }
 
 /**
@@ -209,16 +207,6 @@ export function setIframePointerShield(on) {
  * it, because the overlay is outside the card and its `overflow: hidden` clip.
  */
 const TILE_BODY_RADIUS = '0 0 var(--radius-xl) var(--radius-xl)';
-
-/**
- * The element a managed panel shows in its tile: its stand-in while the iframe
- * lives in an attached window, else the iframe.
- * @param {ManagedPanel} entry
- * @returns {HTMLElement}
- */
-function shownOf(entry) {
-  return entry.standIn ?? entry.iframe;
-}
 
 /** @param {HTMLIFrameElement} iframe */
 function styleOverlayIframe(iframe) {
@@ -269,11 +257,14 @@ function place(panelId, entry) {
 /**
  * Take a managed panel off screen: mark it not-visible and hide its iframe and
  * its notice. No geometry pass is needed for the notice to vanish with its tile.
+ * A frame in a window of its own (pane-window.js) is on screen there, and stays.
+ * @param {string} panelId
  * @param {ManagedPanel} entry
  */
-function concealEntry(entry) {
+function concealEntry(panelId, entry) {
+  if (isDetached(panelId)) return;
   entry.visible = false;
-  shownOf(entry).style.display = 'none';
+  entry.iframe.style.display = 'none';
   if (entry.noticeEl) entry.noticeEl.style.display = 'none';
 }
 
@@ -373,7 +364,7 @@ function pruneOrphanPlaceholders() {
   for (const sid of dockedServiceKeys()) {
     const unknown = !knownServiceIds.has(sid) && !managed.has(sid);
     const closed = !!serverVisibleIds && !serverVisibleIds.has(sid) && !managed.get(sid)?.visible;
-    if (unknown || closed || isPoppedOut(sid)) orphans.push(sid);
+    if (unknown || closed || isDetached(sid)) orphans.push(sid);
   }
   if (orphans.length > 0) holder.run((layout) => closeKeys(layout, orphans));
 }
@@ -448,9 +439,14 @@ function applyGeometry() {
     el.style.height = Math.round(r.height) + 'px';
   };
   for (const [panelId, entry] of managed) {
+    // In a window of its own: there is no tile to follow, and the window sizes it.
+    if (isDetached(panelId)) {
+      if (entry.noticeEl) entry.noticeEl.style.display = 'none';
+      continue;
+    }
     if (docked.has(panelId)) entry.visible = true;
-    else if (entry.visible) concealEntry(entry);
-    const shown = shownOf(entry);
+    else if (entry.visible) concealEntry(panelId, entry);
+    const shown = entry.iframe;
     const panel = entry.visible ? api.getPanel(entry.placeholderId) : null;
     const group = panel?.group;
     const content = group?.element?.querySelector('.dv-content-container');
@@ -469,7 +465,7 @@ function applyGeometry() {
     place(notice, r, base);
     notice.style.display = '';
     paintNotice(notice, panelId);
-    if (!entry.standIn && (entry.lastW !== w || entry.lastH !== h)) {
+    if (entry.lastW !== w || entry.lastH !== h) {
       entry.lastW = w;
       entry.lastH = h;
       dispatchResize(entry.iframe);
@@ -490,19 +486,14 @@ export function managedIframe(panelId) {
 }
 
 /**
- * Draw `standIn` in the panel's tile in place of its iframe (the iframe lives
- * in an attached window), or the iframe again (`null`). The caller has
- * already put the stand-in in the overlay where the iframe stood
- * (attached-window.js); this only tells the geometry pass which to draw.
+ * A panel's frame is back in the overlay from a window of its own, with the
+ * style it left with: draw it. The size it last heard is stale once it was
+ * elsewhere.
  * @param {string} panelId
- * @param {HTMLElement | null} standIn
  */
-export function setIframeStandIn(panelId, standIn) {
+export function panelReturned(panelId) {
   const entry = managed.get(panelId);
   if (!entry) return;
-  if (standIn) entry.standIn = standIn;
-  else delete entry.standIn;
-  // The size the panel last heard is stale once it was elsewhere.
   delete entry.lastW;
   delete entry.lastH;
   syncGeometry();
@@ -538,9 +529,10 @@ export function initDockIframeAdapter({ fallbackHost = null } = {}) {
  * only owns where the element lives and how big it is.
  * @param {string} panelId       panel-manager rail id
  * @param {HTMLIFrameElement} iframe
- * @param {{ title?: string }} [options]  dock tile title (defaults to the id)
+ * @param {{ title?: string, dock?: boolean }} [options]  dock tile title (defaults
+ *   to the id); `dock: false` mounts the frame out of sight, with no tile
  */
-export function adoptIframe(panelId, iframe, { title = panelId } = {}) {
+export function adoptIframe(panelId, iframe, { title = panelId, dock = true } = {}) {
   const api = ensureDock();
   let entry = managed.get(panelId);
   if (entry) {
@@ -557,7 +549,8 @@ export function adoptIframe(panelId, iframe, { title = panelId } = {}) {
   if (api && overlayEl) {
     styleOverlayIframe(iframe);
     overlayEl.appendChild(iframe);
-    place(panelId, entry);
+    if (dock) place(panelId, entry);
+    else concealEntry(panelId, entry);
     syncGeometry();
   } else if (fallbackHostEl) {
     fallbackHostEl.appendChild(iframe);
@@ -598,7 +591,7 @@ export function focusPanel(panelId) {
  */
 export function hidePanel(panelId) {
   const entry = managed.get(panelId);
-  if (entry) concealEntry(entry);
+  if (entry) concealEntry(panelId, entry);
   const api = ensureDock();
   if (!api || !overlayEl) clearFallbackShown(panelId);
   if (api && overlayEl) {
@@ -620,7 +613,7 @@ export function hidePanel(panelId) {
 export function concealPanel(panelId) {
   const entry = managed.get(panelId);
   if (!entry) return;
-  concealEntry(entry);
+  concealEntry(panelId, entry);
   if (!ensureDock()) clearFallbackShown(panelId);
 }
 

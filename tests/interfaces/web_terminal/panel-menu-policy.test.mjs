@@ -18,7 +18,13 @@ const dock = vi.hoisted(() => ({
   closeTerminalPanel: vi.fn(),
   isTerminalPanelOpen: vi.fn(() => true),
   resetDockLayout: vi.fn(),
-  agentPaneContent: vi.fn(() => /** @type {HTMLElement | null} */ (null)),
+}));
+const paneWindow = vi.hoisted(() => ({
+  detach: vi.fn(),
+  detachBlocker: vi.fn(() => /** @type {string | null} */ (null)),
+  focusWindow: vi.fn(),
+  reattach: vi.fn(),
+  isDetached: vi.fn(() => false),
 }));
 const chatExport = vi.hoisted(() => ({ exportConversation: vi.fn(async () => {}) }));
 const term = vi.hoisted(() => ({
@@ -39,6 +45,14 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/agent-surface.js'
   onSurfaceChange: () => {},
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => dock);
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/pane-window.js', () => paneWindow);
+vi.mock(
+  '../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js',
+  async (original) => ({
+    .../** @type {object} */ (await original()),
+    isDetached: paneWindow.isDetached,
+  })
+);
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => term);
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-export.js', () => chatExport);
 vi.mock(
@@ -134,14 +148,22 @@ describe('the Agent tile header', () => {
     expect(chatExport.exportConversation).toHaveBeenCalledTimes(1);
   });
 
-  test('Pop out waits for the Agent pane, and runs the attached pop-out once it is there', () => {
+  test('Pop out follows the window seam: disabled with its reason, Reattach while detached', () => {
+    paneWindow.detachBlocker.mockReturnValue('The Agent pane is not ready.');
     /** @type {any[]} */
     let items = policy.buildTerminalMenuItems();
     expect(items.find((i) => i.label === 'Pop out')?.disabled).toBe(true);
-    dock.agentPaneContent.mockReturnValue(document.createElement('div'));
+    paneWindow.detachBlocker.mockReturnValue(null);
     items = policy.buildTerminalMenuItems();
-    expect(items.find((i) => i.label === 'Pop out')?.disabled).toBe(false);
-    dock.agentPaneContent.mockReturnValue(null);
+    const row = items.find((i) => i.label === 'Pop out');
+    expect(row?.disabled).toBe(false);
+    row?.run?.();
+    expect(paneWindow.detach).toHaveBeenCalledExactlyOnceWith(TERMINAL_RAIL_ID);
+    paneWindow.isDetached.mockReturnValue(true);
+    items = policy.buildTerminalMenuItems();
+    items.find((i) => i.label === 'Reattach')?.run?.();
+    expect(paneWindow.reattach).toHaveBeenCalledExactlyOnceWith(TERMINAL_RAIL_ID);
+    paneWindow.isDetached.mockReturnValue(false);
   });
 
   test('the verbs reach the terminal and the dock', async () => {
@@ -156,6 +178,22 @@ describe('the Agent tile header', () => {
 });
 
 describe('the Sessions row', () => {
+  test('with the pane closed it also opens the pane in a window', () => {
+    dock.isTerminalPanelOpen.mockReturnValue(false);
+    expect(policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1)).toBe(true);
+    expect(menuLabels()).toContain('Open in new window');
+    /** @type {HTMLElement | undefined} */ (
+      [...document.querySelectorAll('.rail-context-item')].find((n) =>
+        n.textContent?.includes('Open in new window')
+      )
+    )?.click();
+    expect(paneWindow.detach).toHaveBeenCalledWith(TERMINAL_RAIL_ID);
+    dock.isTerminalPanelOpen.mockReturnValue(true);
+    expect(policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1)).toBe(true);
+    expect(menuLabels()).not.toContain('Open in new window');
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+  });
+
   test('offers the session tree’s menu, not the pane verbs', () => {
     expect(policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1)).toBe(true);
     expect(menuLabels()).toEqual(['New session', 'Expand all']);

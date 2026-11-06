@@ -33,7 +33,7 @@ import {
 import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
 import { buildEmbedSrc, isUrlWithinMount } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
-import { isPoppedOut } from './popout.js';
+import { isDetached } from './dock-apply.js';
 import {
   clockTime,
   createRail,
@@ -117,7 +117,7 @@ export function publishPanelUrl(panelId, url) {
 
 /** The load-time flags buildEmbedSrc stamps on a panel's address, which are
  *  not part of the page it shows. */
-const EMBED_FLAGS = ['embedded', 'popout', 'theme'];
+const EMBED_FLAGS = ['embedded', 'theme'];
 
 /**
  * The page a panel's frame shows, as a root-relative address inside its own
@@ -195,7 +195,7 @@ export function renderRail() {
     railOptions()
   );
   setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
-  for (const id of ctx().memberSet) if (isPoppedOut(id)) setEntryPoppedOut(railEl, id, true);
+  for (const id of ctx().memberSet) if (isDetached(id)) setEntryPoppedOut(railEl, id, true);
 }
 
 /**
@@ -235,7 +235,7 @@ function applyEntryState(panelId) {
   if (ps.failedMessage)
     setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
   if (c.getActive() === panelId) setActive(c.getRailEl(), panelId);
-  if (isPoppedOut(panelId)) setEntryPoppedOut(c.getRailEl(), panelId, true);
+  if (isDetached(panelId)) setEntryPoppedOut(c.getRailEl(), panelId, true);
 }
 
 /**

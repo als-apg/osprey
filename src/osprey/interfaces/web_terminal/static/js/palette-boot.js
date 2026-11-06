@@ -31,7 +31,7 @@ import {
   applyMenuPreset,
   navigateAndActivatePanel,
 } from './panel-manager.js';
-import { popOutPanel } from './popout.js';
+import { detach } from './pane-window.js';
 import { CANOPY_PANEL_ID, createCanopyProvider } from './canopy-provider.js';
 import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
@@ -240,11 +240,10 @@ function buildPaletteDeps() {
     showPanel,
     // "Focus" reports as a user-initiated activation so the server sees it.
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
-    // getPopoutPanels is already narrowed to rail members whose standalone URL
-    // resolved and whose window is not already open — the context menu's
-    // "Pop out" row reads the same way.
+    // getPopoutPanels is already narrowed to rail members that can leave for a
+    // window and are not in one — the context menu's row reads the same way.
     getPopoutPanels,
-    popoutPanel: popOutPanel,
+    popoutPanel: detach,
     actions,
   };
 

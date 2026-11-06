@@ -19,10 +19,8 @@
  *     dock-workspace's closeTerminalPanel, which keeps `html[data-agent]` and
  *     the `osprey-agent-pane` event in step.
  *
- * Pop out, on every tile, moves the tile's content into an attached window
- * the hub drives (attached-popout.js); the tile stays and shows a stand-in
- * until that window closes. The panel menus' "Open in new window" is the
- * standalone kind (popout.js).
+ * Pop out, on every tile, moves the tile's content into a window the hub
+ * drives and closes the tile (pane-window.js).
  *
  * dockview builds one tab component per panel, so a tile has exactly one bar,
  * stretched over the tile by dockview's single-tab fullwidth mode
@@ -46,7 +44,7 @@ import { PLACEHOLDER_PREFIX, TAB_KEY_ATTRIBUTE, TERMINAL_KEY, keyOfPanelId } fro
 import { withEchoSuppressed } from './dock-sync.js';
 import { closeDockPanel } from './dock-workspace.js';
 import { closeTerminalTile } from './panel-menu-policy.js';
-import { attachBlocker, popOutAttached } from './attached-popout.js';
+import { detach, detachBlocker } from './pane-window.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { icon } from '/design-system/js/icons.js';
 
@@ -327,8 +325,8 @@ export function measureTabRects(scope = document) {
 // --- the renderer -----------------------------------------------------------------
 
 /**
- * A tile's Pop out button: moves the tile's content into an attached window
- * (attached-popout.js). It runs the pop-out inside the click, the gesture the
+ * A tile's Pop out button: moves the tile's content into a window of its own
+ * (pane-window.js). It runs the pop-out inside the click, the gesture the
  * browser needs to open a window at all. Content that cannot go (a panel not
  * loaded yet, an opaque-origin panel) gets the button disabled, with the
  * reason as its title. The gate cannot be read when the tile is built: the
@@ -348,7 +346,7 @@ function buildPopoutButton(panelId) {
   btn.setAttribute('aria-label', 'Pop out');
   btn.title = 'Pop out';
   const paint = () => {
-    const blocker = attachBlocker(panelId);
+    const blocker = detachBlocker(panelId);
     btn.disabled = blocker !== null;
     btn.title = blocker ?? 'Pop out';
   };
@@ -358,7 +356,7 @@ function buildPopoutButton(panelId) {
     if (e.defaultPrevented) return;
     e.preventDefault();
     paint();
-    if (!btn.disabled) popOutAttached(panelId);
+    if (!btn.disabled) detach(panelId);
   });
   return btn;
 }

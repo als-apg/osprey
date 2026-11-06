@@ -22,11 +22,9 @@
  *   `apputils:change-theme` from `@jupyterlab/apputils-extension:themes` — the
  *   command Lab's own *Settings → Theme* menu runs.
  * - **Only under the hub.** The gate is `embedded=true` on the page's address,
- *   which the hub's `buildEmbedSrc` stamps on every panel frame, or
- *   `popout=true`, which `buildPopoutSrc` stamps on a panel popped out into
- *   its own window — the hub keeps posting its theme to that window too. A
- *   Lab page opened at its own address carries neither and keeps the theme
- *   Lab chose for itself.
+ *   which the hub's `buildEmbedSrc` stamps on every panel frame. A Lab page
+ *   opened at its own address does not carry it and keeps the theme Lab chose
+ *   for itself.
  *
  * The command stores what it switches to, exactly as Lab's menu does: the
  * theme setting, in Lab's settings on the shared root. So a Lab page opened on
@@ -137,7 +135,7 @@ export function initLabThemeFollow() {
   if (following) return true;
   if (typeof document === 'undefined' || !document.body) return false;
   const params = new URLSearchParams(window.location.search);
-  if (params.get('embedded') !== 'true' && params.get('popout') !== 'true') return false;
+  if (params.get('embedded') !== 'true') return false;
 
   following = true;
   window.addEventListener('message', onMessage);

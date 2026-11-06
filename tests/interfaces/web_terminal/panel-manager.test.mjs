@@ -293,15 +293,6 @@ beforeEach(() => {
   dockState.bootSettled = true;
   dockState.restored = [];
   dockState.sessionApply = false;
-  // The pop-out seam (popout.js) rolls call on a BroadcastChannel at boot,
-  // which the test environment does not provide. Unstubbed with the rest.
-  vi.stubGlobal(
-    'BroadcastChannel',
-    class {
-      postMessage() {}
-      close() {}
-    }
-  );
 
   // Armed in the first hook and disarmed in the last, so the span it covers is
   // the test body AND the hooks either side of it — a stall in a hook is as
@@ -1224,7 +1215,25 @@ const tileHolding = (holder, key) =>
 const tileTabs = (holder) => tilesIn(holder.layout).map((t) => t.tabs);
 
 const API_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/api.js';
-const POPOUT_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/popout.js';
+
+/** A window as the hub drives one: its shell page has loaded. */
+function shellPopup() {
+  const doc = document.implementation.createHTMLDocument('');
+  doc.documentElement.setAttribute('data-osprey-attached-shell', '');
+  const target = new EventTarget();
+  const popup = {
+    document: doc,
+    closed: false,
+    focus: vi.fn(),
+    close: vi.fn(() => {
+      popup.closed = true;
+    }),
+    addEventListener: target.addEventListener.bind(target),
+    removeEventListener: target.removeEventListener.bind(target),
+    dispatchEvent: target.dispatchEvent.bind(target),
+  };
+  return popup;
+}
 
 /** The open context-menu popover, or null when none is open. */
 const contextMenu = () =>
@@ -1403,7 +1412,13 @@ async function bootWorkspace({
   // The page's holder over the fake dock, showing the terminal and every
   // restored tile — what dock-workspace builds before the manager boots.
   const apply = await import(DOCK_APPLY_PATH);
-  const holder = apply.initLayoutHolder({ api, guard: (/** @type {() => any} */ fn) => fn() });
+  const { detachPlacement } =
+    await import('../../../src/osprey/interfaces/web_terminal/static/js/dock-open.js');
+  const holder = apply.initLayoutHolder({
+    api,
+    guard: (/** @type {() => any} */ fn) => fn(),
+    placement: detachPlacement,
+  });
   // dock-workspace (mocked here) records each focus change on the holder, as
   // its wireHolderSync does: the rail accent is derived from that focus.
   api.onDidActivePanelChange(() => {
@@ -1412,12 +1427,6 @@ async function bootWorkspace({
     const tile = api.activePanel?.group?.id;
     if (key !== null && typeof tile === 'string') holder.show(tile, key);
   });
-  // dock-workspace (mocked here) tells the holder which panels left for their
-  // own windows; the holder's pop-outs ride beside the layout in every report.
-  const { onPopoutChange } = await import(POPOUT_PATH);
-  onPopoutChange((/** @type {string} */ id, /** @type {boolean} */ out) =>
-    holder.setPoppedOut(id, out)
-  );
   holder.restore(
     restored.length
       ? rowOf(...restored.map((id) => [id]), { tile: 'tt', tabs: ['terminal'] })
@@ -3002,39 +3011,42 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(contextMenu()).toBeNull();
   });
 
-  test('"Open in new window" opens the panel’s pop-out page in a named popup and retires the tile', async () => {
-    const { api, mod, calls } = await bootWorkspace();
+  /** Dock ariel beside okf, then move it into a window from its row menu. */
+  async function detachAriel() {
+    const booted = await bootWorkspace();
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
-    expect(dockedTiles(api).sort()).toEqual(['ariel', 'okf']);
-    calls.length = 0; // the new-tile reveal above reports its own focus
-    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    expect(dockedTiles(booted.api).sort()).toEqual(['ariel', 'okf']);
+    booted.calls.length = 0; // the new-tile reveal above reports its own focus
+    const popup = shellPopup();
     const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
-
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
+    return { ...booted, popup, open };
+  }
 
-    // The standalone page, stamped like an embed but with `popout` — never
-    // `embedded`, never a token — under the protocol's window name, as a
-    // popup sized and placed in the features string.
+  test('"Open in new window" moves the panel’s live frame into a named popup and closes the tile', async () => {
+    const { api, mod, calls, popup, open } = await detachAriel();
+
+    // The shell page of the hub, under a name scoped per render, as a popup
+    // sized and placed in the features string; the frame in it is embedded.
     const [url, name, features] = open.mock.calls[0];
-    const opened = new URL(String(url));
-    expect(opened.pathname).toBe(
-      new URL(String(mod.getPanelStandaloneUrl('ariel')), 'http://h').pathname
-    );
-    expect(opened.searchParams.get('popout')).toBe('true');
-    expect(opened.searchParams.has('embedded')).toBe(false);
-    expect(opened.searchParams.has('theme')).toBe(true);
-    expect(opened.searchParams.has('mode')).toBe(false);
-    expect(name).toBe('osprey-popout-ariel');
+    expect(String(url)).toBe('/static/attached-window.html');
+    expect(name).toBe('osprey-pane-ariel');
     expect(features).toMatch(/^popup=yes,width=\d+,height=\d+,left=\d+,top=\d+$/);
+    const frame = /** @type {HTMLIFrameElement} */ (
+      popup.document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
+    );
+    expect(frame).not.toBeNull();
+    expect(new URL(frame.src).searchParams.get('embedded')).toBe('true');
     // The tile is gone from the dock while the window is open: a layout
     // report cannot list it, and a layout restore cannot bring it back. The
     // rail row stays (membership is untouched, nothing is POSTed).
     expect(dockedTiles(api)).toEqual(['okf']);
     expect(entry('ariel')).not.toBeNull();
+    expect(entry('ariel').classList.contains('popped-out')).toBe(true);
     expect(posts(calls)).toEqual([]);
-    // The menu now offers the way back; the palette's pop-out rows skip it.
+    // The menu now offers the way back; the palette's rows skip it.
     rightClick(entry('ariel'));
     expect(menuLabels()).toContain('Bring back');
     expect(menuLabels()).not.toContain('Open in a new tile');
@@ -3042,12 +3054,34 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     open.mockRestore();
   });
 
-  test('a focus of a popped-out panel brings its window forward instead of docking', async () => {
-    const { api, mod, op, calls } = await bootWorkspace();
-    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+  test('a panel that never had a tile opens in a window from its row, and the dock does not move', async () => {
+    const { api, mod } = await bootWorkspace();
+    expect(document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')).toBeNull();
+    expect(mod.getPopoutPanels().map((p) => p.id)).toContain('ariel');
+    const popup = shellPopup();
     const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+
     rightClick(entry('ariel'));
+    expect(menuRow('Open in new window')?.getAttribute('aria-disabled')).not.toBe('true');
+    expect(menuLabels()).not.toContain('Pop out');
     /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(dockedTiles(api)).toEqual(['okf']);
+    expect(
+      popup.document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
+    ).not.toBeNull();
+    expect(entry('ariel').classList.contains('popped-out')).toBe(true);
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Bring back')).click();
+    expect(dockedTiles(api)).toContain('ariel');
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    open.mockRestore();
+  });
+
+  test('a focus of a detached panel brings its window forward instead of docking', async () => {
+    const { api, mod, op, calls, popup, open } = await detachAriel();
     calls.length = 0;
 
     // The rail click, the palette's Focus and the agent's open all land on the
@@ -3058,109 +3092,46 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     op('open', { member: 'ariel' });
     expect(popup.focus).toHaveBeenCalledTimes(3);
     expect(dockedTiles(api)).toEqual(['okf']);
-    await settled(() => expect(posts(calls)).toEqual(['/api/panel-op-result']));
-    expect(JSON.parse(calls.find((c) => c.opts?.method === 'POST')?.opts.body)).toMatchObject({
-      popouts: ['ariel'],
-    });
+    await settled(() => expect(posts(calls)).toContain('/api/panel-op-result'));
+    expect(
+      JSON.parse(
+        calls.find((c) => c.url?.endsWith?.('/api/panel-op-result') && c.opts?.method === 'POST')
+          ?.opts.body
+      )
+    ).toMatchObject({ popouts: ['ariel'] });
     open.mockRestore();
   });
 
-  test('"Bring back" closes the window, and the closed window re-docks the panel by the open rule, replacing the panel on view', async () => {
-    const { api, calls } = await bootWorkspace();
-    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
-    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
-    rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
-    const okfGroup = api.getPanel('iframe:okf').group.id;
+  test('"Bring back" docks the panel where it was and closes the window', async () => {
+    const { api, calls, popup, open } = await detachAriel();
+    calls.length = 0;
 
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Bring back')).click();
-    expect(popup.close).toHaveBeenCalledTimes(1);
-    // Closing is the window's own business: the tile returns once the poll
-    // (every 500 ms) sees the window closed.
-    expect(dockedTiles(api)).toEqual(['okf']);
-    popup.closed = true;
-    await settled(() => expect(dockedTiles(api)).toEqual(['ariel']));
 
-    // By the open rule: ariel takes the tile the operator was on, in place of
-    // okf, which keeps its row and its iframe, hidden.
-    expect(api.getPanel('iframe:ariel').group.id).toBe(okfGroup);
-    expect(tileTabs(await pageHolder())).toEqual([['ariel'], ['terminal']]);
-    expect(activeStamp()).toBe('ariel');
-    expect(entry('okf')).not.toBeNull();
-    expect(
-      /** @type {HTMLElement} */ (
-        document.querySelector('iframe.panel-iframe[data-panel-id="okf"]')
-      ).style.display
-    ).toBe('none');
-    // Nobody asked the server for this surfacing. The layout report is not
-    // asking: dock-sync reports the re-docked layout 250 ms after it settles,
-    // and the real-time window poll above can let that window pass before
-    // this line runs on a loaded machine.
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'okf']);
+    expect(document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')).not.toBeNull();
+    expect(entry('ariel').classList.contains('popped-out')).toBe(false);
     expect(posts(calls).filter((url) => !url.endsWith('/api/panel-layout'))).toEqual([]);
     open.mockRestore();
   });
 
-  test('a hub reload adopts the window that answers the roll-call and retires its tile', async () => {
-    /** @type {any[]} */
-    const channels = [];
-    vi.stubGlobal(
-      'BroadcastChannel',
-      class {
-        /** @param {string} name */
-        constructor(name) {
-          this.name = name;
-          this.posted = /** @type {any[]} */ ([]);
-          channels.push(this);
-        }
-        /** @param {any} message */
-        postMessage(message) {
-          this.posted.push(message);
-        }
-        close() {}
-      }
-    );
-    // The stored layout holds ariel's tile; its window answers the roll-call
-    // before the boot layout settles, as it does in a browser (the hello is a
-    // message away, the restore a network round trip).
-    dockState.bootSettled = false;
-    const { api } = await bootWorkspace({ restored: ['ariel'], firstTile: false });
-    expect(channels.map((c) => [c.name, c.posted])).toEqual([
-      ['osprey-popout', [{ type: 'osprey-popout-roll-call' }]],
-    ]);
+  test('closing the window closes the pane: the row is back to normal and a click opens it', async () => {
+    const { api, popup, open } = await detachAriel();
 
-    // The popup's hello: a same-origin window this hub opened under the
-    // protocol's name. Its tile goes, and it is told the hub's state.
-    const popup = {
-      closed: false,
-      opener: window,
-      name: 'osprey-popout-ariel',
-      focus: vi.fn(),
-      close: vi.fn(),
-      postMessage: vi.fn(),
-    };
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: { type: 'osprey-popout-hello', panelId: 'ariel' },
-        origin: window.location.origin,
-        source: /** @type {any} */ (popup),
-      })
+    popup.closed = true;
+    await settled(() => expect(entry('ariel').classList.contains('popped-out')).toBe(false));
+    expect(dockedTiles(api)).toEqual(['okf']);
+    const frame = /** @type {HTMLIFrameElement} */ (
+      document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
     );
+    expect(frame.style.display).toBe('none');
 
-    expect(dockedTiles(api)).toEqual([]);
-    // The landing then skips the panel in its window and gives the slot to
-    // the default.
-    settleBootLayout();
-    await settled(() => expect(dockedTiles(api)).toEqual(['okf']));
-    // The window is shared across this file's module graphs, so the hub
-    // instances of earlier tests answer the hello too: each sends the same
-    // state (no session yet, so no session message).
-    expect(new Set(popup.postMessage.mock.calls.map((c) => c[0].type))).toEqual(
-      new Set(['osprey-theme-change'])
-    );
-    expect(popup.postMessage.mock.calls.every((c) => c[1] === window.location.origin)).toBe(true);
-    rightClick(entry('ariel'));
-    expect(menuLabels()).toContain('Bring back');
+    entry('ariel').click();
+    expect(dockedTiles(api)).toContain('ariel');
+    expect(frame.style.display).not.toBe('none');
+    open.mockRestore();
   });
 
   test('a restored placeholder is filled with its panel’s iframe; the landing takes the tile in front', async () => {
@@ -3190,26 +3161,20 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(posts(calls)).toEqual([]);
   });
 
-  test('a popped-out panel’s restored placeholder is pruned, never filled', async () => {
-    const { api } = await bootWorkspace();
-    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
-    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
-    rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
-    rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
+  test('a detached panel’s restored placeholder is pruned, and its frame stays in the window', async () => {
+    const { api, popup, open } = await detachAriel();
     const iframe = /** @type {HTMLElement} */ (
-      document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
+      popup.document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
     );
-    expect(iframe.style.display).toBe('none');
 
     // A layout apply brings the placeholder back (a layout stored before the
-    // pop-out); the adapter prunes it and the manager leaves the iframe hidden.
+    // window opened); the holder takes it out again and the frame is left alone.
     (await pageHolder()).restore(rowOf(['okf'], ['ariel'], { tile: 'tt', tabs: ['terminal'] }));
     dockState.redock?.();
 
     expect(api.getPanel('iframe:ariel')).toBeNull();
-    expect(iframe.style.display).toBe('none');
+    expect(iframe.ownerDocument).toBe(popup.document);
+    expect(iframe.style.display).not.toBe('none');
     open.mockRestore();
   });
 
@@ -4336,23 +4301,19 @@ describe('relayTranscriptMove — a /clear on the shown key reaches every panel 
   }
 
   /**
-   * Boot the hub on SHOWN with okf docked and ariel popped out, and a
+   * Boot the hub on SHOWN with okf docked and ariel in a tile beside it, and a
    * session-change listener spied, all on the module graph under test.
    */
   async function bootShown() {
     const booted = await bootWorkspace();
     const pointer = await import(SESSION_POINTER_PATH);
     pointer.setPointer(SHOWN);
-    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
-    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
-    open.mockRestore();
-    popup.postMessage.mockClear();
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
     const terminal = await import(TERMINAL_PATH);
     const listener = vi.fn();
     terminal.onSessionChange(listener);
-    return { ...booted, pointer, popup, listener };
+    return { ...booted, pointer, listener };
   }
 
   afterEach(async () => {
@@ -4360,8 +4321,8 @@ describe('relayTranscriptMove — a /clear on the shown key reaches every panel 
     (await import(SESSION_POINTER_PATH)).clearPointer();
   });
 
-  test('a move on the shown key posts one same-key change to every iframe and pop-out, and fires no listener', async () => {
-    const { mod, popup, listener } = await bootShown();
+  test('a move on the shown key posts one same-key change to every iframe, and fires no listener', async () => {
+    const { mod, listener } = await bootShown();
     const frames = spyFrames();
     expect(frames.length).toBeGreaterThan(0);
 
@@ -4372,20 +4333,17 @@ describe('relayTranscriptMove — a /clear on the shown key reaches every panel 
       expect(post).toHaveBeenCalledTimes(1);
       expect(post).toHaveBeenCalledWith(change, window.location.origin);
     }
-    expect(popup.postMessage).toHaveBeenCalledTimes(1);
-    expect(popup.postMessage).toHaveBeenCalledWith(change, window.location.origin);
     expect(listener).not.toHaveBeenCalled();
   });
 
   test('a move on another key posts nothing', async () => {
-    const { mod, popup, listener } = await bootShown();
+    const { mod, listener } = await bootShown();
     const frames = spyFrames();
 
     mod.relayTranscriptMove(OTHER);
     mod.relayTranscriptMove('');
 
     for (const { post } of frames) expect(post).not.toHaveBeenCalled();
-    expect(popup.postMessage).not.toHaveBeenCalled();
     expect(listener).not.toHaveBeenCalled();
   });
 

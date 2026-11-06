@@ -28,19 +28,19 @@ const { closeTerminalPanel, closeTerminalTile, closeDockPanel } = vi.hoisted(() 
   closeTerminalTile: vi.fn(),
   closeDockPanel: vi.fn(() => true),
 }));
-const { popOutAttached, attachBlocker } = vi.hoisted(() => ({
-  popOutAttached: vi.fn(() => true),
-  attachBlocker: vi.fn(() => /** @type {string | null} */ (null)),
+const { detach, detachBlocker } = vi.hoisted(() => ({
+  detach: vi.fn(() => true),
+  detachBlocker: vi.fn(() => /** @type {string | null} */ (null)),
 }));
 
 /** What the gate says about an opaque-origin panel. */
 const OPAQUE = 'This panel runs at an opaque origin and cannot be popped out.';
 
-// The pop-out itself (the attached window, the stand-in) is attached-popout's
-// contract; the bar only has to ask it the right things at the right times.
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/attached-popout.js', () => ({
-  popOutAttached,
-  attachBlocker,
+// The window itself is pane-window's contract; the bar only has to ask it the
+// right things at the right times.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/pane-window.js', () => ({
+  detach,
+  detachBlocker,
 }));
 
 // dock-tab closes every tile through dock-workspace (the layout holder); the
@@ -128,8 +128,8 @@ describe('tile-tab renderer', () => {
     closeTerminalPanel.mockClear();
     closeTerminalTile.mockClear();
     closeDockPanel.mockClear();
-    popOutAttached.mockClear();
-    attachBlocker.mockReset().mockReturnValue(null);
+    detach.mockClear();
+    detachBlocker.mockReset().mockReturnValue(null);
   });
 
   test('service tab renders visible title and close', async () => {
@@ -200,7 +200,7 @@ describe('tile-tab renderer', () => {
       new MouseEvent('click', { bubbles: true, cancelable: true })
     );
 
-    expect(popOutAttached).toHaveBeenCalledExactlyOnceWith('ariel');
+    expect(detach).toHaveBeenCalledExactlyOnceWith('ariel');
     expect(api.close).not.toHaveBeenCalled();
   });
 
@@ -218,12 +218,12 @@ describe('tile-tab renderer', () => {
     /** @type {HTMLElement} */ (actions.querySelector('.tile-tab-popout')).dispatchEvent(
       new MouseEvent('click', { bubbles: true, cancelable: true })
     );
-    expect(popOutAttached).toHaveBeenCalledExactlyOnceWith('terminal');
+    expect(detach).toHaveBeenCalledExactlyOnceWith('terminal');
     expect(closeTerminalPanel).not.toHaveBeenCalled();
   });
 
   test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
-    attachBlocker.mockReturnValue(OPAQUE);
+    detachBlocker.mockReturnValue(OPAQUE);
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
@@ -236,7 +236,7 @@ describe('tile-tab renderer', () => {
     expect(popout.disabled).toBe(true);
     expect(popout.title).toBe(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(popOutAttached).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
   });
 
   test('the gate is read again at click time: a frame that resolved opaque after the bar was built', async () => {
@@ -246,10 +246,10 @@ describe('tile-tab renderer', () => {
     const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
     expect(popout.disabled).toBe(false);
 
-    attachBlocker.mockReturnValue(OPAQUE);
+    detachBlocker.mockReturnValue(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-    expect(popOutAttached).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
     expect(popout.disabled).toBe(true);
     expect(popout.title).toBe(OPAQUE);
   });

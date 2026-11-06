@@ -773,8 +773,8 @@ async def panel_op_result(body: PanelOpResultRequest, request: Request):
         HTTPException: 404 for a request id that is neither pending nor awaiting
             a late answer, 403 for a client the op was not addressed to, 422 for
             an answer that is not exactly one of ``layout`` and ``refusal`` (a
-            null layout beside pop-outs is a layout: an empty dock) or whose
-            layout is refused.
+            null ``layout`` is a layout: an empty dock) or whose layout is
+            refused.
     """
     state = request.app.state
     pending = _pending_ops(state).get(body.request_id)
@@ -785,9 +785,9 @@ async def panel_op_result(body: PanelOpResultRequest, request: Request):
         raise HTTPException(status_code=403, detail="The op was addressed to another client")
     if pending is None:
         del _unanswered_ops(state)[body.request_id]
-    # An empty dock with every pane in a window answers with a null layout
-    # beside its pop-outs; that is a layout answer.
-    answers_layout = body.layout is not None or bool(body.popouts)
+    # A null layout is an empty dock, the one the same state reports on the
+    # layout route, with or without pop-outs; only a missing one is no answer.
+    answers_layout = "layout" in body.model_fields_set
     if answers_layout == (body.refusal is not None):
         raise HTTPException(status_code=422, detail="Answer with exactly one of layout or refusal")
     if body.refusal is not None:

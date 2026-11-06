@@ -367,6 +367,23 @@ describe('a detached pane', () => {
     ).toBeTruthy();
   });
 
+  test('a session switch sends a detached panel to its session’s page, like a docked one', async () => {
+    const { holder, detach } = await detachKnowledge(null);
+    mocks.server[TA] = { ...dockWith('knowledge'), pages: {} };
+    mocks.server[TB] = {
+      ...dockWith('knowledge'),
+      pages: { knowledge: '/panel/knowledge/page/rf' },
+    };
+    await boot(TA);
+    vi.advanceTimersByTime(mod.SETTLE_MS);
+    detach();
+
+    await switchTo(TB);
+
+    expect(holder.isDetached('knowledge')).toBe(true);
+    expect(mocks.restorePanelPage.mock.calls).toEqual([['knowledge', '/panel/knowledge/page/rf']]);
+  });
+
   test('a detach or a reattach saves the layout, debounced, with no dock change', async () => {
     const { holder, detach } = await detachKnowledge(null);
     mocks.server[TA] = { ...dockWith('knowledge'), pages: {} };

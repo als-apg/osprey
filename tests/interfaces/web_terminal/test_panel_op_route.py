@@ -251,11 +251,46 @@ async def test_a_result_with_a_null_layout_and_the_agent_detached_is_recorded():
     assert app.state.layout_dock is True
 
 
-async def test_a_result_with_neither_a_layout_nor_pop_outs_nor_a_refusal_is_refused(monkeypatch):
+async def test_a_result_with_a_null_layout_and_no_pop_outs_is_an_empty_dock():
+    """An op that emptied the dock settles at once, and empty is what the server holds."""
+    app = _app(dock_layout=TERMINAL_ONLY)
+    resp, _, result = await _write(
+        app, "/api/panel-op/open", {"member": "lattice"}, _popped_answer(None, [])
+    )
+    assert result.status_code == 200
+    assert result.json()["layout"] is None
+    assert result.json()["popouts"] == []
+    assert resp.status_code == 200
+    assert app.state.dock_layout is None
+    assert app.state.dock_popouts == []
+    assert app.state.layout_dock is True
+
+
+async def test_a_result_with_neither_a_layout_key_nor_a_refusal_is_refused(monkeypatch):
     monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
     app = _app()
     _, _, result = await _write(
-        app, "/api/panel-op/open", {"member": "lattice"}, _popped_answer(None, [])
+        app,
+        "/api/panel-op/open",
+        {"member": "lattice"},
+        lambda frame: {"request_id": frame["request_id"], "client_id": CLIENT},
+    )
+    assert result.status_code == 422
+
+
+async def test_a_result_with_both_a_null_layout_and_a_refusal_is_refused(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    _, _, result = await _write(
+        app,
+        "/api/panel-op/open",
+        {"member": "lattice"},
+        lambda frame: {
+            "request_id": frame["request_id"],
+            "client_id": CLIENT,
+            "layout": None,
+            "refusal": "popped_out",
+        },
     )
     assert result.status_code == 422
 

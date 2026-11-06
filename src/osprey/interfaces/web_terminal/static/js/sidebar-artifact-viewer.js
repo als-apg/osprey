@@ -13,7 +13,7 @@
 import * as iframeSync from './panel-iframe-sync.js';
 import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
-import { isPoppedOut } from './popout.js';
+import { isDetached } from './dock-apply.js';
 import { menuItems } from './artifacts-pane-header.js';
 
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
@@ -72,7 +72,7 @@ export function viewerMenuItems(shown) {
 
 /** Whether the Artifacts panel is on view: docked in a tile, or in its own window. */
 export const panelOnView = () =>
-  hasDockedTile(ARTIFACTS_PANEL_ID) || isPoppedOut(ARTIFACTS_PANEL_ID);
+  hasDockedTile(ARTIFACTS_PANEL_ID) || isDetached(ARTIFACTS_PANEL_ID);
 
 /** Show the Artifacts panel through the open rule: a docked one is focused in place. */
 export function showArtifactsPanel() {

@@ -334,23 +334,6 @@ describe('on a page the hub framed (embedded=true)', () => {
   });
 });
 
-/* ---- popped out of the hub ---------------------------------------------- */
-
-describe('on a page the hub popped out (popout=true)', () => {
-  test("switches to the address's theme and follows each theme the hub posts", async () => {
-    const lab = installLab();
-    lab.load('JupyterLab Light');
-    lab.start();
-
-    expect(openAt('?popout=true&theme=dark')).toBe(true);
-    await vi.waitFor(() => expect(loadedTheme()).toBe('JupyterLab Dark'));
-    postTheme('desy-light');
-    await vi.waitFor(() => expect(loadedTheme()).toBe('JupyterLab Light'));
-
-    expect(asked(lab)).toEqual(['JupyterLab Dark', 'JupyterLab Light']);
-  });
-});
-
 /* ---- on its own --------------------------------------------------------- */
 
 describe('on a page opened on its own', () => {
@@ -358,8 +341,7 @@ describe('on a page opened on its own', () => {
     '?theme=dark',
     '?embedded=false&theme=dark',
     '?embedded=1&theme=dark',
-    '?popout=false&theme=dark',
-    '?popout=1&theme=dark',
+    '?popout=true&theme=dark',
   ])('%s: no switch from the address, and no listener', async (search) => {
     const lab = installLab();
     lab.load('JupyterLab Light');

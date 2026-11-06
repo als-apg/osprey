@@ -5,7 +5,9 @@
  * (dock-apply.js composes it; nothing else creates one). Each entry holds what
  * brings its pane back:
  *
- *   - `record`        the engine close record of the tile it left;
+ *   - `record`        the engine close record of the tile it left, or null for
+ *                     a pane that left with no tile (it comes back by the open
+ *                     rule);
  *   - `neighbourKey`  the panel its neighbour tile showed then. Tile ids are
  *                     re-minted as max+1, so a kept id can name an unrelated
  *                     tile later; the neighbour is found again BY KEY before
@@ -35,7 +37,8 @@ import { crowdedTile } from './dock-policy.js';
 /**
  * One pane in a window of its own: what brings it back.
  * @typedef {object} DetachedEntry
- * @property {CloseRecord} record  the engine record of the tile it left
+ * @property {CloseRecord|null} record  the engine record of the tile it left;
+ *   null when it held none
  * @property {string|null} neighbourKey  the panel its neighbour showed then, or
  *   null once that neighbour is no longer known (a layout without the pane
  *   came in from outside)
@@ -89,7 +92,7 @@ function neighbourKeyOf(layout, record) {
  * @returns {DetachedEntry}
  */
 function resolved(layout, entry) {
-  if (entry.record.kind !== 'tile') return entry;
+  if (entry.record?.kind !== 'tile') return entry;
   const tile = entry.neighbourKey === null ? null : tileOf(layout, entry.neighbourKey);
   return { ...entry, record: { ...entry.record, neighbour: tile?.tile ?? null } };
 }
@@ -158,8 +161,8 @@ export function createDetachedPanes(placement) {
 
     /**
      * The pane `key` leaves `layout`: its tile closes (the engine's leave
-     * rule) and its entry is stored, before the caller applies the result.
-     * Null, storing nothing, for a key `layout` does not hold.
+     * rule), if it has one, and its entry is stored, before the caller applies
+     * the result. Null, storing nothing, for a pane already detached.
      * @param {Layout|null} layout
      * @param {string} key
      * @param {PanelRecord|undefined} panelRecord
@@ -167,8 +170,14 @@ export function createDetachedPanes(placement) {
      * @returns {OpResult|null}  the layout after, unannounced
      */
     leave(layout, key, panelRecord, page) {
-      const result = tileOf(layout, key) === null ? null : closeTab(layout, key);
-      if (!result?.changed || !result.record) return null;
+      if (entries.has(key)) return null;
+      if (tileOf(layout, key) === null) {
+        const entry = { record: null, neighbourKey: null, panelRecord, page, seq: ++seq };
+        entries.set(key, entry);
+        return { layout, changed: false };
+      }
+      const result = closeTab(layout, key);
+      if (!result.changed || !result.record) return null;
       const { record } = result;
       const neighbourKey = neighbourKeyOf(layout, record);
       entries.set(key, { record, neighbourKey, panelRecord, page, seq: ++seq });
@@ -202,6 +211,18 @@ export function createDetachedPanes(placement) {
       if (!entries.delete(key)) return false;
       changed();
       return true;
+    },
+
+    /**
+     * Record the page a detached pane is on, and announce a change of it.
+     * @param {string} key
+     * @param {string|null} page  null (a page the hub cannot read) changes nothing
+     */
+    setPage(key, page) {
+      const entry = entries.get(key);
+      if (!entry || page === null || entry.page === page) return;
+      entry.page = page;
+      changed();
     },
 
     /** Whether `layout` docks any detached pane. @param {Layout|null} layout */

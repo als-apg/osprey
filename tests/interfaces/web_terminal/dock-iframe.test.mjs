@@ -53,13 +53,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   applyingSessionLayout: () => false,
   onDragGesture: () => [],
 }));
-// The one question the adapter asks the pop-out seam: whether a panel lives
-// in its own window. The seam itself is popout.test.mjs's contract.
-const { isPoppedOut } = vi.hoisted(() => ({
-  isPoppedOut: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
-}));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({ isPoppedOut }));
-
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
@@ -427,16 +420,79 @@ describe('pruning — placeholders of server-closed panels', () => {
 
     expect(api.getPanel('iframe:lattice')).toBeTruthy();
   });
+});
 
-  test('a panel living in its own pop-out window loses its restored tile, visible or not', async () => {
-    const { mod, api } = await freshAdapter(LATTICE);
-    isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'lattice');
+describe('a pane in a window of its own', () => {
+  /** Whatever makes the adapter run a geometry pass. */
+  const geometryPass = () => window.dispatchEvent(new Event('resize'));
 
+  test('its frame is left alone: no geometry pass moves or hides it', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    expect(holder.detach('ariel', null)).toBe(true);
+    expect(ariel.style.display).not.toBe('none');
+
+    ariel.style.left = '11px';
+    geometryPass();
+    expect(ariel.style.left).toBe('11px');
+    expect(ariel.style.display).not.toBe('none');
+  });
+
+  test('its not-answering notice does not stay behind over the hub', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    open(mod, 'ariel');
+    mod.setPanelReachable('ariel', false, '10:00');
+    const notice = /** @type {HTMLElement} */ (
+      document.querySelector('.dock-iframe-overlay > :not(iframe)')
+    );
+    expect(notice).not.toBeNull();
+    expect(notice.style.display).not.toBe('none');
+
+    holder.detach('ariel', null);
+    geometryPass();
+
+    expect(notice.style.display).toBe('none');
+  });
+
+  test('neither conceal path reaches it; once forgotten, a conceal does', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    holder.detach('ariel', null);
+    mod.concealPanel('ariel');
+    mod.hidePanel('ariel');
+    expect(ariel.style.display).not.toBe('none');
+
+    holder.forget('ariel');
+    mod.concealPanel('ariel');
+    expect(ariel.style.display).toBe('none');
+  });
+
+  test('a frame adopted with no tile stays out of the dock and out of sight', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const before = holder.layout;
+    const iframe = makeIframe();
+    mod.adoptIframe('ariel', iframe, { title: 'ARIEL', dock: false });
+    expect(holder.layout).toBe(before);
+    expect(iframe.isConnected).toBe(true);
+    expect(iframe.style.display).toBe('none');
+    expect(mod.managedIframe('ariel')?.iframe).toBe(iframe);
+  });
+
+  test('its frame back in the overlay is drawn in its tile again', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    ariel.style.left = '11px';
+    mod.panelReturned('ariel');
+    expect(ariel.style.left).not.toBe('11px');
+    expect(() => mod.panelReturned('ghost')).not.toThrow();
+  });
+
+  test('a panel with a restored tile that is detached has its tile pruned', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tl', ['lattice']), TERMINAL));
+    holder.detach('lattice', null);
     mod.setServerVisiblePanels(new Set(['lattice']));
     mod.setKnownServicePanels(['lattice']);
-
     expect(api.getPanel('iframe:lattice')).toBeFalsy();
-    isPoppedOut.mockImplementation(() => false);
   });
 });
 

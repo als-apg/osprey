@@ -260,7 +260,7 @@ function buildSettingsFiles(deps) {
 /**
  * Build the Panels group: a "Show <label>" item per hidden panel, a
  * "Focus <label>" item per visible (non-active) panel, an "Open <label> in
- * new window" item (the standalone pop-out, popout.js) per pop-out-able panel, and an "Open <label> in a new tile" item per
+ * new window" item (pane-window.js) per panel that can leave for a window, and an "Open <label> in a new tile" item per
  * visible (non-active) panel.
  *
  * The pop-out and new-tile verbs draw on DIFFERENT sources on purpose, and

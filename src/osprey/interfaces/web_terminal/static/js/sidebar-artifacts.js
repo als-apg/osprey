@@ -77,6 +77,7 @@ import { contributeLocal } from './tile-header-contrib.js';
 import { hasDockedTile } from './panel-placement.js';
 import { setServiceMenuExtras, showAgentPane } from './panel-menu-policy.js';
 import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
+import { TERMINAL_KEY, isDetached } from './dock-apply.js';
 import * as store from './sidebar-artifact-listing.js';
 import * as rows from './sidebar-artifact-rows.js';
 import { createBoxPager } from './sidebar-artifact-paging.js';
@@ -631,8 +632,10 @@ function onClick(event) {
     const treeId = session.dataset.sessionId ?? '';
     // The session in use folds or unfolds; another is entered, never browsed.
     // After expand-all, the click first returns to the session in use alone.
-    // With the Agent pane closed, a click on it reopens the pane, not a fold.
+    // With the Agent pane closed, a click on it reopens the pane, not a fold;
+    // with the pane in its own window, it brings that window forward, no more.
     if (treeId === activeTreeId()) {
+      if (isDetached(TERMINAL_KEY)) return showAgentPane();
       const reopen = !isTerminalPanelOpen();
       state.activeFolded = reopen || state.expandAll ? false : !state.activeFolded;
       state.expandAll = false;

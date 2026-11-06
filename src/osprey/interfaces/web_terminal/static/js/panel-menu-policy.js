@@ -58,8 +58,8 @@ import { railDragStart, railDragEnd } from './rail-drag.js';
 import { getEntry, entryIds } from './panel-rail.js';
 import { isListOpen, setListOpen, toggleEverySession } from './sidebar.js';
 import { showUndoNotice } from './undo-notice.js';
-import { bringBackPanel, canPopOut, focusPopout, isPoppedOut, popOutPanel } from './popout.js';
-import { bringBackAttached, canAttach, isAttached, popOutAttached } from './attached-popout.js';
+import { detach, detachBlocker, focusWindow, reattach } from './pane-window.js';
+import { isDetached } from './dock-apply.js';
 import { exportConversation } from './chat-export.js';
 import { isPanelDocked } from './dock-iframe.js';
 import {
@@ -138,10 +138,9 @@ export function railOptions() {
         ctx().retryStart(id);
         return;
       }
-      // A popped-out panel's row brings its window to the front; the tile
-      // stays concealed until the window closes.
-      if (isPoppedOut(id)) {
-        focusPopout(id);
+      // A detached panel's row brings its window to the front.
+      if (isDetached(id)) {
+        focusWindow(id);
         return;
       }
       // Clicking the row whose tile is ALREADY surfaced retires that tile — a
@@ -312,7 +311,7 @@ export function openRailContextMenu(id, x, y) {
       y,
       anchorEl: entry,
       ariaLabel: `${TERMINAL_RAIL_LABEL} actions`,
-      items: buildAgentRowMenuItems(),
+      items: [...buildAgentRowMenuItems(), ...closedAgentRows()],
     });
     return true;
   }
@@ -388,12 +387,11 @@ export function setServiceMenuExtras(panelId, fn) {
  * the panel's tile header so the two surfaces cannot drift apart, and followed
  * by the rows registered through {@link setServiceMenuExtras}.
  *
- * A panel with a tile offers "Pop out", the tile button's attached window
- * (attached-popout.js), and "Reattach" while it is out. "Open in new
- * window" stays inert until the panel can open its standalone page
- * (popout.js): its URL has resolved, and it is not an opaque-origin panel. A
- * panel in that window offers "Bring back" in its place and no "Open in a
- * new tile", because the panel has no tile while its window is open.
+ * A panel with a tile offers "Pop out", the tile button's window, and "Open
+ * in new window", which stays inert while the panel cannot leave
+ * (pane-window.js's detachBlocker). A panel in its window offers "Bring back"
+ * in their place and no "Open in a new tile", because the panel has no tile
+ * while its window is open.
  *
  * A member's rows also move its sidebar row between the sidebar's groups:
  * "Move to <group>" for every other group, then "Move to new group…".
@@ -409,7 +407,7 @@ export function setServiceMenuExtras(panelId, fn) {
 export function buildServiceMenuItems(id) {
   const label = ctx().labelOf(id);
   const member = ctx().isMember(id);
-  const popped = isPoppedOut(id);
+  const popped = isDetached(id);
   const extras = serviceMenuExtras.get(id)?.() ?? [];
   const newTile = { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) };
   return [
@@ -420,18 +418,16 @@ export function buildServiceMenuItems(id) {
     // Off the rail it is focused without the report a member's focus sends.
     { label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) },
     ...(popped ? [] : [newTile]),
-    // Pop out is the tile's own button, attached, so it is offered while the
-    // panel has a tile; Open in new window is the panel's standalone page
-    // (popout.js).
-    ...(!popped && (isPanelDocked(id) || isAttached(id)) ? [attachedRow(id)] : []),
+    // Pop out is the tile's own button, so it is offered while the panel has a
+    // tile.
+    ...(!popped && isPanelDocked(id) ? [paneWindowRow(id)] : []),
     popped
-      ? { label: 'Bring back', glyph: '⊟', run: () => bringBackPanel(id) }
+      ? { label: 'Bring back', glyph: '⊟', run: () => reattach(id) }
       : {
           label: 'Open in new window',
           glyph: '↗',
-          // False until the config resolves a URL, and for an opaque-origin panel.
-          disabled: !canPopOut(id),
-          run: () => popOutPanel(id),
+          disabled: detachBlocker(id) !== null,
+          run: () => detach(id),
         },
     ...(member ? groupMoveItems(id) : []),
     { divider: true },
@@ -488,16 +484,33 @@ function moveToNewGroup(id) {
 }
 
 /**
- * The attached pop-out's row (the tile header's Pop out button,
- * attached-popout.js): Pop out, or Reattach while the content is in its
- * window.
+ * The tile header's Pop out button as a row (pane-window.js): Pop out, or
+ * Reattach while the content is in its window.
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
  * @returns {import('./panel-context-menu.js').MenuItem}
  */
-function attachedRow(id) {
-  return isAttached(id)
-    ? { label: 'Reattach', glyph: '⊟', run: () => bringBackAttached(id) }
-    : { label: 'Pop out', glyph: '⧉', disabled: !canAttach(id), run: () => popOutAttached(id) };
+function paneWindowRow(id) {
+  return isDetached(id)
+    ? { label: 'Reattach', glyph: '⊟', run: () => reattach(id) }
+    : { label: 'Pop out', glyph: '⧉', disabled: detachBlocker(id) !== null, run: () => detach(id) };
+}
+
+/**
+ * What the Sessions row adds while the Agent pane is closed: it has no tile
+ * whose button could open it in a window.
+ * @returns {import('./panel-context-menu.js').MenuItem[]}
+ */
+function closedAgentRows() {
+  if (isTerminalPanelOpen() || isDetached(TERMINAL_RAIL_ID)) return [];
+  return [
+    { divider: true },
+    {
+      label: 'Open in new window',
+      glyph: '↗',
+      disabled: detachBlocker(TERMINAL_RAIL_ID) !== null,
+      run: () => detach(TERMINAL_RAIL_ID),
+    },
+  ];
 }
 
 /**
@@ -520,14 +533,14 @@ export function buildTerminalMenuItems() {
   ];
   if (!isTerminalSurface()) {
     return [
-      attachedRow(TERMINAL_RAIL_ID),
+      paneWindowRow(TERMINAL_RAIL_ID),
       // The conversation as a Markdown file (chat-export.js).
       { label: 'Export conversation', run: () => void exportConversation() },
       ...layout,
     ];
   }
   return [
-    attachedRow(TERMINAL_RAIL_ID),
+    paneWindowRow(TERMINAL_RAIL_ID),
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
     // palette's "Restart terminal" runs the identical pair.

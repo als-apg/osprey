@@ -43,8 +43,13 @@ const mocks = vi.hoisted(() => ({
   isTerminalPanelOpen: vi.fn(() => true),
   openTerminalPanel: vi.fn(),
   showAgentPane: vi.fn(),
+  isDetached: vi.fn((/** @type {string} */ _id) => false),
 }));
 
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', () => ({
+  TERMINAL_KEY: 'terminal',
+  isDetached: mocks.isDetached,
+}));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat.js', () => ({
   isStreaming: () => mocks.streaming,
   stopTurn: mocks.stopTurn,
@@ -695,6 +700,26 @@ describe('expansion and clicks', () => {
     await settle();
     expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
     expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('with the Agent pane in its window, a click on the current session brings it forward and leaves the fold', async () => {
+    await boot();
+    mocks.showAgentPane.mockClear();
+    const title = () =>
+      /** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title'));
+    // Folded first, the way an operator would have left it.
+    click(title());
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    mocks.isDetached.mockImplementation((/** @type {string} */ id) => id === 'terminal');
+    click(title());
+    await settle();
+    expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    mocks.isDetached.mockReset();
+    mocks.isDetached.mockReturnValue(false);
   });
 
   test('a session-name click enters a non-current session and reveals its last-open artifact', async () => {

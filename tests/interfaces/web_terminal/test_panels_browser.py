@@ -3077,7 +3077,7 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         expect(menu.locator(f"{_RAIL_MENU_ITEM}.danger")).to_have_text(
             re.compile(r"Remove from rail")
         )
-        # data-viz's URL resolved at boot, so the popout row is live.
+        # data-viz's URL resolved at boot, so the window row is live.
         expect(menu.locator(f'{_RAIL_MENU_ITEM}[aria-disabled="true"]')).to_have_count(0)
 
         placement = page.evaluate(
@@ -3205,14 +3205,13 @@ def test_remove_from_rail_undo_restores_the_entry_at_its_old_position(tmp_path, 
 
 
 def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromium_browser):
-    """The Open in new window row renders inert while the panel has no standalone URL.
+    """The Open in new window row renders inert while the panel has no frame to move.
 
     A panel's URL and its health arrive together at boot (one with no URL never
     polls, so it never enables), which is why the entry is force-enabled here:
     the menu's enabled gate is a DOM-class question, and taking the class off is
-    the only way to reach an entry that HAS a menu while its popout target is
-    still unresolved — the state an operator meets when a companion server is
-    slow to answer.
+    the only way to reach an entry that HAS a menu while its frame does not exist
+    yet — the state an operator meets when a companion server is slow to answer.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3494,10 +3493,11 @@ def test_context_menu_closes_when_a_click_lands_in_a_panel_iframe(tmp_path, chro
 #   * FR8 - the Panels rows. The registry unit tests prove the row set from
 #     injected getters; these prove the LIVE getters produce it: ARIEL's
 #     standalone URL really resolved through /api/ariel-server, and the active
-#     panel really is included in the popout source and excluded from the
+#     panel really is included in the window source and excluded from the
 #     new-tile source.
-#   * FR8 - the popout verb end to end: `window.open` opens a real page on the
-#     proxied, same-origin /panel/<id> URL.
+#   * FR8 - the window verb end to end: `window.open` opens the hub's shell page,
+#     and the panel's own frame moves into it, on the proxied, same-origin
+#     /panel/<id> URL.
 #   * FR9 - Recent. Real localStorage, and the section really renders first on
 #     an empty query and survives a reload.
 #
@@ -3506,7 +3506,7 @@ def test_context_menu_closes_when_a_click_lands_in_a_panel_iframe(tmp_path, chro
 # with its companion server URL published post-startup - the catalog entry
 # carries no healthEndpoint, so it is healthy the moment its config fetch
 # resolves, and the stub backend behind it lets the proxied /panel/ariel URL
-# answer for real when a popout navigates to it.
+# answer for real when its frame loads in the window.
 
 _PALETTE_OVERLAY = ".command-palette-overlay.visible"
 _PALETTE_INPUT = ".command-palette-input"
@@ -3555,7 +3555,7 @@ def _palette_live_server(workspace):
     ``_launch_panel_server`` is stubbed to publish only the gallery URL, so
     ARIEL's is set here - after startup, before any page load, which is when
     the browser first fetches /api/ariel-server. It points at the always-200
-    stub so the proxied ``/panel/ariel`` a popout navigates to answers for real
+    stub so the proxied ``/panel/ariel`` its frame loads answers for real
     instead of erroring behind the proxy.
 
     Yields:
@@ -3701,8 +3701,9 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
 
     The two "Open ..." verbs draw on different sources, and the live getters
     are what this proves: ``getPopoutPanels`` includes the ACTIVE panel
-    (popping out what you are looking at is the verb's commonest use, and it
-    needed ARIEL's standalone URL to have resolved through /api/ariel-server),
+    (moving what you are looking at to a window is the verb's commonest use, and
+    it needed ARIEL's frame to exist, once its URL resolved through
+    /api/ariel-server),
     while ``getVisiblePanels`` - the new-tile source - excludes it, because
     opening a panel beside itself is a no-op. The second query proves the
     new-tile verb is present at all, so ARIEL's missing
@@ -3760,15 +3761,14 @@ def test_palette_elog_synonym_matches_logbook(tmp_path, chromium_browser):
         page.close()
 
 
-def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_browser):
-    """FR8: running the Open in new window row opens a real page on same-origin /panel/ariel.
+def test_palette_window_row_moves_the_panel_frame_on_its_proxied_url(tmp_path, chromium_browser):
+    """FR8: running the Open in new window row moves the panel's frame into a hub window.
 
     happy-dom can only prove ``window.open`` was called with some string. What
-    matters to the operator is the page that opens: the proxied, root-relative
-    standalone URL resolved against the terminal's own origin - never the
-    panel's internal address, which the browser cannot reach - carrying the
-    pop-out params (``popout=true`` and the theme) and never
-    ``embedded``, so the page keeps its own chrome and reports to the hub.
+    matters to the operator is what shows: the hub's own shell page, holding the
+    panel's frame on the proxied, root-relative URL resolved against the terminal's
+    origin - never the panel's internal address, which the browser cannot reach -
+    and the tile gone from the dock.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3776,6 +3776,7 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
+        _focus_service_panel(page, "ariel", "LOGBOOK")
         _open_palette(page)
         _palette_query(page, "ariel window")
         row = _palette_row(page, "Open Logbook in new window")
@@ -3784,14 +3785,17 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
         with page.context.expect_page() as popup_info:
             row.click()
         popup = popup_info.value
-        popup.wait_for_url(re.compile(r"/panel/ariel\?.*popout=true"), timeout=10_000)
+        frame = popup.locator('iframe.panel-iframe[data-panel-id="ariel"]')
+        expect(frame).to_be_visible(timeout=10_000)
 
-        opened = urlsplit(popup.url)
+        assert urlsplit(popup.url).path == "/static/attached-window.html"
+        opened = urlsplit(frame.get_attribute("src") or "")
         query = parse_qs(opened.query)
         assert f"{opened.scheme}://{opened.netloc}{opened.path}" == f"{base_url}/panel/ariel"
-        assert query.get("popout") == ["true"], popup.url
-        assert "embedded" not in query, popup.url
-        assert "theme" in query, popup.url
+        assert query.get("embedded") == ["true"], opened
+        assert "theme" in query, opened
+        assert "popout" not in query, opened
+        expect(_service_tab(page, "LOGBOOK")).to_have_count(0)
 
         popup.close()
         page.close()

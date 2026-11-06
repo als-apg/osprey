@@ -22,8 +22,7 @@ import { panelRecordOf } from './dock-detached.js';
 import { initDockDrop } from './dock-drop.js';
 import { closeKey, defaultLayout, detachPlacement, reopenTerminal } from './dock-open.js';
 import { withEchoSuppressed } from './dock-sync.js';
-import { onPopoutChange } from './popout.js';
-import { focusAttached, isAttached, onAttachedChange } from './attached-window.js';
+import { closeDetached, focusWindow, initPaneWindow } from './pane-window.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { subscribe } from '/design-system/js/theme-manager.js';
@@ -77,27 +76,17 @@ let serverPanelIds = null;
 const PANEL_TERMINAL = TERMINAL_KEY;
 
 /** Attribute on <html> present exactly while the Agent pane is not in its
- *  tile: `closed` while it is absent from the dock, `popped` while its
- *  content is in an attached window (attached-popout.js) and its tile shows
- *  the stand-in. The sidebar's Agent row reads it. */
+ *  tile: `closed` while it is absent from the dock, `detached` while it lives
+ *  in a window of its own (pane-window.js). The sidebar's Agent row reads it. */
 const AGENT_ATTRIBUTE = 'data-agent';
 
 /** The Agent pane's state at the last {@link syncAgentPane}, or null before
- *  the first sync. @type {'open' | 'closed' | 'popped' | null} */
+ *  the first sync. @type {'open' | 'closed' | 'detached' | null} */
 let agentPaneState = null;
 
 /** The Agent pane's live subtree (the `.terminal-panel`) once the dock has
  *  adopted it. @type {HTMLElement | null} */
 let agentContent = null;
-
-/**
- * The Agent pane's live subtree, the node attached-popout.js moves into a
- * window; null before the dock adopted it (and in fallback mode).
- * @returns {HTMLElement | null}
- */
-export function agentPaneContent() {
-  return agentContent;
-}
 
 /** localStorage key prefix; the per-project key from GET /api/panels is appended
  *  so one browser origin persists a separate layout per project. */
@@ -275,9 +264,6 @@ export function initDockWorkspace() {
 
   const terminalRenderer = adoptSubtree(terminalSource);
   agentContent = terminalSource;
-  onAttachedChange((key) => {
-    if (key === PANEL_TERMINAL) syncAgentPane();
-  });
   dockApi = dockview.createDockview(root, {
     // Without an explicit theme dockview stamps its DEFAULT (abyss) class on
     // the .dv-shell it creates inside #dock-root — a closer ancestor than the
@@ -316,6 +302,12 @@ export function initDockWorkspace() {
   // after still brings it back. (session-layout.js and dock-sync.js listen
   // on the holder for the session save and the dock report.)
   layoutHolder.onDetachedChange(persistNow);
+  layoutHolder.onDetachedChange(syncAgentPane);
+  initPaneWindow({
+    agentPaneContent: () => agentContent,
+    fitAgent: fitTerminal,
+    withEchoSuppressed,
+  });
 
   // Bind dockview's light/dark base theme (root classes + the api's own theme
   // option) to the active OSPREY theme and keep both in sync on every live
@@ -354,8 +346,7 @@ export function initDockWorkspace() {
  * shape is dockview mid-rebuild and says nothing.
  *
  * The focused tile follows dockview's active panel (a click in a tile, the focus of
- * a rebuilt group), and a panel moving to or from its own pop-out window is
- * recorded on the holder, which is the layout the agent reads.
+ * a rebuilt group).
  * @param {any} api
  * @param {LayoutHolder} holder
  */
@@ -379,7 +370,6 @@ function wireHolderSync(api, holder) {
       holder.resized(next);
     }
   });
-  onPopoutChange((panelId, poppedOut) => holder.setPoppedOut(panelId, poppedOut));
 }
 
 /**
@@ -474,27 +464,27 @@ export function isTerminalPanelOpen() {
 
 /**
  * Publish the Agent pane's presence: `html[data-agent]` is `closed` while the
- * pane is absent from the dock, `popped` while its content is in an attached
- * window, and absent while it shows in its tile; `osprey-agent-pane`
- * `{detail: {open, poppedOut}}` is dispatched on `document` whenever that
+ * pane is absent from the dock, `detached` while it lives in a window of its
+ * own, and absent while it shows in its tile; `osprey-agent-pane`
+ * `{detail: {open, detached}}` is dispatched on `document` whenever that
  * changes (and once at boot). Called at the end of every path that adds or
  * removes the pane — open, close, the default arrangement, a stored-layout
- * restore — and on every pop-out and return.
+ * restore — and on every change of the holder's detached panes.
  */
 function syncAgentPane() {
   const open = isTerminalPanelOpen();
-  const poppedOut = isAttached(PANEL_TERMINAL);
-  const state = !open ? 'closed' : poppedOut ? 'popped' : 'open';
+  const detached = layoutHolder?.isDetached(PANEL_TERMINAL) ?? false;
+  const state = detached ? 'detached' : open ? 'open' : 'closed';
   if (state === agentPaneState) return;
   agentPaneState = state;
   if (state === 'open') document.documentElement.removeAttribute(AGENT_ATTRIBUTE);
   else document.documentElement.setAttribute(AGENT_ATTRIBUTE, state);
-  document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open, poppedOut } }));
+  document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open, detached } }));
 }
 
 /**
- * Surface the Agent pane: focus it when present (its attached window, while
- * it is popped out), re-create it when closed (the sidebar Agent row's
+ * Surface the Agent pane: focus it when present (its window, while it is
+ * detached), re-create it when closed (the sidebar Agent row's
  * activate path). Re-adding by the same component
  * re-adopts the live terminal subtree — createComponent still holds the
  * source element, so the running xterm/chat state survives close → reopen
@@ -504,9 +494,9 @@ function syncAgentPane() {
 export function openTerminalPanel() {
   const holder = layoutHolder;
   if (!dockApi || !holder) return;
-  // Its content is in a window: that window is where the pane shows.
-  if (isAttached(PANEL_TERMINAL) && isTerminalPanelOpen()) {
-    focusAttached(PANEL_TERMINAL);
+  // It lives in a window: that window is where the pane shows.
+  if (holder.isDetached(PANEL_TERMINAL)) {
+    focusWindow(PANEL_TERMINAL);
     return;
   }
   const result = holder.run((layout, ctx) => reopenTerminal(layout, ctx.dock));
@@ -527,7 +517,9 @@ export function openTerminalPanel() {
 export function closeTerminalPanel() {
   const holder = layoutHolder;
   if (!dockApi || !holder) return false;
-  const closed = holder.run((layout) => closeKey(layout, PANEL_TERMINAL)).changed;
+  const closed =
+    closeDetached(PANEL_TERMINAL) ||
+    holder.run((layout) => closeKey(layout, PANEL_TERMINAL)).changed;
   syncAgentPane();
   return closed;
 }

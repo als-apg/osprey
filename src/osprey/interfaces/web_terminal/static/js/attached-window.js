@@ -1,30 +1,27 @@
 // @ts-check
-/* OSPREY Web Terminal — Attached pop-out windows
+/* OSPREY Web Terminal — Attached windows
  *
- * A pop-out that stays attached to the hub: the hub opens a window on a shell
- * page of its own (static/attached-window.html — a real same-origin URL, so the
- * address bar shows the hub's address and the window takes the hub's zoom),
- * mirrors its stylesheets and its <html> attributes (theme, view, Agent state)
- * into it, puts a bar with the pane's name and Reattach on top, and moves a
- * live node of its own page under it. The
- * node keeps every listener, every reference the hub's modules hold and every
- * connection behind it, because nothing is rebuilt: the hub still runs it, the
- * window only shows it. Closing the window moves the node back to where it
- * was. This is the mechanic of Canopy's DetachedWindow (react-trace), without
- * React: a node move where Canopy renders a portal.
+ * A window the hub drives: the hub opens it on a shell page of its own
+ * (static/attached-window.html — a real same-origin URL, so the address bar
+ * shows the hub's address and the window takes the hub's zoom), mirrors its
+ * stylesheets and its <html> attributes (theme, view, Agent state) into it, puts
+ * a bar with the pane's name and Reattach on top, and moves a live node of its
+ * own page under it. The node keeps every listener, every reference the hub's
+ * modules hold and every connection behind it, because nothing is rebuilt: the
+ * hub still runs it, the window only shows it. This is the mechanic of Canopy's
+ * DetachedWindow (react-trace), without React: a node move where Canopy renders
+ * a portal.
  *
- * The other pop-out, popout.js, opens a panel's standalone URL as a page of
- * its own ("Open in new window"). That page outlives the hub; this one does
- * not, and must not pretend to.
+ * This module knows windows and nodes. What a window MEANS — the pane leaving
+ * the dock, coming back, closing — is pane-window.js, which drives it through
+ * the hooks of {@link AttachSpec}.
  *
  * WHERE THE NODE WAS
  * ------------------
- * The caller hands a stand-in, which takes the node's place for as long as the
- * window is open (the "<panel> is in its own window · Reattach" card). The
- * return swaps them back, so the node lands in the same parent at the same
- * position whatever moved around it, and its inline style is restored to the
- * one it left with. The layout is never touched: the tile stays where it was
- * and keeps its place in every stored arrangement.
+ * The caller hands an anchor, a hidden element that takes the node's place for
+ * as long as the window is open. The return swaps them back, so the node lands
+ * in the same parent at the same position whatever moved around it, and its
+ * inline style is restored to the one it left with.
  *
  * MESSAGES
  * --------
@@ -34,24 +31,24 @@
  * as they took it in the tile. {@link queryAllDocuments} lets the hub's
  * "which iframe sent this" lookups see the frames in the windows too.
  *
- * RETURN
- * ------
+ * THE WINDOW'S LIFE
+ * -----------------
  * The node moves once the window has loaded the shell (its marker is polled
- * for); until then nothing has moved, and a window closed, or never loaded,
- * moves nothing. From then on the window's `pagehide` is its close (a reload
- * of the shell ends it the same way), backed by a `closed` poll, and the
- * bar's Reattach returns the node too. The hub's own `pagehide` (a reload, a
- * closed tab) returns every node and closes every window: the window cannot
- * outlive the page that drives it, and the stored layout already has the
- * tile, so the reloaded page shows the content in it.
+ * for), after `beforeMove` agreed; until then nothing has moved, and a window
+ * closed, or never loaded, moves nothing. {@link dressWindow} is the one path
+ * that puts a loaded shell in order and the node under its bar.
+ *
+ * `win.closed`, polled, is the only thing that says a window closed: the
+ * shell's `pagehide` fires on a close, a reload and a navigation alike. After a
+ * `pagehide` the window is watched for a NEW document carrying the marker: a
+ * reload, which {@link dressWindow} dresses again with the same node. A window
+ * whose marker does not come back was navigated away (`onShellLost`).
  *
  * Cross-document moves reload an iframe: a browser discards a frame's
  * document when the frame leaves its document. A panel iframe therefore loads
  * again in the window, and again on its way back; whatever the panel keeps
  * (server state, its own storage) comes back with it. Plain DOM — the Agent
  * pane — moves without a reload.
- *
- * The tile wiring is attached-popout.js.
  */
 
 import { withPrefix } from './api.js';
@@ -68,10 +65,7 @@ export const READY_POLL_MS = 25;
 /** How long a window may take to load its shell before it is given up. */
 export const READY_TIMEOUT_MS = 15_000;
 
-/** The window name prefix; the key follows it. */
-const NAME_PREFIX = 'osprey-attached-';
-
-/** The smallest window a node may pop out into. */
+/** The smallest window a node may move into. */
 const MIN_WIDTH = 480;
 const MIN_HEIGHT = 360;
 
@@ -92,28 +86,39 @@ const MOUNT_STYLE =
   ' background: var(--surface-card);';
 
 /**
- * Why a node came back: its window closed, the hub asked for it (Reattach,
- * on the window's bar or the tile's stand-in), or the hub page is going away.
- * @typedef {'closed' | 'bring-back' | 'unload'} ReturnReason
+ * Why a node came back: its window closed, or the hub asked for it.
+ * @typedef {'closed' | 'bring-back'} ReturnReason
  */
 
 /**
  * @typedef {object} AttachSpec
  * @property {string} key - one window per key
+ * @property {string} name - the window's name; a window left under it is reused
  * @property {string} title - the window's title
- * @property {HTMLElement} content - the live node that moves into the window
- * @property {HTMLElement} standIn - what takes its place meanwhile
- * @property {(reason: ReturnReason) => void} [onReturn] - after the node is back
- * @property {() => void} [onResize] - the window was resized
- * @property {() => void} [onOpen] - the node has moved into the window
  * @property {string} [label] - the name on the window's bar (default: `title`)
+ * @property {HTMLElement} content - the live node that moves into the window
+ * @property {HTMLElement} anchor - hidden; takes the node's place meanwhile
+ * @property {() => boolean} [beforeMove] - the shell has loaded, once; false
+ *   closes the window and moves nothing
+ * @property {() => void} [beforeDress] - before each move into a dressed shell
+ * @property {(mount: HTMLElement) => void} [onDress] - the node is in the window
+ *   (again, after a reload of the shell)
+ * @property {() => void} [onReattach] - the bar's Reattach was pressed
+ * @property {() => void} [onPageHide] - the shell page is going away
+ * @property {() => void} [onShellLost] - the shell did not come back after a
+ *   `pagehide`, and the window is still open
+ * @property {() => void} [onResize] - the window was resized
+ * @property {(reason: ReturnReason) => void} [beforeReturn] - about to move back
+ * @property {(reason: ReturnReason) => void} [onReturn] - after the node is back
  */
 
 /**
  * @typedef {object} Attached
  * @property {AttachSpec} spec
  * @property {Window} win
- * @property {boolean} ready - the node is in the window; false while its shell loads
+ * @property {boolean} ready - the node has moved; false while the first shell loads
+ * @property {Document | null} doc - the document last dressed
+ * @property {ParentNode | null} home - the parent the node left
  * @property {string | null} savedStyle
  * @property {() => void} teardown
  */
@@ -121,42 +126,19 @@ const MOUNT_STYLE =
 /** The windows, open or still loading their shell, by key. @type {Map<string, Attached>} */
 const attached = new Map();
 
-/** @type {Set<(key: string, out: boolean) => void>} */
-const listeners = new Set();
-
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollHandle = null;
 
-let unloadWired = false;
-
-/** @param {string} key @returns {boolean} true while the key's node is in its window */
-export function isAttached(key) {
-  return attached.get(key)?.ready === true;
-}
-
-/** @param {string} key @returns {Window | null} */
-export function attachedWindow(key) {
-  const entry = attached.get(key);
-  return entry?.ready ? entry.win : null;
-}
-
-/**
- * Subscribe to every pop-out and every return.
- * @param {(key: string, out: boolean) => void} callback
- * @returns {() => void} unsubscribe
- */
-export function onAttachedChange(callback) {
-  listeners.add(callback);
-  return () => {
-    listeners.delete(callback);
-  };
+/** @param {string} key @returns {boolean} true while the key has a window, even one still loading */
+export function hasWindow(key) {
+  return attached.has(key);
 }
 
 /**
  * Open a window on the shell page for `spec.content`, or bring the key's
  * window to the front. Runs inside the operator's gesture, which the browser
  * needs to open a window. The node moves once the shell has loaded;
- * `spec.onOpen` says when. Null when the browser refused the window or the
+ * `spec.onDress` says when. Null when the browser refused the window or the
  * node has no place to return to; nothing has moved then.
  * @param {AttachSpec} spec
  * @returns {Window | null}
@@ -169,68 +151,109 @@ export function openAttached(spec) {
   }
   if (!spec.content.parentNode) return null;
   // A window of that name left by an earlier page is navigated to the shell.
-  const win = window.open(withPrefix(SHELL_PATH), NAME_PREFIX + spec.key, features(spec.content));
+  const win = window.open(withPrefix(SHELL_PATH), spec.name, features(spec.content));
   if (!win) return null;
-  /** @type {ReturnType<typeof setInterval> | null} */
-  let readyPoll = null;
   /** @type {Attached} */
   const entry = {
     spec,
     win,
     ready: false,
+    doc: null,
+    home: null,
     savedStyle: null,
-    teardown: () => {
-      if (readyPoll !== null) clearInterval(readyPoll);
-    },
+    teardown: () => {},
   };
   attached.set(spec.key, entry);
-  wireUnload();
   if (pollHandle === null) pollHandle = setInterval(pollClosed, CLOSED_POLL_MS);
-  if (!shellLoaded(win)) {
-    const deadline = Date.now() + READY_TIMEOUT_MS;
-    readyPoll = setInterval(() => {
-      if (shellLoaded(win)) moveIn(entry);
-      else if (Date.now() >= deadline) {
+  if (shellLoaded(entry)) moveIn(entry);
+  else {
+    waitForShell(
+      entry,
+      () => moveIn(entry),
+      () => {
         console.warn(`attached-window: the window for ${spec.key} never loaded its page`);
         release(spec.key, 'closed');
       }
-    }, READY_POLL_MS);
-    return win;
+    );
   }
-  moveIn(entry);
   return win;
 }
 
 /**
- * @param {Window} win
- * @returns {boolean} true once the window shows the loaded shell page, not
- *   the blank page every new window starts on
+ * @param {Attached} entry
+ * @returns {boolean} true once the window shows a loaded shell page it has not
+ *   been dressed on: not the blank page every new window starts on, and not
+ *   the document a reload is about to replace
  */
-function shellLoaded(win) {
+function shellLoaded({ win, doc: dressed }) {
   try {
     if (win.closed) return false;
     const doc = win.document;
-    return doc.documentElement.hasAttribute(SHELL_MARKER) && doc.readyState !== 'loading';
+    return (
+      doc !== dressed &&
+      doc.documentElement.hasAttribute(SHELL_MARKER) &&
+      doc.readyState !== 'loading'
+    );
   } catch {
     return false;
   }
 }
 
 /**
- * Dress the loaded shell — the hub's stylesheets and <html> attributes, the
- * bar — and move the node under the bar, its stand-in in its place.
+ * Poll for the shell until it loads or {@link READY_TIMEOUT_MS} passes. A window
+ * that closes meanwhile is the `closed` poll's, which tears this wait down.
+ * @param {Attached} entry
+ * @param {() => void} onShell
+ * @param {() => void} onTimeout
+ */
+function waitForShell(entry, onShell, onTimeout) {
+  const deadline = Date.now() + READY_TIMEOUT_MS;
+  const handle = setInterval(() => {
+    if (shellLoaded(entry)) {
+      entry.teardown();
+      onShell();
+    } else if (Date.now() >= deadline) {
+      entry.teardown();
+      onTimeout();
+    }
+  }, READY_POLL_MS);
+  entry.teardown = () => {
+    clearInterval(handle);
+    entry.teardown = () => {};
+  };
+}
+
+/**
+ * The first shell has loaded: move the node out of the hub, its anchor in its
+ * place. A node that lost its place while the shell loaded (its tile closed), or
+ * a `beforeMove` that says no, closes the window and moves nothing.
  * @param {Attached} entry
  */
 function moveIn(entry) {
-  const { spec, win } = entry;
-  const { content, standIn } = spec;
-  entry.teardown();
-  // The node lost its place while the shell loaded (its tile closed).
-  if (!content.parentNode) {
+  const { spec } = entry;
+  const { content, anchor } = spec;
+  if (!content.parentNode || (spec.beforeMove && !spec.beforeMove())) {
     release(spec.key, 'closed');
     return;
   }
+  entry.savedStyle = content.getAttribute('style');
+  entry.home = content.parentNode;
+  content.replaceWith(anchor);
+  dressWindow(entry);
+}
+
+/**
+ * Put the loaded shell in order — the hub's stylesheets and <html> attributes,
+ * the bar, the window's listeners — and move the node under the bar. The one
+ * path for a new window and for a reload of the shell, which brings a new
+ * document with nothing on it.
+ * @param {Attached} entry
+ */
+function dressWindow(entry) {
+  const { spec, win } = entry;
+  const { content } = spec;
   const doc = win.document;
+  entry.doc = doc;
   doc.head.replaceChildren();
   doc.body.replaceChildren();
   doc.title = spec.title;
@@ -246,8 +269,7 @@ function moveIn(entry) {
   mount.append(buildBar(doc, spec));
   doc.body.append(mount);
 
-  entry.savedStyle = content.getAttribute('style');
-  content.replaceWith(standIn);
+  runHook(spec.beforeDress);
   content.style.cssText = FILL_STYLE;
   mount.append(content);
 
@@ -263,25 +285,29 @@ function moveIn(entry) {
       })
     );
   };
-  const onClose = () => release(spec.key, 'closed');
+  const onPageHide = () => {
+    runHook(spec.onPageHide);
+    entry.teardown();
+    waitForShell(
+      entry,
+      () => dressWindow(entry),
+      () => runHook(spec.onShellLost)
+    );
+  };
   const onResize = () => spec.onResize?.();
   win.addEventListener('message', forward);
-  win.addEventListener('pagehide', onClose);
+  win.addEventListener('pagehide', onPageHide);
   win.addEventListener('resize', onResize);
   entry.teardown = () => {
     win.removeEventListener('message', forward);
-    win.removeEventListener('pagehide', onClose);
+    win.removeEventListener('pagehide', onPageHide);
     win.removeEventListener('resize', onResize);
     stopStyles();
     stopRoot();
+    entry.teardown = () => {};
   };
   entry.ready = true;
-  notify(spec.key, true);
-  try {
-    spec.onOpen?.();
-  } catch (err) {
-    console.error('attached-window: onOpen threw', err);
-  }
+  runHook(() => spec.onDress?.(mount));
 }
 
 /**
@@ -302,17 +328,39 @@ function buildBar(doc, spec) {
   back.className = 'osprey-btn attached-window-reattach';
   back.textContent = 'Reattach';
   back.title = 'Put this back in its tile and close the window';
-  back.addEventListener('click', () => release(spec.key, 'bring-back'));
+  back.addEventListener('click', () => spec.onReattach?.());
   bar.append(name, back);
   return bar;
 }
 
 /**
- * Bring a node back and close its window (Reattach).
+ * Bring a node back and close its window.
  * @param {string} key
  */
 export function returnAttached(key) {
   release(key, 'bring-back');
+}
+
+/**
+ * Close a window the way the operator would: the node comes back with the
+ * reason `closed`.
+ * @param {string} key
+ */
+export function closeAttached(key) {
+  release(key, 'closed');
+}
+
+/**
+ * Close every window and move nothing: the hub page is going away, and with it
+ * the nodes and whoever would hear of a return.
+ */
+export function closeAllAttached() {
+  for (const entry of attached.values()) {
+    entry.teardown();
+    closeWindow(entry.win);
+  }
+  attached.clear();
+  stopPollWhenIdle();
 }
 
 /**
@@ -353,11 +401,10 @@ export function queryAllDocuments(selector) {
 }
 
 /**
- * Put a node back where its stand-in stands, restore its style, close the
- * window (unless it is already closing) and tell the subscribers. A stand-in
- * someone took off the page leaves the node adopted by the hub's document,
- * unattached, for the caller's `onReturn` to re-home. A window still loading
- * its shell has moved nothing: it is closed and forgotten, and no one is told.
+ * Put a node back where its anchor stands, or at the end of the parent it left
+ * when the anchor was taken off, restore its style and close the window (unless
+ * it is already closing). A window still loading its first shell has moved
+ * nothing: it is closed and forgotten, and no one is told.
  * @param {string} key
  * @param {ReturnReason} reason
  */
@@ -371,20 +418,27 @@ function release(key, reason) {
     stopPollWhenIdle();
     return;
   }
-  const { content, standIn } = entry.spec;
+  const { spec } = entry;
+  const { content, anchor } = spec;
+  runHook(() => spec.beforeReturn?.(reason));
   if (entry.savedStyle === null) content.removeAttribute('style');
   else content.setAttribute('style', entry.savedStyle);
-  if (standIn.parentNode) standIn.replaceWith(content);
-  else document.adoptNode(content);
-  // On every path: a `pagehide` that was a reload of the shell leaves the
-  // window open, and empty.
+  if (anchor.parentNode) anchor.replaceWith(content);
+  else entry.home?.append(content);
   closeWindow(entry.win);
   stopPollWhenIdle();
-  notify(key, false);
+  runHook(() => spec.onReturn?.(reason));
+}
+
+/**
+ * Run a caller's hook; one that throws must not strand the window's bookkeeping.
+ * @param {(() => void) | undefined} hook
+ */
+function runHook(hook) {
   try {
-    entry.spec.onReturn?.(reason);
+    hook?.();
   } catch (err) {
-    console.error('attached-window: onReturn threw', err);
+    console.error('attached-window: a hook threw', err);
   }
 }
 
@@ -409,29 +463,6 @@ function stopPollWhenIdle() {
 function pollClosed() {
   for (const [key, entry] of [...attached]) {
     if (entry.win.closed) release(key, 'closed');
-  }
-}
-
-/** Return every node when the hub page goes away. Wired once, on first use. */
-function wireUnload() {
-  if (unloadWired) return;
-  unloadWired = true;
-  window.addEventListener('pagehide', () => {
-    for (const key of [...attached.keys()]) release(key, 'unload');
-  });
-}
-
-/**
- * @param {string} key
- * @param {boolean} out
- */
-function notify(key, out) {
-  for (const listener of [...listeners]) {
-    try {
-      listener(key, out);
-    } catch (err) {
-      console.error('attached-window: a change listener threw', err);
-    }
   }
 }
 
