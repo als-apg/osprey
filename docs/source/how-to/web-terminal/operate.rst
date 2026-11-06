@@ -523,7 +523,7 @@ The sidebar is on the left. From top to bottom, it shows:
     - **Agent** opens the agent pane and your session tree below it
       (`Sessions and artifacts`_); with the pane open, it folds or unfolds
       the tree. When the pane
-      is closed, the row shows a hollow dot. When the agent waits for your
+      is closed, the row is dimmed. When the agent waits for your
       answer, the row shows the number of open questions. **Agent** is always
       the first row of the first group.
 
