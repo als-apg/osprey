@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import queue
 
 import pytest
 
@@ -22,6 +23,24 @@ from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 #: A registered extension type conforming to the ``documents`` base form.
 EXT_KEY = "beam_study"
+
+
+@pytest.fixture(autouse=True)
+def _drop_queued_frames():
+    """Drop the summary frames these deletes queue on the process-global queue.
+
+    ``notify_bulk_delete`` enqueues whether or not the activity worker runs; a
+    frame left behind would be drained into a later test's patched notify.
+    """
+    from osprey.mcp_server import artifact_activity
+
+    yield
+    while True:
+        try:
+            artifact_activity._pending.get_nowait()
+        except queue.Empty:
+            break
+        artifact_activity._pending.task_done()
 
 
 @pytest.fixture

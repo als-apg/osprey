@@ -45,8 +45,21 @@ def project(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def clean_registration():
-    """Listener registration is process-global — never let it leak between tests."""
+    """Listener registration and the frame queue are process-global — never let
+    either leak between tests.
+
+    A bulk delete queues its summary frame whether or not the worker runs, so a
+    frame an earlier test on this worker left queued would be drained into this
+    test's patched notify. Drop those, and wait out any frame already in flight.
+    """
     artifact_activity.unregister_artifact_activity_listeners()
+    while True:
+        try:
+            artifact_activity._pending.get_nowait()
+        except queue.Empty:
+            break
+        artifact_activity._pending.task_done()
+    wait_drained()
     yield
     artifact_activity.unregister_artifact_activity_listeners()
 
