@@ -166,7 +166,8 @@
       </button>
 
       <!-- The panel rows, in the operator's groups (sidebar-groups.js keeps
-           them per user; the two below are the built-in ones). createRail()
+           them per user; the two below are the built-in ones, the first
+           headless). createRail()
            (panel-rail.js) renders the groups and MOVES the page-owned rows
            below into place on every render, never rebuilding them: the Agent
            row with its session tree (sidebar-artifacts.js renders the tree)
@@ -174,11 +175,8 @@
       <div class="sidebar-sections" id="panel-rail" role="list">
         <div class="sidebar-group" data-group="workspace" role="listitem"
              aria-labelledby="sidebar-workspace-label">
-          <div class="osprey-section-label sidebar-group-head">
-            <span class="sidebar-group-name" id="sidebar-workspace-label">Workspace</span>
-            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
-                    aria-expanded="false" aria-label="Workspace group options"
-                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+          <div class="osprey-section-label sidebar-group-head" hidden>
+            <span class="sidebar-group-name" id="sidebar-workspace-label">Sessions</span>
           </div>
 
           <div class="sidebar-row" id="sidebar-agent-wrap">
@@ -198,9 +196,6 @@
         <div class="sidebar-group" data-group="tools" role="listitem" aria-labelledby="sidebar-tools-label">
           <div class="osprey-section-label sidebar-group-head">
             <span class="sidebar-group-name" id="sidebar-tools-label">Tools</span>
-            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
-                    aria-expanded="false" aria-label="Tools group options"
-                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
           </div>
           <button class="osprey-nav-row add" id="panel-add-btn" type="button" aria-label="Add panel"
                   aria-haspopup="dialog" aria-expanded="false" aria-controls="panel-add-menu" data-tip="Add panel"

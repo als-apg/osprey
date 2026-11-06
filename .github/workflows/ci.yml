@@ -1591,6 +1591,7 @@ jobs:
           tests/interfaces/web_terminal/test_sidebar_divider_browser.py \
           tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
           tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_group_headings_browser.py \
           tests/interfaces/web_terminal/test_attached_popout_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
