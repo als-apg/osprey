@@ -1099,7 +1099,7 @@ class TestDemoTiersAndApps:
 
     def test_readonly_disables_writes(self, layers: dict[str, BuildProfile]) -> None:
         profile = layers["tiers/readonly"]
-        assert profile.name == "Demo (Read-Only)"
+        assert profile.name == "OSPREY Demo (Read-Only)"
         assert _profile_data_bundle(profile) == "demo"
         assert profile.config.get(WRITES_KEY) == "never"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
@@ -1108,7 +1108,7 @@ class TestDemoTiersAndApps:
 
     def test_readwrite_arms_the_simulator(self, layers: dict[str, BuildProfile]) -> None:
         profile = layers["tiers/readwrite"]
-        assert profile.name == "Demo (Read-Write)"
+        assert profile.name == "OSPREY Demo (Read-Write)"
         assert _profile_data_bundle(profile) == "demo"
         assert profile.config.get(WRITES_KEY) == "asked"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
@@ -1125,7 +1125,7 @@ class TestDemoTiersAndApps:
         by subtraction. The deny is therefore expected to be present HERE as
         well; what differs is that it is cancelled."""
         profile = layers["tiers/admin"]
-        assert profile.name == "Demo (Admin)"
+        assert profile.name == "OSPREY Demo (Admin)"
         assert _profile_data_bundle(profile) == "demo"
         assert profile.config.get(WRITES_KEY) == "allowed"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
@@ -1808,7 +1808,7 @@ class TestWritePostureMatrix:
     ) -> None:
         """Only admin offers the position that does not prompt: readwrite's
         ceiling is ``asked``, and each states its word in the tier key."""
-        assert layers["tiers/readwrite"].name == "Demo (Read-Write)"
+        assert layers["tiers/readwrite"].name == "OSPREY Demo (Read-Write)"
         own = _own_config("tiers", tier)
         assert _stated_writes(own) == ceiling
         assert "control_system" not in own
