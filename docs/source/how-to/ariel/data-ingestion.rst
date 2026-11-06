@@ -6,13 +6,13 @@ Before ARIEL can search a logbook, a pluggable `facility adapter <facility adapt
 
 Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.
 
+The repository stores each entry's text as the source wrote it and, beside it, the channel addresses and device ids it quotes, looked up in the built facility file. Device names stay prose. An entry stored before the facility file was built carries none until it is re-ingested.
+
 This page shows you how to:
 
 * connect a logbook (`Connecting to Your Logbook`_);
 * configure enhancement (`Enhancement Pipeline`_);
 * run live ingestion, from a terminal (`Live Ingestion`_) or as a deployed service (`Deployed Ingestion`_).
-
-The repository stores each entry's text as the source wrote it and, beside it, the channel addresses and device ids it quotes, looked up in the built facility file. Device names stay prose. An entry stored before the facility file was built carries none until it is re-ingested.
 
 Ingestion Architecture
 ----------------------
@@ -200,13 +200,10 @@ ARIEL refuses a declaration or a value in these cases:
      - Refused when
      - Error
    * - Declarations, checked before anything renders or writes
-     - A duplicate name, an unknown type, a ``select`` without options, a ``depends_on`` that names an undeclared or dynamic field, a ``facet`` that is not a boolean, a facet named ``author``, ``source_system``, ``tags``, ``time`` or ``enhancement``, or a reserved name.
+     - A duplicate name, an unknown type, a ``select`` without options, a ``depends_on`` that names an undeclared or dynamic field, a ``facet`` that is not a boolean, a facet named ``author``, ``source_system``, ``tags``, ``time`` or ``enhancement``, or a name ARIEL keeps for itself: ``tags``, ``sync_status``, ``created_via``, ``session_metadata``, ``title`` or ``follows_up``.
      - Stops the form and the write paths with one error naming the adapter and the field.
-   * - Reserved names
-     - The adapter declares ``tags``, ``sync_status``, ``created_via``, ``session_metadata`` or ``title``. These belong to ARIEL and cannot be declared.
-     - The declaration error above.
    * - Value shape
-     - A value of the wrong type (not a whole number, a number, true or false, or a ``YYYY-MM-DD`` date), a string longer than 200 characters, a number outside ``min_value``/``max_value``, a ``select`` value that is not one of its options, or a date-time for a ``date`` field.
+     - A value that does not fit its type (such as text for an ``int``, or a date-time for a ``date``), a string longer than 200 characters, a number outside ``min_value``/``max_value``, or a ``select`` value that is not one of its options.
      - Refused, naming the field.
    * - ``dynamic_select`` choices
      - The web form and ``entry_publish`` ask the adapter for the current choices and refuse a value it does not list. ``entry_create`` checks such a value's type only.
