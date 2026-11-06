@@ -174,6 +174,7 @@ WALL=$((END - START))
 
 # --- summarize JUnit XML -> summary JSON ---------------------------------
 MODEL="$MODEL" SEED="$SEED" ROUTE="$ROUTE" PROVIDER="$OSPREY_E2E_FORCE_PROVIDER" \
+JUDGE="${OSPREY_E2E_JUDGE_MODEL:-}" \
 XML="$XML" JSON="$JSON" \
 WALL="$WALL" PYTEST_RC="$PYTEST_RC" "$PY" - <<'PYEOF'
 import json, os, xml.etree.ElementTree as ET
@@ -184,6 +185,7 @@ summary = {
     "seed": int(os.environ["SEED"]),
     "provider": os.environ.get("PROVIDER", ""),
     "route": os.environ["ROUTE"],
+    "judge": os.environ.get("JUDGE", ""),
     "pytest_rc": int(os.environ["PYTEST_RC"]),
     "total_duration_s": int(os.environ["WALL"]),
     "passed": 0, "failed": 0, "timeout": 0, "skipped": 0, "errors": 0, "total": 0,

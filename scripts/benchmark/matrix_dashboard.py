@@ -891,6 +891,16 @@ def main() -> int:
             f"declared by pytest markers on the tests and re-derived from live collection every "
             f"cell —"
         )
+    # The judge each cell ran with, as the worker recorded it; results that
+    # predate the field name none.
+    judges = sorted({d["judge"] for d in runs.values() if d.get("judge")})
+    judged = (
+        "Answers the tests judge are graded by "
+        + ", ".join(f"<code>{html.escape(j)}</code>" for j in judges)
+        + ". "
+        if judges
+        else ""
+    )
     H.append(
         "<footer><b>Methodology.</b> " + scope + " onto each model suite-wide via "
         "<code>OSPREY_E2E_FORCE_PROVIDER</code> + <code>OSPREY_E2E_FORCE_MODEL</code> (every model "
@@ -899,7 +909,9 @@ def main() -> int:
         "timeout is 1800s; a timeout <b>counts as a failure</b> (the model did not complete the "
         "task within the cap) and is shown as a distinct category so it can be told apart from a "
         "logic failure. Anthropic Claude models, where present, are a reference ceiling: the "
-        "models the tests were written for. Latency figures come from the agent SDK's own "
+        "models the tests were written for. "
+        + judged
+        + "Latency figures come from the agent SDK's own "
         "accounting of each query (<code>OSPREY_E2E_QUERY_LOG</code>) and from per-test wall time; "
         "a self-hosted model's speed depends on its hardware, named under each model with its "
         "provider.</footer>"
