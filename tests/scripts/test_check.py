@@ -963,9 +963,12 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         *pytest_report("pytest-wallclock"),
     ]
     (wallclock_unit,) = run("pytest-wallclock-unit")
+    marked = fw.wallclock_unit_files()
+    assert "tests/scripts/test_run_bounded.py" in marked, marked
     assert after_bound(wallclock_unit) == [
         *fw.UV_RUN,
-        *("pytest", "tests/", "--ignore=tests/e2e", "--ignore=tests/integration"),
+        "pytest",
+        *marked,
         *("-m", "wallclock"),
         *pytest_report("pytest-wallclock-unit"),
     ]
@@ -1002,6 +1005,119 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ],
         [pyaml, "-c", fw.PYAML_WHEEL_PROBE],
     ]
+
+
+# The image-free wall-clock budgets collect only the files a scan of the tree
+# finds, not the whole tree. A scan can miss a marker applied out of sight, so
+# the root conftest stops any run that collects a marked test in a file the scan
+# does not name, and the scanned files are held to hold a marked test each.
+
+wallclock_files = _load("tests/_wallclock_files.py", "_wallclock_files_by_path")
+
+
+def test_the_wallclock_scan_reads_each_way_a_file_applies_the_marker() -> None:
+    def read(source: bytes) -> bool:
+        # The marker is filled in here, so this file is no carrier to the scans
+        # that read the tree.
+        mark = b"pytest.mark." + wallclock_files.MARKER.encode()
+        return wallclock_files.MARK_RE.search(source.replace(b"MARK", mark)) is not None
+
+    assert read(b"@MARK\ndef test_x(): ...\n")
+    assert read(b"    @MARK\n    def test_x(self): ...\n")
+    assert read(b"pytestmark = MARK\n")
+    assert read(b"pytestmark = [pytest.mark.slow, MARK]\n")
+    assert read(b"pytestmark = [\n    pytest.mark.slow,\n    MARK,\n]\n")
+    # Spelled in a string or a comment, the marker applies to nothing.
+    assert not read(b'src = "pytestmark = [MARK]"\n')
+    assert not read(b"# carries @MARK elsewhere\n")
+    assert not read(b"@MARK_free\n")
+
+
+def test_the_wallclock_scan_finds_exactly_the_files_that_mark_a_test() -> None:
+    """Each file the scan names holds a test pytest gives the marker. Collected
+    by the check's own selection, alone, so it costs the scanned files only.
+    ``-qq`` against addopts' ``-v`` prints one node id per line."""
+    marked = fw.wallclock_unit_files()
+    assert marked, "the scan finds no wallclock file; the marker or the scan is gone"
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-qq", "-p", "no:cacheprovider"]
+        + [*marked, "-m", "wallclock"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+    selected = {line.split("::", 1)[0] for line in out.stdout.splitlines() if "::" in line}
+    assert selected == set(marked)
+
+
+def _item(path: Path, marked: bool) -> Any:
+    marker = getattr(pytest.mark, wallclock_files.MARKER).mark if marked else None
+
+    class Item:
+        keywords: dict[str, object] = {}
+
+        def __init__(self) -> None:
+            self.path = path
+
+        def get_closest_marker(self, name: str) -> object:
+            return marker if name == "wallclock" else None
+
+    return Item()
+
+
+@pytest.fixture()
+def root_conftest(pytestconfig: pytest.Config) -> Any:
+    """The root conftest pytest loaded, taken from the plugin manager rather
+    than imported: an import here would be a second copy of its module."""
+    path = REPO_ROOT / "tests" / "conftest.py"
+    (plugin,) = [
+        p
+        for p in pytestconfig.pluginmanager.get_plugins()
+        if getattr(p, "__file__", None) == str(path)
+    ]
+    return plugin
+
+
+def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses(root_conftest: Any) -> None:
+    """The root conftest's collection hook reads the marks pytest applied,
+    before ``-m`` deselects them, so the sweep that hands the marker away is
+    where a marker applied out of the scan's sight is caught."""
+    carrier = REPO_ROOT / "tests/scripts/test_run_bounded.py"
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(carrier, True), _item(CI_YML, False)]
+    )
+
+
+def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses__mutation_marks_out_of_sight(
+    root_conftest: Any,
+) -> None:
+    unscanned = Path(__file__).resolve()
+    assert not wallclock_files.carries_marker(unscanned), "this file carries it; stale"
+    with pytest.raises(pytest.UsageError, match=r"tests/scripts/test_check\.py holds a wallclock"):
+        root_conftest.pytest_collection_modifyitems_wallclock_guard([_item(unscanned, True)])
+
+
+def test_a_run_stops_on_a_marked_test__the_excluded_trees_are_left_to_their_checks(
+    root_conftest: Any,
+) -> None:
+    sidecar = REPO_ROOT / "tests/integration/test_suite_exit_bound.py"
+    elsewhere = REPO_ROOT / "packages/osprey-connectors/tests/conftest.py"
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(sidecar, True), _item(elsewhere, True)]
+    )
+
+
+def test_the_wallclock_guard_is_a_collection_hook_pytest_calls(
+    pytestconfig: pytest.Config, root_conftest: Any
+) -> None:
+    """The guard has a name of its own, so it is wired by ``specname``; without
+    it pytest would never call the guard and the tests above would still pass."""
+    hook = pytestconfig.pluginmanager.hook.pytest_collection_modifyitems
+    called = [impl.function for impl in hook.get_hookimpls() if impl.plugin is root_conftest]
+    assert root_conftest.pytest_collection_modifyitems_wallclock_guard in called, called
+    assert root_conftest.pytest_collection_modifyitems in called, called
 
 
 def test_a_dropped_ignore_changes_the_sweep() -> None:

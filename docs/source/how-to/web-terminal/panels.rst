@@ -51,10 +51,11 @@ Where the panels live
 ---------------------
 
 Panels have a row in the sidebar on the left of the window.
-**Events** (when the deployment enables it) is in the **Workspace** section,
-with **Agent**. **Artifacts** has no row: its artifacts are in the Agent row's
-session tree, and the palette opens the panel. All other panels are in the
-**Tools** section, followed by **+ Add panel**. See :ref:`web-terminal-sidebar`.
+**Agent** is in the **Workspace** section. **Artifacts** has no row: its
+artifacts are in the Agent row's session tree, and the palette opens the panel.
+**Events** (when the deployment enables it) and **Health** are in the
+**System** section. All other panels are in the **Tools** section, which ends
+with **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
 Dragging sidebar rows
 ---------------------
@@ -71,9 +72,8 @@ Taking panels out of the sidebar
 To remove a panel row, right-click it or use the **×** of the row. You can
 undo this for a few seconds.
 
-A panel can be open without a sidebar row. In the ``control-assistant`` preset
-SYSTEM starts that way (``web.panels.system-health.hidden: true``): open it
-from **+ Add panel** or the command palette. To pin it to the sidebar,
+A panel can be open without a sidebar row (``web.panels.<id>.hidden: true``):
+open it from **+ Add panel** or the command palette. To pin it to the sidebar,
 right-click its tile bar and pick **Pin to rail**.
 
 The tile bar
@@ -87,8 +87,8 @@ below the bar.
 
 The other controls and menu items of a panel are in the **This panel** section
 of the **⋯** menu. A right-click on the bar opens the same menu. The **Tile**
-section of the menu has the items for the tile, such as **Pop out**, **Copy
-link** and **Pin to rail**. See :ref:`web-terminal-tile-bar`.
+section of the menu has the items for the tile, such as **Open in new
+window**, **Copy link** and **Pin to rail**. See :ref:`web-terminal-tile-bar`.
 
 ``web.tile_bar.controls`` sets the shared controls: **Ask the agent about this
 panel** (``ask_agent``), **Reload panel** (``reload``) and **Help for this
@@ -108,7 +108,7 @@ because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.
 
-This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
+This applies to panels that have a health check: Jupyter, CANOPY, Health, and any
 URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be

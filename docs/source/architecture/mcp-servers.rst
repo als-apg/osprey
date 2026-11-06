@@ -153,11 +153,11 @@ tools into several functional areas.
 **Artifacts:**
 
 - ``artifact_register`` -- Register a file on disk, or literal text, as a gallery artifact.
-- ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
-- ``artifact_list`` -- List stored artifacts, optionally narrowed by form, tool or agent.
-- ``artifact_read`` -- Read a stored artifact's full content (small artifacts only).
+- ``artifact_list`` -- List this session's artifacts, optionally narrowed by form or tool;
+  ``scope="all"`` lists every session's.
+- ``artifact_read`` -- Return an artifact's metadata and file path, plus its content when small.
 - ``artifact_delete`` -- Delete an artifact from the gallery.
-- ``artifact_delete_all`` -- Delete a whole scope of artifacts (one form, or everything)
+- ``artifact_delete_all`` -- Delete one form, or everything, of this session's artifacts
   in a single call. The ``scope`` argument is required.
 - ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
@@ -231,7 +231,6 @@ never names it.
 **Session:**
 
 - ``session_log`` -- Retrieve the structured session activity log.
-- ``session_summary`` -- Return a compact inventory of all data and artifacts in the session.
 - ``submit_response`` -- Submit a formatted response to the web terminal.
 - ``facility_description`` -- Get the hand-written facility description and the build's generated facts page (places with device counts, device classes with their groups, models, and the signals and roles the channels use).
 - ``prior_answer_read`` -- Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).

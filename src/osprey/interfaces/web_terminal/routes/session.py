@@ -240,6 +240,8 @@ def _session_listing(
     rows, answer = session_record.own_sessions(identity, client=client, drain=drain, before=before)
     ledger = session_ledger.load(session_meta.ledger_state_dir())
     live = _live_keys(app)
+    # The record keeps a deleted session's rows; its tombstone keeps it unlisted.
+    deleted = session_meta.deleted_ids(app)
     more = False
     next_cursor = None
     record_rows: list[Mapping[str, Any]] = []
@@ -257,7 +259,7 @@ def _session_listing(
             oldest = session_ledger.aware_time(raw[-1].get("last_ts"))
         if more and oldest is not None:
             next_cursor = _encode_cursor(oldest.isoformat())
-        record_rows = [r for r in rows if _operator_row(r)]
+        record_rows = [r for r in rows if _operator_row(r) and r["session_id"] not in deleted]
         candidates = _ledger_only(ledger, listed, before, oldest if more else None)
         unknown, why = _unknown_to_record(candidates, client)
         if unknown is None:
@@ -285,6 +287,8 @@ def _session_listing(
         tid = row["session_id"]
         placed.append((at, tid, _session_row(app, tid, row, ledger, live)))
     for at, tid in extra:
+        if tid in deleted:
+            continue
         placed.append((at, tid, _session_row(app, tid, None, ledger, live)))
     placed.sort(key=lambda p: (p[0], p[1]), reverse=True)
     return {
@@ -392,6 +396,48 @@ async def put_last_artifact(request: Request, transcript_id: str, body: _LastArt
     return {"transcript_id": tid, **entry}
 
 
+def _is_mine(app, tid: str) -> bool:
+    """Whether *tid* is one of this operator's sessions and not deleted."""
+    if tid in session_meta.deleted_ids(app):
+        return False
+    ledger = session_ledger.load(session_meta.ledger_state_dir())
+    return _owned(app, tid, ledger, _sessions_dir(app))
+
+
+@router.get("/api/sessions/{transcript_id}/layout")
+async def get_layout(request: Request, transcript_id: str):
+    """The web layout the session was last left in, or ``null``; 404 for a session not mine."""
+    tid = _uuid_id(transcript_id, "transcript_id")
+    if not await asyncio.to_thread(_is_mine, request.app, tid):
+        raise HTTPException(status_code=404, detail="No such session.")
+    meta = await asyncio.to_thread(session_meta.get, request.app, tid)
+    return {"transcript_id": tid, "layout": meta["layout"]}
+
+
+class _LayoutBody(BaseModel):
+    layout: dict[str, Any] | None = None
+
+
+@router.put("/api/sessions/{transcript_id}/layout")
+async def put_layout(request: Request, transcript_id: str, body: _LayoutBody):
+    """Keep the web layout the session is in; ``null`` forgets it.
+
+    404 for a session not mine (or deleted), 413 over the size cap, 422 for
+    anything that is not a session layout.
+    """
+    tid = _uuid_id(transcript_id, "transcript_id")
+    app = request.app
+    if not await asyncio.to_thread(_is_mine, app, tid):
+        raise HTTPException(status_code=404, detail="No such session.")
+    try:
+        await asyncio.to_thread(session_meta.set_layout, app, tid, body.layout)
+    except session_meta.LayoutTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"transcript_id": tid, "saved": body.layout is not None}
+
+
 def _enter(app, transcript_id: str) -> str:
     key = str(uuid.uuid4())
     transcript_map.set(app, key, transcript_id)
@@ -407,8 +453,167 @@ async def enter_session(request: Request, transcript_id: str):
     ``transcript_map.get(K\u2032)``.
     """
     tid = _uuid_id(transcript_id, "transcript_id")
+    if tid in await asyncio.to_thread(session_meta.deleted_ids, request.app):
+        raise HTTPException(status_code=404, detail="This session was deleted.")
     key = await asyncio.to_thread(_enter, request.app, tid)
     return {"session_key": key}
+
+
+# ---- delete ----------------------------------------------------------------------
+
+
+def _sessions_dir(app) -> Path | None:
+    """This hub's Claude Code transcript directory, or ``None`` without a project."""
+    cwd = getattr(app.state, "project_cwd", None)
+    if not cwd:
+        return None
+    from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+
+    return SessionDiscovery(cwd)._resolve_sessions_dir()
+
+
+def _owned(app, tid: str, ledger: session_ledger.Ledger, sessions_dir: Path | None) -> bool:
+    """Whether *tid* is this operator's: in their ledger, their meta or their transcripts.
+
+    All three are filed under this hub's one identity, so another operator's
+    session is in none of them.
+    """
+    if tid in ledger.transcripts() or any(session_meta.get(app, tid).values()):
+        return True
+    return sessions_dir is not None and (sessions_dir / f"{tid}.jsonl").is_file()
+
+
+def _keys_on(app, tid: str, ledger: session_ledger.Ledger) -> set[str]:
+    """The session keys whose current transcript is *tid*."""
+    keys = {row.session_key for row in ledger.rows if ledger.current(row.session_key) == tid}
+    keys.update(transcript_map.keys_on(app, tid))
+    if ledger.current(tid) in (None, tid):
+        keys.add(tid)  # a key's first transcript is the key itself
+    return keys
+
+
+def _refusal(app, keys: set[str]) -> str | None:
+    """Why the session on *keys* cannot be deleted now (the Agent is on it, or it runs), else ``None``."""
+    last = session_meta.get_last_active(app)
+    if last is not None and last["session_key"] in keys:
+        return "The Agent is on this session. Switch to another session to delete this one."
+    registry = getattr(app.state, "pty_registry", None)
+    operators = getattr(app.state, "operator_registry", None)
+    chats = getattr(operators, "chats", None) if operators is not None else None
+    for key in keys:
+        pty = registry.get_session(key) if registry is not None else None
+        if pty is not None and pty.is_alive:
+            return "This session is open in a terminal. Close it there to delete it."
+        chat = chats.get(key) if chats is not None else None
+        if chat is not None and chat.is_busy:
+            return "A turn is running in this session. Wait for it to end to delete it."
+    return None
+
+
+def _delete_artifacts(app, tid: str, ledger: session_ledger.Ledger) -> list[str]:
+    """Delete the artifacts the tree lists under *tid*; the ids removed.
+
+    The same set ``session-list`` shows (operator-visible, owned by *tid* over
+    the ledger as it was before the delete), each through the store's own
+    delete, so a run's head takes its run and every removal is announced.
+    """
+    root = getattr(app.state, "panel_status_root", None)
+    if root is None:
+        return []
+    from osprey.stores.artifact_store import (
+        ArtifactStore,
+        artifact_mutation_actor,
+        operator_visible,
+        owner_of,
+    )
+
+    store = ArtifactStore(workspace_root=Path(root), auto_launch=False)
+    owned = [
+        e.id for e in store.list_entries() if operator_visible(e) and owner_of(e, ledger) == tid
+    ]
+    removed: list[str] = []
+    with artifact_mutation_actor("human"):
+        for artifact_id in owned:
+            removed.extend(e.id for e in store.delete_with_group(artifact_id))
+    return removed
+
+
+def _remove_transcript_files(tid: str, sessions_dir: Path | None) -> int:
+    """Remove ``<tid>.jsonl`` and its sibling ``<tid>/`` (subagents) from this hub's
+    transcript directory; how many were there."""
+    if sessions_dir is None:
+        return 0
+    import shutil
+
+    removed = 0
+    jsonl = sessions_dir / f"{tid}.jsonl"
+    if jsonl.is_file():
+        jsonl.unlink()
+        removed += 1
+    folder = sessions_dir / tid
+    if folder.is_dir() and not folder.is_symlink():
+        shutil.rmtree(folder)
+        removed += 1
+    return removed
+
+
+def _delete_session(
+    app, tid: str, ledger: session_ledger.Ledger, sessions_dir: Path | None
+) -> dict[str, Any]:
+    """Tombstone *tid*, then delete its artifacts, ledger rows, map entries and files.
+
+    The tombstone goes first, so a delete cut short leaves the session hidden
+    rather than half-there. The agent record is not touched.
+    """
+    session_meta.mark_deleted(app, tid)
+    pending: set[str] = getattr(app.state, "session_naming_pending", set())
+    pending.discard(tid)
+    artifacts = _delete_artifacts(app, tid, ledger)
+    state_dir = session_meta.ledger_state_dir()
+    session_ledger.remove_transcript(state_dir, tid)
+    after = session_ledger.load(state_dir)
+    for key in transcript_map.keys_on(app, tid):
+        transcript_map.set(app, key, after.current(key) or key)
+    files = _remove_transcript_files(tid, sessions_dir)
+    return {"transcript_id": tid, "deleted_artifacts": artifacts, "transcript_files": files}
+
+
+@router.delete("/api/sessions/{transcript_id}")
+async def delete_session(request: Request, transcript_id: str):
+    """Delete one of the operator's past sessions with its artifacts.
+
+    404 for a session that is not this operator's (or is already deleted);
+    409 while the Agent is on it, a terminal has it open or a turn runs in it.
+    An idle chat still holding it is stopped. Every tab drops the row on the
+    ``session_deleted`` frame.
+    """
+    tid = _uuid_id(transcript_id, "transcript_id")
+    app = request.app
+    ledger = await asyncio.to_thread(session_ledger.load, session_meta.ledger_state_dir())
+    sessions_dir = _sessions_dir(app)
+    deleted = await asyncio.to_thread(session_meta.deleted_ids, app)
+    if tid in deleted or not await asyncio.to_thread(_owned, app, tid, ledger, sessions_dir):
+        raise HTTPException(status_code=404, detail="No such session.")
+    keys = _keys_on(app, tid, ledger)
+    refusal = _refusal(app, keys)
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+    operators = getattr(app.state, "operator_registry", None)
+    chats = getattr(operators, "chats", None) if operators is not None else None
+    if chats is not None:
+        for key in keys:
+            if chats.get(key) is not None:
+                await chats.terminate(key)
+    body = await asyncio.to_thread(_delete_session, app, tid, ledger, sessions_dir)
+    broadcaster = getattr(app.state, "broadcaster", None)
+    if broadcaster is not None:
+        try:
+            broadcaster.broadcast(
+                {"type": session_meta.SESSION_DELETED_FRAME, "transcript_id": tid}
+            )
+        except Exception:  # a frame is a hint; the next listing omits the row anyway
+            logger.warning("Could not send the session_deleted frame", exc_info=True)
+    return body
 
 
 def facility_timezone():
@@ -654,64 +859,72 @@ async def session_log(request: Request):
         return {"events": [], "total_events": 0, "showing": 0, **_unavailable(str(exc))}
 
 
+def _inventory(rows: list[tuple[Any, str, str]]) -> dict[str, Any]:
+    """``{entries, totals}`` for listed ``(entry, form, label)`` rows; empty rows give zeros."""
+    from osprey.stores.artifact_inventory import entry_channels, form_totals
+
+    tools_used: set[str] = set()
+    artifact_types: dict[str, int] = {}
+    entry_dicts = []
+    for entry, form, label in rows:
+        if entry.tool_source:
+            tools_used.add(entry.tool_source)
+        artifact_types[entry.artifact_type] = artifact_types.get(entry.artifact_type, 0) + 1
+        d = entry.to_dict()
+        d["channels"] = entry_channels(entry)
+        d["form"] = form
+        d["form_label"] = label
+        entry_dicts.append(d)
+    return {
+        "entries": entry_dicts,
+        "totals": {
+            "entry_count": len(rows),
+            "total_bytes": sum(entry.size_bytes for entry, _f, _l in rows),
+            "forms": form_totals((form, label) for _e, form, label in rows),
+            "tools_used": sorted(tools_used),
+            "artifact_types": artifact_types,
+        },
+    }
+
+
 @router.get("/api/session-summary")
-async def session_summary(request: Request):
-    """Return artifact inventory with channel extraction for the current session."""
-    try:
-        from osprey.mcp_server.workspace.tools.session_summary import (
-            _extract_channels,
-            entry_forms,
-            form_totals,
-        )
-        from osprey.stores.artifact_store import ArtifactStore
+async def session_artifacts(request: Request):
+    """The artifacts the ``session_id`` key's current transcript owns, one row per run.
 
-        store = ArtifactStore(request.app.state.workspace_dir)
-        session_id = request.query_params.get("session_id")
-        entries = store.list_entries(
-            session_filter=session_id or None,
-            # Session material, not a shipped example.
-            exclude_examples=True,
-        )
+    The same rows the gallery sidebar lists under that transcript: ownership is
+    :func:`~osprey.stores.artifact_scope.owned_by` over the hub's session
+    ledger. No key, a key the ledger has no transcript for, or an unreadable
+    ledger owns nothing: the answer is empty and ``reason`` says why. It never
+    falls back to the newest transcript.
+    """
+    from osprey.stores.artifact_scope import owned_by, read_ledger, resolve_scope
 
-        total_bytes = 0
-        forms = entry_forms(store, entries)
-        tools_used: set[str] = set()
-        artifact_types: dict[str, int] = {}
-        entry_dicts = []
+    ledger, ledger_ok = read_ledger()
+    scope = resolve_scope(
+        key=request.query_params.get("session_id") or None, ledger=ledger, ledger_ok=ledger_ok
+    )
+    answer: dict[str, Any] = {
+        "session": scope.transcript,
+        "reason": scope.reason,
+        "ledger": "ok" if scope.ledger_ok else "unavailable",
+    }
+    rows: list[tuple[Any, str, str]] = []
+    if scope.transcript is not None:
+        try:
+            from osprey.stores.artifact_inventory import listed_rows
+            from osprey.stores.artifact_store import ArtifactStore
 
-        for entry, (form, label) in zip(entries, forms, strict=True):
-            total_bytes += entry.size_bytes
-            if entry.tool_source:
-                tools_used.add(entry.tool_source)
-            artifact_types[entry.artifact_type] = artifact_types.get(entry.artifact_type, 0) + 1
-            d = entry.to_dict()
-            d["channels"] = _extract_channels(entry)
-            d["form"] = form
-            d["form_label"] = label
-            entry_dicts.append(d)
-
-        return {
-            "entries": entry_dicts,
-            "totals": {
-                "entry_count": len(entries),
-                "total_bytes": total_bytes,
-                "forms": form_totals(forms),
-                "tools_used": sorted(tools_used),
-                "artifact_types": artifact_types,
-            },
-        }
-    except Exception:
-        logger.debug("session-summary: no artifacts available", exc_info=True)
-        return {
-            "entries": [],
-            "totals": {
-                "entry_count": 0,
-                "total_bytes": 0,
-                "forms": [],
-                "tools_used": [],
-                "artifact_types": {},
-            },
-        }
+            store = ArtifactStore(request.app.state.workspace_dir)
+            owned = [
+                e
+                for e in store.list_entries(exclude_examples=True)  # session work, not the example
+                if owned_by(e, scope)
+            ]
+            rows = listed_rows(store, owned)
+        except Exception:
+            logger.debug("session-summary: no artifacts available", exc_info=True)
+            answer["reason"] = "the artifact store could not be read"
+    return {**_inventory(rows), **answer}
 
 
 #: Values of the ``full`` flag that lift the per-message cap. The browser sends

@@ -105,9 +105,39 @@ def is_run_record(entry: ArtifactEntry) -> bool:
     )
 
 
-def form_label(key: str) -> str:
-    """Human label of form ``key``; an unknown key is title-cased as is."""
-    return _FORM_LABELS.get(key) or key.replace("_", " ").title()
+def form_label(key: str, registry: Any = None) -> str:
+    """Human label of form ``key``.
+
+    A base form has its fixed label. An extension key (``registry`` declares it
+    with an eligible base form, see :func:`_registered_base_form`) has the label
+    the registry declares; anything else is title-cased as is.
+    """
+    if key in _FORM_LABELS:
+        return _FORM_LABELS[key]
+    if _registered_base_form(key, registry) is not None:
+        label = _declared_label(key, registry)
+        if label:
+            return label
+    return key.replace("_", " ").title()
+
+
+def _declared_label(kind: str, registry: Any) -> str | None:
+    """The ``label`` ``registry`` declares for ``kind``, if it is a usable string."""
+    try:
+        declared = registry.get(kind)
+    except Exception:  # a broken registry never breaks a listing
+        return None
+    if isinstance(declared, dict):
+        label = declared.get("label")
+    else:
+        label = getattr(declared, "label", None)
+    return label if isinstance(label, str) and label else None
+
+
+def extension_key(entry: Any, registry: Any) -> str | None:
+    """``entry.kind`` when it is an extension key in ``registry``, else ``None``."""
+    kind = getattr(entry, "kind", "") or ""
+    return kind if _registered_base_form(kind, registry) is not None else None
 
 
 def _registered_base_form(kind: str, registry: Any) -> str | None:

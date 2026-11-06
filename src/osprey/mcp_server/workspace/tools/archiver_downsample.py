@@ -61,7 +61,7 @@ async def archiver_downsample(
         return make_error(
             "validation_error",
             f"Artifact '{artifact_id}' not found.",
-            suggestions=["Use artifact_list to see available artifacts."],
+            suggestions=['Use artifact_list(scope="all") to see available artifacts.'],
         )
 
     if entry.tool_source != "archiver_read":

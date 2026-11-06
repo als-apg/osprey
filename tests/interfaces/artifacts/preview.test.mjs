@@ -35,6 +35,8 @@ import {
   getSelectedArtifact,
   setFocusedArtifact,
   getFocusedArtifact,
+  setCurrentSessionId,
+  setShowAllSessions,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 
 vi.mock('../../../src/osprey/interfaces/artifacts/static/js/logbook.js', () => ({
@@ -94,6 +96,8 @@ beforeEach(() => {
   setArtifacts([]);
   setSelectedArtifact(null);
   setFocusedArtifact(null);
+  setCurrentSessionId(null);
+  setShowAllSessions(false);
   vi.stubGlobal(
     'confirm',
     vi.fn(() => true)
@@ -818,5 +822,58 @@ describe('setAsFocus', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
     const renderer = createPreviewRenderer(makeCallbacks());
     await expect(renderer.setAsFocus(makeArtifact())).resolves.toBeUndefined();
+  });
+});
+
+describe('pin and focus say which session they were set in', () => {
+  /** @param {any} fetchMock */
+  function sentBody(fetchMock) {
+    return JSON.parse(fetchMock.mock.calls[0][1].body);
+  }
+
+  test('a pin in the session view carries the gallery key', async () => {
+    setCurrentSessionId('key-a');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createPreviewRenderer(makeCallbacks(), { header: false }).setPinned(makeArtifact(), true);
+
+    expect(sentBody(fetchMock)).toEqual({ pinned: true, session_key: 'key-a' });
+  });
+
+  test('a focus in the session view carries the gallery key', async () => {
+    setCurrentSessionId('key-a');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createPreviewRenderer(makeCallbacks()).setAsFocus(makeArtifact());
+
+    expect(sentBody(fetchMock)).toEqual({ artifact_id: 'a1', session_key: 'key-a' });
+  });
+
+  test('a pin and a focus in the all-sessions view carry no session field', async () => {
+    setCurrentSessionId('key-a');
+    setShowAllSessions(true);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const renderer = createPreviewRenderer(makeCallbacks(), { header: false });
+
+    await renderer.setPinned(makeArtifact(), false);
+    await renderer.setAsFocus(makeArtifact());
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ pinned: false });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ artifact_id: 'a1' });
+  });
+
+  test('with no session id, a pin and a focus carry no session field', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const renderer = createPreviewRenderer(makeCallbacks(), { header: false });
+
+    await renderer.setPinned(makeArtifact(), true);
+    await renderer.setAsFocus(makeArtifact());
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ pinned: true });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ artifact_id: 'a1' });
   });
 });

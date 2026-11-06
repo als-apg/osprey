@@ -84,6 +84,69 @@ class TestPinned:
         assert d["pinned"] is False
 
 
+class TestPinnedIn:
+    """``set_pinned(set_in=)`` records the transcript a pin was set in."""
+
+    def _reloaded(self, store, artifact_id):
+        return ArtifactStore(workspace_root=store._workspace).get_entry(artifact_id)
+
+    def test_pin_with_transcript_records_it(self, store):
+        entry = _save(store)
+        updated = store.set_pinned(entry.id, True, set_in="tx-a")
+        assert updated.pinned is True
+        assert updated.metadata["pinned_in"] == "tx-a"
+        reloaded = self._reloaded(store, entry.id)
+        assert reloaded.pinned is True
+        assert reloaded.metadata["pinned_in"] == "tx-a"
+
+    def test_pin_without_transcript_leaves_no_record(self, store):
+        entry = _save(store)
+        store.set_pinned(entry.id, True, set_in="tx-a")
+        updated = store.set_pinned(entry.id, True, set_in=None)
+        assert updated.pinned is True
+        assert "pinned_in" not in updated.metadata
+        assert "pinned_in" not in self._reloaded(store, entry.id).metadata
+
+    def test_pin_default_leaves_no_record(self, store):
+        entry = _save(store)
+        updated = store.set_pinned(entry.id, True)
+        assert "pinned_in" not in updated.metadata
+
+    def test_unpin_clears_flag_and_record(self, store):
+        entry = _save(store)
+        store.set_pinned(entry.id, True, set_in="tx-a")
+        updated = store.set_pinned(entry.id, False)
+        assert updated.pinned is False
+        assert "pinned_in" not in updated.metadata
+        reloaded = self._reloaded(store, entry.id)
+        assert reloaded.pinned is False
+        assert "pinned_in" not in reloaded.metadata
+
+    def test_unpin_ignores_set_in(self, store):
+        entry = _save(store)
+        store.set_pinned(entry.id, True, set_in="tx-a")
+        updated = store.set_pinned(entry.id, False, set_in="tx-b")
+        assert updated.pinned is False
+        assert "pinned_in" not in updated.metadata
+
+    def test_repin_from_another_transcript_moves_it(self, store):
+        entry = _save(store)
+        store.set_pinned(entry.id, True, set_in="tx-a")
+        updated = store.set_pinned(entry.id, True, set_in="tx-b")
+        assert updated.metadata["pinned_in"] == "tx-b"
+        assert self._reloaded(store, entry.id).metadata["pinned_in"] == "tx-b"
+
+    def test_other_metadata_is_kept(self, store):
+        entry = _save(store)
+        store.replace_file(entry.id, b"hello", metadata={"keep": 1})
+        store.set_pinned(entry.id, True, set_in="tx-a")
+        store.set_pinned(entry.id, False)
+        assert self._reloaded(store, entry.id).metadata.get("keep") == 1
+
+    def test_unknown_id_answers_none(self, store):
+        assert store.set_pinned("nonexistent", True, set_in="tx-a") is None
+
+
 class TestBackwardCompat:
     def test_old_index_without_fields(self, tmp_path):
         """Index files from before pinned still load correctly."""

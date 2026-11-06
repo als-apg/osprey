@@ -277,7 +277,7 @@ web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
-  - system-health   # SYSTEM tab, a framework health dashboard
+  - system-health   # Health tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
   - canopy          # CANOPY tab, the operator GUI: machine screens and Trace, one per terminal
   # The events and bluesky panels are added by the write-armed tiers
@@ -1068,11 +1068,8 @@ config:
   # value a `label` and the `base_form` it is listed under (plots, trends,
   # tables, documents, dashboards, images, data).
   # artifact_server.extension_types.beam_diagnostics: {label: Beam Diagnostics, base_form: plots}
-  # Seed one shipped example (an interactive plot, synthetic data) into an
-  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
-  artifact_server.example_artifact: true
   # osprey:panel-port system_health
-  # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
+  # The Health tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.
   # health.web.host: 127.0.0.1
   # health.web.port: <a port outside this deployment's block>
@@ -1176,10 +1173,6 @@ config:
   # A colour theme for CANOPY, as a path relative to the project root
   # (absolute accepted). Unset keeps CANOPY's own theme.
   # web.panels.canopy.theme_file: data/canopy/theme/colors.json
-  # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
-  # the command palette open it, and `+ Add panel` can also pin it there.
-  # Delete this line to give it a sidebar row from the first load.
-  web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1865,8 +1858,6 @@ config:
   approval.tools.entry_publish: always
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -1972,8 +1963,6 @@ config:
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -2077,8 +2066,6 @@ config:
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every

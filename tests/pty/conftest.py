@@ -694,7 +694,9 @@ class StackRecordStandIn:
                 return
 
         self._server = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        ).start()
 
     def _close(self) -> None:
         if self._server is not None:

@@ -6,8 +6,8 @@
  * menu (panel-context-menu.js):
  *
  *   Agent row   New session · Expand all / Collapse all
- *   Session     Open in Agent · Browse · Group by Kind / Activity · Rename… ·
- *               Use automatic name · Export transcript · Copy ID
+ *   Session     Open in Agent · Group by Kind / Activity · Rename… ·
+ *               Use automatic name · Export transcript · Copy ID · Delete…
  *   Group head  Expand / Collapse
  *   Run         Open result · Open approval preview · Open code · Delete…
  *   Artifact    Open · Pin · Delete… · Copy ID
@@ -29,6 +29,7 @@ const sessionModel = () => import('./session-model.js');
 import { openContextMenu } from './panel-context-menu.js';
 import { ARTIFACTS_BASE, fetchArtifact, readTreeView } from './sidebar-artifact-listing.js';
 import { showConfirm } from './posture-confirm.js';
+import { getPointer } from './session-pointer.js';
 
 /** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
@@ -39,8 +40,10 @@ const SESSION_SELECTOR = '.osprey-tree-session[data-session-id]';
 const GROUP_SELECTOR = '[data-group-head]';
 const RUN_SELECTOR = '.osprey-list-row.osprey-tree-run[data-id]';
 const ARTIFACT_SELECTOR = '.osprey-list-row[data-id]';
-/** Top-level rows Expand/Collapse all acts on: sessions and Earlier. */
-const TOP_SELECTOR = `${SESSION_SELECTOR}, [data-tree-earlier]`;
+/** Top-level rows Expand/Collapse all acts on: the sessions. Only a row with
+ * a disclosure folds (the session in use); another session opens only by
+ * switching to it. */
+const TOP_SELECTOR = SESSION_SELECTOR;
 
 // ---- Row lookups ----
 
@@ -67,42 +70,34 @@ const isOpen = (row) => row.getAttribute('aria-expanded') === 'true';
 
 // ---- Agent row ----
 
-/** @returns {boolean} whether any top-level tree row is open */
-function anyOpen() {
-  return [...document.querySelectorAll(TOP_SELECTOR)].some(
-    (row) => row instanceof HTMLElement && isOpen(row)
-  );
+/** @returns {boolean} whether every top-level tree row is open */
+function allOpen() {
+  const rows = [...document.querySelectorAll(TOP_SELECTOR)];
+  return rows.length > 0 && rows.every((row) => row instanceof HTMLElement && isOpen(row));
 }
 
 /**
- * Open or close every top-level row. Each click re-renders the tree, so the
- * rows are looked up afresh each round.
+ * The same gesture as a ⌥-click on the Agent row (sidebar.js, imported lazily
+ * like the session model: it sits behind panel-menu-policy).
  * @param {boolean} open
  */
-export function setAllOpen(open) {
-  const limit = document.querySelectorAll(TOP_SELECTOR).length + 1;
-  for (let i = 0; i < limit; i += 1) {
-    const row = [...document.querySelectorAll(TOP_SELECTOR)].find(
-      (r) => r instanceof HTMLElement && isOpen(r) !== open
-    );
-    if (!(row instanceof HTMLElement)) return;
-    clickDisc(row);
-  }
+async function setAllSessions(open) {
+  (await import('./sidebar.js')).toggleEverySession(open);
 }
 
 /**
  * The Agent row's menu: a new session, and one Expand all / Collapse all row
- * worded for what it will do.
+ * worded for what it will do (Collapse all when every session is open).
  * @returns {MenuItem[]}
  */
 export function buildAgentRowMenuItems() {
-  const open = anyOpen();
+  const open = allOpen();
   return [
     { label: 'New session', run: () => void sessionModel().then((m) => m.switchTo({ new: true })) },
     { divider: true },
     open
-      ? { label: 'Collapse all', run: () => setAllOpen(false) }
-      : { label: 'Expand all', run: () => setAllOpen(true) },
+      ? { label: 'Collapse all', run: () => void setAllSessions(false) }
+      : { label: 'Expand all', run: () => void setAllSessions(true) },
   ];
 }
 
@@ -167,6 +162,48 @@ export function exportTranscript(id) {
   a.remove();
 }
 
+/** The tip on a disabled session Delete…: the Agent is on that session. */
+export const DELETE_ACTIVE_TIP = 'Switch to another session to delete this one';
+
+/**
+ * Ask first, then delete a past session with its artifacts
+ * (DELETE /api/sessions/{id}). The count is the row's, once the tree has
+ * summarized it. On success the row leaves the model at once; other tabs drop it on the
+ * hub's `session_deleted` frame.
+ * @param {HTMLElement} row  @param {string} transcriptId
+ */
+export function confirmDeleteSession(row, transcriptId) {
+  const name = row.querySelector('.osprey-tree-title')?.textContent || 'Untitled session';
+  const n = row.dataset.count;
+  const what = n === undefined ? 'its artifacts' : `its ${n} artifact${n === '1' ? '' : 's'}`;
+  showConfirm({
+    title: 'Delete session?',
+    body: [['This deletes the session ', { em: name }, ` and ${what}.`]],
+    live: null,
+    confirmLabel: 'Delete',
+    focus: 'cancel',
+    onConfirm: async (ui) => {
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(transcriptId)}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          const detail = await res.json().then(
+            (b) => b?.detail,
+            () => null
+          );
+          throw new Error(typeof detail === 'string' ? detail : `HTTP ${res.status}`);
+        }
+        ui.done();
+        (await sessionModel()).forgetSession(transcriptId);
+      } catch (err) {
+        ui.error.textContent = `Delete failed: ${err instanceof Error ? err.message : err}`;
+        ui.error.hidden = false;
+      }
+    },
+  });
+}
+
 /** @param {string} text */
 function copyText(text) {
   void navigator.clipboard?.writeText(text).catch(() => {});
@@ -182,10 +219,11 @@ export function sessionMenuItems(row) {
   // A synthesized row (`key:<K>`) has no transcript yet: nothing to name,
   // export or copy.
   const tid = treeId && !treeId.startsWith('key:') ? treeId : null;
+  // Only a past session: the one the Agent is on draws `.active`.
+  const active = row.classList.contains('active');
   const view = readTreeView();
   return [
-    { label: 'Open in Agent', run: () => row.click() },
-    { label: 'Browse', run: () => (isOpen(row) ? undefined : clickDisc(row)) },
+    { label: 'Open in Agent', run: () => void openSession(treeId) },
     { divider: true },
     { label: 'Group by Kind', checked: view === 'kind', run: () => void applyView('kind') },
     {
@@ -198,7 +236,25 @@ export function sessionMenuItems(row) {
     { label: 'Use automatic name', disabled: !tid, run: () => tid && void putTitle(tid, '') },
     { label: 'Export transcript', disabled: !tid, run: () => tid && exportTranscript(tid) },
     { label: 'Copy ID', disabled: !tid, run: () => tid && copyText(tid) },
+    { divider: true },
+    {
+      label: 'Delete…',
+      danger: true,
+      disabled: !tid || active,
+      tip: active ? DELETE_ACTIVE_TIP : undefined,
+      run: () => tid && confirmDeleteSession(row, tid),
+    },
   ];
+}
+
+/**
+ * Open a session in the Agent through the controller (a click on the current
+ * session's name only folds it). Imported lazily, as {@link applyView}.
+ * @param {string} treeId
+ */
+async function openSession(treeId) {
+  const { openInAgent } = await import('./sidebar-artifacts.js');
+  await openInAgent(treeId);
 }
 
 /**
@@ -223,12 +279,20 @@ export function groupMenuItems(head) {
 /** @param {string} id */
 const artifactUrl = (id) => `${ARTIFACTS_BASE}/api/artifacts/${encodeURIComponent(id)}`;
 
-/** @param {ArtifactEntry} entry */
+/**
+ * Flip an artifact's pin. The pin is set in the operator's current session,
+ * even when the row belongs to another one; with no session, in none.
+ * @param {ArtifactEntry} entry
+ */
 async function setPinned(entry) {
+  const sessionKey = getPointer();
+  /** @type {{pinned: boolean, session_key?: string}} */
+  const body = { pinned: !entry.pinned };
+  if (sessionKey) body.session_key = sessionKey;
   await fetch(`${artifactUrl(entry.id)}/pin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pinned: !entry.pinned }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -321,7 +385,7 @@ export function runMenuItems(head, entry) {
 // ---- Opening ----
 
 /**
- * The menu a tree row offers, or null when it offers none (Earlier, "more").
+ * The menu a tree row offers, or null when it offers none ("more").
  * Artifact and run rows read their entry first (pin state, run parts).
  * @param {Element} target
  * @returns {Promise<{row: HTMLElement, label: string, items: MenuItem[]} | null>}

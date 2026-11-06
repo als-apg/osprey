@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Session switcher (session-switcher.js)
  *
  * The Agent tile's header label on both surfaces (`.op-session-label` in chat,
- * `#terminal-label` on the terminal) names the session with a ▾ and opens one
+ * `#terminal-label` on the terminal) names the session and opens one
  * body-level `.osprey-popover`; the primitives draw its surface and rows. */
 
 .session-switcher {
@@ -11,11 +11,6 @@
   min-width: 0;
   cursor: pointer;
   border-radius: var(--radius-sm, 4px);
-}
-
-.session-switcher:hover .session-switcher-caret,
-.session-switcher[aria-expanded='true'] .session-switcher-caret {
-  color: var(--text-primary);
 }
 
 .session-switcher:focus-visible {
@@ -28,12 +23,6 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.session-switcher-caret {
-  flex: none;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
 }
 
 .session-switcher-menu {

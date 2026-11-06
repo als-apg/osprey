@@ -31,7 +31,7 @@ import {
   titleCase,
 } from './panel-catalog.js';
 import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
-import { buildEmbedSrc } from './panel-iframe-sync.js';
+import { buildEmbedSrc, isUrlWithinMount } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
 import { isPoppedOut } from './popout.js';
 import {
@@ -113,6 +113,49 @@ export function freshPanelState() {
 export function publishPanelUrl(panelId, url) {
   ctx().panelState[panelId].url = url;
   setPanelServed(panelId, url !== null);
+}
+
+/** The load-time flags buildEmbedSrc stamps on a panel's address, which are
+ *  not part of the page it shows. */
+const EMBED_FLAGS = ['embedded', 'popout', 'theme'];
+
+/**
+ * The page a panel's frame shows, as a root-relative address inside its own
+ * mount, or null when the hub cannot read it: no frame yet, or an opaque
+ * (sandboxed) or cross-origin panel, whose location the browser keeps from
+ * the hub. The embed flags are left off, so the address is the page alone.
+ * @param {string} panelId
+ * @returns {string | null}
+ */
+export function getPanelPage(panelId) {
+  const state = ctx().panelState[panelId];
+  if (!state?.iframe || !state.url) return null;
+  let url;
+  try {
+    url = new URL(String(state.iframe.contentWindow?.location.href));
+  } catch {
+    return null;
+  }
+  if (url.origin !== window.location.origin) return null;
+  for (const flag of EMBED_FLAGS) url.searchParams.delete(flag);
+  const page = url.pathname + url.search + url.hash;
+  return isUrlWithinMount(page, state.url) ? page : null;
+}
+
+/**
+ * Bring a panel back to a page it was on (a session's layout,
+ * session-layout.js) without surfacing it: nothing when it shows that page
+ * already, or for a panel not served or a page outside its mount. A panel not
+ * framed yet opens there when it is.
+ * @param {string} panelId
+ * @param {string} page  root-relative, as {@link getPanelPage} reads it
+ */
+export function restorePanelPage(panelId, page) {
+  const state = ctx().panelState[panelId];
+  if (!state?.url || !isUrlWithinMount(page, state.url)) return;
+  if (getPanelPage(panelId) === page) return;
+  state.pendingUrl = page;
+  ctx().navigatePending(panelId);
 }
 
 /**
@@ -418,7 +461,7 @@ const MISSES_BEFORE_UNREACHABLE = 2;
  *
  * A panel that never answered keeps its `.disabled` boot state and is never
  * counted, and its tile, which never opens, carries no notice. Liveness
- * detail lives in the SYSTEM panel's `web_panels` category.
+ * detail lives in the Health panel's `web_panels` category.
  * @param {Panel} panel
  * @param {boolean} wasHealthy
  */

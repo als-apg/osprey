@@ -520,11 +520,13 @@ class TestSessionList:
         response = client.post("/api/artifacts/session-list", json={"sessions": ids})
         assert response.status_code == 422
 
-    def test_earlier_is_untagged_and_unknown_keys_without_dispatch_or_watchdog(
-        self, client, seeded
-    ):
-        body = _session_list(client, {"earlier": True})
-        assert _ids(body) == [seeded["unknown"], seeded["untagged"]]
+    def test_unowned_artifacts_list_in_no_session_and_the_palette_finds_them(self, client, seeded):
+        listed = set()
+        for transcript in (T1, T2, T3):
+            listed |= set(_ids(_session_list(client, {"session": transcript})))
+        unowned = {seeded["unknown"], seeded["untagged"]}
+        assert not unowned & listed
+        assert unowned <= set(_ids(_list(client, limit=200)))
 
     def test_dispatch_and_watchdog_list_in_no_session(self, client, seeded):
         listed = set()
@@ -535,21 +537,23 @@ class TestSessionList:
         assert _ids(_list(client, search="dispatch in session")) == [seeded["dispatch_tagged"]]
 
     @pytest.mark.usefixtures("seeded")
-    def test_every_visible_artifact_lists_exactly_once(self, client):
+    def test_every_owned_visible_artifact_lists_exactly_once(self, client):
         listed: list[str] = []
         for transcript in (T1, T2, T3):
             listed += _ids(_session_list(client, {"session": transcript}))
-        listed += _ids(_session_list(client, {"earlier": True}))
-        visible = [e["id"] for e in _list(client, limit=200)["artifacts"] if e["operator_visible"]]
-        assert sorted(listed) == sorted(visible)
+        owned = [
+            e["id"]
+            for e in _list(client, limit=200)["artifacts"]
+            if e["operator_visible"] and e["owner"] is not None
+        ]
+        assert sorted(listed) == sorted(owned)
 
     @pytest.mark.parametrize(
         "body",
         [
             {},
             {"session": T1, "key": KEY},
-            {"earlier": False},
-            {"session": T1, "earlier": True},
+            {"earlier": True},
             {"sessions": []},
         ],
     )
@@ -587,27 +591,102 @@ class TestSessionList:
 
 
 class TestLedgerUnavailable:
-    def test_an_unreadable_ledger_says_so_and_everything_tagged_is_earlier(
-        self, client, store, state_dir
-    ):
-        tagged = _text(store, "tagged", minute=1, session_id=KEY)
-        untagged = _text(store, "untagged", minute=2)
+    def test_an_unreadable_ledger_says_so_and_lists_nothing_tagged(self, client, store, state_dir):
+        _text(store, "tagged", minute=1, session_id=KEY)
+        _text(store, "untagged", minute=2)
         (state_dir / session_ledger.STORE_FILENAME).write_text("{not json")
-        earlier = _session_list(client, {"earlier": True})
-        assert earlier["ledger"] == "unavailable"
-        assert _ids(earlier) == [untagged.id, tagged.id]
+        by_key = _session_list(client, {"key": KEY})
+        assert by_key["ledger"] == "unavailable"
+        assert by_key["artifacts"] == []
         session = _session_list(client, {"session": T1})
         assert session["ledger"] == "unavailable"
         assert session["artifacts"] == []
         assert _session_list(client, {"sessions": [T1]})["ledger"] == "unavailable"
 
     def test_a_missing_ledger_is_ok_and_empty(self, client, store):
-        tagged = _text(store, "tagged", minute=1, session_id=KEY)
-        body = _session_list(client, {"earlier": True})
+        _text(store, "tagged", minute=1, session_id=KEY)
+        body = _session_list(client, {"key": KEY})
         assert body["ledger"] == "ok"
-        assert _ids(body) == [tagged.id]
+        assert body["artifacts"] == []
 
     def test_no_state_directory_is_unavailable(self, client, store, monkeypatch):
         _text(store, minute=1, session_id=KEY)
         monkeypatch.setattr(posture_store, "state_dir", lambda: None)
-        assert _session_list(client, {"earlier": True})["ledger"] == "unavailable"
+        assert _session_list(client, {"session": T1})["ledger"] == "unavailable"
+
+
+# ---- extension kinds ----------------------------------------------------------
+
+LATTICE_LABEL = "Ring lattice"  # differs from the title-cased key on purpose
+
+
+@pytest.fixture
+def lattice(monkeypatch):
+    """A registered extension type ``lattice`` conforming to ``tables``."""
+    from osprey.stores import type_registry
+
+    registry = {"lattice": type_registry.ExtensionType("lattice", LATTICE_LABEL, "tables")}
+    monkeypatch.setattr(type_registry, "_EXTENSION_TYPES", registry)
+    return registry
+
+
+def _lattice(store, *, minute=None, session_id="", exec_id="", title="Model"):
+    metadata = {"run_part": "output"} if exec_id else {}
+    entry = store.save_file(
+        b"{}",
+        "model.json",
+        "json",
+        title,
+        mime_type="application/json",
+        tool_source="test",
+        metadata=metadata,
+        exec_id=exec_id,
+        session_id=session_id,
+        kind="lattice",
+    )
+    return _place(store, entry, minute)
+
+
+@pytest.mark.usefixtures("lattice")
+class TestExtensionKind:
+    def test_session_list_keeps_the_kind(self, client, store, state_dir):
+        _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
+        lat = _lattice(store, minute=1, session_id=KEY)
+        _text(store, minute=2, session_id=KEY)
+        _plot(store, minute=3, session_id=KEY)
+        assert _ids(_session_list(client, {"session": T1, "form": "lattice"})) == [lat.id]
+        assert _ids(_session_list(client, {"session": T1, "form": "tables"})) == []
+
+    def test_session_summary_counts_the_kind_not_its_base_form(self, client, store, state_dir):
+        _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
+        _lattice(store, minute=1, session_id=KEY)
+        _lattice(store, minute=2, session_id=KEY, title="Model 2")
+        _text(store, minute=3, session_id=KEY)
+        response = client.post("/api/artifacts/session-summary", json={"sessions": [T1]})
+        assert response.status_code == 200
+        by_form = response.json()["counts"][T1]["by_form"]
+        assert by_form["lattice"] == 2
+        assert "tables" not in by_form and "data" not in by_form
+
+    def test_the_payload_carries_the_kind_and_its_registry_label(self, client, store):
+        lat = _lattice(store, minute=1)
+        (row,) = _list(client)["artifacts"]
+        assert row["id"] == lat.id
+        assert (row["form"], row["form_label"]) == ("lattice", LATTICE_LABEL)
+        one = client.get(f"/api/artifacts/{lat.id}").json()
+        assert (one["form"], one["form_label"]) == ("lattice", LATTICE_LABEL)
+
+    def test_a_run_output_of_the_kind_lists_under_it_on_both_rows(self, client, store):
+        _preview(store, minute=1)
+        out = _lattice(store, minute=2, exec_id=EXEC)
+        r = _result(store, minute=3, run_status="succeeded")
+        rows = {e["id"]: e for e in _list(client)["artifacts"]}
+        assert rows[out.id]["form"] == "lattice"
+        parts = {p["id"]: p for p in rows[r.id]["run_parts"]}
+        assert parts[out.id]["form"] == "lattice"
+        assert _ids(_list(client, form="lattice")) == [out.id]
+
+    def test_search_finds_the_registry_label(self, client, store):
+        lat = _lattice(store, minute=1)
+        _text(store, minute=2)
+        assert _ids(_list(client, search="ring LATTICE")) == [lat.id]

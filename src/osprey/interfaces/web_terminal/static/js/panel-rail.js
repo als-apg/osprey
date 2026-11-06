@@ -7,13 +7,14 @@
  * The Agent row is always the first row of the first group. Every other row
  * sits in the group the model places it in, and within a group the rows keep
  * the server's rail order, so a group filters the rail and never reorders
- * it. `+ Add panel` is always the last row of the last group. This module
+ * it. `+ Add panel` is always the last row of Tools (the last group when Tools is
+ * not shown). This module
  * builds and places those rows and exposes small imperative mutators — set
  * active, enable, attention, append, remove — so `panel-manager.js`'s state
  * machine can drive the sidebar without owning any DOM specifics.
  *
  * The rows deliberately carry no per-poll readout — coarse reachability only.
- * Backend liveness is reported in one place — the SYSTEM panel's
+ * Backend liveness is reported in one place — the Health panel's
  * `web_panels` health category — so the sidebar stays a navigation surface
  * rather than a status board. Health reaches a row as two coarse states: a row
  * whose backend has never answered is `.disabled` (dimmed and inert), and one
@@ -116,6 +117,7 @@ import { icon } from '/design-system/js/icons.js';
 import { TERMINAL_RAIL_ID, describePanel } from './panel-catalog.js';
 import { BUTTON_SELECTOR, getEntry, parked, rowOf, writeRowTips } from './rail-row-state.js';
 import {
+  FALLBACK_GROUP,
   groupOf,
   loadGroups,
   moveToGroup,
@@ -147,7 +149,7 @@ import {
  * through (the caller's policy — e.g. a disabled row); this module stays
  * policy-free.
  * @typedef {object} RailOptions
- * @property {(id: string) => void} [onActivate]   - a row was clicked
+ * @property {(id: string, e: MouseEvent) => void} [onActivate]   - a row was clicked
  * @property {(id: string, e: MouseEvent) => boolean} [onContextMenu]
  *   - a row was right-clicked, or asked for its menu from the keyboard
  *     (`ContextMenu` / Shift+F10, where `e` is a synthetic contextmenu event
@@ -196,7 +198,7 @@ const PAGE_ROWS = /** @type {Readonly<Record<string, string>>} */ ({
 /** The panel that never gets a rail entry (its artifacts are in the session tree). */
 export const OFF_RAIL_IDS = Object.freeze(['artifacts']);
 
-/** The `+ Add panel` row: page-owned, always the last row of the last group. */
+/** The `+ Add panel` row: page-owned, the last row of the Tools group, or of the last group when Tools is not shown. */
 const ADD_BUTTON_ID = 'panel-add-btn';
 
 /** Marks a group's empty line. */
@@ -256,8 +258,13 @@ function syncGroups(railEl) {
       el.setAttribute('role', 'listitem');
     }
     paintGroupHeading(el, group, `${railEl.id || 'panel-rail'}-${group.id}-label`);
+    // Other children of the rail (the Workspace divider) keep their place
+    // between groups: the next group goes after them, not in front.
     /** @type {Element | null} */
-    const slot = previous ? previous.nextElementSibling : railEl.firstElementChild;
+    let slot = previous ? previous.nextElementSibling : railEl.firstElementChild;
+    while (slot && slot !== el && !slot.classList.contains('sidebar-group')) {
+      slot = slot.nextElementSibling;
+    }
     if (slot !== el) railEl.insertBefore(el, slot);
     found.set(group.id, el);
     previous = el;
@@ -352,8 +359,8 @@ function reconcile(parent, kids) {
 /**
  * Put every group and row where the model and the rail order say. Each group
  * holds its heading and its empty line, then its rows in rail order: the
- * Agent row first in the first group. `+ Add panel` closes the last
- * group. Nodes are moved, never rebuilt, and only where they are out of
+ * Agent row first in the first group. `+ Add panel` closes Tools (the last
+ * group if Tools is not shown). Nodes are moved, never rebuilt, and only where they are out of
  * place, so every row keeps its live state and a node that stays put keeps
  * its focus.
  * @param {HTMLElement} railEl
@@ -380,13 +387,14 @@ function arrange(railEl) {
   }
   const add = /** @type {HTMLElement | null} */ (railEl.querySelector(`#${ADD_BUTTON_ID}`));
 
+  const addHome = ids.includes(FALLBACK_GROUP) ? FALLBACK_GROUP : ids.at(-1);
   ids.forEach((groupId, i) => {
     const group = /** @type {HTMLElement} */ (groups.get(groupId));
     const kids = [headingOf(group), emptyLineOf(group)];
     if (i === 0 && agent) kids.push(agent);
     const members = rows.get(groupId) ?? [];
     for (const { node } of members.sort((a, b) => rank(a.id) - rank(b.id))) kids.push(node);
-    if (i === ids.length - 1 && add) kids.push(add);
+    if (groupId === addHome && add) kids.push(add);
     reconcile(group, kids);
   });
   // Every row has moved into a group of the model by now, so the element of a
@@ -463,7 +471,7 @@ function wireButton(railEl, btn, id, rowOptions) {
   wiredButtons.add(btn);
   const options = () => rowOptionsOf.get(btn) ?? {};
 
-  btn.addEventListener('click', () => options().onActivate?.(id));
+  btn.addEventListener('click', (event) => options().onActivate?.(id, event));
 
   // Right-click → the caller's context menu. The caller decides per-row
   // whether a menu exists (returns true); declining leaves the event alone so

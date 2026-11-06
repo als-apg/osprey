@@ -195,6 +195,8 @@ def beam_profile(monkeypatch):
     monkeypatch.setattr(
         "osprey.mcp_server.workspace.tools.artifact_query.extension_registry", lambda: registry
     )
+    # The web terminal's session page reads the registry through the store.
+    monkeypatch.setattr("osprey.stores.type_registry.get_extension_types", lambda: registry)
     return registry
 
 
@@ -226,13 +228,13 @@ def _seed_forms(store):
 class TestSummaryByForm:
     @pytest.mark.usefixtures("beam_profile")
     def test_mcp_tool_counts_by_form_and_extension_kind(self, singleton):
-        from osprey.mcp_server.workspace.tools import session_summary as mod
+        from osprey.mcp_server.workspace.tools import artifact_query as mod
 
         archiver, plot, ext = _seed_forms(singleton)
-        fn = getattr(mod.session_summary, "fn", mod.session_summary)
-        result = json.loads(asyncio.run(fn()))
+        fn = getattr(mod.artifact_list, "fn", mod.artifact_list)
+        result = json.loads(asyncio.run(fn(scope="all")))
 
-        by_id = {e["id"]: e for e in result["entries"]}
+        by_id = {e["artifact_id"]: e for e in result["entries"]}
         assert (by_id[archiver.id]["form"], by_id[archiver.id]["form_label"]) == (
             "trends",
             "Trends",
@@ -243,24 +245,32 @@ class TestSummaryByForm:
             "Beam Profile",
         )
         assert "category" not in by_id[plot.id]
-        totals = result["totals"]
-        assert "categories" not in totals
-        assert {f["key"]: f["count"] for f in totals["forms"]} == {
+        assert {f["key"]: f["count"] for f in result["form_totals"]} == {
             "trends": 1,
             "plots": 1,
             "beam_profile": 1,
         }
 
     @pytest.mark.usefixtures("beam_profile")
-    def test_hub_route_counts_by_form(self, store, agent_data_root):
-        from osprey.interfaces.web_terminal.routes.session import session_summary
+    def test_hub_route_counts_by_form(self, store, agent_data_root, tmp_path, monkeypatch):
+        from osprey.interfaces.web_terminal.routes.session import session_artifacts
+        from osprey.stores import session_ledger
+        from osprey_connectors import posture_store
 
-        _seed_forms(store)
+        key = "11111111-1111-4111-8111-111111111111"
+        state = tmp_path / "state"
+        state.mkdir()
+        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state))
+        posture_store.invalidate_cache()
+        assert session_ledger.append(state, key, key, "2000-01-01T00:00:00+00:00")
+        for entry in _seed_forms(store):
+            store.update_entry_metadata(entry.id, session_id=key)
         request = SimpleNamespace(
             app=SimpleNamespace(state=SimpleNamespace(workspace_dir=agent_data_root)),
-            query_params={},
+            query_params={"session_id": key},
         )
-        result = asyncio.run(session_summary(request))
+        result = asyncio.run(session_artifacts(request))
+        posture_store.invalidate_cache()
 
         totals = result["totals"]
         assert "categories" not in totals
@@ -356,6 +366,7 @@ class TestInternalSavesDoNotWarn:
         from osprey.services.ariel_search.attachments.artifacts import (
             save_viewable_picture_as_artifact,
         )
+        from osprey.stores.artifact_scope import SessionScope
 
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
@@ -363,6 +374,7 @@ class TestInternalSavesDoNotWarn:
                 {"rendition_bytes": b"\x89PNG-pic", "rendition_mime": "image/png"},
                 {"entry_id": "e1"},
                 {"attachment_id": "att1", "filename": "pic.png"},
+                scope=SessionScope("none", None, None),
             )
 
         assert singleton.get_entry(response["artifact_id"]).category == ""

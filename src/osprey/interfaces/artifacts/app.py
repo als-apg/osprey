@@ -418,22 +418,6 @@ def _stamp_data_theme(html: str, theme_id: str | None) -> str:
     return _HTML_TAG_WITHOUT_THEME_RE.sub(f'<html data-theme="{theme_id}"', html, count=1)
 
 
-def _example_artifact_enabled() -> bool:
-    """Whether ``artifact_server.example_artifact`` is on in the primed config.
-
-    Off when no config is primed (standalone gallery, tests) or the key is
-    absent: seeding is something a deployment opts into, and a gallery that
-    cannot read its config must not invent an artifact.
-    """
-    try:
-        from osprey_connectors.config import get_config_value
-
-        return bool(get_config_value("artifact_server.example_artifact", False))
-    except Exception:
-        logger.debug("No config available for artifact_server.example_artifact", exc_info=True)
-        return False
-
-
 def _resolve_pinned_web_theme() -> str | None:
     """The concrete theme id ``web.theme`` pins, or ``None`` if it names a family.
 
@@ -512,7 +496,30 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
     return html.encode("utf-8")
 
 
-class FocusRequest(BaseModel):
+class _SetInSession(BaseModel):
+    """The session a focus or pin was set in: at most one of two fields.
+
+    Browsers send ``session_key``, which the hub resolves through its ledger;
+    processes in a conversation send ``transcript_id``, a canonical session
+    UUID. Neither, or a key that resolves to no transcript, means "set in no
+    session". Both, or a malformed ``transcript_id``, is a 422.
+    """
+
+    session_key: str | None = None
+    transcript_id: str | None = None
+
+    @model_validator(mode="after")
+    def _one_session_field(self) -> _SetInSession:
+        from osprey.interfaces.web_terminal.session_key import is_posture_key
+
+        if self.session_key is not None and self.transcript_id is not None:
+            raise ValueError("give at most one of session_key and transcript_id")
+        if self.transcript_id is not None and not is_posture_key(self.transcript_id):
+            raise ValueError(f"{self.transcript_id!r} is not a session UUID")
+        return self
+
+
+class FocusRequest(_SetInSession):
     artifact_id: str
     fullscreen: bool = False
     #: Set by a sender acting on its own (the approval hook), not for a person or
@@ -520,7 +527,7 @@ class FocusRequest(BaseModel):
     automatic: bool = False
 
 
-class PinRequest(BaseModel):
+class PinRequest(_SetInSession):
     pinned: bool = True
 
 
@@ -570,34 +577,29 @@ MAX_BATCHED_SESSIONS = 5
 
 
 class SessionListRequest(BaseModel):
-    """``POST /api/artifacts/session-list``: exactly one of the four targets.
+    """``POST /api/artifacts/session-list``: exactly one of the three targets.
 
     ``session`` names a transcript; ``key`` a session key, listed through the
     ledger's current transcript for it; ``sessions`` up to
-    :data:`MAX_BATCHED_SESSIONS` transcripts paged together; ``earlier`` the
-    visible artifacts no transcript owns.
+    :data:`MAX_BATCHED_SESSIONS` transcripts paged together. ``form``,
+    ``runs`` and ``search`` narrow any target the way they narrow
+    ``GET /api/artifacts``.
     """
 
     session: str | None = None
     key: str | None = None
     sessions: list[str] | None = Field(None, min_length=1, max_length=MAX_BATCHED_SESSIONS)
-    earlier: bool | None = None
     form: str | None = None
     runs: Literal["grouped"] | None = None
+    search: str | None = None
     cursor: str | None = None
     limit: int | None = Field(None, ge=1, le=MAX_PAGE_SIZE)
 
     @model_validator(mode="after")
     def _one_target(self) -> SessionListRequest:
-        if self.earlier is False:
-            raise ValueError("earlier, when given, must be true")
-        given = [
-            name
-            for name in ("session", "key", "sessions", "earlier")
-            if getattr(self, name) is not None
-        ]
+        given = [name for name in ("session", "key", "sessions") if getattr(self, name) is not None]
         if len(given) != 1:
-            raise ValueError("give exactly one of session, key, sessions or earlier")
+            raise ValueError("give exactly one of session, key or sessions")
         return self
 
 
@@ -628,12 +630,13 @@ class _LedgerCache:
     The hub writes ``session-ledger.json`` in this identity's state directory
     (:func:`osprey_connectors.posture_store.state_dir`, the rule the hub's
     ``session_meta.ledger_state_dir`` follows); this app only reads it, again
-    whenever the file's mtime or size moves. :func:`session_ledger.load` hides
-    an unreadable file as an empty ledger, which here would silently re-own
-    every artifact, so the document is checked first and a failure is
-    reported as unavailable: every answer then says ``ledger: unavailable``
-    and tagged artifacts list under Earlier. A missing file is an empty,
-    available ledger (no session has been recorded yet).
+    whenever the file's mtime or size moves, through
+    :func:`session_ledger.load_checked` — the reader the agent's MCP processes
+    share. An unreadable ledger is reported as unavailable rather than as an
+    empty one (which would silently re-own every artifact): every answer then
+    says ``ledger: unavailable`` and only stamped artifacts have an owner. A
+    missing file is an empty, available ledger (no session has been recorded
+    yet).
     """
 
     def __init__(self) -> None:
@@ -665,16 +668,7 @@ class _LedgerCache:
         with self._lock:
             if key == self._key:
                 return self._value
-        try:
-            document = json.loads(path.read_text())
-            readable = isinstance(document, dict) and isinstance(document.get("rows"), list)
-        except (OSError, ValueError):
-            readable = False
-        if readable:
-            value = (session_ledger.load(state_dir), True)
-        else:
-            logger.warning("The session ledger at %s is unreadable; owners are unknown", path)
-            value = (session_ledger.Ledger(), False)
+        value = session_ledger.load_checked(state_dir)
         with self._lock:
             self._key, self._value = key, value
         return value
@@ -726,7 +720,7 @@ def _payload(entry: Any, view: _ListingView) -> dict[str, Any]:
     the server's verdicts, so no client re-derives a rule: ``form`` (the listed
     form, ``None`` for a run's preview or notebook) and its ``form_label``;
     ``run_part`` and the group's ``run_status``; ``owner`` (the transcript that
-    owns it, ``None`` for Earlier); ``operator_visible``; ``interactive``; and
+    owns it, else ``None``); ``operator_visible``; ``interactive``; and
     the legacy ``run_record`` verdict. A run's head also
     lists its ``run_parts``.
     """
@@ -753,7 +747,7 @@ def _payload(entry: Any, view: _ListingView) -> dict[str, Any]:
         **entry.to_dict(),
         "run_record": is_run_record(entry),
         "form": form,
-        "form_label": form_label(form) if form else None,
+        "form_label": form_label(form, view.registry) if form else None,
         "kind": entry.kind,
         "exec_id": entry.exec_id,
         "run_part": run_part,
@@ -801,7 +795,7 @@ def _refine(
                 entry.filename,
                 entry.description,
                 entry.artifact_type,
-                form_label(listed) if listed else "",
+                form_label(listed, view.registry) if listed else "",
             )
             if not any(needle in (value or "").lower() for value in fields):
                 continue
@@ -1069,18 +1063,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # defined.
     page_size = _page_size()
 
-    # Also after config priming: the one gallery process each workspace has
-    # (single-user `osprey web` and every render container alike) seeds the
-    # shipped example here, so the Artifacts panel is not empty on a first visit.
-    # Idempotent and sentinel-aware — see example_artifact.py.
-    if _example_artifact_enabled():
-        try:
-            from osprey.interfaces.artifacts.example_artifact import seed_example_artifact
-
-            seed_example_artifact(store)
-        except Exception:
-            logger.warning("Could not seed the example artifact", exc_info=True)
-
     broadcaster = _SSEBroadcaster()
 
     ledger_cache = _LedgerCache()
@@ -1113,8 +1095,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         broadcaster.broadcast({"type": "artifact", **_entry_payload(entry)})
 
     def _on_artifact_deleted(entry: ArtifactEntry) -> None:
+        # Every slot holding the id is cleared, the unscoped one and each transcript's.
         if app.state.focused_artifact_id == entry.id:
             app.state.focused_artifact_id = None
+        slots = app.state.focus_by_transcript
+        for transcript in [t for t, aid in slots.items() if aid == entry.id]:
+            del slots[transcript]
         _write_focus_file()
         broadcaster.broadcast({"type": "artifact_deleted", "id": entry.id})
 
@@ -1145,25 +1131,69 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # exception guard, so the /compose response was simply missing its
     # provenance with nothing to say so.
     app.state.agent_project_dir = deployed_render_dir()
+    # Focus slots (contract C6): the unscoped slot, set from no session, and one
+    # slot per transcript. A focus replaces only its own slot.
     app.state.focused_artifact_id = None  # None = show latest
+    app.state.focus_by_transcript = {}
+    import itertools
+
+    from osprey.stores.artifact_scope import SessionScope
+
+    #: When each slot was last set (``None`` = the unscoped slot), so an unkeyed
+    #: read answers the most recently set one.
+    focus_set_order: dict[str | None, int] = {}
+    focus_counter = itertools.count(1)
+
+    def _key_scope(session_key: str) -> SessionScope:
+        """The web scope *session_key* names through the hub ledger."""
+        from osprey.stores.artifact_scope import resolve_scope
+
+        ledger, ledger_ok = ledger_cache.read()
+        return resolve_scope(key=session_key, ledger=ledger, ledger_ok=ledger_ok)
+
+    def _set_in(req: _SetInSession) -> str | None:
+        """The transcript a focus or pin was set in; ``None`` for no session."""
+        if req.transcript_id is not None:
+            return req.transcript_id
+        if req.session_key:
+            return _key_scope(req.session_key).transcript
+        return None
 
     focus_file = data_root / "focus_state.txt"
 
+    _control_chars = re.compile(r"[\x00-\x1f\x7f]+")
+    _marker_opener = re.compile(r"\((id|session)=")
+
+    def _focus_title(title: str) -> str:
+        """*title* safe for one focus line: control characters and newlines
+        collapse to a space, and ``(id=`` / ``(session=`` lose their ``=`` so no
+        title can end the line or spell a marker of its own."""
+        return _marker_opener.sub(r"(\1 ", _control_chars.sub(" ", title or ""))
+
     def _write_focus_file() -> None:
-        """Write current focus state to a plain-text file for the CLI hook."""
+        """Write the focus file the CLI hook reads (contract C7).
+
+        One ``artifact:`` line per transcript slot, ending in that transcript's
+        ``(session=<id>)`` marker. The unscoped slot writes no line and pins are
+        not in the file (the hook reads them from the index). Always written, so
+        an empty state empties the file rather than leaving a stale one.
+        """
         lines: list[str] = []
-        aid = app.state.focused_artifact_id
-        if aid:
-            entry = store.get_entry(aid)
-            if entry:
-                lines.append(f'  artifact: "{entry.title}" (id={aid})')
-        # List pinned artifacts
-        pinned = store.list_entries(pinned=True)
-        lines.extend(f'  pinned:   "{p.title}" (id={p.id})' for p in pinned if p.id != aid)
-        if lines:
-            focus_file.write_text("[Gallery Focus]\n" + "\n".join(lines) + "\n")
-        elif focus_file.exists():
-            focus_file.write_text("")
+        for transcript, aid in app.state.focus_by_transcript.items():
+            entry = store.get_entry(aid) if aid else None
+            if entry is not None:
+                lines.append(
+                    f'  artifact: "{_focus_title(entry.title)}" (id={aid}) (session={transcript})'
+                )
+        text = "[Gallery Focus]\n" + "\n".join(lines) + "\n" if lines else ""
+        try:
+            focus_file.parent.mkdir(parents=True, exist_ok=True)
+            focus_file.write_text(text)
+        except OSError:
+            logger.warning("could not write focus file %s", focus_file, exc_info=True)
+
+    # A hub (re)start holds empty slots: clear any marked lines a previous run left.
+    _write_focus_file()
 
     # --- Routes ---
 
@@ -1246,7 +1276,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         type: str | None = None,
         search: str | None = None,
         pinned: bool | None = Query(None),
-        session_id: str | None = None,
         limit: int = Query(page_size, ge=1, le=MAX_PAGE_SIZE),
         cursor: str | None = Query(None),
         form: str | None = None,
@@ -1262,14 +1291,16 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         preview and notebook, which list under their head, and keeps its
         outputs; ``search`` matches the title, file name, description, type
         and form label. ``total`` and ``next_cursor`` count and walk the
-        filtered set. This is the palette's listing: it does not hide dispatch
-        or watchdog artifacts.
+        filtered set.
+
+        This is the unscoped listing, the palette's search and the gallery's
+        all-sessions view: it takes no session and keeps dispatch and watchdog
+        artifacts. One session's listing is ``POST /api/artifacts/session-list``.
         """
         try:
             entries = store.list_entries(
                 type_filter=type,
                 pinned=pinned,
-                session_filter=session_id,
                 after=after,
                 before=before,
             )
@@ -1289,40 +1320,40 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def session_list(body: SessionListRequest):
         """One session's visible artifacts, paged like ``GET /api/artifacts``.
 
-        Ownership is :func:`~osprey.stores.artifact_store.owner_of` over the
-        hub's ledger and visibility
-        :func:`~osprey.stores.artifact_store.operator_visible`. ``{key}`` lists
-        the key's current transcript; ``{sessions}`` answers ``{pages: {id:
-        page}}``; ``{earlier: true}`` lists the visible artifacts no
-        transcript owns (untagged, or tagged with a key the ledger never saw).
-        Every answer says whether the ledger could be read.
+        A transcript's page holds the entries
+        :func:`~osprey.stores.artifact_scope.owned_by` its web scope, the rule
+        every other listing shares. ``{key}`` resolves the key through
+        :func:`~osprey.stores.artifact_scope.resolve_scope` and answers the
+        resolved ``transcript`` (``null`` for a key the ledger has no row for,
+        or while it is unreadable); ``{sessions}`` answers ``{pages: {id:
+        page}}``. An artifact no transcript owns lists under none. Every
+        answer says whether the ledger could be read.
         """
+        from osprey.stores.artifact_scope import owned_by, resolve_scope, scope_for
+
         view = _view()
-        ledger = view.owner_ledger
         limit = body.limit or page_size
-        visible = [e for e in store.list_entries() if operator_visible(e)]
-        owners = {e.id: owner_of(e, ledger) for e in visible}
+        entries = store.list_entries()
 
-        def transcript_page(transcript_id: str | None) -> dict[str, Any]:
-            owned = [e for e in visible if owners[e.id] == transcript_id]
-            owned = _refine(owned, view, form=body.form, runs=body.runs)
-            return _page_body(page_of(owned, limit, body.cursor), view)
+        def page(selected: list[Any]) -> dict[str, Any]:
+            selected = _refine(selected, view, form=body.form, runs=body.runs, search=body.search)
+            return _page_body(page_of(selected, limit, body.cursor), view)
 
-        def nothing() -> dict[str, Any]:
-            return _page_body(page_of([], limit, body.cursor), view)
+        def transcript_page(scope: Any) -> dict[str, Any]:
+            return page([e for e in entries if owned_by(e, scope)])
+
+        def owned(transcript_id: str | None) -> dict[str, Any]:
+            return transcript_page(scope_for(transcript_id, view.owner_ledger, view.ledger_ok))
 
         status = "ok" if view.ledger_ok else "unavailable"
         try:
             if body.sessions is not None:
-                pages = {tid: transcript_page(tid) for tid in dict.fromkeys(body.sessions)}
+                pages = {tid: owned(tid) for tid in dict.fromkeys(body.sessions)}
                 return {"pages": pages, "ledger": status}
-            if body.earlier:
-                answer = transcript_page(None)
-            elif body.key is not None:
-                current = ledger.current(body.key) if ledger is not None else None
-                answer = transcript_page(current) if current else nothing()
-            else:
-                answer = transcript_page(body.session) if body.session else nothing()
+            if body.key is not None:
+                scope = resolve_scope(key=body.key, ledger=view.ledger, ledger_ok=view.ledger_ok)
+                return {**transcript_page(scope), "transcript": scope.transcript, "ledger": status}
+            answer = owned(body.session)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400, detail="cursor is not one this listing issued"
@@ -1330,8 +1361,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         return {**answer, "ledger": status}
 
     @app.post("/api/artifacts/session-summary")
-    async def session_summary(body: SessionSummaryRequest):
-        """Counts for one page of sessions, Earlier and every transcript together.
+    async def session_counts(body: SessionSummaryRequest):
+        """Counts for one page of sessions, and every owned artifact together.
 
         One pass over the index, under the same rules as ``session-list``:
         visibility is :func:`~osprey.stores.artifact_store.operator_visible`,
@@ -1341,13 +1372,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         counts once (its head) whatever its status. ``by_form`` names only the
         forms that occur. ``owned_total`` counts every owned entry, requested or
         not: the client's "More sessions" is ``owned_total`` minus its loaded
-        totals, and loaded + More + Earlier is the visible total.
+        totals. An entry no transcript owns counts nowhere.
         """
         view = _view()
         ledger = view.owner_ledger
         requested = dict.fromkeys(body.sessions)
         counts: dict[str, dict[str, Any]] = {tid: {"total": 0, "by_form": {}} for tid in requested}
-        earlier: dict[str, Any] = {"total": 0, "by_form": {}}
         owned_total = 0
         for entry in store.list_entries():
             if not operator_visible(entry):
@@ -1357,18 +1387,15 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 continue
             owner = owner_of(entry, ledger)
             if owner is None:
-                bucket = earlier
-            else:
-                owned_total += 1
-                owned = counts.get(owner)
-                if owned is None:
-                    continue
-                bucket = owned
+                continue
+            owned_total += 1
+            bucket = counts.get(owner)
+            if bucket is None:
+                continue
             bucket["total"] += 1
             bucket["by_form"][form] = bucket["by_form"].get(form, 0) + 1
         return {
             "counts": counts,
-            "earlier": earlier,
             "owned_total": owned_total,
             "ledger": "ok" if view.ledger_ok else "unavailable",
         }
@@ -1382,10 +1409,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.post("/api/artifacts/{artifact_id}/pin")
     async def pin_artifact(artifact_id: str, req: PinRequest):
-        entry = store.set_pinned(artifact_id, req.pinned)
+        entry = store.set_pinned(artifact_id, req.pinned, set_in=_set_in(req))
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        _write_focus_file()
         broadcaster.broadcast({"type": "artifact_updated", **_entry_payload(entry)})
         return {"status": "ok", "artifact_id": artifact_id, "pinned": entry.pinned}
 
@@ -1495,20 +1521,52 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         }
 
     @app.get("/api/focus")
-    async def get_focus():
-        focused_id = app.state.focused_artifact_id
-        if focused_id:
-            entry = store.get_entry(focused_id)
-            if entry:
-                return {"focused": True, "artifact": _entry_payload(entry)}
-            # Stale focus — clear it and fall back to latest
-            app.state.focused_artifact_id = None
+    async def get_focus(session_key: str | None = None):
+        """The focus a view shows (contract C6).
 
-        # Fall back to latest artifact
-        entries = store.list_entries()
-        if entries:
-            return {"focused": False, "artifact": _entry_payload(entries[-1])}
-        return {"focused": False, "artifact": None}
+        With ``session_key``: that key's current transcript's slot, else the
+        newest entry that key's scope owns, else none. Without it: the most
+        recently set slot of any kind, else the newest operator-visible entry.
+        A slot whose artifact is gone is cleared on the way.
+        """
+        from osprey.stores.artifact_scope import owned_by
+        from osprey.stores.artifact_store import operator_visible
+
+        def _slot_entry(slot: str | None) -> ArtifactEntry | None:
+            if slot is None:
+                focused_id = app.state.focused_artifact_id
+            else:
+                focused_id = app.state.focus_by_transcript.get(slot)
+            if not focused_id:
+                return None
+            entry = store.get_entry(focused_id)
+            if entry is None:  # stale: the artifact went away under the slot
+                if slot is None:
+                    app.state.focused_artifact_id = None
+                else:
+                    app.state.focus_by_transcript.pop(slot, None)
+                focus_set_order.pop(slot, None)
+            return entry
+
+        if session_key is not None:
+            scope = _key_scope(session_key)
+            if scope.transcript is None:
+                return {"focused": False, "artifact": None}
+            entry = _slot_entry(scope.transcript)
+            if entry is not None:
+                return {"focused": True, "artifact": _entry_payload(entry)}
+            owned = [e for e in store.list_entries() if owned_by(e, scope)]
+            return {"focused": False, "artifact": _entry_payload(owned[-1]) if owned else None}
+
+        slots: list[str | None] = [None, *app.state.focus_by_transcript]
+        slots.sort(key=lambda slot: focus_set_order.get(slot, 0), reverse=True)
+        for slot in slots:
+            entry = _slot_entry(slot)
+            if entry is not None:
+                return {"focused": True, "artifact": _entry_payload(entry)}
+
+        visible = [e for e in store.list_entries() if operator_visible(e)]
+        return {"focused": False, "artifact": _entry_payload(visible[-1]) if visible else None}
 
     @app.post("/api/focus")
     async def set_focus(req: FocusRequest):
@@ -1518,9 +1576,19 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 status_code=404,
                 detail=f"Artifact {req.artifact_id} not found",
             )
-        app.state.focused_artifact_id = req.artifact_id
+        transcript = _set_in(req)
+        if transcript is None:
+            app.state.focused_artifact_id = req.artifact_id
+        else:
+            app.state.focus_by_transcript[transcript] = req.artifact_id
+        focus_set_order[transcript] = next(focus_counter)
         _write_focus_file()
-        event: dict[str, Any] = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
+        event: dict[str, Any] = {
+            "type": "focus",
+            "domain": "artifact",
+            "id": req.artifact_id,
+            "session": transcript,
+        }
         if req.fullscreen:
             event["fullscreen"] = True
         if req.automatic:

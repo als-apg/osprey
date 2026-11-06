@@ -555,3 +555,61 @@ describe('what dockview does on its own is read back into the holder (sizes only
     expect(items[0].size).toBeCloseTo(0.5, 2);
   });
 });
+
+describe("a session's layout is the stored dock, applied live", () => {
+  test('currentDock is the stored form, and applyDock brings it back', async () => {
+    const page = await boot('carol');
+    page.holder.setPanelRecord('ariel', { title: 'ARIEL' });
+    await openService(page, 'ariel');
+    const saved = page.workspace.currentDock();
+    expect(saved).toEqual({
+      version: 2,
+      layout: page.holder.layout,
+      panels: { ariel: { title: 'ARIEL' } },
+    });
+
+    page.workspace.resetDockLayout();
+    await settle();
+    expect(page.api.getPanel('iframe:ariel')).toBeFalsy();
+    expect(page.workspace.applyDock(saved)).toBe(true);
+    await settle();
+    expect(rounded(page.holder.layout)).toEqual(rounded(saved?.layout));
+    expect(page.api.getPanel('iframe:ariel').title).toBe('ARIEL');
+  });
+
+  test('an Agent pane the session had closed stays closed', async () => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    page.workspace.closeTerminalPanel();
+    await settle();
+    const saved = page.workspace.currentDock();
+
+    page.workspace.resetDockLayout();
+    await settle();
+    expect(page.workspace.isTerminalPanelOpen()).toBe(true);
+    expect(page.workspace.applyDock(saved)).toBe(true);
+    await settle();
+    expect(page.workspace.isTerminalPanelOpen()).toBe(false);
+    expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
+  });
+
+  test('a panel the dock cannot build is dropped; a value of another version changes nothing', async () => {
+    const page = await boot('carol');
+    const before = page.holder.layout;
+    expect(page.workspace.applyDock({ version: 1, layout: SERVICE_AND_TERMINAL })).toBe(false);
+    expect(page.workspace.applyDock(null)).toBe(false);
+    expect(page.holder.layout).toEqual(before);
+
+    const ghost = {
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['ghost'], showing: 'ghost', size: 0.5 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.5 },
+      ],
+    };
+    expect(page.workspace.applyDock({ version: 2, layout: ghost, panels: {} })).toBe(true);
+    await settle();
+    expect(page.api.getPanel('iframe:ghost')).toBeFalsy();
+    expect(page.api.getPanel('terminal')).toBeTruthy();
+  });
+});

@@ -1,9 +1,10 @@
-"""``POST /api/artifacts/session-summary``: per-session counts, Earlier and the owned total.
+"""``POST /api/artifacts/session-summary``: per-session counts and the owned total.
 
 The summary is the sidebar's count source, so its numbers must agree with what
 ``session-list`` actually lists: a form's count equals that form's rows under
 ``runs=grouped``, a run counts once whatever its head, and the loaded sessions
-plus "More sessions" plus Earlier add up to every operator-visible entry.
+plus "More sessions" add up to every owned operator-visible entry. An entry no
+session owns counts nowhere.
 """
 
 from __future__ import annotations
@@ -236,7 +237,7 @@ class TestCountsMatchTheListing:
         assert summary["counts"][T1] == {"total": 0, "by_form": {}}
         assert summary["counts"][T_OTHER] == {"total": 0, "by_form": {}}
         assert summary["owned_total"] == 0
-        assert summary["earlier"] == {"total": 0, "by_form": {}}
+        assert "earlier" not in summary
 
     def test_one_runs_count_while_the_groups_head_changes(self, client, store, state_dir):
         _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
@@ -265,23 +266,20 @@ class TestTotalsAddUp:
         _text(store, "dispatch", minute=3, session_id=keys[0], run_id="run-1")
         _text(store, "watchdog", minute=4, origin="watchdog")
 
-        visible_total = sum(1 for e in store.list_entries() if operator_visible(e))
+        # The untagged and unknown-key entries are visible but owned by no session.
+        owned_visible = sum(1 for e in store.list_entries() if operator_visible(e)) - 2
         first = _summary(client, keys[:150])
         second = _summary(client, keys[150:])
         assert first["owned_total"] == second["owned_total"]
-        assert first["earlier"] == second["earlier"]
         requested = sum(c["total"] for c in first["counts"].values())
         requested += sum(c["total"] for c in second["counts"].values())
         more = first["owned_total"] - requested
         assert more == 0
-        assert requested + more + first["earlier"]["total"] == visible_total
-        assert first["earlier"]["total"] == 2
+        assert requested + more == owned_visible
 
         # Only the first page loaded: the rest is "More sessions".
         loaded = sum(c["total"] for c in first["counts"].values())
-        assert loaded + (first["owned_total"] - loaded) + first["earlier"]["total"] == (
-            visible_total
-        )
+        assert loaded + (first["owned_total"] - loaded) == owned_visible
         assert first["owned_total"] - loaded == sum(c["total"] for c in second["counts"].values())
 
 
@@ -301,22 +299,18 @@ class TestOwnership:
         assert summary["counts"][T2]["total"] == 2
         assert summary["counts"][T2]["by_form"] == {"plots": 2}
         assert summary["owned_total"] == 5
-        assert summary["earlier"]["total"] == 0
 
-    def test_earlier_excludes_owned_dispatch_and_watchdog(self, client, store, state_dir):
+    def test_unowned_dispatch_and_watchdog_entries_count_nowhere(self, client, store, state_dir):
         _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
         _text(store, "owned", minute=1, session_id=KEY)
-        untagged = _text(store, "untagged", minute=2)
-        unknown = _text(store, "unknown key", minute=3, session_id=T_OTHER)
+        _text(store, "untagged", minute=2)
+        _text(store, "unknown key", minute=3, session_id=T_OTHER)
         _text(store, "dispatch", minute=4, run_id="run-1")
         _text(store, "dispatch tagged", minute=5, session_id=KEY, run_id="run-2")
         _text(store, "watchdog", minute=6, origin="watchdog")
 
         summary = _summary(client, [T1])
-        earlier_rows = _listed(client, {"earlier": True, "runs": "grouped"})
-        assert sorted(r["id"] for r in earlier_rows) == sorted([untagged.id, unknown.id])
-        assert summary["earlier"]["total"] == 2
-        assert summary["earlier"]["by_form"] == _by_form(earlier_rows)
+        assert set(summary) == {"counts", "owned_total", "ledger"}
         assert summary["counts"][T1]["total"] == 1
         assert summary["owned_total"] == 1
 
@@ -333,9 +327,7 @@ class TestOwnership:
         assert summary["counts"][T1]["total"] == 1
         assert summary["owned_total"] == 3
 
-    def test_an_unreadable_ledger_says_so_and_tagged_entries_are_earlier(
-        self, client, store, state_dir
-    ):
+    def test_an_unreadable_ledger_says_so_and_owns_nothing(self, client, store, state_dir):
         _text(store, "tagged", minute=1, session_id=KEY)
         _text(store, "untagged", minute=2)
         (state_dir / session_ledger.STORE_FILENAME).write_text("not json")
@@ -343,7 +335,6 @@ class TestOwnership:
         assert summary["ledger"] == "unavailable"
         assert summary["counts"][T1]["total"] == 0
         assert summary["owned_total"] == 0
-        assert summary["earlier"]["total"] == 2
 
 
 class TestValidation:
@@ -370,3 +361,132 @@ class TestValidation:
         _write_ledger(state_dir, [])
         ids = [_key(i) for i in range(1, 51)]
         assert set(_summary(client, ids)["counts"]) == set(ids)
+
+
+# ---- session-list over the shared ownership rule ----------------------------
+
+
+def _page(client, body: dict) -> dict:
+    response = client.post("/api/artifacts/session-list", json=body)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _ids(rows: list[dict]) -> list[str]:
+    return sorted(row["id"] for row in rows)
+
+
+class TestSessionListScope:
+    def test_a_key_after_a_clear_lists_the_new_transcript_and_answers_its_id(
+        self, client, store, state_dir
+    ):
+        _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH), (KEY, T2, _at(10))])
+        for i in (1, 2, 3):
+            _text(store, f"before {i}", minute=i, session_id=KEY)
+        after = [_plot(store, f"after {i}", minute=i, session_id=KEY) for i in (11, 12)]
+
+        page = _page(client, {"key": KEY, "runs": "grouped"})
+        assert page["transcript"] == T2
+        assert _ids(page["artifacts"]) == sorted(e.id for e in after)
+        assert page["total"] == 2
+        assert page["ledger"] == "ok"
+        # The pre-clear transcript is still its own row.
+        assert len(_listed(client, {"session": T1})) == 3
+
+    def test_an_unseen_key_answers_an_empty_page_and_no_transcript(self, client, store, state_dir):
+        _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
+        _text(store, "mine", minute=1, session_id=KEY)
+        _text(store, "untagged", minute=2)
+
+        page = _page(client, {"key": KEY_2})
+        assert page["transcript"] is None
+        assert page["artifacts"] == []
+        assert page["total"] == 0
+        assert page["next_cursor"] is None
+        assert page["ledger"] == "ok"
+
+    def test_a_key_under_an_unreadable_ledger_answers_no_transcript(self, client, store, state_dir):
+        _text(store, "tagged", minute=1, session_id=KEY)
+        (state_dir / session_ledger.STORE_FILENAME).write_text("not json")
+        page = _page(client, {"key": KEY})
+        assert page["transcript"] is None
+        assert page["artifacts"] == []
+        assert page["ledger"] == "unavailable"
+
+    def test_only_the_key_target_answers_a_transcript(self, client, state_dir):
+        _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
+        assert "transcript" not in _page(client, {"session": T1})
+        assert "transcript" not in _page(client, {"sessions": [T1]})
+
+    def test_search_narrows_inside_a_row(self, client, store, state_dir):
+        _write_ledger(
+            state_dir,
+            [(KEY, T1, session_ledger.EPOCH), (KEY_2, T3, session_ledger.EPOCH)],
+        )
+        beam = _text(store, "Beam current", minute=1, session_id=KEY)
+        _text(store, "Vacuum", minute=2, session_id=KEY)
+        plot = _plot(store, "beam orbit", minute=3, session_id=KEY)
+        _text(store, "beam elsewhere", minute=4, session_id=KEY_2)  # not this row
+        _text(store, "BEAM untagged", minute=5)  # in no row
+        _text(store, "vacuum untagged", minute=6)
+
+        assert _ids(_listed(client, {"session": T1, "search": "beam"})) == sorted(
+            [beam.id, plot.id]
+        )
+        assert _ids(_page(client, {"key": KEY, "search": "beam"})["artifacts"]) == sorted(
+            [beam.id, plot.id]
+        )
+        narrowed = _page(client, {"sessions": [T1], "search": "beam", "form": "plots"})
+        assert _ids(narrowed["pages"][T1]["artifacts"]) == [plot.id]
+        # Without search the row is whole.
+        assert len(_listed(client, {"session": T1})) == 3
+
+    def test_a_search_matching_nothing_answers_an_empty_page(self, client, store, state_dir):
+        _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
+        _text(store, "Beam", minute=1, session_id=KEY)
+        page = _page(client, {"key": KEY, "search": "no such thing"})
+        assert page["artifacts"] == []
+        assert page["transcript"] == T1
+
+    def test_sessions_batches_are_unchanged(self, client, store, state_dir):
+        _write_ledger(
+            state_dir,
+            [(KEY, T1, session_ledger.EPOCH), (KEY_2, T3, session_ledger.EPOCH)],
+        )
+        mine = [_text(store, f"mine {i}", minute=i, session_id=KEY) for i in (1, 2)]
+        theirs = _plot(store, "theirs", minute=3, session_id=KEY_2)
+        _text(store, "dispatch", minute=4, session_id=KEY, run_id="run-1")
+        _text(store, "watchdog", minute=5, session_id=KEY, origin="watchdog")
+
+        answer = _page(client, {"sessions": [T1, T3, T_OTHER, T1]})
+        assert set(answer) == {"pages", "ledger"}
+        assert list(answer["pages"]) == [T1, T3, T_OTHER]
+        assert _ids(answer["pages"][T1]["artifacts"]) == sorted(e.id for e in mine)
+        assert _ids(answer["pages"][T3]["artifacts"]) == [theirs.id]
+        assert answer["pages"][T_OTHER]["artifacts"] == []
+        assert answer["ledger"] == "ok"
+        for page in answer["pages"].values():
+            assert set(page) == {"count", "total", "next_cursor", "artifacts"}
+
+    def test_session_list_rows_match_the_owner_verdict(self, client, store, state_dir):
+        _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH), (KEY, T2, _at(10))])
+        _text(store, "before", minute=1, session_id=KEY)
+        _text(store, "after", minute=11, session_id=KEY)
+        for transcript in (T1, T2):
+            rows = _listed(client, {"session": transcript})
+            assert rows and all(row["owner"] == transcript for row in rows)
+            assert all(row["operator_visible"] for row in rows)
+
+
+class TestHandlerNames:
+    def test_the_counts_route_stays_and_no_handler_shares_the_tools_name(self, client):
+        endpoints = {
+            route.path: route.endpoint.__name__
+            for route in client.app.routes
+            if hasattr(route, "endpoint")
+        }
+        assert SUMMARY in endpoints
+        # The removed tool's name, spelled so the tree-wide grep for removed
+        # tool names does not count this absence check as a use.
+        removed_tool = "_".join(("session", "summary"))
+        assert removed_tool not in endpoints.values()

@@ -325,7 +325,12 @@ async def test_a_timeline_pages_over_http_through_its_next_cursor(config, env, b
 async def test_an_otlp_post_is_committed_and_readable(config, env):
     app = service.create_app(config=config, env=env)
     async with _serving(app) as client:
-        payload = _request(_decision("toolu_svc"), _usage())
+        # the builders' default stamp is fixed; the receiver drops events past the
+        # retention window of the wall clock, so stamp these from the wall clock
+        payload = _request(
+            _decision("toolu_svc", when=NOW - timedelta(minutes=5)),
+            _usage(when=NOW - timedelta(minutes=4)),
+        )
         response = await client.post(
             "/v1/logs",
             content=json.dumps(payload).encode(),
@@ -372,8 +377,12 @@ async def test_spool_lines_written_while_down_are_ingested_after_a_restart(confi
             answer = await client.get("/v1/read/recent_audit", headers=_auth("alice"))
             return answer.json()["status"] == "ok" and _names(answer.json()) == {"while-down"}
 
+        async def segment_deleted():
+            # The consumer deletes a segment only after its lines are readable.
+            return not list((spool / "alice").iterdir())
+
         await _eventually(ingested)
-    assert not list((spool / "alice").iterdir()), "the committed segment is deleted"
+        await _eventually(segment_deleted)
 
 
 class _Down:

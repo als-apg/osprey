@@ -27,21 +27,29 @@ Per-service templates have access to the full configuration plus a few
 engine-injected values:
 
 .. code-block:: yaml
+   :caption: services/postgresql/docker-compose.yml.j2 (excerpt)
 
-   # services/postgresql/docker-compose.yml.j2
    services:
      postgresql:
-       container_name: {{services.postgresql.container_name | default('osprey-postgres')}}
+       container_name: {{ osprey_labels.project_name }}-ariel-postgres
        ports:
-         - "{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432"
+         - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.postgresql.port_host | default(osprey_ports.postgres, true) }}:5432"
        environment:
-         TZ: {{system.timezone}}
+         TZ: {{ system.timezone }}
        networks:
-         - osprey-network
+         osprey-network:
+           aliases:
+             - ariel-postgres
+
+The container name starts with the project name because a container name is
+global on the host: a fixed name collides when two projects run on one host.
+Other containers reach the database through the stable network alias
+``ariel-postgres``.
 
 Common access patterns: ``{{services.<name>.<key>}}``,
 ``{{file_paths.<key>}}``, ``{{system.<key>}}``, ``{{project_root}}``,
-``{{deployment.bind_address}}``, and ``{{osprey_labels.project_name}}`` /
+``{{deployment.bind_address}}``, ``{{osprey_ports.<slot>}}`` (the port layout
+for the deployment's ``port_base``), and ``{{osprey_labels.project_name}}`` /
 ``project_root`` (injected by the deploy engine).
 
 The build writes ``build/osprey-labels.override.yml`` and passes it to every

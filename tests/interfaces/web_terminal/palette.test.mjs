@@ -252,9 +252,9 @@ describe('a query that names a panel', () => {
     typeQuery('ariel');
 
     expect(headings()[0]).toBe('Panels');
-    expect(rowLabels()[0]).toBe('Pop out Logbook');
+    expect(rowLabels()[0]).toBe('Open Logbook in new window');
     const active = document.querySelector('.command-palette-item--active');
-    expect(active?.textContent).toContain('Pop out Logbook');
+    expect(active?.textContent).toContain('Open Logbook in new window');
   });
 
   test('its label and its domain words also lead with the panel', async () => {

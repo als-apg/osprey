@@ -365,10 +365,10 @@ def test_the_panels_row_is_the_union_across_renders(exemplar_lines: list[str]) -
     # come from `web.panels.<id>.label` — they are not built-ins.
     # The order is declaration order: the host profile's `web_panels` first, in
     # the order it lists them, then whatever the layers add. JUPYTER
-    # follows SYSTEM because the profile lists `jupyter` after `system-health`,
+    # follows Health because the profile lists `jupyter` after `system-health`,
     # and CANOPY follows JUPYTER because the profile lists `canopy` next.
     panels = line_with(exemplar_lines, "panels")
-    assert "LOGBOOK · CHANNELS · KNOWLEDGE · SYSTEM · JUPYTER · CANOPY · EVENTS · BLUESKY" in panels
+    assert "LOGBOOK · CHANNELS · KNOWLEDGE · Health · JUPYTER · CANOPY · EVENTS · BLUESKY" in panels
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(

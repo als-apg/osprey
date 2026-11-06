@@ -37,7 +37,6 @@ def workspace_tools() -> dict:
         provenance_locator,
         screen_capture,
         session_log,
-        session_summary,
         setup,
         submit_response,
     )
@@ -54,7 +53,22 @@ def test_no_tool_uses_the_data_prefix(workspace_tools):
 
 
 def test_store_record_tools_exist_under_the_artifact_noun(workspace_tools):
-    assert {"artifact_list", "artifact_read", "artifact_get"} <= set(workspace_tools)
+    assert {"artifact_list", "artifact_read"} <= set(workspace_tools)
+
+
+#: Tools the scoped ``artifact_list`` / ``artifact_read`` replaced. This is the
+#: one test that spells their names: nothing may register or allow-list them.
+REMOVED_TOOLS = ("session_summary", "artifact_get")
+
+
+@pytest.mark.parametrize("tool_name", REMOVED_TOOLS)
+def test_replaced_tool_is_neither_registered_nor_allow_listed(tool_name, workspace_tools):
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    workspace = FRAMEWORK_SERVERS["osprey_workspace"]
+    assert tool_name not in workspace_tools, f"{tool_name} is still registered"
+    assert tool_name not in workspace.permissions_allow, f"{tool_name} is still allow-listed"
+    assert tool_name not in workspace.permissions_ask, f"{tool_name} is still ask-listed"
 
 
 def test_no_tool_spells_the_record_id_entry_id(workspace_tools):
@@ -70,8 +84,8 @@ def test_no_tool_spells_the_record_id_entry_id(workspace_tools):
 def test_artifact_list_filters_by_form_not_a_separate_tool_family(workspace_tools):
     """The data views are a ``form`` argument on the one list tool."""
     props = workspace_tools["artifact_list"].parameters["properties"]
-    # The filtering data_list had must survive the rename.
-    assert {"form", "tool", "last_n", "source_agent"} <= set(props), props
+    # The filtering data_list had must survive the rename, plus the session scope.
+    assert {"scope", "form", "tool", "last_n"} <= set(props), props
     assert "category" not in props
 
 

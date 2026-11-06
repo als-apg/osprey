@@ -12,17 +12,22 @@
  *     the deployment's shared controls (tile-bar-controls.js), and the fixed
  *     ⋯ / Pop out / × cluster. The ⋯ opens the tile's one menu
  *     (panel-menu-policy.js), the same menu a right-click on the bar opens.
- *     Pop out moves the panel into its own browser window (popout.js), which
- *     retires its tile until that window closes. The × closes the tile
- *     LOCALLY (the panel keeps its sidebar row; dock-sync routes the click to
- *     a vacate handler).
- *   the Agent tile — an adopted live bar + ⋯ + close. In chat it adopts the
- *     console's `.op-session-bar`; on the terminal surface it adopts the
- *     `.terminal-header`. The bar is chosen when the tab is built and swapped
- *     on a change of surface. The Agent pane is always its own tile and has no
- *     Pop out yet and no shared controls; its close runs dock-workspace's
+ *     Pop out moves the panel into an attached window (attached-popout.js);
+ *     the ⋯ also offers the standalone page (popout.js). The × closes the
+ *     tile LOCALLY (the panel keeps its sidebar row; dock-sync routes the
+ *     click to a vacate handler).
+ *   the Agent tile — an adopted live bar + ⋯ + Pop out + close. In chat it
+ *     adopts the console's `.op-session-bar`; on the terminal surface it
+ *     adopts the `.terminal-header`. The bar is chosen when the tab is built
+ *     and swapped on a change of surface. The Agent pane is always its own
+ *     tile and has no shared controls; its close runs dock-workspace's
  *     closeTerminalPanel, which keeps `html[data-agent]` and the
  *     `osprey-agent-pane` event in step.
+ *
+ * Pop out, on every tile, moves the tile's content into an attached window
+ * the hub drives (attached-popout.js); the tile stays and shows a stand-in
+ * until that window closes. The panel menus' "Open in new window" is the
+ * standalone kind (popout.js).
  *
  * dockview builds one tab component per panel, so a tile has exactly one bar,
  * stretched over the tile by dockview's single-tab fullwidth mode
@@ -46,15 +51,12 @@ import { buildSharedControls, unregisterSharedControls } from './tile-bar-contro
 import { PLACEHOLDER_PREFIX, TAB_KEY_ATTRIBUTE, TERMINAL_KEY, keyOfPanelId } from './dock-apply.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { closeDockPanel, closeTerminalPanel } from './dock-workspace.js';
-import { popOutPanel, canPopOut } from './popout.js';
+import { attachBlocker, popOutAttached } from './attached-popout.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { icon } from '/design-system/js/icons.js';
 
 /** @typedef {import('/static/vendor/dock-engine.mjs').Source} Source */
 /** @typedef {import('/static/vendor/dock-engine.mjs').TabRects} TabRects */
-
-/** What the disabled Pop out button says about an opaque-origin panel. */
-const CANNOT_POP_OUT = 'This panel runs at an opaque origin and cannot be popped out.';
 
 /** defaultTabComponent name registered on the dockview instance. */
 export const OSPREY_TAB_COMPONENT = 'osprey-tile-tab';
@@ -362,15 +364,17 @@ export function measureTabRects(scope = document) {
 // --- the renderer -----------------------------------------------------------------
 
 /**
- * A service tile's Pop out button: moves the panel into its own window. It
- * runs the pop-out inside the click, the gesture the browser needs to open a
- * window at all. A panel with no first-party page to open (an opaque-origin
- * panel) gets the button disabled, with the reason as its title. The gate
- * cannot be read when the tile is built: the panel's URL and its frame kind
- * resolve later, and a button disabled then would never receive the click
- * that re-reads it. So the button starts enabled and reads the gate when the
- * pointer or focus arrives and again at click time.
- * @param {string} panelId  service panel id (the placeholder id minus its prefix)
+ * A tile's Pop out button: moves the tile's content into an attached window
+ * (attached-popout.js). It runs the pop-out inside the click, the gesture the
+ * browser needs to open a window at all. Content that cannot go (a panel not
+ * loaded yet, an opaque-origin panel) gets the button disabled, with the
+ * reason as its title. The gate cannot be read when the tile is built: the
+ * panel's iframe and its frame kind arrive later, and a button disabled then
+ * would never receive the click that re-reads it. So the button starts
+ * enabled and reads the gate when the pointer or focus arrives and again at
+ * click time.
+ * @param {string} panelId  service panel id (the placeholder id minus its
+ *   prefix), or TERMINAL_RAIL_ID
  * @returns {HTMLButtonElement}
  */
 function buildPopoutButton(panelId) {
@@ -381,9 +385,9 @@ function buildPopoutButton(panelId) {
   btn.setAttribute('aria-label', 'Pop out');
   btn.title = 'Pop out';
   const paint = () => {
-    const allowed = canPopOut(panelId);
-    btn.disabled = !allowed;
-    btn.title = allowed ? 'Pop out' : CANNOT_POP_OUT;
+    const blocker = attachBlocker(panelId);
+    btn.disabled = blocker !== null;
+    btn.title = blocker ?? 'Pop out';
   };
   btn.addEventListener('pointerenter', paint);
   btn.addEventListener('focus', paint);
@@ -391,7 +395,7 @@ function buildPopoutButton(panelId) {
     if (e.defaultPrevented) return;
     e.preventDefault();
     paint();
-    if (!btn.disabled) popOutPanel(panelId);
+    if (!btn.disabled) popOutAttached(panelId);
   });
   return btn;
 }
@@ -484,12 +488,14 @@ class TileTab {
       e.preventDefault();
       e.stopPropagation();
     });
-    // Fixed at the right edge, never folded: ⋯ on every tile, Pop out on
-    // service tiles (the Agent pane's is a later change), × last.
+    // Fixed at the right edge, never folded: ⋯ on every tile, Pop out (the
+    // attached window) on every tile, × last.
     actions.appendChild(
       buildTileMenuButton(() => (terminal ? TERMINAL_RAIL_ID : this._servicePanelId), root)
     );
-    if (!terminal) actions.appendChild(buildPopoutButton(this._servicePanelId ?? id));
+    actions.appendChild(
+      buildPopoutButton(terminal ? TERMINAL_RAIL_ID : (this._servicePanelId ?? id))
+    );
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'tile-tab-close osprey-icon-btn';

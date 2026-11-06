@@ -4,7 +4,7 @@
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifact-listing.test.mjs
  *
  * A listing is the artifacts panel's `POST /api/artifacts/session-list` seen
- * through the hub's proxy: one session (or the active key, or Earlier),
+ * through the hub's proxy: one session (or the active key),
  * optionally one form, always `runs: "grouped"`, never the retired `run=`
  * filter. These tests pin the request it builds (through the per-user prefix),
  * the page sequence (a first page replaces and supersedes, the next page
@@ -64,6 +64,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete window.__OSPREY_PREFIX__;
+  localStorage.clear();
 });
 
 describe('the listing request', () => {
@@ -75,7 +76,6 @@ describe('the listing request', () => {
       runs: 'grouped',
       cursor: 'abc+=',
     });
-    expect(listing({ earlier: true }).body()).toEqual({ earlier: true, runs: 'grouped' });
     expect(JSON.stringify(listing().body())).not.toMatch(/"run"|run_record/);
   });
 
@@ -291,6 +291,17 @@ describe('fetchFocusedId', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/u/alice/panel/artifacts/api/focus');
   });
 
+  test("asks for the operator's current session's slot", async () => {
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+    pointer.setPointer('key/1');
+    fetchMock.mockResolvedValueOnce(
+      reply({ focused: true, artifact: entry('f1', '2026-10-30T01:00:00Z') })
+    );
+    expect(await mod.fetchFocusedId()).toBe('f1');
+    expect(fetchMock.mock.calls[0][0]).toBe('/panel/artifacts/api/focus?session_key=key%2F1');
+  });
+
   test("the panel's newest-artifact fallback is no focus, nor is a failure", async () => {
     fetchMock.mockResolvedValueOnce(
       reply({ focused: false, artifact: entry('n1', '2026-10-30T01:00:00Z') })
@@ -305,7 +316,7 @@ describe('fetchFocusedId', () => {
 
 describe('fetchSummary', () => {
   test('POSTs one page of session ids, null on failure', async () => {
-    fetchMock.mockResolvedValueOnce(reply({ counts: {}, earlier: { total: 0, by_form: {} } }));
+    fetchMock.mockResolvedValueOnce(reply({ counts: {}, owned_total: 0 }));
     expect(await mod.fetchSummary(['t1', 't2'])).toMatchObject({ counts: {} });
     expect(fetchMock.mock.calls[0][0]).toBe('/panel/artifacts/api/artifacts/session-summary');
     expect(sent(0)).toEqual({ sessions: ['t1', 't2'] });

@@ -403,7 +403,6 @@ describe('the Export conversation row in the Agent pane ⋯', () => {
 
   /** Pick the row, as a click on it does. */
   const pick = () => exportRow()?.run?.();
-
   beforeEach(() => {
     transport.fetchHistory.mockReset();
     // Stub the download's three steps so the file's text can be read back.
@@ -478,6 +477,9 @@ describe('the Export conversation row in the Agent pane ⋯', () => {
     expect(notice).toMatch(/export/);
     expect(published).toEqual([notice]);
     expect(exportRow()?.disabled).toBe(false);
+    pick();
+    await flush();
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
   });
 
   test('the row is inert while the pane shows the terminal', () => {

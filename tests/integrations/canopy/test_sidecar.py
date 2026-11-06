@@ -159,13 +159,15 @@ class Deployment:
     def sidecar(self, user: str = "alice", *, data: str = "stay", front: str = "stay"):
         deployment = self
 
+        # ``-S``: the stub is stdlib-only test code, and without ``site`` it does not
+        # start coverage (~0.2 s a start under pyproject's subprocess patch, for no data).
         class _Stubbed(CanopySidecar):
             def _front_command(self, fd):
-                return [sys.executable, str(deployment.stub), str(deployment.dump), "front",
+                return [sys.executable, "-S", str(deployment.stub), str(deployment.dump), "front",
                         str(fd), front]  # fmt: skip
 
             def _data_command(self, fd):
-                return [sys.executable, str(deployment.stub), str(deployment.dump), "data",
+                return [sys.executable, "-S", str(deployment.stub), str(deployment.dump), "data",
                         str(fd), data]  # fmt: skip
 
         built = _Stubbed(self.root / "agent-data" / user, "", None, payload_dir=self.payload)

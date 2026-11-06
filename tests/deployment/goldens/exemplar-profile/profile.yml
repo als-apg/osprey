@@ -120,7 +120,7 @@ output_styles:
 web_panels:
   - channel-finder  # Interactive channel-finder web UI
   - okf             # KNOWLEDGE tab — browse the facility knowledge bundle
-  - system-health   # SYSTEM tab — framework health dashboard (sidecar-backed)
+  - system-health   # Health tab — framework health dashboard (sidecar-backed)
 
 # ── Virtual Accelerator soft-IOC ─────────────────────────────────────────────
 # A PyAT-backed EPICS Channel Access server standing in for the real machine.
@@ -641,11 +641,8 @@ config:
   services.graphdb.query_max_rows: 200
   artifact_server.host: 127.0.0.1
   artifact_server.auto_launch: true
-  # Seed one shipped example (an interactive plot, synthetic data) into an
-  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
-  artifact_server.example_artifact: true
   # osprey:panel-port system_health
-  # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
+  # The Health tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.
   # health.web.host: 127.0.0.1
   # health.web.port: <a port outside this deployment's block>

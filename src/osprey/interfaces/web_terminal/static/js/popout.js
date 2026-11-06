@@ -1,8 +1,11 @@
 // @ts-check
-/* OSPREY Web Terminal — Pop-out windows
+/* OSPREY Web Terminal — Open in new window
  *
- * The hub side of the pop-out protocol: a service tile moved into its own
- * browser window and brought back when that window closes. The window is a
+ * The hub side of the standalone pop-out protocol ("Open in new window" on a
+ * panel's menus and the palette): a service tile moved into its own
+ * browser window and brought back when that window closes. The tile header's
+ * Pop out button is the other, attached kind (attached-popout.js): the hub
+ * moves the tile's content into a blank window it drives. The window is a
  * popup the hub opens and keeps a handle on, not a detached tab — that handle
  * is what lets the hub keep the window's theme and session in step
  * with its own, bring the window to the front when the operator or the agent
@@ -60,6 +63,7 @@
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { showUndoNotice } from './undo-notice.js';
+import { isAttached, returnAttached } from './attached-window.js';
 
 /**
  * The BroadcastChannel the hub rolls call on. Scoped like a storage key: on a
@@ -202,6 +206,9 @@ export function popOutPanel(panelId) {
   if (windows.has(panelId)) return focusPopout(panelId);
   const url = ctx().popoutUrl(panelId);
   if (url === null) return false;
+  // A panel in an attached window comes back to its tile first: one panel,
+  // one window.
+  if (isAttached(panelId)) returnAttached(panelId);
   const win = window.open(url, WINDOW_NAME_PREFIX + panelId, features(panelId));
   if (!win) {
     showUndoNotice({ message: BLOCKED_MESSAGE });
@@ -209,6 +216,16 @@ export function popOutPanel(panelId) {
   }
   adopt(panelId, win);
   return true;
+}
+
+/**
+ * Put a panel's tile back by the open rule, without a focus report: the
+ * return of a panel from either pop-out whose tile is gone (attached-popout.js
+ * brings its own back through here).
+ * @param {string} panelId
+ */
+export function redockPanel(panelId) {
+  ctx().redock(panelId);
 }
 
 /**

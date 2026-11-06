@@ -1150,6 +1150,37 @@ def normalize_retired_web_keys(raw: dict[str, Any], source: str) -> dict[str, An
     return raw
 
 
+#: The gallery no longer seeds a shipped example artifact, so the key that
+#: switched it on is dropped from a profile that still states it.
+RETIRED_EXAMPLE_ARTIFACT_KEY = "artifact_server.example_artifact"
+
+
+def normalize_retired_example_artifact(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop ``artifact_server.example_artifact`` under ``config:``, in place.
+
+    Every repo materialized from the control-assistant preset states it. Each
+    spelling (and any mapping that empties) warns once per *source* and is
+    dropped.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    for chain in _leaf_spellings(raw.get("config"), RETIRED_EXAMPLE_ARTIFACT_KEY.split(".")):
+        spelled = ": ".join(key for _mapping, key in chain)
+        for mapping, key in reversed(chain):
+            del mapping[key]
+            if mapping:
+                break
+        if (source, spelled) not in _WARNED_RETIRED_KEYS:
+            _WARNED_RETIRED_KEYS.add((source, spelled))
+            _LOGGER.warning("%s: `%s` is no longer read; delete it", source, spelled)
+    return raw
+
+
 #: The retired LATTICE panel's id, and the ``config:`` paths that configured it:
 #: its ``web.panels`` block and the dashboard server's own section.
 RETIRED_PANEL_ID = "lattice"
@@ -1272,6 +1303,7 @@ def _parse_profile_document(text: str, source: str, *, path: Path | None = None)
         normalize_retired_write_keys(raw, source, path=path)
         normalize_retired_approval_policies(raw, source)
         normalize_retired_web_keys(raw, source)
+        normalize_retired_example_artifact(raw, source)
         normalize_retired_panel(raw, source)
         normalize_retired_bar_items(raw, source)
     elif path is not None:

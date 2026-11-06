@@ -152,11 +152,31 @@ function onPointer(key) {
   if (firstLoaded) refresh();
 }
 
+/** The lazily imported panel manager, loaded once. @type {Promise<typeof import('./panel-manager.js')> | null} */
+let panelManager = null;
+
+/**
+ * Hand a transcript move to panel-manager.js, which tells the panels showing
+ * that key (the frame reaches no panel iframe on its own). Imported lazily:
+ * the hub page has the panel manager loaded already, so this resolves to that
+ * instance, while the session model's own module graph stays free of the dock.
+ * @param {string} key
+ */
+function relayToPanels(key) {
+  panelManager ??= import('./panel-manager.js');
+  panelManager
+    .then((m) => m.relayTranscriptMove(key))
+    .catch((err) => console.warn('[session-model] relaying a transcript move failed', err));
+}
+
 /** @param {any} data */
 function onHubFrame(data) {
   if (data?.type === 'session_transcript') {
     if (loaded.some((r) => r.session_key === data.session_key) || data.session_key === getPointer())
       refresh();
+    relayToPanels(data.session_key);
+  } else if (data?.type === 'session_deleted') {
+    forgetSession(data.transcript_id);
   } else if (data?.type === 'session_named') {
     const row = loaded.find((r) => r.transcript_id === data.transcript_id);
     if (!row) return;
@@ -164,6 +184,17 @@ function onHubFrame(data) {
     row.naming = data.naming;
     notify('named');
   }
+}
+
+/**
+ * Drop a deleted session's row (the delete's answer, or a `session_deleted`
+ * frame from another tab's delete).
+ * @param {string} transcriptId
+ */
+export function forgetSession(transcriptId) {
+  const before = loaded.length;
+  loaded = loaded.filter((r) => r.transcript_id !== transcriptId);
+  if (loaded.length !== before) notify('rows');
 }
 
 /**
@@ -195,6 +226,17 @@ export function activeRow() {
       synthesized: true,
     }
   );
+}
+
+/**
+ * Whether `transcript` is the active row's transcript. A missing transcript,
+ * or an active row without one (synthesized, or no session at all), never is.
+ * @param {string | null | undefined} transcript
+ * @returns {boolean}
+ */
+export function isActiveTranscript(transcript) {
+  const active = activeRow()?.transcript_id ?? null;
+  return active !== null && transcript === active;
 }
 
 /** Whether more sessions wait behind `next_cursor`. */

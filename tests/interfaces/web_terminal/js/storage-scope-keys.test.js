@@ -143,9 +143,7 @@ describe('sidebar.js open lists', () => {
     document.body.innerHTML = `
       <nav id="sidebar">
         <div class="sidebar-row" id="sidebar-agent-wrap">
-          <button class="osprey-nav-row parent" id="sidebar-agent-row" type="button">
-            <svg data-disc></svg>
-          </button>
+          <button class="osprey-nav-row parent" id="sidebar-agent-row" type="button"></button>
           <div class="sidebar-kids" id="sidebar-session-tree" data-session-tree></div>
         </div>
       </nav>`;
@@ -159,11 +157,12 @@ describe('sidebar.js open lists', () => {
     return !tree.hidden;
   }
 
-  /** Toggle the tree with the Agent row's chevron. */
+  /** Toggle the tree from the Agent row's keyboard: ArrowLeft closes it, ArrowRight opens it. */
   function toggleTree() {
+    const key = isOpen() ? 'ArrowLeft' : 'ArrowRight';
     document
-      .querySelector('#sidebar-agent-row [data-disc]')
-      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      .querySelector('#sidebar-agent-row')
+      ?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   }
 
   test('the key is the one this block pins', () => {
@@ -276,15 +275,24 @@ describe('sidebar-artifacts.js tree mode', () => {
     serveAs('bob');
     mod.initSidebarArtifacts();
 
-    mod.setTreeView('activity');
+    mod.setTreeView('kind');
 
-    expect(mod.treeView()).toBe('activity');
-    expect(localStorage.getItem(`${BASE}--bob`)).toBe('activity');
+    expect(mod.treeView()).toBe('kind');
+    expect(localStorage.getItem(`${BASE}--bob`)).toBe('kind');
     expect(localStorage.getItem(BASE)).toBe(null);
   });
 
   test("another user's mode is never read", () => {
-    localStorage.setItem(BASE, 'activity');
+    localStorage.setItem(BASE, 'kind');
+    serveAs('bob');
+
+    mod.initSidebarArtifacts();
+
+    expect(mod.treeView()).toBe('activity');
+  });
+
+  test("bob's own mode is", () => {
+    localStorage.setItem(`${BASE}--bob`, 'kind');
     serveAs('bob');
 
     mod.initSidebarArtifacts();
@@ -292,21 +300,12 @@ describe('sidebar-artifacts.js tree mode', () => {
     expect(mod.treeView()).toBe('kind');
   });
 
-  test("bob's own mode is", () => {
-    localStorage.setItem(`${BASE}--bob`, 'activity');
-    serveAs('bob');
-
-    mod.initSidebarArtifacts();
-
-    expect(mod.treeView()).toBe('activity');
-  });
-
   test('unscoped serving still writes the legacy key', () => {
     mod.initSidebarArtifacts();
 
-    mod.setTreeView('activity');
+    mod.setTreeView('kind');
 
-    expect(localStorage.getItem(BASE)).toBe('activity');
+    expect(localStorage.getItem(BASE)).toBe('kind');
   });
 });
 

@@ -21,10 +21,14 @@ row is not appended, so a hook reporting the same transcript every turn costs no
 write. :func:`append` answers whether it wrote, which is what lets each write
 point send exactly one ``session_transcript`` frame per actual move.
 
+**One exception to append-only.** Deleting a session takes its transcript out of
+the operator's history: :func:`remove_transcript` drops every row naming it, and
+the session meta's tombstone keeps it from being written back.
+
 **A damaged file is not an outage.** :func:`load` answers an empty ledger for a
 file that is unreadable, not JSON or the wrong shape, and logs it; the next
-:func:`append` rewrites the file whole from what survived. Ownership then falls
-back to "Earlier" for the affected artifacts rather than failing a listing.
+:func:`append` rewrites the file whole from what survived. The affected
+artifacts then have no owner rather than failing a listing.
 """
 
 from __future__ import annotations
@@ -52,6 +56,8 @@ __all__ = [
     "exists",
     "ledger_path",
     "load",
+    "load_checked",
+    "remove_transcript",
     "write_empty",
 ]
 
@@ -160,27 +166,44 @@ def load(state_dir: Path | None) -> Ledger:
     logged: the next :func:`append` rewrites it. Malformed rows inside a good
     document are dropped one by one, so one bad row does not cost the rest.
     """
+    return _read(state_dir)[0]
+
+
+def load_checked(state_dir: Path | None) -> tuple[Ledger, bool]:
+    """``(ledger, available)`` for the ledger under *state_dir*; never raises.
+
+    The reader for callers that must not mistake an unreadable ledger for an
+    empty one (an empty ledger silently re-owns every artifact). No location, a
+    file that cannot be read, is not JSON or has no ``rows`` list answers an
+    empty ledger and ``False``. A missing file is an empty, available ledger: no
+    session has been recorded yet. A good document answers its rows and ``True``,
+    malformed rows dropped one by one as in :func:`load`.
+    """
+    return _read(state_dir, no_location_available=False)
+
+
+def _read(state_dir: Path | None, *, no_location_available: bool = True) -> tuple[Ledger, bool]:
     path = ledger_path(state_dir)
     if path is None:
-        return Ledger()
+        return Ledger(), no_location_available
     try:
         text = path.read_text()
     except FileNotFoundError:
-        return Ledger()
+        return Ledger(), True
     except OSError:
         logger.warning("The session ledger at %s cannot be read; treating it as empty", path)
-        return Ledger()
+        return Ledger(), False
     try:
         document = json.loads(text)
     except ValueError:
         logger.warning("The session ledger at %s is not JSON; treating it as empty", path)
-        return Ledger()
+        return Ledger(), False
     raw_rows = document.get("rows") if isinstance(document, dict) else None
     if not isinstance(raw_rows, list):
         logger.warning("The session ledger at %s has no rows list; treating it as empty", path)
-        return Ledger()
+        return Ledger(), False
     rows = tuple(row for row in (_row(raw) for raw in raw_rows) if row is not None)
-    return Ledger(rows)
+    return Ledger(rows), True
 
 
 def _write(path: Path, rows: Sequence[LedgerRow]) -> None:
@@ -243,6 +266,29 @@ def append(
     """
     stamp = datetime.now(UTC) if from_ts is None else from_ts
     return bool(append_many(state_dir, [(key, transcript_id, stamp)]))
+
+
+def remove_transcript(state_dir: Path | None, transcript_id: str) -> int:
+    """Drop every row naming *transcript_id* (a deleted session); the count dropped.
+
+    Each key keeps its other rows, so a key that left the transcript is current
+    for its later one, and one that had moved to it is current for its earlier
+    one again. A failed write is logged and answers ``0``.
+    """
+    path = ledger_path(state_dir)
+    if path is None or not transcript_id:
+        return 0
+    with _WRITE_LOCK:
+        rows = list(load(state_dir).rows)
+        kept = [row for row in rows if row.transcript_id != transcript_id]
+        if len(kept) == len(rows):
+            return 0
+        try:
+            _write(path, kept)
+        except OSError:
+            logger.warning("Could not persist the session ledger to %s", path, exc_info=True)
+            return 0
+    return len(rows) - len(kept)
 
 
 def write_empty(state_dir: Path | None) -> bool:

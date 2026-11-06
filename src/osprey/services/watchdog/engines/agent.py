@@ -106,7 +106,7 @@ _RUN_ENV_OVERLAY: Mapping[str, str] = {
     "OSPREY_PANEL_TOKEN": "",
     WATCHDOG_SKIP_ENV_VAR: "1",
     # Every artifact the judge saves is stamped ``origin="watchdog"`` and kept out
-    # of the operator's session tree, counts and Earlier.
+    # of the operator's session tree and its counts.
     "OSPREY_ARTIFACT_ORIGIN": "watchdog",
 }
 

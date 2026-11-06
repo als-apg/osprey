@@ -10,10 +10,11 @@
  * rendered text is the fallback when no source was captured.
  *
  * The conversation. The "Export conversation (Markdown)" row in the Agent
- * pane's ⋯ (agent-menu.js) downloads the whole transcript. It is read from the
- * server with fetchHistory, not taken from the log, so it is complete even when
- * the page joined the conversation part-way. Each tool call is one line with
- * its decision and outcome, and no payloads.
+ * pane's ⋯ (agent-menu.js) downloads the whole transcript through
+ * {@link exportConversation}. It is read from the server with fetchHistory,
+ * not taken from the log, so it is complete even when the page joined the
+ * conversation part-way. Each tool call is one line with its decision and
+ * outcome, and no payloads.
  *
  * Text from the wire goes in with textContent, and nothing here writes markup.
  *
@@ -89,8 +90,35 @@ function downloadText(name, text) {
 }
 
 /**
- * Start the copy control on finished replies and the export row in the Agent
- * pane's ⋯. Called once by initChatFeatures.
+ * The export of the conversation on screen, once {@link initChatExport} has
+ * run; null before (no console, nothing to export).
+ * @type {(() => Promise<void>) | null}
+ */
+let exporter = null;
+
+/** True while an export is fetching, so a second pick waits for none. */
+let exporting = false;
+
+/**
+ * Download the conversation on screen as Markdown — the Agent pane's Export
+ * conversation row. A failure says so in the log. No-op before the console
+ * exists and while an export is under way.
+ * @returns {Promise<void>}
+ */
+export async function exportConversation() {
+  if (!exporter || exporting) return;
+  exporting = true;
+  try {
+    await exporter();
+  } finally {
+    exporting = false;
+  }
+}
+
+/**
+ * Start the copy control on finished replies, arm {@link exportConversation}
+ * and register the export row in the Agent pane's ⋯. Called once by
+ * initChatFeatures.
  * @param {Pick<ChatFeatureContext, 'messages' | 'getKey'>} ctx
  */
 export function initChatExport(ctx) {
@@ -271,9 +299,6 @@ export function initChatExport(ctx) {
 
   // ---- The conversation, as a file ---- //
 
-  /** Whether an export is reading the transcript; the row waits for it. */
-  let exporting = false;
-
   // The export reads the chat console's conversation, so the row is inert
   // while the pane shows the terminal.
   setAgentMenuRow('export', () => ({
@@ -282,9 +307,8 @@ export function initChatExport(ctx) {
     run: () => void exportConversation(),
   }));
 
-  async function exportConversation() {
+  exporter = async () => {
     const key = ctx.getKey();
-    exporting = true;
     try {
       const now = new Date();
       const turns = await fetchHistory(key);
@@ -293,10 +317,8 @@ export function initChatExport(ctx) {
       const text = 'Could not export the conversation.';
       ctx.messages.append(elem('div', 'op-system', text));
       emitChat('notice', { text });
-    } finally {
-      exporting = false;
     }
-  }
+  };
 }
 
 /**
