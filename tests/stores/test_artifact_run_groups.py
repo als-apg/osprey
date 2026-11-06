@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from osprey.stores.artifact_scope import SessionScope
 from osprey.stores.artifact_store import (
     RUN_RECORD_KEY,
     ArtifactEntry,
@@ -20,9 +21,20 @@ from osprey.stores.artifact_store import (
     listed_form,
     run_parts,
 )
+from osprey.stores.session_ledger import EPOCH, Ledger, LedgerRow
 from osprey.stores.type_registry import ExtensionType
 
 EXEC = "toolu_run1"
+SESSION_KEY = "11111111-1111-4111-8111-111111111111"
+TRANSCRIPT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+
+@pytest.fixture
+def owner(monkeypatch) -> SessionScope:
+    """The web session every entry saved from here on is tagged with."""
+    monkeypatch.setenv("OSPREY_SESSION_ID", SESSION_KEY)
+    ledger = Ledger(rows=(LedgerRow(SESSION_KEY, TRANSCRIPT, EPOCH),))
+    return SessionScope(kind="web", transcript=TRANSCRIPT, ledger=ledger)
 
 
 def _preview(store: ArtifactStore, exec_id: str = EXEC, **metadata) -> ArtifactEntry:
@@ -178,11 +190,53 @@ class TestListedForm:
         group = store.run_group(EXEC)
         assert (listed_form(p, group), listed_form(n, group)) == ("runs", None)
 
-    def test_a_kind_lists_under_its_base_form(self, store):
+    def test_a_registered_kind_lists_under_its_key(self, store):
         o = _output(store, kind="lattice", metadata={"run_part": "output"})
         registry = {"lattice": ExtensionType("lattice", "Lattice", "tables")}
-        assert listed_form(o, store.run_group(EXEC), registry) == "tables"
+        assert listed_form(o, store.run_group(EXEC), registry) == "lattice"
         assert listed_form(o, store.run_group(EXEC), {}) == "images"
+
+    def test_an_ungrouped_registered_kind_lists_under_its_key(self, store):
+        e = store.save_file(b"{}", "l.json", "json", "Lattice", kind="lattice")
+        registry = {"lattice": ExtensionType("lattice", "Lattice", "tables")}
+        assert listed_form(e, None, registry) == "lattice"
+
+    def test_an_unregistered_kind_lists_under_its_intrinsic_form(self, store):
+        e = store.save_file(b"{}", "l.json", "json", "Lattice", kind="lattice")
+        registry = {"other": ExtensionType("other", "Other", "tables")}
+        assert listed_form(e, None, registry) == "data"
+        assert listed_form(e, None, None) == "data"
+
+    @pytest.mark.parametrize("base_form", ["runs", "widgets"])
+    def test_a_kind_declaring_runs_or_an_unknown_form_lists_intrinsically(self, store, base_form):
+        e = store.save_file(b"{}", "l.json", "json", "Lattice", kind="lattice")
+        registry = {"lattice": {"label": "Lattice", "base_form": base_form}}
+        assert listed_form(e, None, registry) == "data"
+
+    def test_a_run_head_of_a_registered_kind_is_a_run(self, store):
+        _preview(store)
+        r = _result(store, run_status="succeeded")
+        r.kind = "lattice"
+        registry = {"lattice": ExtensionType("lattice", "Lattice", "tables")}
+        assert listed_form(r, store.run_group(EXEC), registry) == "runs"
+
+    def test_a_run_part_of_a_registered_kind_stays_a_part(self, store):
+        p = _preview(store)
+        n = _notebook(store)
+        _result(store, run_status="succeeded")
+        n.kind = "lattice"
+        registry = {"lattice": ExtensionType("lattice", "Lattice", "tables")}
+        group = store.run_group(EXEC)
+        assert listed_form(p, group, registry) is None
+        assert listed_form(n, group, registry) is None
+
+    def test_a_get_only_registry_works(self, store):
+        class GetOnly:
+            def get(self, key):
+                return {"base_form": "tables", "label": "Lattice"} if key == "lattice" else None
+
+        e = store.save_file(b"{}", "l.json", "json", "Lattice", kind="lattice")
+        assert listed_form(e, None, GetOnly()) == "lattice"
 
     def test_a_legacy_triple_is_one_run_and_two_documents(self, store):
         preview = store.save_file(
@@ -215,6 +269,18 @@ class TestListedForm:
         page = store.page_entries(limit=10, form_filter="runs", registry={})
         assert (page.total, [e.id for e in page.entries]) == (1, [r.id])
 
+    def test_form_filter_by_kind_not_base_form(self, store):
+        lat = store.save_file(b"{}", "l.json", "json", "Lattice", kind="lattice")
+        table = store.save_file(b"<t/>", "t.html", "table_html", "Table")
+        registry = {"lattice": ExtensionType("lattice", "Lattice", "tables")}
+        assert [e.id for e in store.list_entries(form_filter="lattice", registry=registry)] == [
+            lat.id
+        ]
+        assert [e.id for e in store.list_entries(form_filter="tables", registry=registry)] == [
+            table.id
+        ]
+        assert [e.id for e in store.list_entries(form_filter="data", registry={})] == [lat.id]
+
 
 class TestDelete:
     def test_deleting_a_head_deletes_the_group(self, store):
@@ -241,18 +307,26 @@ class TestDelete:
     def test_an_unknown_id_deletes_nothing(self, store):
         assert store.delete_with_group("nope") == []
 
-    def test_delete_form_runs_takes_whole_groups(self, store):
+    def test_delete_owned_runs_takes_whole_groups(self, store, owner):
         _preview(store)
         _output(store)
         _result(store, run_status="succeeded")
         doc = store.save_file(b"# x", "x.md", "markdown", "Notes")
-        removed = store.delete_form("runs", registry={})
+        removed = store.delete_owned(owner, "runs", registry={})
         assert len(removed) == 3
         assert [e.id for e in store.list_entries()] == [doc.id]
 
-    def test_delete_form_of_outputs_leaves_their_run(self, store):
+    def test_delete_owned_of_a_kind_takes_only_that_kind(self, store, owner):
+        lat = store.save_file(b"{}", "l.json", "json", "Lattice", kind="lattice")
+        table = store.save_file(b"<t/>", "t.html", "table_html", "Table")
+        registry = {"lattice": ExtensionType("lattice", "Lattice", "tables")}
+        assert store.delete_owned(owner, "tables", registry=registry) == [table]
+        assert [e.id for e in store.delete_owned(owner, "lattice", registry=registry)] == [lat.id]
+        assert store.list_entries() == []
+
+    def test_delete_owned_of_outputs_leaves_their_run(self, store, owner):
         p = _preview(store)
         _output(store)
-        removed = store.delete_form("plots", registry={})
+        removed = store.delete_owned(owner, "plots", registry={})
         assert len(removed) == 1
         assert [e.id for e in store.list_entries()] == [p.id]

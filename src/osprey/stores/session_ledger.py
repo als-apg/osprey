@@ -52,6 +52,7 @@ __all__ = [
     "exists",
     "ledger_path",
     "load",
+    "load_checked",
     "write_empty",
 ]
 
@@ -160,27 +161,44 @@ def load(state_dir: Path | None) -> Ledger:
     logged: the next :func:`append` rewrites it. Malformed rows inside a good
     document are dropped one by one, so one bad row does not cost the rest.
     """
+    return _read(state_dir)[0]
+
+
+def load_checked(state_dir: Path | None) -> tuple[Ledger, bool]:
+    """``(ledger, available)`` for the ledger under *state_dir*; never raises.
+
+    The reader for callers that must not mistake an unreadable ledger for an
+    empty one (an empty ledger silently re-owns every artifact). No location, a
+    file that cannot be read, is not JSON or has no ``rows`` list answers an
+    empty ledger and ``False``. A missing file is an empty, available ledger: no
+    session has been recorded yet. A good document answers its rows and ``True``,
+    malformed rows dropped one by one as in :func:`load`.
+    """
+    return _read(state_dir, no_location_available=False)
+
+
+def _read(state_dir: Path | None, *, no_location_available: bool = True) -> tuple[Ledger, bool]:
     path = ledger_path(state_dir)
     if path is None:
-        return Ledger()
+        return Ledger(), no_location_available
     try:
         text = path.read_text()
     except FileNotFoundError:
-        return Ledger()
+        return Ledger(), True
     except OSError:
         logger.warning("The session ledger at %s cannot be read; treating it as empty", path)
-        return Ledger()
+        return Ledger(), False
     try:
         document = json.loads(text)
     except ValueError:
         logger.warning("The session ledger at %s is not JSON; treating it as empty", path)
-        return Ledger()
+        return Ledger(), False
     raw_rows = document.get("rows") if isinstance(document, dict) else None
     if not isinstance(raw_rows, list):
         logger.warning("The session ledger at %s has no rows list; treating it as empty", path)
-        return Ledger()
+        return Ledger(), False
     rows = tuple(row for row in (_row(raw) for raw in raw_rows) if row is not None)
-    return Ledger(rows)
+    return Ledger(rows), True
 
 
 def _write(path: Path, rows: Sequence[LedgerRow]) -> None:

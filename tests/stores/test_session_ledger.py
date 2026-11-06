@@ -112,6 +112,59 @@ class TestCorruptFile:
         assert list(session_ledger.load(tmp_path).rows) == [(KEY, T1, AT_1), (KEY, T2, AT_2)]
 
 
+class TestLoadChecked:
+    """``load_checked``: the ledger plus whether it could be read at all.
+
+    The hub's artifacts app and the agent's MCP processes share this reader;
+    an unreadable document must answer *unavailable*, never an empty ledger
+    that would silently re-own every artifact.
+    """
+
+    def test_no_location_is_unavailable(self):
+        ledger, available = session_ledger.load_checked(None)
+        assert list(ledger.rows) == []
+        assert available is False
+
+    def test_a_missing_file_is_an_empty_available_ledger(self, tmp_path):
+        ledger, available = session_ledger.load_checked(tmp_path)
+        assert list(ledger.rows) == []
+        assert available is True
+
+    @pytest.mark.parametrize("text", ["{not json", '{"other": []}', "[]", '{"rows": {}}'])
+    def test_a_damaged_file_is_unavailable(self, tmp_path, text):
+        (tmp_path / session_ledger.STORE_FILENAME).write_text(text)
+        ledger, available = session_ledger.load_checked(tmp_path)
+        assert list(ledger.rows) == []
+        assert available is False
+
+    def test_an_os_error_on_read_is_unavailable(self, tmp_path):
+        # A directory where the file should be: read_text raises an OSError
+        # (IsADirectoryError) that is not FileNotFoundError.
+        (tmp_path / session_ledger.STORE_FILENAME).mkdir()
+        ledger, available = session_ledger.load_checked(tmp_path)
+        assert list(ledger.rows) == []
+        assert available is False
+
+    def test_a_good_file_answers_its_rows_and_available(self, tmp_path):
+        session_ledger.append(tmp_path, KEY, T1, AT_1)
+        session_ledger.append(tmp_path, KEY, T2, AT_2)
+        ledger, available = session_ledger.load_checked(tmp_path)
+        assert available is True
+        assert list(ledger.rows) == [(KEY, T1, AT_1), (KEY, T2, AT_2)]
+
+    def test_malformed_rows_in_a_good_document_stay_available(self, tmp_path):
+        (tmp_path / session_ledger.STORE_FILENAME).write_text(
+            json.dumps({"rows": [[KEY, T1, AT_1], ["bad"]]})
+        )
+        ledger, available = session_ledger.load_checked(tmp_path)
+        assert available is True
+        assert list(ledger.rows) == [(KEY, T1, AT_1)]
+
+    def test_load_still_answers_the_same_ledger(self, tmp_path):
+        session_ledger.append(tmp_path, KEY, T1, AT_1)
+        assert session_ledger.load(tmp_path) == session_ledger.load_checked(tmp_path)[0]
+
+
 class TestLookups:
     def _ledger(self, tmp_path):
         session_ledger.append_many(
