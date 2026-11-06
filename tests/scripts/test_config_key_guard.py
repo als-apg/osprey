@@ -368,11 +368,18 @@ def test_the_manifest_is_not_scanned_as_source(monkeypatch):
         guard_module._TEXT_CACHE.clear()
 
 
+# The orphan-site controls below replace the manifest's sites with their
+# synthetic one, so the check scans only what the control is about; the real
+# sites' green verdict is test_guard_is_green_on_this_tree's.
+
+
 def test_mode_4_orphan_site_regex_matching_again_goes_red():
     def resurrect_a_code_site(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
+            ]
+        }
 
     guard = make_guard(resurrect_a_code_site)
     guard.check_orphan_sites()
@@ -389,16 +396,18 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
     """
 
     def resurrect_under_the_second_root(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {
-                "root": [
-                    "src/osprey/templates",
-                    "packages/osprey-connectors/src/osprey_connectors",
-                ],
-                "regex": "class MockArchiverConnector",
-                "why": "negative control: matches only under the connectors root",
-            }
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {
+                    "root": [
+                        "src/osprey/templates",
+                        "packages/osprey-connectors/src/osprey_connectors",
+                    ],
+                    "regex": "class MockArchiverConnector",
+                    "why": "negative control: matches only under the connectors root",
+                }
+            ]
+        }
 
     guard = make_guard(resurrect_under_the_second_root)
     guard.check_orphan_sites()
@@ -1047,9 +1056,11 @@ def test_resurrected_absent_path_goes_red():
 
 def test_missing_orphan_site_root_goes_red():
     def name_a_root_that_is_gone(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
+            ]
+        }
 
     guard = make_guard(name_a_root_that_is_gone)
     guard.check_orphan_sites()
