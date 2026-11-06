@@ -7,8 +7,9 @@ Covers:
     honours the sentinel
   - the gallery app seeds only when ``artifact_server.example_artifact`` is on
   - the human DELETE route makes the removal stick across app restarts
-  - every agent-facing listing (artifact_list, session_summary, the run
-    descriptor, the web terminal's session summary) skips the example
+  - every agent-facing listing (artifact_list in both scopes and its form
+    totals, the run descriptor, the web terminal's session summary) skips the
+    example
 """
 
 from __future__ import annotations
@@ -117,7 +118,9 @@ class TestStoreExampleOrigin:
             title="Example",
             origin=EXAMPLE_ORIGIN,
         )
-        store.delete_everything()
+        # The example carries no category, so the legacy bulk clear of
+        # uncategorised entries takes it.
+        assert [e.title for e in store.delete_category("")] == ["Example"]
         assert store.example_removed
 
     def test_deleting_an_example_by_id_list_writes_the_sentinel(self, tmp_path):
@@ -274,6 +277,23 @@ class TestGalleryAppSeeding:
 # ---------------------------------------------------------------------------
 
 
+def _own_everything(store: ArtifactStore, tmp_path: Path, monkeypatch) -> str:
+    """Tag every entry, the example included, with one session key the hub
+    ledger records; returns the key. The listings must still skip the example."""
+    from osprey.stores import session_ledger
+    from osprey_connectors import posture_store
+
+    key = "11111111-1111-4111-8111-111111111111"
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state))
+    posture_store.invalidate_cache()
+    assert session_ledger.append(state, key, key, "2000-01-01T00:00:00+00:00")
+    for entry in store.list_entries():
+        store.update_entry_metadata(entry.id, session_id=key)
+    return key
+
+
 @pytest.fixture
 def seeded_store(tmp_path):
     store = initialize_artifact_store(workspace_root=tmp_path)
@@ -283,22 +303,27 @@ def seeded_store(tmp_path):
 
 
 class TestAgentFacingListingsSkipTheExample:
-    @pytest.mark.usefixtures("seeded_store")
     @pytest.mark.asyncio
-    async def test_artifact_list_tool(self):
+    async def test_artifact_list_tool(self, seeded_store, tmp_path, monkeypatch):
         from osprey.mcp_server.workspace.tools.artifact_query import artifact_list
 
-        result = json.loads(await get_tool_fn(artifact_list)())
-        assert [e["title"] for e in result["entries"]] == ["Real work"]
-        assert result["total_entries"] == 1
+        key = _own_everything(seeded_store, tmp_path, monkeypatch)
+        monkeypatch.setenv("OSPREY_SESSION_ID", key)
+        for scope in ("session", "all"):
+            result = json.loads(await get_tool_fn(artifact_list)(scope=scope))
+            assert [e["title"] for e in result["entries"]] == ["Real work"], scope
 
-    @pytest.mark.usefixtures("seeded_store")
     @pytest.mark.asyncio
-    async def test_session_summary_tool(self):
-        from osprey.mcp_server.workspace.tools.session_summary import session_summary
+    async def test_artifact_list_form_totals(self, seeded_store, tmp_path, monkeypatch):
+        """The counts the agent reads skip the example too, in both scopes."""
+        from osprey.mcp_server.workspace.tools.artifact_query import artifact_list
 
-        result = json.loads(await get_tool_fn(session_summary)())
-        assert [e["title"] for e in result["entries"]] == ["Real work"]
+        key = _own_everything(seeded_store, tmp_path, monkeypatch)
+        monkeypatch.setenv("OSPREY_SESSION_ID", key)
+        for scope in ("session", "all"):
+            result = json.loads(await get_tool_fn(artifact_list)(scope=scope))
+            assert sum(f["count"] for f in result["form_totals"]) == 1, scope
+            assert result["total"] == 1, scope
 
     def test_run_descriptor(self, seeded_store, monkeypatch):
         from osprey.agent_runner import artifact_resolve
@@ -316,15 +341,17 @@ class TestAgentFacingListingsSkipTheExample:
         described = artifact_resolve.describe_run_artifacts("run-1")
         assert [d["artifact_id"] for d in described] == [produced.id]
 
-    @pytest.mark.usefixtures("seeded_store")
-    def test_web_terminal_session_summary_route(self, tmp_path):
+    def test_web_terminal_session_page_route(self, seeded_store, tmp_path, monkeypatch):
         from fastapi import FastAPI
 
         from osprey.interfaces.web_terminal.routes.session import router
+        from osprey_connectors import posture_store
 
+        key = _own_everything(seeded_store, tmp_path, monkeypatch)
         app = FastAPI()
         app.include_router(router)
         app.state.workspace_dir = tmp_path
-        resp = TestClient(app).get("/api/session-summary")
+        resp = TestClient(app).get("/api/session-summary", params={"session_id": key})
+        posture_store.invalidate_cache()
         assert resp.status_code == 200
         assert [e["title"] for e in resp.json()["entries"]] == ["Real work"]

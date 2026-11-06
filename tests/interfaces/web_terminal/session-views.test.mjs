@@ -288,6 +288,20 @@ describe('session-views renderers', () => {
       await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue({ entries: [] }) }));
       expect(byId('view-artifacts').textContent).toContain('NO ARTIFACTS');
     });
+
+    test('says why it is empty when the server gives a reason', async () => {
+      const data = { entries: [], reason: 'this session has no transcript recorded yet' };
+      await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue(data) }));
+      const text = byId('view-artifacts').textContent;
+      expect(text).toContain('NO ARTIFACTS');
+      expect(text).toContain('this session has no transcript recorded yet');
+    });
+
+    test('escapes the server reason', async () => {
+      const data = { entries: [], reason: '<img src=x onerror=alert(1)>' };
+      await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue(data) }));
+      expect(byId('view-artifacts').querySelector('img')).toBeNull();
+    });
   });
 
   describe('renderConversation', () => {
