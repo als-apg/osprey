@@ -509,3 +509,23 @@ async def test_a_partial_reprobe_keeps_a_shared_row_and_all_its_consumers() -> N
         "warning",
     )
     assert set(row["used_by"]) == {"graph store service", "graph MCP server", "channel finder"}
+
+
+async def test_a_partial_reprobe_does_not_add_a_second_baseline_banner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from osprey.health.runtime import BASELINE_ROW_CATEGORY, BASELINE_ROW_NAME, HealthRuntime
+
+    banner = CheckResult(BASELINE_ROW_NAME, BASELINE_ROW_CATEGORY, Status.SKIP, "switched")
+    monkeypatch.setattr(HealthRuntime, "baseline_pinned_row", lambda _self: banner)
+    counts: dict[str, int] = {}
+    loaded = _loaded(_settings())._replace(records=_counting_records(counts))
+    engine, _ = _engine(_FakeLoader(loaded))
+    engine.get_checks()
+    await _drain(engine)
+
+    await engine.reprobe(checks=["a.row"])
+    env = await engine.reprobe(checks=["b.row"])
+
+    names = [r["name"] for r in env["results"]]
+    assert names.count(BASELINE_ROW_NAME) == 1

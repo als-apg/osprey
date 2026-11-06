@@ -65,6 +65,7 @@ from osprey.health.dedupe import SHARED_PROBES, fold_shared
 from osprey.health.layout import build_layers
 from osprey.health.models import CheckReport
 from osprey.health.refresh import run_poll_refresh
+from osprey.health.runtime import BASELINE_ROW_NAME
 from osprey.health.signatures import disk_signature as _resolve_disk_signature
 
 if TYPE_CHECKING:
@@ -400,10 +401,16 @@ class HealthCheckEngine:
     def _merged(self, part: CheckReport, categories: set[str]) -> CheckReport:
         """The cached report with *categories*' rows replaced by *part*'s, in place."""
         assert self._report is not None
-        fresh = list(part.results)
-        merged: list[Any] = []
+        # The baseline banner is decided by each run, slices included: the one
+        # this slice carries (or its absence) replaces the cached one, and it
+        # leads the report.
+        banner = [r for r in part.results if r.name == BASELINE_ROW_NAME]
+        fresh = [r for r in part.results if r.name != BASELINE_ROW_NAME]
+        merged: list[Any] = list(banner)
         inserted = False
         for row in self._report.results:
+            if row.name == BASELINE_ROW_NAME:
+                continue
             if row.category in categories:
                 if not inserted:
                     merged.extend(fresh)
