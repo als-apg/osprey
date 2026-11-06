@@ -1188,9 +1188,6 @@ keys:
   control_system.read_inline_max_elements:
     evidence: '"control_system\.read_inline_max_elements"'
     default: 2000
-  control_system.channel_read_artifact_retention:
-    evidence: '"control_system\.channel_read_artifact_retention"'
-    default: 20
   control_system.connector: {covered-by: control_system, default: n/a}
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
@@ -3767,6 +3764,8 @@ deleted:
   # carries one.
 - modules.web_terminals.personas  # retired-spelling
 - modules.web_terminals.default_persona  # retired-spelling
+  # OSPREY no longer deletes channel readings, so no window bounds them.
+- control_system.channel_read_artifact_retention
 
 # ---------------------------------------------------------------------------
 # orphan_sites — per deleted key, regexes for its removed code sites. Every
@@ -4183,7 +4182,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 364
+  expected_union_size: 363
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

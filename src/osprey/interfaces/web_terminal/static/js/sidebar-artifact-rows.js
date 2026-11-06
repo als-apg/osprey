@@ -121,6 +121,24 @@ export function rowIn(list, id) {
   return null;
 }
 
+/**
+ * What holds the focus in a tree, as a function that gives it back after the
+ * tree's rows are redrawn: an artifact row or a session's pin button.
+ * @param {HTMLElement} tree
+ * @returns {() => void}
+ */
+export function keepFocus(tree) {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement) || !tree.contains(el)) return () => {};
+  const { id, treePin } = el.dataset;
+  return () => {
+    const next = treePin
+      ? tree.querySelector(`[data-tree-pin="${CSS.escape(treePin)}"]`)
+      : id && rowIn(tree, id);
+    if (next instanceof HTMLElement) next.focus({ preventScroll: true });
+  };
+}
+
 /* ------------------------------------------------------------------------ */
 /* The session tree                                                          */
 /* ------------------------------------------------------------------------ */
@@ -249,14 +267,30 @@ export function allSessionsClick() {
  * switch to it is under way. `.is-busy` marks the session the agent is
  * working in: its bar breathes. A folded row's title names the peek
  * (sidebar-session-peek.js) in `aria-controls`.
+ *
+ * A row with a transcript ends in a pin button (`data-tree-pin`), shown in
+ * the count's place while the row is hovered or holds focus; on a pinned row
+ * it is pressed and unpins. A pinned row in the session list (not in the
+ * pinned group, `where: 'pinned'`) shows a pin marker at rest. `data-where`
+ * says which copy a row is.
  * @param {SessionRow} session
  * @param {{active: boolean, open: boolean, count: number, summarized?: boolean,
- *   accent?: boolean, busy?: boolean}} options
+ *   accent?: boolean, busy?: boolean,
+ *   pinned?: string | null, where?: 'sessions' | 'pinned'}} options
  * @returns {HTMLElement}
  */
 export function sessionRow(
   session,
-  { active, open, count, summarized = false, accent = active, busy = false }
+  {
+    active,
+    open,
+    count,
+    summarized = false,
+    accent = active,
+    busy = false,
+    pinned = null,
+    where = 'sessions',
+  }
 ) {
   const pending = session.naming === 'pending';
   const title = treeSpan(
@@ -275,7 +309,47 @@ export function sessionRow(
   if (!open) title.setAttribute('aria-controls', SESSION_PEEK_ID);
   if (summarized) row.dataset.count = String(count);
   if (pending && session.title) row.append(treeSpan('osprey-tree-naming', 'naming…'));
+  row.dataset.where = where;
+  if (pinned) row.dataset.pinned = pinned;
+  if (pinned && where !== 'pinned') {
+    const mark = icon('pin');
+    mark.classList.add('osprey-tree-pin-mark');
+    row.append(mark);
+  }
   row.append(treeSpan('osprey-tree-n', String(count)));
+  if (session.transcript_id) row.append(pinButton(session.transcript_id, Boolean(pinned)));
+  return row;
+}
+
+/**
+ * A session row's pin button: pressed on a pinned row, where it unpins.
+ * `data-tree-pin` names the session, so a redraw can give the focus back.
+ * @param {string} transcriptId
+ * @param {boolean} pinned
+ * @returns {HTMLButtonElement}
+ */
+function pinButton(transcriptId, pinned) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'osprey-tree-pin';
+  button.dataset.treePin = transcriptId;
+  button.setAttribute('aria-pressed', String(pinned));
+  const label = pinned ? 'Unpin' : 'Pin';
+  button.setAttribute('aria-label', `${label} session`);
+  button.dataset.tip = label;
+  button.append(icon('pin'));
+  return button;
+}
+
+/**
+ * A heading inside a tree (the collapsed sidebar's flyout names its pinned
+ * sessions and then the rest).
+ * @param {string} text
+ * @returns {HTMLElement}
+ */
+export function labelRow(text) {
+  const row = plainRow('osprey-tree-day osprey-tree-d0 osprey-tree-label-row', text);
+  row.dataset.treeLabel = '';
   return row;
 }
 

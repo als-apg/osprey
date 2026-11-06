@@ -78,7 +78,7 @@ function makeArtifact(id) {
 
 /** One spy per action the viewer routes. */
 function makeActions() {
-  return { pin: vi.fn(), unpin: vi.fn(), print: vi.fn(), logbook: vi.fn(), delete: vi.fn() };
+  return { print: vi.fn(), logbook: vi.fn(), delete: vi.fn() };
 }
 
 /**
@@ -332,12 +332,12 @@ describe('osprey-artifact-action', () => {
   test('never changes what the viewer shows', () => {
     const viewer = setup({ held: [makeArtifact('a1')] });
 
-    viewer.deliver(action('a1', 'pin'));
+    viewer.deliver(action('a1', 'print'));
 
     expect(viewer.show).not.toHaveBeenCalled();
   });
 
-  test.each(['toString', 'constructor', '__proto__', 'archive', '', undefined])(
+  test.each(['pin', 'unpin', 'toString', 'constructor', '__proto__', 'archive', '', undefined])(
     'ignores the action %j, which is outside the closed set',
     async (name) => {
       const viewer = setup({ held: [makeArtifact('a1')] });
@@ -353,15 +353,15 @@ describe('osprey-artifact-action', () => {
   );
 
   test.each([
-    ['no artifact id', action(null, 'pin')],
-    ['an empty artifact id', action('', 'pin')],
+    ['no artifact id', action(null, 'print')],
+    ['an empty artifact id', action('', 'print')],
   ])('ignores an action with %s', async (_label, data) => {
     const viewer = setup({ held: [makeArtifact('a1')] });
 
     viewer.deliver(data);
     await settle();
 
-    expect(viewer.actions.pin).not.toHaveBeenCalled();
+    expect(viewer.actions.print).not.toHaveBeenCalled();
     expect(viewer.fetchEntry).not.toHaveBeenCalled();
   });
 
@@ -377,7 +377,7 @@ describe('osprey-artifact-action', () => {
 
 describe('osprey-artifact-changed', () => {
   test('an update hands the copy it carries over, with no request', () => {
-    const copy = { ...makeArtifact('a1'), pinned: true };
+    const copy = { ...makeArtifact('a1'), title: 'Renamed' };
     const viewer = setup({ held: [makeArtifact('a1')] });
 
     viewer.deliver(changed('a1', 'updated', copy));
@@ -394,7 +394,7 @@ describe('osprey-artifact-changed', () => {
     ['a copy of another artifact', makeArtifact('b2')],
     ['a copy that is not an object', 'a1'],
   ])('an update with %s takes the server copy instead', async (_label, artifact) => {
-    const server = { ...makeArtifact('a1'), pinned: true };
+    const server = { ...makeArtifact('a1'), title: 'Renamed' };
     const viewer = setup({ fetchEntry: async () => server });
 
     viewer.deliver(changed('a1', 'updated', artifact));

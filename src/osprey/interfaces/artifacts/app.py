@@ -480,7 +480,7 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
 
 
 class _SetInSession(BaseModel):
-    """The session a focus or pin was set in: at most one of two fields.
+    """The session a focus was set in: at most one of two fields.
 
     Browsers send ``session_key``, which the hub resolves through its ledger;
     processes in a conversation send ``transcript_id``, a canonical session
@@ -508,10 +508,6 @@ class FocusRequest(_SetInSession):
     #: Set by a sender acting on its own (the approval hook), not for a person or
     #: an agent that chose the artifact; broadcast so a layout can tell them apart.
     automatic: bool = False
-
-
-class PinRequest(_SetInSession):
-    pinned: bool = True
 
 
 class BulkDeleteRequest(BaseModel):
@@ -1135,7 +1131,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         return resolve_scope(key=session_key, ledger=ledger, ledger_ok=ledger_ok)
 
     def _set_in(req: _SetInSession) -> str | None:
-        """The transcript a focus or pin was set in; ``None`` for no session."""
+        """The transcript a focus was set in; ``None`` for no session."""
         if req.transcript_id is not None:
             return req.transcript_id
         if req.session_key:
@@ -1157,8 +1153,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         """Write the focus file the CLI hook reads (contract C7).
 
         One ``artifact:`` line per transcript slot, ending in that transcript's
-        ``(session=<id>)`` marker. The unscoped slot writes no line and pins are
-        not in the file (the hook reads them from the index). Always written, so
+        ``(session=<id>)`` marker. The unscoped slot writes no line. Always written, so
         an empty state empties the file rather than leaving a stale one.
         """
         lines: list[str] = []
@@ -1258,7 +1253,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def list_artifacts(
         type: str | None = None,
         search: str | None = None,
-        pinned: bool | None = Query(None),
         limit: int = Query(page_size, ge=1, le=MAX_PAGE_SIZE),
         cursor: str | None = Query(None),
         form: str | None = None,
@@ -1283,7 +1277,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         try:
             entries = store.list_entries(
                 type_filter=type,
-                pinned=pinned,
                 after=after,
                 before=before,
             )
@@ -1389,14 +1382,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         return _entry_payload(entry)
-
-    @app.post("/api/artifacts/{artifact_id}/pin")
-    async def pin_artifact(artifact_id: str, req: PinRequest):
-        entry = store.set_pinned(artifact_id, req.pinned, set_in=_set_in(req))
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        broadcaster.broadcast({"type": "artifact_updated", **_entry_payload(entry)})
-        return {"status": "ok", "artifact_id": artifact_id, "pinned": entry.pinned}
 
     @app.get("/api/artifacts/{artifact_id}/data")
     async def get_artifact_data(

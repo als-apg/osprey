@@ -79,10 +79,10 @@ const orientToggleBtn = document.getElementById('orient-toggle-btn');
 // (below) — see preview.js. No closure vars here.
 
 // ---- Preview Renderer / Sidebar Renderer ----
-// previewRenderer (preview.js) owns renderPreview and the pin/fullscreen/
+// previewRenderer (preview.js) owns renderPreview and the fullscreen/
 // focus state; sidebarRenderer (render.js) owns the sidebar
 // rendering. Each needs an effect the other one owns (previewRenderer
-// triggers a sidebar re-render on delete/pin/fullscreen-exit;
+// triggers a sidebar re-render on delete/fullscreen-exit;
 // sidebarRenderer triggers a preview render/focus/fullscreen-enter on
 // selection), so they're wired together via injected callbacks in both
 // directions. None of those callbacks runs until well after both are
@@ -92,7 +92,6 @@ const orientToggleBtn = document.getElementById('orient-toggle-btn');
 const previewRenderer = createPreviewRenderer(
   {
     onArtifactDeleted: () => renderSidebar(),
-    onPinToggled: () => renderSidebar(),
     onFullscreenExit: () => renderSidebar(),
     onTimeseriesNeeded: (container, artifact) => renderTimeseriesView(container, artifact),
   },
@@ -595,8 +594,6 @@ if (viewerOnly) {
     update: applyUpdated,
     remove: applyDeleted,
     actions: {
-      pin: (a) => previewRenderer.setPinned(a, true),
-      unpin: (a) => previewRenderer.setPinned(a, false),
       print: printArtifact,
       // No stream keeps the held list current here, and the composer's
       // picker offers it, so it is fetched again first.

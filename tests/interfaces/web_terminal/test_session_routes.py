@@ -92,6 +92,7 @@ class TestListSessionsEndpoint:
             "title_source": "prompt",
             "naming": None,
             "last_artifact_id": None,
+            "pinned": None,
             "state": "idle",
             "message_count": 42,
             "first_ts": "2026-02-17T10:00:00+00:00",

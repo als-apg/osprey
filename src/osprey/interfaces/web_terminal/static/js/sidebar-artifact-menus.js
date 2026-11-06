@@ -5,12 +5,15 @@
  * tree, one item list per row kind, opened through the hub's shared context
  * menu (panel-context-menu.js):
  *
- *   Agent row   New session · Expand all / Collapse all
- *   Session     Group by Kind / Activity · Rename… · Use automatic name
- *               (only on a hand-named session) · Export transcript · Copy ID · Delete…
+ *   Agent row   New session · Expand all / Collapse all · Show pinned sessions
+ *   Session     Pin / Unpin · Group by Kind / Activity · Rename… · Use automatic
+ *               name (only on a hand-named session) · Export transcript · Copy ID ·
+ *               Delete…
  *   Group head  Expand / Collapse
  *   Run         Open result · Open approval preview · Open code · Delete…
- *   Artifact    Open · Pin · Delete… · Copy ID
+ *   Artifact    Open · Delete… · Copy ID
+ *
+ * The pinned group's heading has its own menu (sidebar-session-pins.js).
  *
  * Where a verb is a gesture the tree already answers (open a session, browse
  * it, open a group or a run, show an artifact) the item clicks that row, so a
@@ -30,7 +33,7 @@ import { withPrefix } from './api.js';
 import { openContextMenu } from './panel-context-menu.js';
 import { ARTIFACTS_BASE, fetchArtifact, readTreeView } from './sidebar-artifact-listing.js';
 import { showConfirm } from './posture-confirm.js';
-import { getPointer } from './session-pointer.js';
+import { setSessionPinned, showPinnedItem } from './sidebar-session-pins.js';
 
 /** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
@@ -41,10 +44,10 @@ const SESSION_SELECTOR = '.osprey-tree-session[data-session-id]';
 const GROUP_SELECTOR = '[data-group-head]';
 const RUN_SELECTOR = '.osprey-list-row.osprey-tree-run[data-id]';
 const ARTIFACT_SELECTOR = '.osprey-list-row[data-id]';
-/** Top-level rows Expand/Collapse all acts on: the sessions. Only a row with
- * a disclosure folds (the session in use); another session opens only by
- * switching to it. */
-const TOP_SELECTOR = SESSION_SELECTOR;
+/** Top-level rows Expand/Collapse all acts on: the sessions of the session
+ * list (not their pinned copies). Only a row with a disclosure folds (the
+ * session in use); another session opens only by switching to it. */
+const TOP_SELECTOR = `${SESSION_SELECTOR}:not([data-where="pinned"])`;
 
 // ---- Row lookups ----
 
@@ -87,8 +90,9 @@ async function setAllSessions(open) {
 }
 
 /**
- * The Agent row's menu: a new session, and one Expand all / Collapse all row
- * worded for what it will do (Collapse all when every session is open).
+ * The Agent row's menu: a new session, one Expand all / Collapse all row
+ * worded for what it will do (Collapse all when every session is open), and
+ * Show pinned sessions.
  * @returns {MenuItem[]}
  */
 export function buildAgentRowMenuItems() {
@@ -99,6 +103,8 @@ export function buildAgentRowMenuItems() {
     open
       ? { label: 'Collapse all', run: () => void setAllSessions(false) }
       : { label: 'Expand all', run: () => void setAllSessions(true) },
+    { divider: true },
+    showPinnedItem(),
   ];
 }
 
@@ -223,7 +229,17 @@ export function sessionMenuItems(row) {
   // Only a past session: the one the Agent is on draws `.active`.
   const active = row.classList.contains('active');
   const view = readTreeView();
+  const pinned = Boolean(row.dataset.pinned);
   return [
+    ...(tid
+      ? [
+          {
+            label: pinned ? 'Unpin' : 'Pin',
+            run: () => void setSessionPinned(tid, !pinned),
+          },
+          { divider: true },
+        ]
+      : []),
     { label: 'Group by Kind', checked: view === 'kind', run: () => void applyView('kind') },
     {
       label: 'Group by Activity',
@@ -272,23 +288,6 @@ export function groupMenuItems(head) {
 const artifactUrl = (id) => withPrefix(`${ARTIFACTS_BASE}/api/artifacts/${encodeURIComponent(id)}`);
 
 /**
- * Flip an artifact's pin. The pin is set in the operator's current session,
- * even when the row belongs to another one; with no session, in none.
- * @param {ArtifactEntry} entry
- */
-async function setPinned(entry) {
-  const sessionKey = getPointer();
-  /** @type {{pinned: boolean, session_key?: string}} */
-  const body = { pinned: !entry.pinned };
-  if (sessionKey) body.session_key = sessionKey;
-  await fetch(`${artifactUrl(entry.id)}/pin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
-/**
  * Ask first, then delete. Deleting a run's head deletes the run and its
  * parts (the server's delete_with_group), and the question says so.
  * @param {TreeEntry} entry  @param {boolean} isRun
@@ -326,7 +325,6 @@ export function confirmDelete(entry, isRun) {
 export function artifactMenuItems(row, entry) {
   return [
     { label: 'Open', run: () => row.click() },
-    { label: entry.pinned ? 'Unpin' : 'Pin', run: () => void setPinned(entry) },
     { label: 'Delete…', danger: true, run: () => confirmDelete(entry, false) },
     { divider: true },
     { label: 'Copy ID', run: () => copyText(entry.id) },
@@ -378,7 +376,7 @@ export function runMenuItems(head, entry) {
 
 /**
  * The menu a tree row offers, or null when it offers none ("more").
- * Artifact and run rows read their entry first (pin state, run parts).
+ * Artifact and run rows read their entry first (run parts).
  * @param {Element} target
  * @returns {Promise<{row: HTMLElement, label: string, items: MenuItem[]} | null>}
  */

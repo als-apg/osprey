@@ -407,31 +407,8 @@ async def test_render_failure_degrades_to_data_only(tmp_path, monkeypatch):
     np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
-async def test_retention_fires_after_an_image_save(tmp_path, monkeypatch):
-    """The rolling window is swept on the image path too, with the config window."""
-    calls: list[tuple] = []
-
-    def fake_prune(_self, address, keep):
-        calls.append((address, keep))
-        return []
-
-    monkeypatch.setattr(
-        "osprey.stores.artifact_store.ArtifactStore.prune_channel_readings",
-        fake_prune,
-    )
-
-    await _read(
-        tmp_path,
-        monkeypatch,
-        {ADDRESS: _gaussian_spot()},
-        overrides={"control_system.channel_read_artifact_retention": 3},
-    )
-
-    assert calls == [(ADDRESS, 3)]
-
-
-async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch):
-    """Repeated frames of one channel do not grow the gallery without bound."""
+async def test_repeated_reads_keep_every_reading(tmp_path, monkeypatch):
+    """OSPREY never deletes a reading: repeated frames of one channel all stay."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(
         "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
@@ -449,18 +426,16 @@ async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch)
             return_value=connector,
         ),
         patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
-        config_patch({"control_system.channel_read_artifact_retention": 2}),
     ):
         for _ in range(4):
             await get_tool_fn(channel_read)(channels=[ADDRESS])
 
     entries = [e for e in get_artifact_store().list_entries() if e.tool_source == "channel_read"]
-    assert len(entries) == 2, [e.id for e in entries]
+    assert len(entries) == 4, [e.id for e in entries]
 
-    # Both halves of every pruned entry are gone, not just the thumbnail.
     store_dir = get_artifact_store().artifact_dir
-    assert len(list(store_dir.glob("*.png"))) == 2
-    assert len(list(store_dir.glob("*.npy"))) == 2
+    assert len(list(store_dir.glob("*.png"))) == 4
+    assert len(list(store_dir.glob("*.npy"))) == 4
 
 
 async def test_store_failure_degrades_but_read_stays_successful(tmp_path, monkeypatch):

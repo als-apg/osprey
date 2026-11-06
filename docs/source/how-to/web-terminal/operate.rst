@@ -564,10 +564,14 @@ opens on its proposed code. **More sessions** loads older ones.
 - While the agent is answering in chat, a switch from any of these asks
   first: **Cancel**, or **Stop & switch**.
 
-Right-click a session to rename it, export its transcript or group its
-artifacts by day or by kind, or delete a past session with its artifacts;
-a run to open its result, approval preview or code; an artifact to pin it.
-Runs and artifacts also have **Delete…**.
+Right-click a session to pin it, rename it, export its transcript or group
+its artifacts by day or by kind, or delete a past session with its artifacts;
+a run to open its result, approval preview or code. Runs and artifacts also
+have **Delete…**.
+
+Pinned sessions (the pin button on a row) also show in the **Pinned** group
+above **Sessions**; right-click its heading to rename or hide it. **Show pinned
+sessions**, on the **Sessions** menu or on empty sidebar space, brings it back.
 
 A reload, a new tab or another device resumes your last session and its
 layout. Its last-open artifact is shown in the Artifacts panel if that panel
