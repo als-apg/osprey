@@ -2000,11 +2000,15 @@ describe("panel_op op:'open_arrangement' — the declarative whole-workspace reb
     expect(tileTabs(holder).flat().sort()).toEqual(['ariel', 'channel-finder', 'okf', 'terminal']);
     expect(tileTabs(holder).every((tabs) => tabs.length === 1)).toBe(true);
 
+    // Sent while the open_set's answer is still open, it runs once that
+    // answer is taken (panel-sse.js's queuePanelOp).
     op('open_arrangement', row(['channel-finder', 'ariel']));
 
     // Same end state as the clean-start case: the region is rebuilt, not
     // diffed, so a differing start layout cannot leave order behind.
-    expect(tileTabs(holder)).toEqual([['channel-finder'], ['ariel'], ['terminal']]);
+    await settled(() =>
+      expect(tileTabs(holder)).toEqual([['channel-finder'], ['ariel'], ['terminal']])
+    );
     // The dropped tile keeps its rail membership — a tile close is not a hide.
     expect(entry('okf')).not.toBeNull();
   });

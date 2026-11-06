@@ -1709,6 +1709,15 @@ LANES: tuple[Lane, ...] = (
             "tests/docs/screenshots/**",
         ),
     ),
+    Lane(
+        "visual-theming-agent",
+        "browser",
+        (
+            "src/osprey/interfaces/**",
+            "tests/interfaces/**/*.py",
+            "tests/interfaces/design_system/baselines/**",
+        ),
+    ),
     Lane("build-boot-smoke", "matrix", ("tests/integration/test_build_boot.py",)),
     Lane("e2e-tests", SPENDS, ("tests/e2e/**",), "E2E Tests"),
     Lane("e2e-no-model", "containers", ("tests/e2e/**",)),
