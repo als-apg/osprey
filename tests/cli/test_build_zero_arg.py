@@ -179,18 +179,17 @@ class TestFingerprint:
         assert creation["osprey_version"]
 
     def test_per_key_digests_are_stamped_so_a_refusal_can_name_the_change(
-        self, runner, lifecycle_repo
+        self, built_lifecycle_repo
     ):
-        _build(runner, lifecycle_repo)
-        digests = _manifest(lifecycle_repo)["creation"][staleness.KEY_DIGESTS_MANIFEST_KEY]
+        digests = _manifest(built_lifecycle_repo)["creation"][staleness.KEY_DIGESTS_MANIFEST_KEY]
         assert staleness.MATERIAL_KEY in digests
 
-        profile = lifecycle_repo / "profile.yml"
+        profile = built_lifecycle_repo / "profile.yml"
         profile.write_text(
             profile.read_text(encoding="utf-8") + "\nmodel: claude-sonnet-5\n",
             encoding="utf-8",
         )
-        report = staleness.check_drift(lifecycle_repo)
+        report = staleness.check_drift(built_lifecycle_repo)
 
         assert report.state is staleness.DriftState.DRIFT
         assert "model" in report.changed_keys

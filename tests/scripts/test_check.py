@@ -1949,6 +1949,21 @@ class Recorder:
         return any(text in shlex.join(argv) for argv in self.calls)
 
 
+#: The connectors checks module. Its ``connectors-public-names`` check is a
+#: ``builtin=``, so a ``check.main`` run calls it in process (``recorder`` does
+#: not stand in for it), and it sweeps the real tree from the module's own
+#: ``ROOT``, not ``kit.ROOT``.
+_connectors_checks = check.DECLARED.modules["packages/osprey-connectors/repo_checks.py"]
+#: The sweep, run once per worker for each root: every ``check.main`` here
+#: is about the runner, and the real tree does not change during a session.
+_cached_stray_exports = functools.cache(_connectors_checks.stray_exports)
+
+
+@pytest.fixture(autouse=True)
+def _one_public_names_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_connectors_checks, "stray_exports", _cached_stray_exports)
+
+
 @pytest.fixture
 def recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recorder:
     """An empty root with no sweep exception, every need met, the venue met,

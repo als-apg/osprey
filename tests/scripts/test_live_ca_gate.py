@@ -45,6 +45,14 @@ _LIMIT_S = 5.0
 #: counts on a host busy with a parallel suite, and still far short of the hang.
 _REPORT_S = 20
 
+#: A limit timed from the counts line (``_TimedFromCounts``): the child's start
+#: is not spent from it, and what follows the line is a hang, so any limit far
+#: short of ``_HANG_S`` can only expire in that hang.
+_AFTER_COUNTS_S = 2
+
+#: A limit for a child that need not print anything before it is cut off.
+_ANY_LIMIT_S = 1.0
+
 #: The hang-ceiling multiple: a wait here is bounded by this many times the
 #: waits it covers.
 _CEILING_FACTOR = 3
@@ -120,7 +128,7 @@ def test_a_child_past_its_limit_has_its_group_stopped_once(monkeypatch: pytest.M
     )
     cmd = [sys.executable, "-c", f"import time; time.sleep({_HANG_S})"]
 
-    _stdout, _stderr, _returncode, timed_out, outcome = gate._run_child(cmd, _LIMIT_S)
+    _stdout, _stderr, _returncode, timed_out, outcome = gate._run_child(cmd, _ANY_LIMIT_S)
 
     assert timed_out is True
     assert outcome is not None
@@ -241,13 +249,13 @@ def test_a_module_that_reports_counts_and_then_hangs_is_still_an_error(
         types.SimpleNamespace(Popen=_TimedFromCounts, TimeoutExpired=subprocess.TimeoutExpired),
     )
 
-    counts, status = gate._run_module(str(module), _REPORT_S)
+    counts, status = gate._run_module(str(module), _AFTER_COUNTS_S)
 
     out = capsys.readouterr().out
     assert "1 passed" in out, out
     assert counts == {"passed": 0, "skipped": 0, "failed": 0, "error": 1}
     assert status == 1
-    assert f"timed out after {_REPORT_S} s" in out
+    assert f"timed out after {_AFTER_COUNTS_S} s" in out
 
 
 def test_a_timed_out_module_whose_table_could_not_be_read_says_so(

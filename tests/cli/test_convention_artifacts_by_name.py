@@ -572,12 +572,11 @@ def test_revalidate_keeps_a_host_session_hook_in_each_app_by_its_own_declaration
 
 
 def test_a_claimed_library_artifact_is_named_by_its_path_where_it_was_selected(
-    tmp_path: Path,
+    built_lifecycle_repo: Path, tmp_path: Path
 ) -> None:
     from osprey.cli.scaffold_cmd import claim_into_profile
 
-    repo = build_exemplar_repo(tmp_path / PROJECT)
-    assert run_build(repo, tmp_path).exit_code == 0
+    repo = built_lifecycle_repo
     claimed = claim_into_profile(repo / "build", "rules/safety")
     claimed.profile_path.write_text(HOUSE_SAFETY, encoding="utf-8")
 
