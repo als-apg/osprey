@@ -368,16 +368,39 @@ def test_the_manifest_is_not_scanned_as_source(monkeypatch):
         guard_module._TEXT_CACHE.clear()
 
 
+# The orphan-site controls below replace the manifest's sites with their
+# synthetic one, so the check scans only what the control is about; the real
+# sites' green verdict is test_guard_is_green_on_this_tree's.
+
+#: Cheap clean sites to put ahead of a control's synthetic site, as the real
+#: ones were: a root under an absent path (skipped) and then a clean root in
+#: one site, and a clean site after it, so the synthetic site is only reached
+#: by a scan that goes on past a skipped root, a clean root and a clean key.
+_EARLIER_CLEAN_SITES = [
+    {
+        "root": ["src/osprey/connectors", "src/osprey/deployment/host_ports.py"],
+        "regex": "(?!)",
+        "why": "a skipped root, then a clean one",
+    },
+    {"root": "src/osprey/deployment/host_ports.py", "regex": "(?!)", "why": "a clean site"},
+]
+
+
 def test_mode_4_orphan_site_regex_matching_again_goes_red():
     def resurrect_a_code_site(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
-        ]
+        assert "src/osprey/connectors" in [e["path"] for e in manifest["absent_paths"]]
+        manifest["orphan_sites"] = {
+            "earlier": _EARLIER_CLEAN_SITES,
+            "synthetic": [
+                {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
+            ],
+        }
 
     guard = make_guard(resurrect_a_code_site)
     guard.check_orphan_sites()
     assert "orphan-site" in modes(guard)
     assert "synthetic" in details(guard)
+    assert "earlier" not in details(guard)
 
 
 def test_mode_4_scans_every_root_of_a_multi_root_site():
@@ -389,16 +412,18 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
     """
 
     def resurrect_under_the_second_root(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {
-                "root": [
-                    "src/osprey/templates",
-                    "packages/osprey-connectors/src/osprey_connectors",
-                ],
-                "regex": "class MockArchiverConnector",
-                "why": "negative control: matches only under the connectors root",
-            }
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {
+                    "root": [
+                        "src/osprey/templates",
+                        "packages/osprey-connectors/src/osprey_connectors",
+                    ],
+                    "regex": "class MockArchiverConnector",
+                    "why": "negative control: matches only under the connectors root",
+                }
+            ]
+        }
 
     guard = make_guard(resurrect_under_the_second_root)
     guard.check_orphan_sites()
@@ -1047,9 +1072,11 @@ def test_resurrected_absent_path_goes_red():
 
 def test_missing_orphan_site_root_goes_red():
     def name_a_root_that_is_gone(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
+            ]
+        }
 
     guard = make_guard(name_a_root_that_is_gone)
     guard.check_orphan_sites()
@@ -1243,7 +1270,7 @@ def test_a_well_shaped_provider_passes():
     assert "provider-shape" not in modes(guard)
 
 
-# ── back-test: developer-time, behind a flag ─────────────────────────────
+# ── back-test: behind a flag, needs git history ──────────────────────────
 
 
 def _baseline_commit() -> str:
@@ -1263,7 +1290,7 @@ def _baseline_reachable() -> bool:
 
 needs_baseline = pytest.mark.skipif(
     not _baseline_reachable(),
-    reason="merge-base commit unavailable (shallow clone); back-test is developer-time",
+    reason="merge-base commit unavailable (shallow clone); the back-test needs history",
 )
 
 

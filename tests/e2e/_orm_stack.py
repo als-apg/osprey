@@ -60,7 +60,7 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import forced_model
 
 if TYPE_CHECKING:
@@ -365,6 +365,7 @@ def init_args(
         "--preset",
         "control-assistant",
         "--no-git",
+        *e2e_scenario_pin(),
         *set_pairs(merged_profile_edits(extra_config or {})),
         "--set",
         f"virtual_accelerator.port={va_port}",

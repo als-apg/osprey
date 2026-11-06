@@ -180,8 +180,8 @@ ENV DISABLE_AUTOUPDATER=1
 # the git spec fails the build: falling through would resolve it by name from
 # PyPI, which a commit pin gives no reason to trust. Only a spec that cannot
 # carry the fragment (a PyPI release pin) resolves its members from the index,
-# where they are the releases paired with that framework version. The member
-# list is the framework's own, rendered in by `osprey build`.
+# which picks the newest member releases the framework's floors admit. The
+# member list is the framework's own, rendered in by `osprey build`.
 #
 # The profile's own `dependencies:` are not part of that primer. Once the
 # framework and the local delta are in, the resolved set is frozen to

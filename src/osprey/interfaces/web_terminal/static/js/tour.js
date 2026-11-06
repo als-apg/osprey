@@ -252,8 +252,7 @@ const STEPS = [
     place: 'right',
     title: 'The sidebar',
     body: () => [
-      strong('Workspace'),
-      ' holds the agent, its artifacts and its script runs; ',
+      'The top of the sidebar holds the agent and its sessions; ',
       strong('Tools'),
       ' holds the other panels. Hide the labels with this button or ',
       strong(sidebarChord()),

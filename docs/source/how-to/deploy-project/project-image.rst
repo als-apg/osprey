@@ -38,9 +38,9 @@ Every ``osprey build`` renders a reference container recipe into ``build/``
 
 Both files are re-rendered from the framework on every build, so an edit made
 in ``build/`` lasts only until the next ``osprey build``. To customize them, put
-your version in the source zone's ``project/`` mirror instead. Keep ``.env``
-excluded in a ``.dockerignore`` of your own; the build also strips every
-``.env`` file except ``.env.example`` from the image context.
+your version in the source zone's ``project/`` mirror instead. A
+``.dockerignore`` placed there replaces OSPREY's list, so keep ``.env`` in it.
+The build also strips every ``.env`` file but ``.env.example`` from the image.
 
 .. code-block:: text
 
@@ -55,18 +55,20 @@ See :doc:`../build-profiles` for the profile's convention directories.
 
    This page covers the **project image** — one container that runs the
    assistant and its web terminal. The lifecycle verbs manage the deployment's
-   *service* containers (databases, MCP servers) — see :doc:`index`
-   — but the two meet in one place: a deploy that includes the dispatch
-   worker, the ARIEL sync service or the record archive builds this same
-   project image (tagged ``<project>:local``) for them to run.
+   *service* containers (databases, MCP servers); see :doc:`index`. The two
+   meet in one place. A deploy that includes the dispatch worker, the ARIEL
+   sync service or the record archive builds this same project image (tagged
+   ``<project>:local``) for them to run.
 
 Keeping repo files out of the image
 ===================================
 
-The image carries your deployment repo. To keep repo files out of it —
-notebooks, scratch directories, large analysis output — list them in a
-``.dockerignore`` at the repo root, beside ``profile.yml``. The syntax is
-Docker's, and patterns are anchored at the repo root:
+The image carries your whole deployment repo, not just the render. Some repo
+files have no use there: notebooks, scratch directories, large analysis output.
+List them in a ``.dockerignore`` at the repo root, beside ``profile.yml``. This
+file is yours. It is not the rendered ``build/.dockerignore`` above, which is
+OSPREY's list. The syntax is Docker's, and patterns are anchored at the repo
+root:
 
 .. code-block:: text
 
@@ -74,19 +76,16 @@ Docker's, and patterns are anchored at the repo root:
    notebooks/
    *.h5
 
-Here ``*.h5`` drops ``x.h5`` at the root but not ``data/x.h5``; write
-``**/*.h5`` for every depth. Two rules hold whatever the file says:
+Here ``*.h5`` drops ``x.h5`` at the root but not ``data/x.h5``. Write
+``**/*.h5`` to match at every depth. Two rules hold whatever the file says:
 
-- it cannot bring back what OSPREY excludes: ``.env`` files, ``.git``,
-  ``build/`` and the repo's Claude Code files stay out;
-- a pattern that would remove a build input — ``data/``, the convention
-  directories, ``tiers/``, ``apps/``, the trigger file, ``profile.yml``,
-  a repo-local ``extends:`` base, the selected host-variant profile, an
-  enabled watchdog's directory —
-  fails the build, naming the pattern.
-
-This file is yours; the rendered ``build/.dockerignore`` described above is
-OSPREY's list of what it always keeps out.
+#. It cannot bring back what OSPREY excludes. ``.env`` files, ``.git``,
+   ``build/``, ``var/`` and the repo's Claude Code files stay out.
+#. It cannot remove a file the build reads. Such a pattern fails the build,
+   and the error names it. The build reads ``profile.yml``, ``data/``,
+   ``tiers/``, ``apps/``, the convention directories and the trigger file. It
+   also reads a repo-local ``extends:`` base, the selected host-variant profile
+   and an enabled watchdog's directory.
 
 Quickstart
 ==========
@@ -104,36 +103,40 @@ Quickstart
 Every line runs at the deployment repo root; the build names the container repo
 ``osprey build`` rendered (``build/.image/<name>/``) as its context.
 
-The terminal holds the agent record; like the provider key, its login and
+The terminal holds the agent record. Like the provider key, its login and
 service file are supplied at run time and never enter the image. The build
-writes both readable by the building account alone (``$USER`` above), so where
-that account's uid is not 1000, the image's ``osprey`` user, mount copies that
-user can read.
+writes both readable by the building account alone (``$USER`` above). The
+image's ``osprey`` user has uid 1000, so where the building account's uid is
+not 1000, mount copies that the ``osprey`` user can read.
 
 Then open http://localhost:10100. The container's ``osprey web`` prints a login
-URL (``…/?token=…``) to its logs at startup; open that URL to set your session
-cookie, after which it redirects to the clean address. Anything that can read
+URL (``…/?token=…``) to its logs at startup. Open that URL to set your session
+cookie; it then redirects to the clean address. Anything that can read
 those logs can read the token, so treat both like a password. If your ``.env``
 sets ``OSPREY_TERMINAL_SECRET`` itself, the container uses that value and
-explains why it is printing no URL — browse to
+explains why it is printing no URL. Browse to
 ``http://localhost:10100/?token=<that value>`` instead. Secrets are
-passed at runtime via ``--env-file`` — the ``.dockerignore`` guarantees
+passed at runtime via ``--env-file``. The build guarantees that
 ``.env`` and every other ``.env.*`` file but ``.env.example`` never enter the
 image.
 
 Build Arguments
 ===============
 
-``osprey up`` passes these from ``config.yml``: the top-level ``offline`` key
-and the ``images.site_ca`` / ``images.pip_no_proxy`` / ``images.pip_index_url``
-/ ``images.pip_extra_index_url`` block, resolved once and handed to the three
-images built from these recipes — the project image, each web-terminal
-image and the login sidecar. Set them there and a site network is configured in
-one place.
+``osprey up`` passes these settings from ``config.yml``:
+
+- the top-level ``offline`` key
+- the ``images.site_ca`` / ``images.pip_no_proxy`` / ``images.pip_index_url``
+  / ``images.pip_extra_index_url`` block
+
+It resolves them once and hands them to the three images built from these
+recipes: the project image, each web-terminal image and the login sidecar. Set
+them there and a site network is configured in one place.
+
 The build arguments below are the same settings under the names a hand-run
-``docker build`` uses; each is also overridden for one shell by an environment
-variable of the same name (``OSPREY_SITE_CA``, ``PIP_INDEX_URL``, …), the same
-way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
+``docker build`` uses. An environment variable of the same name
+(``OSPREY_SITE_CA``, ``PIP_INDEX_URL``, …) also overrides each one for one
+shell, the same way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
 
 .. list-table::
    :header-rows: 1
@@ -174,20 +177,23 @@ way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
        where a proxy re-signs TLS with its own CA — see
        `TLS-Intercepting Proxies`_ below. Unset, the CA step does nothing.
 
-(Two more ARGs are set by ``osprey up`` itself and you normally never set them
-by hand: ``OSPREY_DEV`` makes ``osprey up --dev`` install a locally built
-wheel, and ``OSPREY_PIP_PRE`` is ``"1"`` when the pinned OSPREY version is a
-pre-release, so the ``pip`` resolve inside the image admits the pre-release of
-``osprey-connectors`` that ships beside it. A hand-run build pinning a beta
-needs ``--build-arg OSPREY_PIP_PRE=1`` for the same reason. The
-``.gitlab-ci.yml`` that ``osprey scaffold ci`` writes follows the same rule:
-its own ``pip install`` passes ``--pre`` when ``requires_osprey_version`` names
-a pre-release.)
+``osprey up`` sets two more ARGs itself, and you normally never set them by
+hand:
 
-The **host** side of the build reads its own settings from the shell rather
-than from ``config.yml``: ``osprey build`` installs the project's virtual
-environment with ``uv`` (or pip), so ``UV_INDEX_URL``, ``PIP_INDEX_URL`` and a
-``pip.conf`` on the build host all apply there and nowhere else.
+- ``OSPREY_DEV`` makes ``osprey up --dev`` install a locally built wheel.
+- ``OSPREY_PIP_PRE`` is ``"1"`` when the pinned OSPREY version is a
+  pre-release. The ``pip`` resolve inside the image then admits the
+  pre-release of ``osprey-connectors`` that ships beside it.
+
+A hand-run build pinning a beta needs ``--build-arg OSPREY_PIP_PRE=1`` for the
+same reason. The ``.gitlab-ci.yml`` that ``osprey scaffold ci`` writes follows
+the same rule: its own ``pip install`` passes ``--pre`` when
+``requires_osprey_version`` names a pre-release.
+
+The **host** side of the build reads its own settings from the shell, not from
+``config.yml``. ``osprey build`` installs the project's virtual environment
+with ``uv`` (or pip). So ``UV_INDEX_URL``, ``PIP_INDEX_URL`` and a ``pip.conf``
+on the build host all apply there and nowhere else.
 
 Building an image by hand
 -------------------------
@@ -218,9 +224,11 @@ vendored assets for an air-gapped host:
 Building Behind a Proxy
 -----------------------
 
-Two things have to line up for a build on a proxied network: the proxy values
-have to reach the build, and the tools inside it have to find them under the
-names they actually read.
+A build on a proxied network needs two things to line up:
+
+- The proxy values have to reach the build.
+- The tools inside the build have to find them under the names they actually
+  read.
 
 **Getting the values in.** Docker takes them as build arguments —
 ``docker build --build-arg HTTP_PROXY=... --build-arg HTTPS_PROXY=...``. The
@@ -241,32 +249,35 @@ reaches the network in a generated Dockerfile opens with a bridge line:
        apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates
 
-Each expansion prefers a lowercase value that is already set, falls back to the
-uppercase one, and otherwise defaults to empty — so a build with no proxy
-exports three empty variables and behaves exactly as it did before.
+Each expansion prefers a lowercase value that is already set. Failing that, it
+falls back to the uppercase one, and otherwise defaults to empty. So a build
+with no proxy exports three empty variables and behaves exactly as it did
+before.
 
-The two mechanisms answer different questions and work together: the build
-arguments (or Podman's forwarding) deliver the values, and the bridge closes the
+The two mechanisms answer different questions and work together. The build
+arguments (or Podman's forwarding) deliver the values. The bridge closes the
 upper/lowercase gap inside the step. ``PIP_NO_PROXY`` remains the knob for the
 other half — which hosts to *skip* the proxy for. In the project image's
-dependency layer the bridge runs first and the existing
-``NO_PROXY="$PIP_NO_PROXY"`` export follows it, so a site that needs an
-exemption there sets ``PIP_NO_PROXY`` exactly as before while ``http_proxy`` and
-``https_proxy`` are bridged normally.
+dependency layer the bridge runs first, and the existing
+``NO_PROXY="$PIP_NO_PROXY"`` export follows it. So a site that needs an
+exemption there sets ``PIP_NO_PROXY`` exactly as before, while ``http_proxy``
+and ``https_proxy`` are bridged normally.
 
 TLS-Intercepting Proxies
 ------------------------
 
 Some proxies do more than relay: they terminate every HTTPS connection and
-re-sign it with the site's own CA (Squid is a common example). Delivering the
-proxy values as above is then not enough — every fetch inside the build (apt,
-npm, pip, the optional ``osprey vendor fetch``) fails cert verification,
-because nothing in the image trusts that CA yet.
+re-sign it with the site's own CA (Squid is a common example).
 
-The ``OSPREY_SITE_CA`` build argument closes the gap. Point ``images.site_ca``
-at the bundle on the deploy host and ``osprey up`` does the rest — a Dockerfile
-``COPY`` cannot reach outside the build context, so the deploy stages a copy
-into each context and passes its staged name:
+**Why the build fails.** With such a proxy, delivering the proxy values as
+above is not enough. Every fetch inside the build (apt, npm, pip, the optional
+``osprey vendor fetch``) fails cert verification, because nothing in the image
+trusts that CA yet.
+
+**What to set.** The ``OSPREY_SITE_CA`` build argument closes the gap. Point
+``images.site_ca`` at the bundle on the deploy host and ``osprey up`` does the
+rest. A Dockerfile ``COPY`` cannot reach outside the build context, so the
+deploy stages a copy into each context and passes its staged name:
 
 .. code-block:: yaml
 
@@ -283,9 +294,9 @@ Building by hand, stage the copy yourself and name it:
 
 That first path is where a RHEL-family build host keeps its system bundle
 (individual CA files also live under ``/etc/pki/ca-trust/source/anchors/``).
-The path is a host fact, not an image fact: the image is Debian, and inside it
-the staged CA is installed with ``update-ca-certificates`` — before the first
-fetch — into the merged Debian bundle at ``/etc/ssl/certs/ca-certificates.crt``.
+The path is a host fact, not an image fact: the image is Debian. Inside it,
+``update-ca-certificates`` installs the staged CA before the first fetch, into
+the merged Debian bundle at ``/etc/ssl/certs/ca-certificates.crt``.
 
 Installing the CA into the system store only covers the tools that read it.
 Each tool family finds its trust through a different variable, so the image
@@ -314,15 +325,20 @@ tool's default and the build behaves exactly as before.
 .. note::
 
    The same interception can fail ``osprey build`` **on the host**, before any
-   container is involved — and the symptom is confusing, because plain
-   connectivity checks all pass. While preparing the project environment,
-   pip's build-isolation subprocess dies with ``SSL: CERTIFICATE_VERIFY_FAILED``
-   fetching a build backend such as ``hatchling``, even though ``curl`` and the
-   system Python verify the same endpoints fine. The difference is the trust
-   store: those tools read the system bundle, which knows the proxy's CA, while
-   the venv's pip trusts only its bundled ``certifi`` store, which cannot build
-   the proxied chain. Point the certifi-backed clients at the system bundle
-   before building:
+   container is involved. The symptom is confusing, because plain
+   connectivity checks all pass.
+
+   **Symptom.** While preparing the project environment, pip's
+   build-isolation subprocess dies with ``SSL: CERTIFICATE_VERIFY_FAILED``
+   fetching a build backend such as ``hatchling``. Yet ``curl`` and the
+   system Python verify the same endpoints fine.
+
+   **Cause.** The difference is the trust store. Those tools read the system
+   bundle, which knows the proxy's CA. The venv's pip trusts only its bundled
+   ``certifi`` store, which cannot build the proxied chain.
+
+   **Fix.** Point the certifi-backed clients at the system bundle before
+   building:
 
    .. code-block:: bash
 
@@ -330,10 +346,10 @@ tool's default and the build behaves exactly as before.
              REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-bundle.crt \
              PIP_CERT=/etc/ssl/certs/ca-bundle.crt
 
-   (``/etc/ssl/certs/ca-bundle.crt`` is the RHEL-family spelling of the system
-   bundle; Debian-family hosts use ``/etc/ssl/certs/ca-certificates.crt``.)
-   These are three of the four variables the image sets for its own inside —
-   exported here, they cover the host-side build, which reads them from the
+   ``/etc/ssl/certs/ca-bundle.crt`` is the RHEL-family spelling of the system
+   bundle; Debian-family hosts use ``/etc/ssl/certs/ca-certificates.crt``.
+   These are three of the four variables the image sets for its own inside.
+   Exported here, they cover the host-side build, which reads them from the
    shell rather than from the deployment's env files.
 
 .. _deployment-qmd-prefetched-models:
@@ -352,9 +368,9 @@ directory of prefetched models in the project's ``config.yml``:
      qmd:
        models_dir: /srv/osprey/qmd-models   # absolute host path
 
-That one key does both halves of the job: the build skips the downloads, and the
-directory is bind-mounted read-only into the container at the location the image
-looks for models. The container-side path is fixed by the image and is not
+That one key does both halves of the job. The build skips the downloads. The
+directory is bind-mounted read-only into the container, at the location where
+the image looks for models. The container-side path is fixed by the image and is not
 configurable.
 
 Staging the files
@@ -369,33 +385,38 @@ The three files must sit in that directory under exactly these names:
    hf_tobil_qmd-query-expansion-1.7B-q4_k_m.gguf
 
 These are cache names, not the names the files download under. The model loader
-recognizes a staged file only in this form; under any other name it reads as
-**absent**, and the sidecar tries to fetch it again — into a read-only mount, on
-a network that cannot reach the model host.
+recognizes a staged file only in this form. Under any other name it reads as
+**absent**, and the sidecar tries to fetch it again. That fetch goes into a
+read-only mount, on a network that cannot reach the model host.
 
-Copy the files from a machine that can reach ``huggingface.co`` (or from the
-model cache of one that has already built the sidecar image), rename them, and
-check them before setting the key:
+To stage the files:
 
-.. code-block:: bash
+#. Copy them into the ``models_dir`` directory from a machine that can reach
+   ``huggingface.co``, or from the model cache of one that has already built
+   the sidecar image.
+#. Rename them to the names above.
+#. Check them before setting the key:
 
-   sha256sum /srv/osprey/qmd-models/*.gguf
+   .. code-block:: bash
 
-Compare the three digests against the pins in the qmd service's Dockerfile
-(``services/qmd/Dockerfile`` in the rendered deployment), which carries both the
-source URL and the expected SHA256 of each file.
+      sha256sum /srv/osprey/qmd-models/*.gguf
+
+   Compare the three digests against the pins in the qmd service's Dockerfile
+   (``services/qmd/Dockerfile`` in the rendered deployment). It carries both
+   the source URL and the expected SHA256 of each file.
 
 What gets checked
 -----------------
 
-- **Before anything starts.** If ``services.qmd.models_dir`` is set but the
-  directory is missing, or a model is absent, misnamed, or zero bytes, the
-  deploy refuses up front and prints the expected filenames along with the
-  staging steps. Nothing has been started at that point.
+- **Before anything starts.** The deploy refuses up front if
+  ``services.qmd.models_dir`` is set but the directory is missing, or a model
+  is absent, misnamed, or zero bytes. It prints the expected filenames along
+  with the staging steps. Nothing has been started at that point.
 - **At container start.** The entrypoint verifies all three SHA256 digests
-  against the pins the image was built with, every time, and fails with a clear
-  message rather than letting the sidecar crash-loop unnoticed. A stamp file
-  records what it already verified, so ordinary restarts stay fast.
+  against the pins the image was built with, every time. When verification fails,
+  it stops with a clear message rather than letting the sidecar crash-loop
+  unnoticed. A stamp file records what it already verified, so ordinary
+  restarts stay fast.
 
 Leaving ``models_dir`` unset keeps the default: the models are baked into the
 image at build time, which needs a build host that can reach ``huggingface.co``.
@@ -408,9 +429,9 @@ Path Relocation
 
 A render made on a host records that host's path in ``config.yml`` as
 ``project_root``, which would be wrong inside an image. Nothing in the
-Dockerfile fixes that: ``osprey build`` renders a second copy of the deployment
-specifically for the container, against its ``/app`` path rather than the
-building host's, and that copy is what the image build uses as its context. The
+Dockerfile fixes that. Instead, ``osprey build`` renders a second copy of the
+deployment specifically for the container, against its ``/app`` path rather
+than the building host's. The image build uses that copy as its context. The
 recorded ``project_root``, the agent artifacts (``.mcp.json``, ``CLAUDE.md``,
 ``.claude/``) and every path they name are already the container's before the
 first ``docker build`` layer runs.
@@ -432,12 +453,14 @@ than where it was made.
 The Privilege Split
 ===================
 
-The agent never runs as root: **the agent CLI refuses to run in
-bypassPermissions mode as root**, and running it there would in any case put
-the whole project within its own reach. The image satisfies that in a way that
-still lets the container fix itself at startup — it *starts* as root, does the
-few things only root can do, and drops to an unprivileged ``osprey`` user
-before the command that serves requests exists.
+The agent never runs as root. **The agent CLI refuses to run in
+bypassPermissions mode as root**, and root would put the whole project within
+the agent's reach.
+
+The image satisfies that in a way that still lets the container fix itself at
+startup. It *starts* as root and does the few things only root can do. Then it
+drops to an unprivileged ``osprey`` user before the command that serves
+requests exists.
 
 Two areas of the project, two owners:
 
@@ -470,17 +493,21 @@ to whatever the base image hands out, and the image states the pair in
 it — the multi-user stack's per-user volume seeding, for one — reads it out of
 the image instead of guessing.
 
-The agent and the server that spawned it are both ``osprey``, so the split
-between them is not a second user but what the server keeps from a process of
-its own uid. Before it serves anything, ``osprey web`` takes its credentials
-— the operator secret and the event-dispatcher bearer — out of its
-environment into memory, and on Linux marks itself non-dumpable, so its
-exec-time environment and memory are closed to the agent and everything the
-agent runs. The panel token is not among them: the agent's own panel tooling
-is handed it by design. The dispatch worker does the same with its bearer. The approval
-prompt the operator answers at the terminal therefore records that a person
-intended a write; what contains agent code is the connector's checks and the
-container, as :doc:`/architecture/safety-chain` lays out.
+The agent and the server that spawned it are both ``osprey``. So the split
+between them is not a second user, but what the server keeps from a process of
+its own uid. Before it serves anything, ``osprey web`` does two things:
+
+- It takes its credentials — the operator secret and the event-dispatcher
+  bearer — out of its environment into memory.
+- On Linux, it marks itself non-dumpable.
+
+Its exec-time environment and memory are then closed to the agent and
+everything the agent runs. The dispatch worker does the same with its bearer.
+The panel token is not one of those credentials: the agent's own panel tooling
+is handed it by design. The approval prompt the operator answers at the terminal therefore
+records that a person intended a write. What contains agent code is the
+connector's checks and the container, as :doc:`/architecture/safety-chain`
+lays out.
 
 What the entrypoint does
 ------------------------
@@ -494,8 +521,8 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
 #. **Restores your own artifact bodies** from the durable store, so a
    recreated container comes back with the artifacts you saved rather than the
    ones the image shipped. In a container that store is always the per-user
-   volume — the profile baked into the image is never treated as an editable
-   source, whatever its permissions look like — so this step really does put
+   volume. The profile baked into the image is never treated as an editable
+   source, whatever its permissions look like. So this step really does put
    your claimed bodies back into a render nothing else can write. A store
    record naming a protected path is skipped and recorded instead, under the
    surface name ``scaffold_restore``; see :ref:`the protected set
@@ -504,10 +531,10 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
    gives uid 1000 that name so that a control-system client reports it as the
    user behind every write the container makes; see
    :ref:`containerize-control-identity`.
-#. **Hands the state zone back** to the ``osprey`` user — only the paths root
-   actually left behind — because both earlier steps wrote into ``var/`` as
-   root, including the agent record's spool (``var/spool/``) the running
-   server has to keep appending to.
+#. **Hands the state zone back** to the ``osprey`` user, covering only the
+   paths root actually left behind. It does so because both earlier steps
+   wrote into ``var/`` as root. That includes the agent record's spool
+   (``var/spool/``), which the running server has to keep appending to.
 #. **Drops privileges** with ``exec gosu osprey "$@"``. Because it execs the
    arguments it was handed, overriding the command on ``docker run`` still
    goes through the drop.
@@ -520,16 +547,16 @@ privilege drop is the opposite — a missing ``gosu``, or an image with no
 Two environment variables carry the consequences:
 
 - ``OSPREY_RENDER_ZONE_READONLY=1`` tells the server the render is not
-  writable by this process, so it skips the startup regen and restore the
-  entrypoint has already done, and logs what a regen *would* have changed
-  instead of failing on a tree it cannot write.
+  writable by this process. The server then skips the startup regen and
+  restore the entrypoint has already done. It logs what a regen *would* have
+  changed instead of failing on a tree it cannot write.
 - ``OSPREY_RUNTIME_UID=1000:1000`` states the user the entrypoint drops to.
 
 .. note::
 
    **Run the image with** ``--user`` **and both maintenance steps are
    skipped.** They cannot write a root-owned render from an unprivileged
-   process, and ``gosu`` cannot drop to a user it is not root to become — so
+   process, and ``gosu`` cannot drop to a user it is not root to become. So
    the entrypoint says so loudly in the log and runs the command directly. The
    agent artifacts are then whatever the image was built with. That is a valid
    way to run it; it is not the way to run it if you expect a configuration
@@ -542,8 +569,8 @@ The name uid 1000 writes under
 ------------------------------
 
 A Channel Access or PV Access client reports the user name of the process
-doing the put, and it reads that name from the account database
-(``getpwuid``), never from ``USER`` or ``LOGNAME``. Every process in the
+doing the put. It reads that name from the account database (``getpwuid``),
+never from ``USER`` or ``LOGNAME``. Every process in the
 container runs as uid 1000, so without an identity every write from the
 container arrives as ``osprey``.
 
@@ -551,9 +578,9 @@ container arrives as ``osprey``.
 personal card behind a login wall that carries a ``control_identity`` in the
 roster (see :ref:`multi-user-control-identity`), and on every dispatch worker
 as ``osprey-dispatch-<i>``. ``OSPREY_CONTROL_IDENTITY_MODULE`` names the file
-that performs the change: a small stdlib-only script the render stages beside
-the compose file and bind-mounts read-only into the container, so the step
-does not depend on the image version.
+that performs the change. It is a small stdlib-only script that the render
+stages beside the compose file and bind-mounts read-only into the container.
+So the step does not depend on the image version.
 
 The step adds a second ``/etc/passwd`` line for uid 1000, directly above the
 ``osprey`` line:
@@ -612,7 +639,7 @@ writer in the put-log and guards nothing, so it fails open:
        value, and ``osprey health`` reports it as a warning
 
 A Bluesky lane renames root to its ``osprey-bluesky-*`` name in its own start
-command, with the same answer: a failed rename prints a warning and the lane
+command, with the same answer. A failed rename prints a warning and the lane
 starts as ``root``, the name its preflight records then carry.
 
 One tier gets one more file
@@ -620,13 +647,13 @@ One tier gets one more file
 
 A deployment can grant a single tier the ability to edit its own
 configuration — the agent's ``setup_patch`` tool and the browser's Config
-panel. The image reads that grant off the render's own permissions: where the
-setup tool is left out of the deny list, and only there, ``build/config.yml``
-is handed to the ``osprey`` user, which is also what lets the Config panel's
-write land. Every other render leaves the file root-owned, which is what makes
+panel. The image reads that grant off the render's own permissions. Where the
+setup tool is left out of the deny list, and only there, the image hands
+``build/config.yml`` to the ``osprey`` user. That is also what lets the Config
+panel's write land. Every other render leaves the file root-owned. That makes
 the boundary a fact of the filesystem rather than a permission list the agent
 is asked to respect. Grant the two surfaces together, the way the bundled
-tiers do — a tier handed the panel alone would find the file it has to
+tiers do. A tier handed the panel alone would find the file it has to
 write still owned by root. See :doc:`../web-terminal/multi-user/tiers` for the tiers this exists
 for.
 
@@ -635,15 +662,14 @@ On a bare host it is ownership you set up
 
 Run the same project with ``osprey web`` on a host instead of in a container
 and the split is **not** there. There is no second user: the server runs as
-you, and it keeps the self-healing startup behaviour the container moved into
-its entrypoint — it re-renders drifted artifacts and restores your saved
-artifact bodies in-process, because there is no root step ahead of it to have
-done so.
+you. It keeps the self-healing startup behaviour the container moved into its
+entrypoint. It re-renders drifted artifacts and restores your saved artifact
+bodies in-process, because there is no root step ahead of it to have done so.
 
 The parts that are code rather than file ownership do carry over. The restore
 refuses a protected path on a bare host exactly as it does under the
-entrypoint, because both call the same function — a private copy for the
-container would be a second gate to keep in step, and the one running as root
+entrypoint, because both call the same function. A private copy for the
+container would be a second gate to keep in step. And the one running as root
 is the worst place to discover a drift.
 
 The rest is worth saying plainly: on a bare host the render is only as
@@ -666,13 +692,14 @@ Two kinds of state are worth persisting across container restarts:
      my-project
 
 - ``var/agent_data/`` — generated data artifacts and the backup every config
-  write takes before it writes (``config-backups/<name>.bak``). The backup anchors on the project root, so
-  it lands in the same place whether the project is flat, a deployment
-  repository, or this image — unless the deployment relocates
-  ``agent_data.base_dir``, which moves the backups with it.
+  write takes before it writes (``config-backups/<name>.bak``). The backup
+  anchors on the project root. So it lands in the same place whether the
+  project is flat, a deployment repository, or this image. The exception is a
+  deployment that relocates ``agent_data.base_dir``, which moves the backups
+  with it.
 - ``/home/osprey`` — the agent CLI's per-user state (sessions, credentials).
-  Set ``CLAUDE_CONFIG_DIR`` to this directory: it is the only variable that
-  names the durable store scaffold claims are recorded in, and without it a
+  Set ``CLAUDE_CONFIG_DIR`` to this directory. It is the only variable that
+  names the durable store scaffold claims are recorded in. Without it, a
   claim made from the running deployment is lost when the container is
   recreated. The deployment logs a warning at startup when it is unset.
 
@@ -695,9 +722,9 @@ Kubernetes notes
 Troubleshooting
 ===============
 
-**pip fails building** ``accelerator-toolbox`` **on Apple Silicon** — parts
-of OSPREY's dependency chain ship prebuilt wheels for ``linux/amd64`` only,
-so an arm64 build must compile them from source, which is where it breaks.
+**pip fails building** ``accelerator-toolbox`` **on Apple Silicon.** Parts
+of OSPREY's dependency chain ship prebuilt wheels for ``linux/amd64`` only.
+So an arm64 build must compile them from source, which is where it breaks.
 Build (and run) the amd64 image under Docker Desktop's emulation instead; it
 matches the usual amd64 deployment target:
 
@@ -715,7 +742,7 @@ Customizing
 
 The file is yours — common edits:
 
-- **Layer a site image on top**: build the generated image as a base, then
+- **Layer a site image on top**: build the generated image as a base. Then
   ``FROM`` it in a small site Dockerfile that adds credentials helpers,
   enterprise settings, or extra processes.
 - **Change the entrypoint**: the default ``CMD`` runs
@@ -726,19 +753,21 @@ The file is yours — common edits:
   ``project/`` mirror (above) so every rebuild lands it again.
 - **Template-level override**: an app bundle can ship its own
   ``apps/<bundle>/Dockerfile.j2``, which takes precedence over the framework
-  template at build time — use this when every project built from a bundle
+  template at build time. Use this when every project built from a bundle
   needs the same customization.
 
 .. warning::
 
    **A Dockerfile you forked keeps the recipe you forked.** A copy in your
    deployment's ``project/`` mirror is laid over the render on every build,
-   and no regeneration ever rewrites it — that is what the mirror is for, and
-   it is also why your copy never picks up anything the framework's recipe
-   gained afterwards. `The Privilege Split`_ is exactly such a gain: a forked
-   Dockerfile still creates the ``osprey`` user, hands it the *whole* project
-   with a blanket ``chown``, and switches to it with ``USER`` — so the render
-   it is meant to protect stays writable by the agent.
+   and no regeneration ever rewrites it. That is what the mirror is for. It
+   is also why your copy never picks up anything the framework's recipe
+   gained afterwards.
+
+   `The Privilege Split`_ is exactly such a gain. A forked Dockerfile still
+   creates the ``osprey`` user, hands it the *whole* project with a blanket
+   ``chown``, and switches to it with ``USER``. So the render the split is meant
+   to protect stays writable by the agent.
 
    Seven changes port the split into a forked recipe. Or delete your fork,
    rebuild, and re-apply your customization on top of the current one, which is

@@ -121,7 +121,7 @@ from osprey.services.archive.manifest import MANIFEST_NAME
 from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, SPOOL_DIR_RELPATH
 from tests.e2e._deploy_support import env_from_example
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 pytestmark = [
     pytest.mark.model_free,
@@ -679,6 +679,7 @@ def _deploy(
             "--preset",
             preset.name,
             "--no-git",
+            *e2e_scenario_pin(preset.name),
             *set_pairs(preset.edits),
         ],
         cwd=base,

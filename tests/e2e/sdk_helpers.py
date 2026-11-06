@@ -45,7 +45,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.types import WRITES_KEY, baseline_target
 from osprey_connectors_tests._harness import ci_diagnostics
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import build_model, build_provider
 
 # SDK imports — skip entire module if not installed
@@ -451,6 +451,7 @@ def init_project(
         "--preset",
         template.replace("_", "-"),
         "--no-git",
+        *e2e_scenario_pin(template.replace("_", "-")),
         "--set",
         f"provider={provider}",
         "--set",

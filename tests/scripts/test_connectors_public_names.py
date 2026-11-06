@@ -8,27 +8,12 @@ framework under ``src``. The last test holds the real tree to it.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
-from types import ModuleType
+
+from tests.scripts._check_script import check
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-
-def _load(relative: str, name: str) -> ModuleType:
-    # import-time required because scripts/ is not a package: the check
-    # command is loaded by path, under a name no import uses, and registered
-    # in sys.modules before exec so @dataclass can resolve annotations.
-    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / relative)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-check = _load("scripts/check.py", "_check_by_path")
 names = check.DECLARED.modules["packages/osprey-connectors/repo_checks.py"]
 
 PACKAGE = Path(names.PACKAGE_SRC) / "osprey_connectors"

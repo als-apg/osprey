@@ -23,6 +23,7 @@ from rich.text import Text
 # The gold-standard three-zone deployment repo, re-exported so every lifecycle
 # test under tests/cli/ can ask for it by name. Defined in tests/fixtures/ with
 # the exemplar content it materializes.
+from tests._builds import Restorable
 from tests.fixtures.lifecycle_repo import (  # noqa: F401
     lifecycle_repo,
     lifecycle_repo_factory,
@@ -88,6 +89,41 @@ def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
+
+
+@pytest.fixture(scope="session")
+def _stock_built_exemplar(tmp_path_factory: pytest.TempPathFactory) -> Restorable:
+    """The stock exemplar after one in-process build, made once per worker."""
+    from tests.cli._lifecycle_build import invoke_build_in
+    from tests.fixtures.lifecycle_repo import (
+        EXEMPLAR_DIRNAME,
+        build_exemplar_repo,
+        preserved_environ,
+    )
+
+    def make(parent: Path) -> tuple[Path, object]:
+        repo = build_exemplar_repo(parent / EXEMPLAR_DIRNAME)
+        with preserved_environ():
+            result = invoke_build_in(repo)
+        assert result.exit_code == 0, result.output
+        return repo, result
+
+    return Restorable(tmp_path_factory.mktemp("stock-exemplar"), make)
+
+
+@pytest.fixture
+def built_lifecycle_repo(_stock_built_exemplar: Restorable) -> Path:
+    """``lifecycle_repo`` after one ``osprey build --skip-deps --skip-lifecycle``.
+
+    For a test whose first step is that build: it starts from the build's
+    result, put back pristine for it, without paying for the build. The repo
+    is the stock exemplar, built from its own directory with no ``.env``, and
+    it lives at one path per worker, not under the test's ``tmp_path`` (see
+    :class:`tests._builds.Restorable` for why). A test that varies the repo or
+    the flags before its first build, or whose subject is that build, builds
+    its own ``lifecycle_repo``.
+    """
+    return _stock_built_exemplar.restore()
 
 
 @pytest.fixture

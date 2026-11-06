@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import math
 import tempfile
+import uuid
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -47,6 +48,8 @@ if TYPE_CHECKING:
     from zoneinfo import ZoneInfo
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.simulation.session_artifacts import ArtifactPayload
+    from osprey.simulation.sessions import ResolvedSession
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
     from osprey_connectors.simulation.view import SimulatorView
@@ -383,7 +386,222 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
     if not defaults:
         return ()
     result = apply_scenarios(project_dir, defaults, seed_logbook=False, seed_archive=False)
+    _seed_scenario_sessions(config, project_dir, result.active)
     return result.active
+
+
+#: Namespace of every stable id a scenario's session history carries: transcript
+#: ids, session keys and artifact entry ids are ``uuid5`` names under it, so the
+#: same deployment derives the same ids on every deploy and the hub's lay-down
+#: fills in rather than duplicates.
+DEMO_HISTORY_NS = uuid.UUID("6f0c2a4e-9d1b-5c3a-8e7f-2b4d6a8c0e13")
+
+#: The seed file the hub lays a scenario's session history down from.
+SCENARIO_SESSIONS_FILENAME = "scenario-sessions.json"
+
+#: Group-shared, as the setgid identity directory it sits in: the hub that
+#: consumes (and deletes) it runs under the identity's uid, not the deployer's.
+_SEED_FILE_MODE = 0o660
+
+#: The effective tier whose first roster user gets a sidebar history.
+_HISTORY_TIER = "readwrite"
+
+
+def _seed_scenario_sessions(config: dict, project_dir: Path, active: Sequence[str]) -> None:
+    """Write the seed file for a freshly activated set that holds sessions; never raise.
+
+    The anchor is the one :func:`apply_scenarios` just persisted, read back from
+    the state file, so the history lands on the same clock as the archive and
+    the logbook the deploy seeds from that state. A failure is logged and
+    swallowed: the set IS active, and a missing sidebar history must not turn
+    the deploy's activation into a reported failure.
+    """
+    try:
+        scenarios = view_scenarios(project_dir) or {}
+        if not any((scenarios.get(name) or {}).get("sessions") for name in active):
+            return
+        _, epoch = _active_state(config, project_dir)
+        if epoch is None:
+            logger.warning("Scenario sessions not seeded: the scenario state records no anchor")
+            return
+        anchor = datetime.fromtimestamp(epoch, UTC).astimezone(get_facility_timezone())
+        write_scenario_sessions(config, project_dir, active, anchor)
+    except Exception as e:
+        logger.warning(f"Scenario sessions not seeded: {type(e).__name__}: {e}")
+
+
+def history_identities(config: Mapping[str, Any]) -> list[str]:
+    """The identities that get a scenario's session history in their sidebar.
+
+    The first ``modules.web_terminals`` roster user whose EFFECTIVE tier is
+    ``readwrite`` (a user with no ``tier`` takes ``default_tier``), in roster
+    order, then the host acting identity. Never other roster users, app
+    terminals or dispatch workspaces; with no roster (``enabled`` false) or no
+    readwrite user, the host identity alone.
+    """
+    from osprey.agent_record.identities import host_identity
+    from osprey.deployment.web_terminals.roster import (
+        UnresolvedRoleError,
+        authored_people,
+        effective_tier,
+        resolve_authorization_roles,
+        sign_in_decides_tier,
+    )
+
+    identities: list[str] = []
+    modules = config.get("modules")
+    web_terminals = modules.get("web_terminals") if isinstance(modules, Mapping) else None
+    if isinstance(web_terminals, Mapping) and web_terminals.get("enabled"):
+        try:
+            roles: dict[str, str] | None = resolve_authorization_roles(web_terminals)
+        except ValueError:
+            roles = None
+        default_tier = web_terminals.get("default_tier")
+        for raw in authored_people(web_terminals):
+            entry = {"name": raw} if isinstance(raw, str) else raw
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            if sign_in_decides_tier(entry, web_terminals):
+                continue
+            if roles is None and entry.get("role"):
+                continue
+            try:
+                tier = effective_tier(entry, roles or {}, default_tier, strict=True)
+            except UnresolvedRoleError:
+                continue
+            if tier == _HISTORY_TIER:
+                identities.append(name)
+                break
+    host = host_identity(config)
+    if host and host not in identities:
+        identities.append(host)
+    return identities
+
+
+def scenario_sessions_dir(config: Mapping[str, Any], project_dir: Path, identity: str) -> Path:
+    """*identity*'s control-context state dir: where its seed file is written.
+
+    Resolved from the passed config and project only -- never from the
+    environment or the working directory -- so a deploy run from anywhere
+    writes into the deployment it was handed.
+    """
+    from osprey_connectors.posture_store import STATE_DIR_NAME
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
+
+    return anchored_path(agent_data_base_dir(config), Path(project_dir)) / STATE_DIR_NAME / identity
+
+
+def _stable_id(identity: str, scenario: str, slug: str, leaf: str | int) -> uuid.UUID:
+    return uuid.uuid5(DEMO_HISTORY_NS, f"{identity}/{scenario}/{slug}/{leaf}")
+
+
+def _seed_session(
+    identity: str,
+    scenario: str,
+    rs: ResolvedSession,
+    payloads: Mapping[tuple[str, str], ArtifactPayload],
+) -> dict[str, Any]:
+    """One seed-file session of *identity*: the resolved session, its ids and artifacts."""
+    from osprey.simulation.sessions import to_dict
+
+    slug = rs.session.slug
+    plain = to_dict(rs)
+    parts: list[dict[str, Any]] = []
+    artifacts: list[dict[str, Any]] = []
+    for index, (rp, part) in enumerate(zip(rs.parts, plain.pop("parts"), strict=True)):
+        transcript_id = str(_stable_id(identity, scenario, slug, index))
+        parts.append({"transcript_id": transcript_id, **part})
+        artifacts.extend(
+            {
+                "entry_id": _stable_id(identity, scenario, slug, ra.spec.slug).hex[:12],
+                "transcript_id": transcript_id,
+                "at": ra.at.isoformat(),
+                **payloads[(slug, ra.spec.slug)].fields(),
+            }
+            for rt in rp.turns
+            for ra in rt.artifacts
+        )
+    return {
+        "scenario": scenario,
+        "key": parts[0]["transcript_id"],
+        **plain,
+        "parts": parts,
+        "artifacts": artifacts,
+    }
+
+
+def write_scenario_sessions(
+    config: dict, project_dir: Path | str, active: Sequence[str], anchor: datetime
+) -> list[Path]:
+    """Write ``scenario-sessions.json`` for every identity of :func:`history_identities`.
+
+    Each active scenario's ``sessions`` block is resolved against ``anchor`` and
+    its artifacts rendered from the archive that anchor writes; ids are derived
+    stably from identity, scenario and slug. Nothing is written when no active
+    scenario holds sessions.
+
+    Args:
+        config: The project's loaded ``config.yml``.
+        project_dir: The deployment repo root.
+        active: The activated set, as :func:`apply_scenarios` returned it.
+        anchor: The persisted apply-time anchor; must be timezone-aware.
+
+    Returns:
+        The seed files written, one per identity that could be provisioned.
+    """
+    import json
+
+    from osprey.deployment.compose_generator import ensure_control_target_dir
+    from osprey.simulation.session_artifacts import render_session_artifacts
+    from osprey.simulation.sessions import parse_sessions, resolve
+    from osprey_connectors.safety_file import atomic_replace
+
+    project_dir = Path(project_dir)
+    if anchor.tzinfo is None or anchor.utcoffset() is None:
+        raise ValueError(f"anchor must be timezone-aware, got {anchor!r}")
+    scenarios = view_scenarios(project_dir) or {}
+    held = []
+    for name in active:
+        raw = (scenarios.get(name) or {}).get("sessions")
+        if not raw:
+            continue
+        resolved = resolve(parse_sessions(raw, prefix=f"{name}.sessions"), anchor)
+        payloads = render_session_artifacts(project_dir, list(active), resolved, anchor)
+        held.append((name, resolved, payloads))
+    if not held:
+        return []
+
+    written: list[Path] = []
+    for identity in history_identities(config):
+        sessions = [
+            _seed_session(identity, name, rs, payloads)
+            for name, resolved, payloads in held
+            for rs in resolved
+        ]
+        if not sessions:
+            continue
+        target = scenario_sessions_dir(config, project_dir, identity)
+        try:
+            ensure_control_target_dir(config, project_dir)
+            ensure_control_target_dir(config, project_dir, identity)
+            if not target.is_dir():
+                logger.warning(
+                    f"Scenario sessions not seeded for {identity}: {target} could not be provisioned"
+                )
+                continue
+            path = target / SCENARIO_SESSIONS_FILENAME
+            data = json.dumps(
+                {"version": 1, "anchor": anchor.isoformat(), "sessions": sessions}, indent=2
+            ).encode()
+            atomic_replace(path, data, mode=_SEED_FILE_MODE)
+        except Exception as e:
+            logger.warning(f"Scenario sessions not seeded for {identity}: {type(e).__name__}: {e}")
+            continue
+        written.append(path)
+    return written
 
 
 def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogbookEntry]:

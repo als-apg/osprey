@@ -10,6 +10,7 @@ anything is written.
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
 import shutil
@@ -55,18 +56,29 @@ DEVICES = gen.EXAMPLE_RECORDS.with_name(gen.DEVICES_FILE)
 
 @pytest.fixture(scope="module")
 def rows() -> list[dict]:
-    return yaml.safe_load(gen.EXAMPLE_RECORDS.read_text(encoding="utf-8"))
+    return gen._safe_load(gen.EXAMPLE_RECORDS.read_text(encoding="utf-8"))
+
+
+@functools.cache
+def _device_rows() -> list[dict]:
+    return gen._safe_load(DEVICES.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
 def devices() -> dict[str, dict]:
-    return {row["id"]: row for row in yaml.safe_load(DEVICES.read_text(encoding="utf-8"))}
+    return {row["id"]: row for row in _device_rows()}
 
 
 def _records(rows: list[dict], drop=lambda name: False, devices=None) -> object:
     if devices is None:
-        devices = {row["id"]: row for row in yaml.safe_load(DEVICES.read_text(encoding="utf-8"))}
+        devices = {row["id"]: row for row in _device_rows()}
     return gen.Records({row["id"]: row for row in rows if not drop(row["id"])}, devices)
+
+
+@pytest.fixture(scope="module")
+def rendered(rows) -> dict[str, str]:
+    """One render of the example records into the committed library; tests only read it."""
+    return gen.render(_records(rows), LIBRARY)
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -75,8 +87,8 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_a_rerun_reproduces_the_committed_bytes(rows):
-    files = gen.render(_records(rows), LIBRARY)
+def test_a_rerun_reproduces_the_committed_bytes(rendered):
+    files = rendered
     assert sorted(files) == sorted(GENERATED)
     for rel, text in files.items():
         assert (LIBRARY / rel).read_bytes() == text.encode("utf-8"), rel
@@ -112,8 +124,8 @@ def test_write_restores_the_committed_bytes(tmp_path):
         assert (copy / rel).read_bytes() == (LIBRARY / rel).read_bytes(), rel
 
 
-def test_the_output_is_deterministic_ascii_json(rows):
-    first = gen.render(_records(rows), LIBRARY)
+def test_the_output_is_deterministic_ascii_json(rows, rendered):
+    first = rendered
     assert first == gen.render(_records(list(reversed(rows))), LIBRARY)
     for text in first.values():
         assert text.isascii()
@@ -127,8 +139,8 @@ def _ids(node: dict, widgets: list[str], rules: list[str]) -> None:
         _ids(child, widgets, rules)
 
 
-def test_widget_and_rule_ids_are_sequential(rows):
-    for text in gen.render(_records(rows), LIBRARY).values():
+def test_widget_and_rule_ids_are_sequential(rendered):
+    for text in rendered.values():
         widgets: list[str] = []
         rules: list[str] = []
         _ids(json.loads(text)["root"], widgets, rules)
@@ -142,28 +154,40 @@ def test_the_pinned_canopy_verdicts_are_the_generator_constants():
     assert gen.LABELLED_INPUT_FORM == "index"
 
 
-@pytest.mark.parametrize(
-    ("dropped", "error", "named"),
-    [
-        (lambda n: n == "SR:OPS:MODE:RB", "MissingRecordError", "SR:OPS:MODE:RB"),
-        (
-            lambda n: n == "LN:RF:WATER:01:STATUS:ON",
-            "MissingRecordError",
-            "LN:RF:WATER:01:STATUS:ON",
-        ),
-        (lambda n: n == "SR:DIAG:BPM:72:STATUS:VALID", "GeometryMismatchError", "71 SR BPMs"),
-        (lambda n: n.startswith("SR:MAG:QFA:24:"), "GeometryMismatchError", "23 SR QFA"),
-        (
-            lambda n: n == "SR:VAC:GAUGE:SR05:PRESSURE:RB",
-            "MissingRecordError",
-            "SR:VAC:GAUGE:SR05:PRESSURE:RB",
-        ),
-        (lambda n: n.startswith("SR:MAG:VCM:72:"), "GeometryMismatchError", "71 SR VCM"),
-    ],
-)
-def test_what_the_drawing_cannot_hold_is_a_named_error(rows, tmp_path, dropped, error, named):
+#: Record sets the drawing cannot hold: what is dropped, the error, what it names.
+UNDRAWABLE = [
+    (lambda n: n == "SR:OPS:MODE:RB", "MissingRecordError", "SR:OPS:MODE:RB"),
+    (
+        lambda n: n == "LN:RF:WATER:01:STATUS:ON",
+        "MissingRecordError",
+        "LN:RF:WATER:01:STATUS:ON",
+    ),
+    (lambda n: n == "SR:DIAG:BPM:72:STATUS:VALID", "GeometryMismatchError", "71 SR BPMs"),
+    (lambda n: n.startswith("SR:MAG:QFA:24:"), "GeometryMismatchError", "23 SR QFA"),
+    (
+        lambda n: n == "SR:VAC:GAUGE:SR05:PRESSURE:RB",
+        "MissingRecordError",
+        "SR:VAC:GAUGE:SR05:PRESSURE:RB",
+    ),
+    (lambda n: n.startswith("SR:MAG:VCM:72:"), "GeometryMismatchError", "71 SR VCM"),
+]
+
+
+@pytest.mark.parametrize(("dropped", "error", "named"), UNDRAWABLE)
+def test_what_the_drawing_cannot_hold_is_a_named_error(rows, dropped, error, named):
     with pytest.raises(getattr(gen, error), match=named):
         gen.render(_records(rows, dropped), LIBRARY)
+
+
+@pytest.mark.parametrize(
+    ("dropped", "error", "named"),
+    # One record set per error class (a MissingRecordError, a
+    # GeometryMismatchError): ``main`` maps every ``GeneratorError`` to the same
+    # exit, stderr line and empty write, and the named-error test above proves
+    # each set's own error and message.
+    [UNDRAWABLE[0], UNDRAWABLE[2]],
+)
+def test_the_cli_stops_on_a_drawing_error_before_writing(rows, tmp_path, dropped, error, named):
     records = tmp_path / "channels.yaml"
     records.write_text(yaml.safe_dump([r for r in rows if not dropped(r["id"])]), encoding="utf-8")
     shutil.copy(DEVICES, tmp_path / gen.DEVICES_FILE)

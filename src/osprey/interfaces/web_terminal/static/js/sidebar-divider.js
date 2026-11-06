@@ -1,8 +1,8 @@
 // @ts-check
-/* OSPREY Web Terminal — the Workspace divider
+/* OSPREY Web Terminal — the Sessions divider
  *
  * A faint horizontal line below the group that holds the Agent row (the
- * Workspace group, unless the operator moved the groups) is a drag handle for
+ * headless Sessions group, always first; sidebar-groups.js) is a drag handle for
  * that group's height, so the session tree can be made taller on demand; the
  * groups after it move down and the rail scrolls when they no longer fit.
  *
@@ -138,7 +138,7 @@ export function initSidebarDivider(railOrNull) {
   divider.className = 'sidebar-divider';
   divider.setAttribute('role', 'separator');
   divider.setAttribute('aria-orientation', 'horizontal');
-  divider.setAttribute('aria-label', 'Workspace height');
+  divider.setAttribute('aria-label', 'Sessions height');
   divider.setAttribute('tabindex', '0');
 
   /** @returns {HTMLElement | null} the group holding the Agent row */
