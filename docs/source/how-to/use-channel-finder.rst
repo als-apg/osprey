@@ -76,14 +76,14 @@ In-Context Pipeline
 Loads the entire channel database into the LLM context for direct semantic
 matching.
 
-**How it works:** a single inner-LLM call — the complete channel database is
-embedded in the system prompt and the model returns the most relevant channels
-in one shot (no query-splitting or iterative-correction stage).
+**How it works:** a single inner-LLM call. The complete channel database is
+embedded in the system prompt. The model returns the most relevant channels in
+one shot, with no query-splitting or iterative-correction stage.
 
 ``osprey build`` writes the database from the facility description as
-``data/channel_finder/in_context.json``: one row per channel, or per channel
-of the subset the facility tags ``in_context``, with its name, address and
-description --- see :doc:`/reference/contracts/channel-finder` for the schema.
+``data/channel_finder/in_context.json``. It holds one row per channel, or per
+channel of the subset the facility tags ``in_context``, with its name, address
+and description. See :doc:`/reference/contracts/channel-finder` for the schema.
 A facility description with no channel stops the build with
 ``view-unsupported``.
 
@@ -123,7 +123,7 @@ A ReAct (reason and act) agent explores the database using query tools
 (``list_systems``, ``list_families``, ``inspect_fields``,
 ``list_channels``, ``get_common_names``, ``statistics``, ``validate``, and —
 when DuckDB is installed — ``run_sql``). What ``run_sql`` hands back is bounded
-by ``channel_finder.query_max_rows`` (default 500): a longer result is cut and
+by ``channel_finder.query_max_rows`` (default 500). A longer result is cut and
 flagged, naming the key, so the agent narrows the query instead of presenting a
 partial list. The cap is on the agent's context, not on the database, which is
 why it is set per deployment.
@@ -131,18 +131,28 @@ why it is set per deployment.
 The database follows MATLAB Middle Layer (MML) functional organization
 (system, then family, then field, then the channel names). ``osprey build``
 writes it from the facility description as
-``data/channel_finder/middle_layer.json``, with the DuckDB copy ``run_sql``
-reads beside it as ``data/channel_finder/middle_layer.duckdb``: a System is a
-top place; a Family is a group (every group of the facility is one), and the
-devices of a class that no single-class group holds form a Family named by the
-class under their top place; a Field is a channel's signal, one channel per
-member, described by the vocabulary's sentence for that signal. A channel whose
-signal some member lacks or has twice, or that has no signal, is keyed by its
-address. A channel belongs to every Family that holds its device. A channel
-listed under several Fields of one Family is found under each of them. A
-facility description with no group and no classed device stops the build with
-``view-unsupported``, as does a channel whose address is the signal another
-channel's Field in the same Family is keyed by.
+``data/channel_finder/middle_layer.json``. The DuckDB copy ``run_sql`` reads
+sits beside it as ``data/channel_finder/middle_layer.duckdb``. In that
+database:
+
+- A System is a top place.
+- A Family is a group: every group of the facility is one. The devices of a
+  class that no single-class group holds form a Family named by the class
+  under their top place.
+- A Field is a channel's signal, one channel per member, described by the
+  vocabulary's sentence for that signal.
+
+A channel whose signal some member lacks or has twice, or that has no signal,
+is keyed by its address. A channel belongs to every Family that holds its
+device. A channel listed under several Fields of one Family is found under each
+of them.
+
+Two things stop the build with ``view-unsupported``:
+
+- a facility description with no group and no classed device;
+- a channel whose address is the signal another channel's Field in the same
+  Family is keyed by.
+
 A facility that runs a Middle Layer
 already has that structure: ``osprey facility import mml``
 (:doc:`/how-to/import-mml-export`) brings it into the facility description.
@@ -153,21 +163,36 @@ Graph Pipeline
 
 Searches the facility knowledge graph instead of a channel database. A
 graph-mode project ships no channel database: ``osprey build`` writes the graph
-view ``data/graph/facility.ttl`` from the facility file, and the channel finder
-subagent finds addresses either by keyword lookup in the search index the build
-writes from that view, or by writing read-only Cypher against the ``graphdb``
-store seeded from it.
+view ``data/graph/facility.ttl`` from the facility file. The channel finder
+subagent finds addresses in one of two ways:
+
+- by keyword lookup in the search index the build writes from that view;
+- by writing read-only Cypher against the ``graphdb`` store seeded from it.
 
 **How it works:** five tools, served under the ``channel-finder`` name like
-every other pipeline's. ``capabilities`` reports how addresses are spelled and
-what prose the corpus carries; ``search_channels`` looks a phrase up in the
-search index and returns matching addresses a page at a time, with facet counts
-for section, system, class, signal and direction; ``example_queries`` returns
-runnable Cypher for the common channel questions, each with framework-default
-parameter values that the seed-time snapshot may replace with values captured
-from this corpus; ``get_schema`` lists the labels, relationship types and
-property names *this* graph actually holds; ``read_cypher`` runs one query and
-returns rows. There is no resolution API behind them — the subagent looks a
+every other pipeline's:
+
+``capabilities``
+   Reports how addresses are spelled and what prose the corpus carries.
+
+``search_channels``
+   Looks a phrase up in the search index and returns matching addresses a page
+   at a time, with facet counts for section, system, class, signal and
+   direction.
+
+``example_queries``
+   Returns runnable Cypher for the common channel questions, each with
+   framework-default parameter values. The seed-time snapshot may replace those
+   values with values captured from this corpus.
+
+``get_schema``
+   Lists the labels, relationship types and property names *this* graph
+   actually holds.
+
+``read_cypher``
+   Runs one query and returns rows.
+
+There is no resolution API behind them — the subagent looks a
 phrase up or adapts an example rather than calling a lookup.
 
 Configuration is the mode plus the store, and nothing else — no ``tier``,
@@ -181,7 +206,7 @@ The render that field produces has no graph entry under
 ``channel_finder.pipelines``: that section comes out empty in graph mode,
 because graph names no database file.
 
-The search index the finder reads needs no key: the build writes it to
+The search index the finder reads needs no key. The build writes it to
 ``./data/channel_databases/graph.duckdb`` beside the render's ``config.yml``,
 which is why the mode and the store are the whole of the configuration.
 
@@ -201,18 +226,25 @@ into it. See :doc:`facility-knowledge/use-facility-graph` for what the graph
 holds.
 
 **What the subagent can search** depends on the corpus. On the build's graph
-view a phrase can be matched against the description written for a single
-channel, against the prose for a group of devices or a top place, and against
-the synonyms an operator would say out loud. A corpus the profile names in
-place of the view (``services.graphdb.ttl_path``) may carry less prose: there
-the way in is a name, an alternate name, a section or a device class.
+view a phrase can be matched against:
+
+- the description written for a single channel;
+- the prose for a group of devices or a top place;
+- the synonyms an operator would say out loud.
+
+A corpus the profile names in place of the view (``services.graphdb.ttl_path``)
+may carry less prose. There the way in is a name, an alternate name, a section
+or a device class.
 
 ``validate`` and ``preview`` have no channel database to open on this pipeline,
-so both report what the store is and which commands act on it. Health reports
-the store and the search index instead of a database: whether the store is
-reachable and how many resources it holds, and whether the index is there and
-was built from the corpus the store was seeded with
-(:doc:`health-and-monitoring/configure-health-checks`).
+so both report what the store is and which commands act on it.
+
+Health reports the store and the search index instead of a database
+(:doc:`health-and-monitoring/configure-health-checks`):
+
+- whether the store is reachable and how many resources it holds;
+- whether the index is there and was built from the corpus the store was
+  seeded with.
 
 The web explorer opens on this pipeline too: its Explore view searches the
 index rather than browsing a channel tree, and the device card reads the store.
@@ -235,15 +267,19 @@ The explorer is read-only. To correct a channel, edit
 The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into
 the search box (``/`` focuses it) and it keeps the channels that match all of
-them — against the address, the description, the device or signal name, and the
-name or synonyms of the device's class or any class above it. When the panel
+them. Each word is matched against the address, the description, the device or
+signal name, and the name or synonyms of the device's class or any class above
+it. When the panel
 runs inside the terminal, the search box and the view's ⋯ menu sit in the
 panel's tile bar.
 
-A facet rail narrows further: Section, System and Signal count matching
-channels, Device class counts devices and rolls each class up over its
-subclasses, and Direction splits them into read, write, read/write and
-undirected. A class that groups devices without being a kind of device itself
+A facet rail narrows further:
+
+- Section, System and Signal count matching channels.
+- Device class counts devices and rolls each class up over its subclasses.
+- Direction splits them into read, write, read/write and undirected.
+
+A class that groups devices without being a kind of device itself
 is shown in muted italic. Every facet is counted with its own filter lifted, so
 a number says what a second pick in that facet would add. Each facet folds from
 its heading and clears with its ✕. Active filters show as chips you can click
@@ -256,26 +292,40 @@ right edge to resize it, and double-click that edge to fit it to its content.
 The header's right-click menu also hides a column, fits all of them, or resets
 the layout. Order, widths and hidden columns are remembered per browser.
 
-Clicking a device name opens its card beside the results — where it sits in
-the machine, and every channel bound to it grouped by signal — and marks its
-rows; Escape closes it. Tick the rows you want, and **Copy addresses** puts
-them on the clipboard one per line, while **Send to assistant**, offered only
-when the panel runs inside the terminal, puts them into the prompt on one line
-for you to send. The panel never submits anything itself.
+Clicking a device name opens its card beside the results and marks its rows.
+The card shows where the device sits in the machine, and every channel bound to
+it grouped by signal. Escape closes it.
+
+Tick the rows you want, then:
+
+- **Copy addresses** puts them on the clipboard one per line.
+- **Send to assistant** puts them into the prompt on one line for you to send.
+  It is offered only when the panel runs inside the terminal.
+
+The panel never submits anything itself.
 
 Right-click a row, a facet value, a chip or a channel in the card for the
-actions that apply there: copy the address, device name or row, send to the
-assistant, open the device, or narrow the search to that row's section, system
-or signal. Shift+F10 or the menu key opens the same menu from the keyboard. The
+actions that apply there:
+
+- copy the address, device name or row;
+- send to the assistant;
+- open the device;
+- narrow the search to that row's section, system or signal.
+
+Shift+F10 or the menu key opens the same menu from the keyboard. The
 table is one Tab stop: arrows, Home and End move between rows, Space selects,
 Enter opens the device and ⌘C/Ctrl+C copies the address. A focused header sorts
 on Enter and moves with Alt+←/→.
 
-The strip above the results names the corpus file and the store it was loaded
-into, the tools the OSPREY agent queries that same store with, and the counts
-of devices, channels, classes, signals and sections read live from the store.
-If the store is unreachable the view says so and offers a Retry, and if it is
-reachable but empty it names the ``osprey build && osprey up`` command that
+The strip above the results names:
+
+- the corpus file and the store it was loaded into;
+- the tools the OSPREY agent queries that same store with;
+- the counts of devices, channels, classes, signals and sections, read live
+  from the store.
+
+If the store is unreachable the view says so and offers a Retry. If it is
+reachable but empty, it names the ``osprey build && osprey up`` command that
 fills it. Channel validation is not offered on this pipeline. The
 channel-suggestion typeahead in the web panels still works in graph mode:
 ``osprey build`` reads the channel names from the facility file and writes them
