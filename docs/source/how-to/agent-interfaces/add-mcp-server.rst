@@ -90,14 +90,13 @@ own to edit:
 
 .. note::
 
-   One server key has no ``mcp_servers:`` spelling: ``hooks.pre_tool_use``,
-   which attaches a hook preset (such as ``approval``) to every tool of one
-   server. The renderer reads it from ``claude_code.servers`` in ``config.yml``,
-   but the build rewrites each declared server's entry there wholesale after
-   the ``config:`` overlay is applied, so an overlay cannot add it to a server
-   the profile declares. Reach for a
-   :ref:`tool permission <profile-tool-permissions>` — ``ask:`` prompts before
-   the call — or a framework server, which can carry hooks of its own.
+   An ``mcp_servers:`` entry also takes ``hooks:`` and ``writes:``.
+   ``hooks: {pre_tool_use: [<preset>, ...]}`` attaches a hook preset (such as
+   ``approval``) to every tool of the server. ``writes:`` lists the server's
+   write tools by bare name; the build gates each one with the writes-check and
+   approval hooks, and a read-only run blocks them. A key the entry does not
+   define is ignored with a warning that names the release from which it is
+   refused.
 
    One preset is narrower than attaching it to a whole server suggests:
    ``limits`` validates only ``channel_write``-shaped input — a call carrying a
