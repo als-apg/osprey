@@ -43,8 +43,7 @@
  * bus's `busy`) the active session's bar breathes. A folded session shows its
  * artifacts in a peek on hover (sidebar-session-peek.js), and a click there
  * picks the artifact as the tree does. The Sessions row's "+" starts a new
- * session, as its menu does. The rows redraw when the Agent pane opens or
- * closes (`osprey-agent-pane`), which changes what the active row's click does.
+ * session, as its menu does.
  *
  * PINS (sidebar-session-pins.js). The pinned sessions are drawn a second time
  * in the pinned group's list, a tree of its own (`data-tree-where="pinned"`),
@@ -445,7 +444,6 @@ function sessionNodes(row, where) {
   const node = rows.sessionRow(/** @type {any} */ (row), {
     active: isActive,
     open,
-    paneOpen: isTerminalPanelOpen(),
     accent: treeId === (cues.selecting() ?? active),
     busy: cues.busy() && isActive,
     count: data.totals.counts[treeId]?.total ?? 0,

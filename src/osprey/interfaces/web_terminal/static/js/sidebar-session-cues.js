@@ -10,9 +10,6 @@
  *   - SELECTING. A click on another session moves the accent to it at once;
  *     {@link SessionCues.selecting} holds it there until the switch has
  *     happened or did not.
- *   - THE AGENT PANE. Opening or closing it (`osprey-agent-pane`,
- *     dock-workspace.js) redraws the tree, since the active session's click
- *     and its tip depend on it.
  *   - "+". A new session, as the row's menu starts one (`switchTo({new:
  *     true})`: the chat's New conversation, or a new terminal session), with
  *     the Agent pane opened first.
@@ -57,7 +54,6 @@ export function createSessionCues({ render, peek: peekDeps }) {
 
   return {
     watch(signal) {
-      document.addEventListener('osprey-agent-pane', render, { signal });
       document.getElementById(NEW_SESSION_ID)?.addEventListener('click', newSession, { signal });
       const off = onChat('busy', (detail) => {
         if (detail.busy === busy) return;

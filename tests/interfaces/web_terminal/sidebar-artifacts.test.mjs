@@ -659,17 +659,16 @@ describe('expansion and clicks', () => {
     expect(openSessions()).toEqual([T2]);
   });
 
-  test('a session title’s tip says what a click does and names the ⌥-click', async () => {
+  test('a session title carries no tooltip: no title, no tip detail', async () => {
     await boot();
-    const tip = (/** @type {string} */ id) =>
-      /** @type {HTMLElement} */ (sessionRowEl(id).querySelector('.osprey-tree-title')).dataset
-        .tipDetail ?? '';
-    expect(tip(T1)).toMatch(
-      /^Click to fold or unfold · (⌥-click|Alt\+click) to expand or collapse all$/
-    );
-    expect(tip(T2)).toMatch(
-      /^Click to switch to it · (⌥-click|Alt\+click) to expand or collapse all$/
-    );
+    for (const id of [T1, T2]) {
+      const title = /** @type {HTMLElement} */ (
+        sessionRowEl(id).querySelector('.osprey-tree-title')
+      );
+      expect(title.hasAttribute('title')).toBe(false);
+      expect(title.hasAttribute('data-tip')).toBe(false);
+      expect(title.hasAttribute('data-tip-detail')).toBe(false);
+    }
   });
 
   test('openInAgent on the current session opens the Agent pane and keeps it unfolded', async () => {
@@ -688,14 +687,10 @@ describe('expansion and clicks', () => {
     await boot();
     mocks.isTerminalPanelOpen.mockReturnValue(false);
     mocks.showAgentPane.mockClear();
-    const tip = () =>
-      /** @type {HTMLElement} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')).dataset
-        .tipDetail ?? '';
     click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
     await settle();
     expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
     expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
-    expect(tip()).toMatch(/^Click to reopen the Agent pane · /);
     // Pane back: the next click folds again, and does not reopen.
     mocks.isTerminalPanelOpen.mockReturnValue(true);
     click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
@@ -1124,17 +1119,6 @@ describe('the session rows: accent, breathing, peek and "+"', () => {
     expect(tree().querySelectorAll('.is-busy')).toHaveLength(0);
   });
 
-  test("the active row's tip follows the Agent pane opening and closing", async () => {
-    await boot();
-    expect(titleOf(T1).dataset.tipDetail).toMatch(/^Click to fold or unfold · /);
-    mocks.isTerminalPanelOpen.mockReturnValue(false);
-    document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open: false } }));
-    expect(titleOf(T1).dataset.tipDetail).toMatch(/^Click to reopen the Agent pane · /);
-    mocks.isTerminalPanelOpen.mockReturnValue(true);
-    document.dispatchEvent(new CustomEvent('osprey-agent-pane', { detail: { open: true } }));
-    expect(titleOf(T1).dataset.tipDetail).toMatch(/^Click to fold or unfold · /);
-  });
-
   test('"+" starts a new session through the session model, opening the Agent pane first', async () => {
     await boot();
     mocks.isTerminalPanelOpen.mockReturnValue(false);
@@ -1265,6 +1249,24 @@ describe('session pins: the pinned group and the pin button', () => {
     await settle();
     expect(group().hidden).toBe(true);
     expect(sessionRowEl(T2).dataset.pinned).toBeUndefined();
+  });
+
+  test('neither copy of a pinned session carries a tooltip; only its pin button is labelled', async () => {
+    pinT2OnHub();
+    await boot();
+    click(head());
+    await settle();
+    for (const row of [sessionRowEl(T2), pinnedCopy(T2)]) {
+      for (const el of [
+        row,
+        /** @type {HTMLElement} */ (row.querySelector('.osprey-tree-title')),
+      ]) {
+        expect(el.hasAttribute('title')).toBe(false);
+        expect(el.hasAttribute('data-tip')).toBe(false);
+        expect(el.hasAttribute('data-tip-detail')).toBe(false);
+      }
+      expect(pinButton(row).getAttribute('aria-label')).toBe('Unpin session');
+    }
   });
 
   test('a click on the heading unfolds it: the pinned copies, no marker, in pin order', async () => {

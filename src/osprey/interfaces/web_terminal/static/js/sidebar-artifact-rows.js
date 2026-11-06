@@ -242,15 +242,13 @@ export function allSessionsClick() {
  * One session row: a disclosure (on the active row, and on any row the
  * operator opened with expand-all; no other session opens without switching
  * to it), the live dot, the title (or "naming…"), the artifact count from the
- * session summary (`data-count` once it is summarized). The title's tooltip
- * says what a click does and names the expand-all click.
+ * session summary (`data-count` once it is summarized).
  *
  * Only the active row is bold (`.active`). The accent bar and tint
  * (`.accent`) sit on the active row, or on the row just clicked while the
  * switch to it is under way. `.is-busy` marks the session the agent is
  * working in: its bar breathes. A folded row's title names the peek
- * (sidebar-session-peek.js) in `aria-controls`, so the tooltip layer stays
- * quiet while the peek shows.
+ * (sidebar-session-peek.js) in `aria-controls`.
  *
  * A row with a transcript ends in a pin button (`data-tree-pin`), shown in
  * the count's place while the row is hovered or holds focus; on a pinned row
@@ -259,7 +257,7 @@ export function allSessionsClick() {
  * says which copy a row is.
  * @param {SessionRow} session
  * @param {{active: boolean, open: boolean, count: number, summarized?: boolean,
- *   paneOpen?: boolean, accent?: boolean, busy?: boolean,
+ *   accent?: boolean, busy?: boolean,
  *   pinned?: string | null, where?: 'sessions' | 'pinned'}} options
  * @returns {HTMLElement}
  */
@@ -270,7 +268,6 @@ export function sessionRow(
     open,
     count,
     summarized = false,
-    paneOpen = true,
     accent = active,
     busy = false,
     pinned = null,
@@ -283,8 +280,6 @@ export function sessionRow(
     session.title || (pending ? 'naming…' : 'Untitled session')
   );
   if (pending) title.classList.add('pending');
-  title.title = title.textContent ?? '';
-  title.dataset.tipDetail = `${active ? (paneOpen ? 'Click to fold or unfold' : 'Click to reopen the Agent pane') : 'Click to switch to it'} · ${allSessionsClick()} to expand or collapse all`;
   const dot = document.createElement('span');
   dot.className = `osprey-dot ${session.state === 'live' ? 'ok' : 'hollow'}`;
   const row = topRow('osprey-tree-session', open, [dot, title], active || open);

@@ -5,7 +5,7 @@
  *
  * Pins busy from the chat bus (a redraw only on a change, cleared on abort),
  * the accent held on the session being switched to until the switch settles,
- * the Agent pane's redraw, and "+" opening the pane before a new session.
+ * the peek's refresh, and "+" opening the pane before a new session.
  * The tree's suite drives the same cues through a real tree.
  */
 
@@ -81,9 +81,7 @@ test('select holds the accent on the session until the switch settles, and passe
   expect(cues.selecting()).toBeNull();
 });
 
-test('the Agent pane opening or closing redraws; refresh redraws the peek', () => {
-  document.dispatchEvent(new CustomEvent('osprey-agent-pane'));
-  expect(render).toHaveBeenCalledOnce();
+test('refresh redraws the peek, which watches the same signal', () => {
   cues.refresh();
   expect(m.peek.refresh).toHaveBeenCalledOnce();
   expect(m.peek.watch).toHaveBeenCalledWith(abort.signal);

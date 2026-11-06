@@ -455,6 +455,12 @@ html[data-agent="closed"] #sidebar-agent-row .osprey-nav-icon {
   opacity: 0.45;
 }
 
+/* Expanded, the Sessions row is a heading and carries no icon; collapsed to
+   icons only, the row's icon is its only mark and shows. */
+html:not([data-sidebar="collapsed"]) #sidebar-agent-row .osprey-nav-icon {
+  display: none;
+}
+
 html[data-agent="closed"] #sidebar-agent-row .osprey-nav-label {
   color: var(--text-muted);
 }
