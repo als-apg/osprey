@@ -616,10 +616,9 @@ centre does nothing (see <a class="reference internal" href="operate.html#web-te
 <h2>Taking panels out of the sidebar<a class="headerlink" href="#taking-panels-out-of-the-sidebar" title="Link to this heading">#</a></h2>
 <p>To remove a panel row, right-click it or use the <strong>×</strong> of the row. You can
 undo this for a few seconds.</p>
-<p>A panel can be open without a sidebar row. In the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
-SYSTEM starts that way (<code class="docutils literal notranslate"><span class="pre">web.panels.system-health.hidden:</span> <span class="pre">true</span></code>): open it
-from <strong>+ Add panel</strong> or the command palette, and right-click its tile to pin it
-to the sidebar.</p>
+<p>A panel can be open without a sidebar row (<code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.hidden:</span> <span class="pre">true</span></code>):
+open it from <strong>+ Add panel</strong> or the command palette, and right-click its tile
+to pin it to the sidebar.</p>
 </section>
 <section id="when-a-panel-stops-answering">
 <h2>When a panel stops answering<a class="headerlink" href="#when-a-panel-stops-answering" title="Link to this heading">#</a></h2>
@@ -632,7 +631,7 @@ left exactly as it was, stays readable, and can still be scrolled and clicked,
 because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.</p>
-<p>This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
+<p>This applies to panels that have a health check: Jupyter, CANOPY, Health, and any
 URL-backed panel whose entry names a <code class="docutils literal notranslate"><span class="pre">health_endpoint</span></code>.</p>
 <p>Clicking a dimmed entry closes its tile as usual, but the panel cannot be
 opened again until its backend answers.

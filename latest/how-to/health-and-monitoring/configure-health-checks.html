@@ -623,7 +623,7 @@ result at different tiers:</p>
   <text class="ts" x="819" y="146" text-anchor="middle">poll by default</text>
   <text class="ts" x="819" y="161" text-anchor="middle">--full adds on_demand</text>
   <rect class="nb" x="694" y="190" width="250" height="64" rx="6"/>
-  <text class="tn" x="819" y="214" text-anchor="middle">SYSTEM dashboard</text>
+  <text class="tn" x="819" y="214" text-anchor="middle">Health dashboard</text>
   <text class="ts" x="819" y="230" text-anchor="middle">poll only — a browser can</text>
   <text class="ts" x="819" y="245" text-anchor="middle">never trigger on_demand</text>
   <rect class="nb" x="694" y="274" width="250" height="64" rx="6"/>
@@ -809,10 +809,10 @@ health MCP server alike, with no <code class="docutils literal notranslate"><spa
 not load never takes the suite down: it reports one <code class="docutils literal notranslate"><span class="pre">error</span></code> row under the
 <code class="docutils literal notranslate"><span class="pre">plugins</span></code> category, naming the entry and what went wrong.</p>
 </section>
-<section id="the-web-dashboard-system-panel">
-<h2>The web dashboard (<code class="docutils literal notranslate"><span class="pre">SYSTEM</span></code> panel)<a class="headerlink" href="#the-web-dashboard-system-panel" title="Link to this heading">#</a></h2>
+<section id="the-web-dashboard-health-panel">
+<h2>The web dashboard (Health panel)<a class="headerlink" href="#the-web-dashboard-health-panel" title="Link to this heading">#</a></h2>
 <p>In a Web Terminal build that ships panels, the same <strong>poll-class</strong> results are
-served as a read-only browser dashboard — the <code class="docutils literal notranslate"><span class="pre">SYSTEM</span></code> tab. It never runs
+served as a read-only browser dashboard — the Health tab. It never runs
 <code class="docutils literal notranslate"><span class="pre">on_demand</span></code> checks, so a browser can never trigger a costly probe; those
 categories render as cards carrying a copyable <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--full</span></code> hint.
 The tab appears only when <code class="docutils literal notranslate"><span class="pre">system-health</span></code> is in the build’s <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>
@@ -902,7 +902,7 @@ nothing is shared across sessions.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-archive-freshness-without-declaring-a-check">Recipe: archive freshness, without declaring a check</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-account-each-card-and-worker-writes-as">Which account each card and worker writes as</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#checks-that-need-real-python">Checks that need real Python</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-web-dashboard-system-panel">The web dashboard (<code class="docutils literal notranslate"><span class="pre">SYSTEM</span></code> panel)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-web-dashboard-health-panel">The web dashboard (Health panel)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-agent-surface">The agent surface</a></li>
 </ul>
   </nav></div>
