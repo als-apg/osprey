@@ -188,7 +188,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.write_authorization.authorization_verdict",
         "osprey_connectors.write_authorization.grant_in_force",
         "osprey_connectors.write_authorization.issue_grant",
-        "osprey_connectors.write_authorization.list_grants",
         "osprey_connectors.write_authorization.parse_grant",
         "osprey_connectors.write_authorization.parse_ledger",
         "osprey_connectors.write_authorization.parse_request",
