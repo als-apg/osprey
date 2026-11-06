@@ -22,15 +22,6 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [2026.11.4] - 2026-11-05
 
-### Added
-
-- Simulation: `osprey_connectors.simulation.sessions` parses a scenario's `sessions`
-  block (past agent sessions, their tool calls, answers and artifacts) into frozen
-  records, refusing a malformed block, a session less than a day back, one that runs
-  past midnight, or a `controls` tool step naming a channel its turn does not list;
-  it places every turn at an aware instant against an anchor and round-trips the
-  result through JSON.
-
 ### Changed
 
 - Archiver events on a shared channel no longer block a scenario set: they compose in set order in the archive, so `[vacuum-burst, rf-thermal]` now activates together. Overrides, faults, channel faults and motion still compose only on disjoint targets.
