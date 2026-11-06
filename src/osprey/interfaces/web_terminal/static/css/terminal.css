@@ -1982,6 +1982,45 @@ html[data-sidebar-resizing] {
 }
 .attached-standin-text { margin: 0; }
 
+/* ---- Attached pop-out window ----
+   The window's own bar (attached-window.js): the pane's name and Reattach,
+   in a tile header bar's metrics and type (dockview-overrides.css .tile-tab).
+   The pane fills the rest of the window edge to edge. */
+.attached-window-bar {
+  flex: 0 0 var(--wt-pane-head-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: var(--wt-pane-head-height);
+  padding: 0 var(--space-2) 0 var(--space-4);
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--surface-hairline);
+}
+.attached-window-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+/* The Agent pane is the window's interior, as it is the tile's when docked
+   (dockview-overrides.css .dock-root .terminal-card): no inset, no second
+   border, the card surface. */
+.attached-window-root > .terminal-panel {
+  padding: 0;
+  background: var(--surface-card);
+}
+.attached-window-root .terminal-card {
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-card);
+}
+
 /* ---- Terminal panel ---- */
 
 .terminal-panel {
