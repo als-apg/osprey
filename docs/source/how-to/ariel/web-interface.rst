@@ -212,7 +212,7 @@ Running the Web Interface
 
    # Use with uvicorn
    import uvicorn
-   uvicorn.run(app, host="0.0.0.0", port=10300)
+   uvicorn.run(app, host="127.0.0.1", port=10300)
 
 .. admonition:: Collaboration Welcome
    :class: outreach

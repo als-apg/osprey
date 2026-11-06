@@ -372,8 +372,12 @@ async def test_spool_lines_written_while_down_are_ingested_after_a_restart(confi
             answer = await client.get("/v1/read/recent_audit", headers=_auth("alice"))
             return answer.json()["status"] == "ok" and _names(answer.json()) == {"while-down"}
 
+        async def segment_deleted():
+            # The consumer deletes a segment only after its lines are readable.
+            return not list((spool / "alice").iterdir())
+
         await _eventually(ingested)
-    assert not list((spool / "alice").iterdir()), "the committed segment is deleted"
+        await _eventually(segment_deleted)
 
 
 class _Down:

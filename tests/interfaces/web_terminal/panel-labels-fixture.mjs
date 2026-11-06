@@ -16,11 +16,10 @@ export const BUILTIN_PANEL_LABELS = Object.freeze({
   artifacts: 'Artifacts',
   ariel: 'LOGBOOK',
   'channel-finder': 'CHANNELS',
-  lattice: 'LATTICE',
   jupyter: 'JUPYTER',
   canopy: 'CANOPY',
   okf: 'KNOWLEDGE',
-  'system-health': 'SYSTEM',
+  'system-health': 'Health',
 });
 
 /**

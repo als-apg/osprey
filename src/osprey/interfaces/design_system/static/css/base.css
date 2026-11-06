@@ -54,7 +54,7 @@ html, body {
 
 /* Pane splitter — the grip-pill idiom shared by every resizable pane in the
    product (OKF sidebar/reader, artifact gallery browse view, PLAN
-   plan-list/detail, LATTICE sidebar, settings drawer, event dashboard zones)
+   plan-list/detail, settings drawer, event dashboard zones)
    and matching the hub's dockview sashes: a quiet pill at rest, instant accent
    fill on hover, drag, or keyboard focus. Behaviour is js/splitter.js, which
    toggles `.dragging` for the duration of a drag.

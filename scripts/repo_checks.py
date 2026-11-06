@@ -332,8 +332,6 @@ _MACOS_RUNS = (
     "tests/integration/test_watchdog_non_operator.py::TestWatchedPrompts::test_positive_control_without_the_skip_stamp_a_verdict_is_recorded",
     "tests/integration/test_watchdog_non_operator.py::test_the_settle_wait_sees_a_lingering_child",
     "tests/integrations/canopy/test_sidecar.py",
-    "tests/interfaces/lattice_dashboard/test_compute_manager.py::TestRealChildren::test_a_relaunch_leaves_no_figure_error_and_the_new_result_lands",
-    "tests/interfaces/lattice_dashboard/test_compute_manager.py::test_app_shutdown_reaps_every_worker",
     "tests/interfaces/test_watchdog_e2e.py::test_a_stop_a_running_command_outlives_keeps_the_dialog_until_continue",
     "tests/interfaces/web_terminal/test_pty_manager.py::TestPtyChildWaits",
     "tests/interfaces/web_terminal/test_pty_manager.py::TestPtyRegistry",
@@ -821,6 +819,39 @@ def _pytest_command(
     selected = unit_argv(context.tier, selection.paths, context.shard)
     argv = [*check.argv, *selected, *flags, *UNIT_SELECTION.dist, *written]
     return [kit.bounded(bound, argv)]
+
+
+#: Finds the test files that carry the ``wallclock`` marker; the root conftest
+#: holds its answer to what pytest marks.
+WALLCLOCK_FILES_MODULE = "tests/_wallclock_files.py"
+
+
+def wallclock_unit_files() -> list[str]:
+    """The files the image-free wall-clock budgets live in, read off the tree."""
+    # The scanner is this checkout's code; the tree it reads is the root's.
+    spec = importlib.util.spec_from_file_location(
+        "wallclock_files", Path(__file__).resolve().parents[1] / WALLCLOCK_FILES_MODULE
+    )
+    if spec is None or spec.loader is None:
+        raise Refused(f"cannot load {WALLCLOCK_FILES_MODULE}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.marked_files(kit.ROOT)
+
+
+def _wallclock_unit_command(
+    check: Check,
+    _selection: Selection,
+    _context: Context,
+    flags: Sequence[str],
+    written: Sequence[str],
+) -> list[list[str]]:
+    """Only the marked files, selected by the marker: collecting the whole tree
+    to pick a handful of tests cost about a minute. No file found falls back
+    to the tree, where the marker selects nothing and the run says so."""
+    files = wallclock_unit_files() or ["tests/", "--ignore=tests/e2e", "--ignore=tests/integration"]
+    argv = [*check.argv, *files, "-m", "wallclock", *flags, *written]
+    return [kit.bounded(check.bound_s, argv)]
 
 
 #: The connectors wheel's import walk, shared with release-connectors.yml so the
@@ -1458,27 +1489,21 @@ CHECKS: tuple[Check, ...] = (
     ),
     # The image-free budgets: every wallclock test outside tests/integration,
     # whose budgets need the sidecar image and are timed by pytest-wallclock.
-    # Selected by marker over the tree, so a budget added anywhere is timed
-    # alone with no new wiring.
+    # The files are found by a scan of the tree when the check runs, so a budget
+    # added anywhere is timed alone with no new wiring, and the run collects
+    # those files rather than the whole tree.
     Check(
         "pytest-wallclock-unit",
         "tests",
         FULL,
-        (
-            *UV_RUN,
-            "pytest",
-            "tests/",
-            "--ignore=tests/e2e",
-            "--ignore=tests/integration",
-            "-m",
-            "wallclock",
-        ),
+        (*UV_RUN, "pytest"),
         scope=("tests/**", "*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
         bound_s=900,
         report="junit-pytest",
         tier_flags={"full": ("--tb=short",)},
         exec_flags=True,
+        command=_wallclock_unit_command,
     ),
     # The readonly gate refuses every shared-library load once user code starts,
     # so a stdlib lookup that loads native code lazily must be warmed before it
@@ -1568,7 +1593,7 @@ CHECKS: tuple[Check, ...] = (
 )
 
 #: The CI jobs that call the check command; every other required job is a lane.
-CALLER_JOBS = ("test", "lint", "docs", "package", "frontend-js")
+CALLER_JOBS = ("test", "serial-suites", "lint", "docs", "package", "frontend-js")
 
 #: The paths of the scan stack: a range that touches one needs the container lanes.
 SCAN_STACK = (

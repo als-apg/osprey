@@ -1916,12 +1916,12 @@ class TestWebPanelsRendering:
 
     def test_builtin_panels_rendered_from_web_panels(self, tmp_path: Path):
         """Only builtin panels listed in web_panels appear with enabled: true."""
-        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "lattice"])
+        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "system-health"])
         config = yaml.safe_load(config_path.read_text())
 
         panels = config["web"]["panels"]
         assert panels.get("ariel", {}).get("enabled") is True
-        assert panels.get("lattice", {}).get("enabled") is True
+        assert panels.get("system-health", {}).get("enabled") is True
         assert "channel-finder" not in panels
 
     def test_custom_panels_filtered_from_template_but_configurable(self, tmp_path: Path):
@@ -1963,14 +1963,14 @@ class TestWebPanelsRendering:
         override web.panels.<id>.label merges into the same dict."""
         config_path = _build_for_web_panels(
             tmp_path,
-            web_panels=["lattice"],
-            overrides={"web.panels.lattice.label": "LATTICE"},
+            web_panels=["system-health"],
+            overrides={"web.panels.system-health.label": "SYSTEM"},
         )
         config = yaml.safe_load(config_path.read_text())
 
-        lattice = config["web"]["panels"]["lattice"]
-        assert lattice["enabled"] is True
-        assert lattice["label"] == "LATTICE"
+        health = config["web"]["panels"]["system-health"]
+        assert health["enabled"] is True
+        assert health["label"] == "SYSTEM"
 
     def test_default_panel_rendered_when_set(self, tmp_path: Path):
         """Profile default_panel: ariel ends up as web.default_panel in config.yml.

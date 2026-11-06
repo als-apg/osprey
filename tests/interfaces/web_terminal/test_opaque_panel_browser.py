@@ -136,7 +136,9 @@ class _QuietHandler(SimpleHTTPRequestHandler):
 def _runtime_backend(directory: Path) -> Iterator[str]:
     """Serve ``directory`` over real HTTP on loopback; yield its base URL."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(_QuietHandler, directory=str(directory)))
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"

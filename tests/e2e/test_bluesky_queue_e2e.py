@@ -1416,7 +1416,9 @@ class _BridgeHopHandler(http.server.BaseHTTPRequestHandler):
 def _recording_bridge_hop() -> Iterator[_RecordingBridgeHop]:
     """Serve the recording hop for one block, then close it."""
     hop = _RecordingBridgeHop(_BridgeHopHandler)
-    serving = threading.Thread(target=hop.serve_forever, daemon=True)
+    serving = threading.Thread(
+        target=hop.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     serving.start()
     try:
         yield hop

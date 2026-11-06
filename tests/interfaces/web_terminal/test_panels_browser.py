@@ -164,7 +164,9 @@ def _stub_backend(hits: list[str] | None = None, *, down: threading.Event | None
             pass
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -1833,9 +1835,9 @@ def test_add_menu_shows_register_error(tmp_path, chromium_browser):
 
         page.locator("#panel-add-btn").click()
         page.locator('.panel-add-menu input[name="url"]').fill("http://x.internal:3000")
-        # Label "Lattice" derives id "lattice", which collides with a built-in →
+        # Label "Ariel" derives id "ariel", which collides with a built-in →
         # the server 422s and the menu must display the reason, not fail silently.
-        page.locator('.panel-add-menu input[name="label"]').fill("Lattice")
+        page.locator('.panel-add-menu input[name="label"]').fill("Ariel")
         page.locator(".panel-add-submit").click()
 
         error = page.locator(".panel-add-url-error")
@@ -2354,7 +2356,9 @@ def _contrib_panel_backend():
             pass
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -2542,7 +2546,9 @@ def _search_menu_panel_backend():
             pass
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -2757,7 +2763,9 @@ def _canopy_sidecar_stub(page_name: str):
             pass
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -3056,8 +3064,9 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         assert _menu_labels(page) == [
             "Focus Data Viz",
             "Open in a new tile",
-            "Pop out",
+            "Open in new window",
             "Move to Workspace",
+            "Move to System",
             "Move to new group…",
             "Remove from rail",
         ], _menu_labels(page)
@@ -3196,7 +3205,7 @@ def test_remove_from_rail_undo_restores_the_entry_at_its_old_position(tmp_path, 
 
 
 def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromium_browser):
-    """The Pop out row renders inert while the panel has no standalone URL.
+    """The Open in new window row renders inert while the panel has no standalone URL.
 
     A panel's URL and its health arrive together at boot (one with no URL never
     polls, so it never enables), which is why the entry is force-enabled here:
@@ -3222,7 +3231,7 @@ def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromiu
         )
 
         menu = _open_rail_menu(page, "ariel")
-        popout = _menu_row(page, "Pop out")
+        popout = _menu_row(page, "Open in new window")
         expect(popout).to_have_attribute("aria-disabled", "true")
         # Every other row stays live — the gate is per-verb, not per-menu.
         expect(menu.locator(f'{_RAIL_MENU_ITEM}[aria-disabled="true"]')).to_have_count(1)
@@ -3285,8 +3294,8 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
 def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser):
     """In chat the PTY verb would act on a surface the operator cannot see.
 
-    The Agent tile header keeps only the layout rows; the Agent rail row holds
-    the session rows.
+    The Agent tile header keeps Pop out, Export conversation and the layout
+    rows; the Agent rail row holds the session rows.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3302,8 +3311,9 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         assert _menu_labels(page) == [
             "Focus Data Viz",
             "Open in a new tile",
-            "Pop out",
+            "Open in new window",
             "Move to Workspace",
+            "Move to System",
             "Move to new group…",
             "Remove from rail",
         ], _menu_labels(page)
@@ -3312,7 +3322,12 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_agent_header_menu(page)
-        assert _menu_labels(page) == ["Reset layout", "Close Agent pane"], _menu_labels(page)
+        assert _menu_labels(page) == [
+            "Pop out",
+            "Export conversation",
+            "Reset layout",
+            "Close Agent pane",
+        ], _menu_labels(page)
 
         page.keyboard.press("Escape")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
@@ -3346,6 +3361,7 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
 
         _open_agent_header_menu(page)
         assert _menu_labels(page) == [
+            "Pop out",
             "Restart terminal",
             "Reset layout",
             "Close Agent pane",
@@ -3407,7 +3423,9 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
                 "Focus Searchy",
                 "Open in a new tile",
                 "Pop out",
+                "Open in new window",
                 "Move to Workspace",
+                "Move to System",
                 "Move to new group…",
                 "Remove from rail",
             ], _menu_labels(page)
@@ -3672,7 +3690,7 @@ def test_palette_hotkey_opens_with_input_focused_and_types_immediately(tmp_path,
 
         # Assert - the keystrokes landed AND re-filtered the list.
         expect(_palette_input(page)).to_have_value("ariel")
-        expect(_palette_row(page, "Pop out Logbook")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open Logbook in new window")).to_have_count(1, timeout=5_000)
         expect(_palette_row(page, "Open Settings")).to_have_count(0)
 
         page.close()
@@ -3701,7 +3719,7 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
         _open_palette(page)
         _palette_query(page, "ariel")
 
-        expect(_palette_row(page, "Pop out Logbook")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open Logbook in new window")).to_have_count(1, timeout=5_000)
         # The query really narrowed the list, so the absences below mean the
         # rows do not exist rather than that everything is still on screen.
         expect(_palette_row(page, "Open Settings")).to_have_count(0)
@@ -3734,7 +3752,7 @@ def test_palette_elog_synonym_matches_logbook(tmp_path, chromium_browser):
         _open_palette(page)
         _palette_query(page, "elog")
 
-        expect(_palette_row(page, "Pop out Logbook")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open Logbook in new window")).to_have_count(1, timeout=5_000)
         # A word ARIEL's own rows are the only ones carrying: Artifacts, the
         # other rail member, is filtered out entirely.
         expect(_palette_row(page, "Artifacts")).to_have_count(0)
@@ -3743,7 +3761,7 @@ def test_palette_elog_synonym_matches_logbook(tmp_path, chromium_browser):
 
 
 def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_browser):
-    """FR8: running the Pop out row opens a real page on same-origin /panel/ariel.
+    """FR8: running the Open in new window row opens a real page on same-origin /panel/ariel.
 
     happy-dom can only prove ``window.open`` was called with some string. What
     matters to the operator is the page that opens: the proxied, root-relative
@@ -3760,7 +3778,7 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
         _wait_for_ariel_ready(page)
         _open_palette(page)
         _palette_query(page, "ariel window")
-        row = _palette_row(page, "Pop out Logbook")
+        row = _palette_row(page, "Open Logbook in new window")
         expect(row).to_have_count(1, timeout=5_000)
 
         with page.context.expect_page() as popup_info:

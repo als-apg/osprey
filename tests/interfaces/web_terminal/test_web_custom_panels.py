@@ -250,14 +250,14 @@ class TestLoadPanelConfig:
                 "web": {
                     "panels": {
                         "ariel": {"enabled": True},
-                        "lattice": {"enabled": True},
+                        "okf": {"enabled": True},
                     }
                 }
             },
         ):
             enabled, custom, _default = _load_panel_config()
         assert "ariel" in enabled
-        assert "lattice" in enabled
+        assert "okf" in enabled
         assert "channel-finder" not in enabled
         # Universal panels are always present
         assert UNIVERSAL_PANELS <= enabled
@@ -270,14 +270,14 @@ class TestLoadPanelConfig:
                 "web": {
                     "panels": {
                         "ariel": {"enabled": False},
-                        "lattice": {"enabled": True},
+                        "okf": {"enabled": True},
                     }
                 }
             },
         ):
             enabled, custom, _default = _load_panel_config()
         assert "ariel" not in enabled
-        assert "lattice" in enabled
+        assert "okf" in enabled
 
     def test_domain_panel_bare_true(self):
         """A bare `true` value (not dict) enables the panel."""
@@ -1583,7 +1583,9 @@ class TestSidecarCredentialThroughTheProxy:
                 """Keep the handler out of the test's stderr."""
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         thread.start()
         try:
             state = client_all_panels.app.state

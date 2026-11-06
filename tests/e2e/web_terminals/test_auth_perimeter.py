@@ -143,7 +143,6 @@ BASE_PORTS = {
     "web": 19191,
     "artifact": 19291,
     "ariel": 19391,
-    "lattice": 19491,
     "channel_finder": 19591,
     # Every family is pinned: one left out defaults into the live default
     # block, where a developer's own deployment already binds it.
@@ -280,7 +279,6 @@ def _profile_edits() -> dict[str, Any]:
                 "web_base_port": BASE_PORTS["web"],
                 "artifact_base_port": BASE_PORTS["artifact"],
                 "ariel_base_port": BASE_PORTS["ariel"],
-                "lattice_base_port": BASE_PORTS["lattice"],
                 "channel_finder_base_port": BASE_PORTS["channel_finder"],
                 "okf_base_port": BASE_PORTS["okf"],
                 "system_health_base_port": BASE_PORTS["system_health"],

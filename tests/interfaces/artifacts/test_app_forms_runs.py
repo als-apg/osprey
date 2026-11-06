@@ -520,11 +520,13 @@ class TestSessionList:
         response = client.post("/api/artifacts/session-list", json={"sessions": ids})
         assert response.status_code == 422
 
-    def test_earlier_is_untagged_and_unknown_keys_without_dispatch_or_watchdog(
-        self, client, seeded
-    ):
-        body = _session_list(client, {"earlier": True})
-        assert _ids(body) == [seeded["unknown"], seeded["untagged"]]
+    def test_unowned_artifacts_list_in_no_session_and_the_palette_finds_them(self, client, seeded):
+        listed = set()
+        for transcript in (T1, T2, T3):
+            listed |= set(_ids(_session_list(client, {"session": transcript})))
+        unowned = {seeded["unknown"], seeded["untagged"]}
+        assert not unowned & listed
+        assert unowned <= set(_ids(_list(client, limit=200)))
 
     def test_dispatch_and_watchdog_list_in_no_session(self, client, seeded):
         listed = set()
@@ -535,21 +537,23 @@ class TestSessionList:
         assert _ids(_list(client, search="dispatch in session")) == [seeded["dispatch_tagged"]]
 
     @pytest.mark.usefixtures("seeded")
-    def test_every_visible_artifact_lists_exactly_once(self, client):
+    def test_every_owned_visible_artifact_lists_exactly_once(self, client):
         listed: list[str] = []
         for transcript in (T1, T2, T3):
             listed += _ids(_session_list(client, {"session": transcript}))
-        listed += _ids(_session_list(client, {"earlier": True}))
-        visible = [e["id"] for e in _list(client, limit=200)["artifacts"] if e["operator_visible"]]
-        assert sorted(listed) == sorted(visible)
+        owned = [
+            e["id"]
+            for e in _list(client, limit=200)["artifacts"]
+            if e["operator_visible"] and e["owner"] is not None
+        ]
+        assert sorted(listed) == sorted(owned)
 
     @pytest.mark.parametrize(
         "body",
         [
             {},
             {"session": T1, "key": KEY},
-            {"earlier": False},
-            {"session": T1, "earlier": True},
+            {"earlier": True},
             {"sessions": []},
         ],
     )
@@ -587,30 +591,28 @@ class TestSessionList:
 
 
 class TestLedgerUnavailable:
-    def test_an_unreadable_ledger_says_so_and_everything_tagged_is_earlier(
-        self, client, store, state_dir
-    ):
-        tagged = _text(store, "tagged", minute=1, session_id=KEY)
-        untagged = _text(store, "untagged", minute=2)
+    def test_an_unreadable_ledger_says_so_and_lists_nothing_tagged(self, client, store, state_dir):
+        _text(store, "tagged", minute=1, session_id=KEY)
+        _text(store, "untagged", minute=2)
         (state_dir / session_ledger.STORE_FILENAME).write_text("{not json")
-        earlier = _session_list(client, {"earlier": True})
-        assert earlier["ledger"] == "unavailable"
-        assert _ids(earlier) == [untagged.id, tagged.id]
+        by_key = _session_list(client, {"key": KEY})
+        assert by_key["ledger"] == "unavailable"
+        assert by_key["artifacts"] == []
         session = _session_list(client, {"session": T1})
         assert session["ledger"] == "unavailable"
         assert session["artifacts"] == []
         assert _session_list(client, {"sessions": [T1]})["ledger"] == "unavailable"
 
     def test_a_missing_ledger_is_ok_and_empty(self, client, store):
-        tagged = _text(store, "tagged", minute=1, session_id=KEY)
-        body = _session_list(client, {"earlier": True})
+        _text(store, "tagged", minute=1, session_id=KEY)
+        body = _session_list(client, {"key": KEY})
         assert body["ledger"] == "ok"
-        assert _ids(body) == [tagged.id]
+        assert body["artifacts"] == []
 
     def test_no_state_directory_is_unavailable(self, client, store, monkeypatch):
         _text(store, minute=1, session_id=KEY)
         monkeypatch.setattr(posture_store, "state_dir", lambda: None)
-        assert _session_list(client, {"earlier": True})["ledger"] == "unavailable"
+        assert _session_list(client, {"session": T1})["ledger"] == "unavailable"
 
 
 # ---- extension kinds ----------------------------------------------------------

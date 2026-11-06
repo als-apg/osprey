@@ -26,9 +26,9 @@ against.
 
 A ratio does not survive *load*: its two sides are timed at different moments,
 and a neighbour that loads one and not the other moves the quotient. So all six
-timing tests carry the ``wallclock`` marker, the unit job times them alone in a
-serial step after its parallel sweep, and the parallel sweep carries no timing
-assertion from this module.
+timing tests carry the ``wallclock`` marker, CI times them alone in a serial
+step of a job with no parallel sweep in it, and the parallel sweep carries no
+timing assertion from this module.
 The module is ``slow``, so the quick tier of ``scripts/check.py`` deselects it.
 
 :data:`PARITY_MATRIX` is exported for the parity lane, which replays the same

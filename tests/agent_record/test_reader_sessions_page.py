@@ -107,6 +107,95 @@ def test_the_real_first_prompt_after_clear_and_the_message_count(backend):
     assert "entries" not in rows[T1]
 
 
+_NOTICE = (
+    "<task-notification>\n<task-id>a7ef</task-id>\n<status>completed</status>\n"
+    '<summary>Agent "Matplotlib static plot" finished</summary>\n</task-notification>'
+)
+_ECHO = (
+    "<command-message>demo-gallery</command-message>\n<command-name>/demo-gallery</command-name>"
+)
+
+
+def test_a_session_started_by_a_slash_command_is_titled_by_the_command(backend):
+    """The subagent notices that follow are not the operator's words; the command is."""
+    backend.append(
+        [
+            _cc(
+                T1,
+                1,
+                c.KIND_PROMPT,
+                1,
+                {"text": "Base directory for this skill: /x", "is_meta": True},
+            ),
+            _cc(T1, 2, c.KIND_PROMPT, 1, {"text": _ECHO}),
+            _cc(T1, 3, c.KIND_ANSWER, 2, {"text": "spawning two agents"}),
+            _cc(
+                T1,
+                4,
+                c.KIND_PROMPT,
+                3,
+                {"text": 'Another Claude session sent a message:\n<agent-message from="a">'},
+            ),
+            _cc(T1, 5, c.KIND_PROMPT, 4, {"text": _NOTICE}),
+            _cc(T1, 6, c.KIND_PROMPT, 5, {"text": "<system-reminder>later</system-reminder>"}),
+        ]
+    )
+    [row] = _reader(backend).list_sessions(c.All()).data
+    assert row["prompt"] == "/demo-gallery"
+    assert row["truncated"] is False
+
+
+def test_the_operators_words_win_over_an_earlier_command_echo(backend):
+    backend.append(
+        [
+            _cc(T2, 1, c.KIND_PROMPT, 10, {"text": "<command-name>/clear</command-name>"}),
+            _cc(T2, 2, c.KIND_PROMPT, 11, {"text": _NOTICE}),
+            _cc(T2, 3, c.KIND_PROMPT, 12, {"text": "read the BPMs"}),
+        ]
+    )
+    [row] = _reader(backend).list_sessions(c.All()).data
+    assert row["prompt"] == "read the BPMs"
+
+
+def test_a_session_of_notices_only_has_no_prompt(backend):
+    """Nothing the operator said: no title source, so the listing's Decision 6 drops it."""
+    backend.append([_cc(T1, 1, c.KIND_PROMPT, 1, {"text": _NOTICE})])
+    [row] = _reader(backend).list_sessions(c.All()).data
+    assert row["prompt"] is None and row["truncated"] is False
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("tune the ring", "tune the ring"),
+        ("  tune the ring \n", "tune the ring"),
+        (_ECHO, "/demo-gallery"),
+        (
+            "<command-message>foo</command-message>\n<command-name>/foo</command-name>\n"
+            "<command-args>bar  baz</command-args>",
+            "/foo bar  baz",
+        ),
+        ("<command-name>foo</command-name>", "/foo"),
+        ("<local-command-stdout>x</local-command-stdout>", ""),
+        ("[Request interrupted by user]", ""),
+        (_NOTICE, ""),
+        ("Another Claude session sent a message:\nhi", ""),
+        ('<agent-message from="a">hi</agent-message>', ""),
+        ("<system-reminder>x</system-reminder>", ""),
+        ("Base directory for this skill: /x\n# Skill", ""),
+        ("", ""),
+    ],
+)
+def test_title_source(text, expected):
+    assert rd.title_source({"text": text}) == expected
+
+
+def test_title_source_never_takes_a_meta_prompt_and_leaves_bookkeeping_alone():
+    assert rd.title_source({"text": "hello", "is_meta": True}) == ""
+    # The shared rule is unchanged: a notice is still a message the transcript shows.
+    assert not rd.is_bookkeeping_prompt({"text": _NOTICE})
+
+
 def test_otel_rows_under_the_key_after_clear_do_not_move_the_old_transcript(backend):
     backend.append(
         [

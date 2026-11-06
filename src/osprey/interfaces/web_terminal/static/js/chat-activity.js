@@ -142,14 +142,6 @@ export const TOOL_PHRASES = Object.freeze({
   read_concept: 'reading facility knowledge',
   draft_concept: 'drafting a facility note',
 
-  // Lattice model. The mutators are phrased; the getters fall back.
-  lattice_state: 'reading the lattice',
-  lattice_set_param: 'changing a lattice parameter',
-  lattice_set_baseline: 'setting the lattice baseline',
-  lattice_clear_baseline: 'clearing the lattice baseline',
-  lattice_update_settings: 'changing lattice settings',
-  lattice_refresh: 'refreshing the lattice view',
-
   // Health.
   health_check: 'checking system health',
   health_check_full: 'checking system health',

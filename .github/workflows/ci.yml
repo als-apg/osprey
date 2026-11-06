@@ -238,8 +238,8 @@ jobs:
     - name: Install dependencies
       # virtual-accelerator: carries the whole serving stack --
       # lume-pva-apg[ca,pva], which brings pcaspy and p4p with it -- none of
-      # which is in dev. The live Channel Access suites (run in their own step below, one
-      # process per module) need all of it. They guard their imports, so
+      # which is in dev. The live Channel Access suites (run in the serial-suites
+      # job, one process per module) need all of it. They guard their imports, so
       # without the extra they SKIP rather than error: the lane stays green
       # having never touched Channel Access. That is why the extra is pinned
       # here and why tests/va/test_live_ca_venue_guard.py fails this lane
@@ -313,6 +313,10 @@ jobs:
       # `fail_ci_if_error: false` would swallow into a silent coverage
       # blackout. test_ci_workflow_wiring.py pins the two together.
       #
+      # Only the xml report is written: Codecov reads it, and nothing reads a
+      # terminal table, which costs a second ~12 s pass over the whole source
+      # set at the end of the run.
+      #
       # -n 4 --dist loadgroup (pytest-xdist): the cross-test global-state
       # bleed that makes this lane flake under -n (stdlib subprocess.run
       # monkeypatches, loguru sink reconfiguration) is file-local, so pinning
@@ -338,7 +342,7 @@ jobs:
       # the scheduler that makes it safe.
       #
       # -m "not pty and not wallclock and not canopy": "not pty" hands the
-      # real-terminal suite to the serial step below.
+      # real-terminal suite to the serial-suites job.
       # Those scenarios assert on repaint cadence and on a spinner ADVANCING
       # between two frames, so they measure the box as much as the code, and
       # three other xdist workers competing for it is exactly the load that
@@ -352,7 +356,7 @@ jobs:
       # `not wallclock` hands away every wall-clock budget for the same
       # reason: a budget timed beside three loaded workers measures them. Each
       # is timed in a serial step that selects the marker: the image-free
-      # budgets in this job's "Run the wall-clock budgets serially", and the
+      # budgets in serial-suites' "Run the wall-clock budgets serially", and the
       # sidecar budget in qmd-sidecar-e2e's step of that name.
       #
       # `not canopy` leaves the CANOPY contract to its own lane: this lane
@@ -360,7 +364,7 @@ jobs:
       # summary says the contract was not exercised here.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml"
         else
           COV_ARGS=""
         fi
@@ -407,7 +411,7 @@ jobs:
         # and ten minutes is well under what those lanes legitimately take.
         #
         # The two live Channel Access modules are excluded here and run in the
-        # isolated step below: libca is process-global, a process has one CA
+        # serial-suites job: libca is process-global, a process has one CA
         # context for its whole life, and a client torn down under a server in
         # the same process can crash inside libca. In a long-lived xdist worker
         # that shares 16k other tests, the crash lands minutes later in an
@@ -494,74 +498,6 @@ jobs:
         retention-days: 14
         if-no-files-found: warn
 
-    - name: Run real-terminal pty suite serially
-      # Linux only, and not because the suite cannot run elsewhere: it is POSIX
-      # and passes on macOS too (it self-skips only off-POSIX, which no cell in
-      # this matrix is). It is pinned here because the scenarios assert on
-      # timing (a spinner ADVANCING between two frames, a late line arriving
-      # after a kill), and the macOS runners are the noisier, slower, more
-      # contended ones, so they would be where this suite starts flaking. What
-      # it covers is not OS-specific either: it is how OSPREY's own renderer
-      # drives a terminal. Both Linux Python cells run it, so it is not
-      # single-interpreter, and a developer on macOS runs it locally. One shard
-      # per cell, rest-b, the one whose directories hold tests/pty: the suite
-      # would otherwise run once per shard.
-      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
-      # Serial by construction, and no xdist flags. Each scenario allocates a
-      # pty, starts a real verb on it in its own session, and asserts on what
-      # the terminal showed, including that a spinner ADVANCED between two
-      # frames, which is how the monitor thread is proven to be running. That
-      # measures the box as much as the code, so it is exactly the assertion a
-      # loaded runner turns into an intermittent red. Hence its own step here
-      # rather than a share of the parallel lane above, which deselects the
-      # marker.
-      #
-      # `-m pty` and not the bare directory: tests/pty/test_stub_coverage.py is
-      # unmarked on purpose, needs no terminal, and already ran in the parallel
-      # step. Selecting the directory alone would run it twice.
-      #
-      # No actions/cache for .cache/pty-exemplar. The session fixture renders
-      # that repo with the real `osprey init` and `osprey build` in ~1.2 s for
-      # ~380 KB, which is less than a cache round trip costs, and its key is a
-      # content hash of the templates plus the scaffolder that stamps them out:
-      # every PR touching a rendered file would miss the cache anyway. The
-      # checkout is writable, so the fixture writes there and the runner throws
-      # it away with everything else.
-      #
-      # The job cap is not raised to absorb this step or the wall-clock step
-      # below. Their caps added to the unit step's can exceed the job cap, but
-      # only in a run whose unit step has already hit its own cap. That lane is
-      # red whatever happens next, so nothing is lost when the job cap cuts a
-      # later step short. On a healthy lane this step finishes well inside the
-      # margin the job cap leaves, so the tail headroom argued for on the job
-      # cap stays untouched.
-      timeout-minutes: 10
-      run: uv run python scripts/check.py run pytest-pty
-
-    - name: Run the wall-clock budgets serially
-      # The check selects by marker over the tree, so an image-free budget
-      # added anywhere is timed here with no new wiring, alone in the process
-      # and with no xdist flags. tests/integration is left to qmd-sidecar-e2e,
-      # whose budgets need the image that job builds. Linux rest-b cells only,
-      # for the reason the pty step above gives: a budget measures the box,
-      # and the macOS runners are the noisier ones.
-      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
-      timeout-minutes: 15
-      run: uv run python scripts/check.py run pytest-wallclock-unit
-
-    - name: Run live Channel Access suites in isolation
-      # One pytest process per module via the live-CA gate — the same venue
-      # rule the local certification uses. --pva asserts pcaspy, p4p and
-      # lume-pva-apg import before pytest runs, because the seam test skips
-      # whole at import when any is missing. The gate fails unless every module exits
-      # 0 with zero skips and at least one pass, which closes the gap the
-      # in-sweep venue guard cannot: a skipped live suite fails THIS step even
-      # if a future marker or fixture skip slips past the import guard. One
-      # shard per cell, rest-b, the one whose directories hold tests/va, as for
-      # the pty suite above.
-      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
-      run: uv run python scripts/check.py run live-ca
-
     - name: Upload coverage reports to Codecov
       # Every shard of the coverage cell uploads under its own name; Codecov
       # merges reports for one commit, so the shards add up to the whole
@@ -575,6 +511,117 @@ jobs:
         fail_ci_if_error: false
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  serial-suites:
+    name: Serial suites Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    # The suites that must not share a runner with the unit sweep's xdist
+    # workers, nor with each other: the real-terminal pty scenarios and the
+    # image-free wall-clock budgets time the box, and the live Channel Access
+    # modules need a process of their own. Each step below runs one of them
+    # alone. They read nothing the sweep writes, so they run in a job of their
+    # own beside it rather than after it in a `test` cell, where they were
+    # five minutes of that cell's critical path. Same Pythons, same OS and the
+    # same install as the `test` job's ubuntu cells, and like that job on
+    # every event.
+    #
+    # The cap is the three step caps plus the minutes of setup around them
+    # (checkout, uv, the install, the pinned CLI). test_ci_workflow_wiring.py
+    # holds the sum, so a step cap raised alone cannot eat the margin.
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.14']
+        os: [ubuntu-latest]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      # The `test` job's install, for the reason given there: the live Channel
+      # Access step needs the virtual-accelerator serving stack, and without
+      # it the suites would skip.
+      run: uv sync --extra dev --extra virtual-accelerator
+
+    - name: Install the pinned Claude Code CLI
+      # The `test` job's environment, so a suite here sees what it saw there.
+      uses: ./.github/actions/install-pinned-claude-code
+
+    - name: Run real-terminal pty suite serially
+      # Linux only, and not because the suite cannot run elsewhere: it is POSIX
+      # and passes on macOS too (it self-skips only off-POSIX). It is pinned to
+      # ubuntu because the scenarios assert on timing (a spinner ADVANCING
+      # between two frames, a late line arriving after a kill), and the macOS
+      # runners are the noisier, slower, more contended ones, so they would be
+      # where this suite starts flaking. What it covers is not OS-specific
+      # either: it is how OSPREY's own renderer drives a terminal. Every Linux
+      # Python cell runs it, so it is not single-interpreter, and a developer on
+      # macOS runs it locally.
+      if: matrix.os == 'ubuntu-latest'
+      # Serial by construction, and no xdist flags. Each scenario allocates a
+      # pty, starts a real verb on it in its own session, and asserts on what
+      # the terminal showed, including that a spinner ADVANCED between two
+      # frames, which is how the monitor thread is proven to be running. That
+      # measures the box as much as the code, so it is exactly the assertion a
+      # loaded runner turns into an intermittent red. Hence a job with no sweep
+      # in it, and a step of its own rather than a share of the unit lane, which
+      # deselects the marker.
+      #
+      # `-m pty` and not the bare directory: tests/pty/test_stub_coverage.py is
+      # unmarked on purpose, needs no terminal, and runs in the unit sweep.
+      # Selecting the directory alone would run it twice.
+      #
+      # No actions/cache for .cache/pty-exemplar. The session fixture renders
+      # that repo with the real `osprey init` and `osprey build` in ~1.2 s for
+      # ~380 KB, which is less than a cache round trip costs, and its key is a
+      # content hash of the templates plus the scaffolder that stamps them out:
+      # every PR touching a rendered file would miss the cache anyway. The
+      # checkout is writable, so the fixture writes there and the runner throws
+      # it away with everything else.
+      timeout-minutes: 10
+      run: uv run python scripts/check.py run pytest-pty
+
+    - name: Run the wall-clock budgets serially
+      # The check collects only the test files that carry the marker, found by
+      # a scan of the tree when it runs, so an image-free budget added anywhere
+      # is timed here with no new wiring, alone in the process and with no
+      # xdist flags. tests/integration is left to qmd-sidecar-e2e, whose
+      # budgets need the image that job builds. Linux only, for the reason the
+      # pty step above gives: a budget measures the box, and the macOS runners
+      # are the noisier ones.
+      if: matrix.os == 'ubuntu-latest'
+      timeout-minutes: 15
+      run: uv run python scripts/check.py run pytest-wallclock-unit
+
+    - name: Run live Channel Access suites in isolation
+      # One pytest process per module via the live-CA gate — the same venue
+      # rule the local certification uses. --pva asserts pcaspy, p4p and
+      # lume-pva-apg import before pytest runs, because the seam test skips
+      # whole at import when any is missing. The gate fails unless every module exits
+      # 0 with zero skips and at least one pass, which closes the gap the
+      # in-sweep venue guard cannot: a skipped live suite fails THIS step even
+      # if a future marker or fixture skip slips past the import guard. After
+      # the timing steps, not beside them: a loaded CA server and client next
+      # to a timing suite is load that suite would measure.
+      #
+      # The cap clears the gate's own per-module limit (MODULE_TIMEOUT_S, five
+      # minutes) for both modules, so a module that hangs is ended and named by
+      # the gate before the step cap fires.
+      if: matrix.os == 'ubuntu-latest'
+      timeout-minutes: 15
+      run: uv run python scripts/check.py run live-ca
 
   dependency-floor:
     name: Archiver suite at the declared dependency floor
@@ -1541,19 +1588,19 @@ jobs:
           tests/interfaces/web_terminal/test_scaffold_detail.py \
           tests/interfaces/web_terminal/test_session_page.py \
           tests/interfaces/web_terminal/test_sidebar_resize_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_divider_browser.py \
           tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
+          tests/interfaces/web_terminal/test_attached_popout_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
-          tests/interfaces/lattice_dashboard/test_retheme_browser.py \
-          tests/interfaces/lattice_dashboard/test_settings_form.py \
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
           tests/interfaces/ariel/test_shell.py \
           tests/interfaces/history/test_history_page_browser.py \
           tests/interfaces/test_browser_helper.py \
-          tests/interfaces/test_lattice_dashboard_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
     - name: Install the pinned Claude Code CLI
@@ -7384,7 +7431,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, optimizer-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-cache-warmup, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke, canopy-contract]
+    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, optimizer-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-cache-warmup, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # The gate runs whenever the run was not cancelled, so a failed, cancelled
@@ -7433,6 +7480,10 @@ jobs:
       run: |
         if [[ "${{ needs.test.result }}" != "success" ]]; then
           echo "❌ Tests failed"
+          exit 1
+        fi
+        if [[ "${{ needs.serial-suites.result }}" != "success" ]]; then
+          echo "❌ Serial suites failed (pty, wall-clock budgets or live Channel Access)"
           exit 1
         fi
         if [[ "${{ needs.dependency-floor.result }}" != "success" ]]; then

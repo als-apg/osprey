@@ -21,6 +21,10 @@ row is not appended, so a hook reporting the same transcript every turn costs no
 write. :func:`append` answers whether it wrote, which is what lets each write
 point send exactly one ``session_transcript`` frame per actual move.
 
+**One exception to append-only.** Deleting a session takes its transcript out of
+the operator's history: :func:`remove_transcript` drops every row naming it, and
+the session meta's tombstone keeps it from being written back.
+
 **A damaged file is not an outage.** :func:`load` answers an empty ledger for a
 file that is unreadable, not JSON or the wrong shape, and logs it; the next
 :func:`append` rewrites the file whole from what survived. Ownership then falls
@@ -53,6 +57,7 @@ __all__ = [
     "ledger_path",
     "load",
     "load_checked",
+    "remove_transcript",
     "write_empty",
 ]
 
@@ -261,6 +266,29 @@ def append(
     """
     stamp = datetime.now(UTC) if from_ts is None else from_ts
     return bool(append_many(state_dir, [(key, transcript_id, stamp)]))
+
+
+def remove_transcript(state_dir: Path | None, transcript_id: str) -> int:
+    """Drop every row naming *transcript_id* (a deleted session); the count dropped.
+
+    Each key keeps its other rows, so a key that left the transcript is current
+    for its later one, and one that had moved to it is current for its earlier
+    one again. A failed write is logged and answers ``0``.
+    """
+    path = ledger_path(state_dir)
+    if path is None or not transcript_id:
+        return 0
+    with _WRITE_LOCK:
+        rows = list(load(state_dir).rows)
+        kept = [row for row in rows if row.transcript_id != transcript_id]
+        if len(kept) == len(rows):
+            return 0
+        try:
+            _write(path, kept)
+        except OSError:
+            logger.warning("Could not persist the session ledger to %s", path, exc_info=True)
+            return 0
+    return len(rows) - len(kept)
 
 
 def write_empty(state_dir: Path | None) -> bool:

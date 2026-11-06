@@ -78,6 +78,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 import time
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -158,6 +159,7 @@ __all__ = [
     "is_bookkeeping_prompt",
     "is_queue_submit",
     "match_preflight",
+    "title_source",
     "visible_preflight",
 ]
 
@@ -225,6 +227,43 @@ def is_bookkeeping_prompt(body: Mapping[str, Any]) -> bool:
         return True
     text = _prompt_text(body).strip()
     return bool(text) and text.startswith((INTERRUPT_MARKER, *BOOKKEEPING_PREFIXES))
+
+
+#: What else Claude Code writes into the main stream as a user prompt that the
+#: operator never typed: a background task's completion notice, a message from
+#: another session (a subagent's hand-back), a reminder, a skill's expansion.
+#: The transcript still shows them; they are only never a session's title.
+NOT_OPERATOR_PREFIXES = (
+    "<task-notification>",
+    "Another Claude session sent a message:",
+    "<agent-message",
+    "<system-reminder>",
+    "Base directory for this skill:",
+)
+_COMMAND_NAME = re.compile(r"<command-name>\s*([^<\s]+)\s*</command-name>")
+_COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
+
+
+def title_source(body: Mapping[str, Any]) -> str:
+    """What a prompt says that a session may be titled by; ``""`` for nothing.
+
+    The operator's own words, stripped; a slash-command echo as the command and
+    its arguments (``/demo-gallery``); nothing for the rest of the TUI's
+    bookkeeping and for what :data:`NOT_OPERATOR_PREFIXES` names.
+    """
+    if body.get("is_meta"):
+        return ""
+    text = _prompt_text(body).strip()
+    if not text or text.startswith((INTERRUPT_MARKER, *NOT_OPERATOR_PREFIXES)):
+        return ""
+    if not text.startswith(BOOKKEEPING_PREFIXES):
+        return text
+    name = _COMMAND_NAME.search(text)
+    if name is None:
+        return ""
+    command = name.group(1) if name.group(1).startswith("/") else f"/{name.group(1)}"
+    args = _COMMAND_ARGS.search(text)
+    return f"{command} {args.group(1).strip()}".rstrip() if args else command
 
 
 #: The kinds an entry can carry a ``run_id`` in: the spool's.
@@ -1281,7 +1320,8 @@ class RecordReader:
         A row's activity (``last_ts``, its sort place) is read from the
         :data:`ACTIVITY_KINDS` rows only, falling back to all of its rows for a
         session that has none (a promptless run). ``prompt`` is the first main
-        stream prompt :func:`is_bookkeeping_prompt` passes, ``message_count``
+        stream prompt with a :func:`title_source` (the first slash command when
+        the operator typed no words of their own), ``message_count``
         counts its main-stream prompts (readable, not bookkeeping) and answers,
         and ``truncated`` says the read was cut (scan, time) before it reached
         the session's first prompt, or that its first prompt is unreadable.
@@ -1313,9 +1353,9 @@ class RecordReader:
     ) -> tuple[list[dict[str, Any]], frozenset[str]]:
         """The session rows, sorted, and the sessions read with no activity rows."""
         groups: dict[str, dict[str, Any]] = {}
-        # (first prompt's ts) per session; a session whose first main prompt
-        # arrived without its body cannot name its prompt.
-        prompt_at: dict[str, datetime] = {}
+        # (is a command, ts) of the prompt chosen per session; a session whose
+        # first main prompt arrived without its body cannot name its prompt.
+        prompt_at: dict[str, tuple[int, datetime]] = {}
         unread_prompt: set[str] = set()
         scope_filter = ScopeFilter() if only is None else ScopeFilter(session_ids=only)
         items = self._collect(ctx, scope_filter, Query(since=since, until=before), newest=True)
@@ -1366,12 +1406,16 @@ class RecordReader:
                     row["message_count"] += 1
                 continue
             if item.kind == KIND_PROMPT:
+                source = title_source(body)
+                if source:
+                    # The operator's first words, else the first slash command.
+                    command = _prompt_text(body).strip().startswith(BOOKKEEPING_PREFIXES)
+                    place = (int(command), e.ts)
+                    if session not in prompt_at or place < prompt_at[session]:
+                        prompt_at[session] = place
+                        row["prompt"] = source
                 if is_bookkeeping_prompt(body):
                     continue
-                text = _prompt_text(body)
-                if text.strip() and (session not in prompt_at or e.ts < prompt_at[session]):
-                    prompt_at[session] = e.ts
-                    row["prompt"] = text
             row["message_count"] += 1
         # Cut short (scan limit, time limit): a session with no prompt in what
         # was read may have one before the cut. It is listed, never dropped.

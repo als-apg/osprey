@@ -7,7 +7,7 @@ response builder and refusal head and by the approval hook's own preview and
 settle functions; uploads go through the composer; a terminal ``/clear`` is the
 hook's ``POST /api/agent-turn``. Pins: one Runs row per run with its parts and
 its status arriving live; the ``/clear`` split, entering an older transcript and
-a live terminal ``/clear``; Earlier and the rows the tree leaves out; an upload
+a live terminal ``/clear``; the rows the tree leaves out; an upload
 after ``/clear``; resume across reload, a fresh context and sign-out; the
 streaming guard and browsing; naming, rename and revert, the switcher and More
 sessions; the ``beam_profile`` stub viewer and its fallback; the palette and
@@ -64,15 +64,14 @@ _HOOK = (
     / "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py"
 )
 
-#: Opens every closed node of the tree (sessions, Earlier, form groups, runs),
+#: Opens every closed node of the tree (sessions, form groups, runs),
 #: one per poll, and answers true once ten polls in a row found none closed:
 #: an opened session lists its groups only once its listing has loaded.
 _OPEN_ALL_JS = """() => {
   const tree = document.querySelector('#sidebar-session-tree');
   const closed = tree.querySelector('[data-group-head][aria-expanded="false"]')
     ?? tree.querySelector('.osprey-tree-run[aria-expanded="false"] [data-tree-disc]')
-    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]')
-    ?? tree.querySelector('.osprey-tree-earlier[aria-expanded="false"]');
+    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]');
   if (closed) {
     window.__e2eQuietPolls = 0;
     closed.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -105,9 +104,18 @@ def client(hub):
         yield c
 
 
+#: These tests read the tree in Kind mode, which an operator chooses (Activity is
+#: the default); a mode already stored, e.g. by a test's own switch, is kept.
+_KIND_MODE_JS = """(() => {
+  const key = 'osprey-sidebar-artifacts-view';
+  if (localStorage.getItem(key) === null) localStorage.setItem(key, 'kind');
+})()"""
+
+
 @pytest.fixture
 def context(chromium_browser):
     ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+    ctx.add_init_script(_KIND_MODE_JS)
     yield ctx
     ctx.close()
 
@@ -143,18 +151,31 @@ def _open_all(page: Page) -> None:
 
 
 def _open_session(page: Page, sid: str) -> None:
+    """Show a session's artifacts: only the session in use opens, so enter it first."""
     row = _session(page, sid)
-    if row.get_attribute("aria-expanded") != "true":
-        row.locator("[data-tree-disc]").click()
-    expect(row).to_have_attribute("aria-expanded", "true")
+    if "active" not in (row.get_attribute("class") or "").split():
+        row.locator(".osprey-tree-title").click()
+        expect(row).to_have_class(_re(r"\bactive\b"), timeout=_TIMEOUT_MS)
+    _click_until_open(row, row.locator("[data-tree-disc]"))
 
 
 def _open_group(page: Page, sid: str, form: str) -> None:
     head = page.locator(f'{_TREE} [data-group-head="{sid}:{form}"]')
     expect(head).to_be_visible(timeout=_TIMEOUT_MS)
-    if head.get_attribute("aria-expanded") != "true":
-        head.click()
-    expect(head).to_have_attribute("aria-expanded", "true")
+    _click_until_open(head, head)
+
+
+def _click_until_open(node, toggle) -> None:
+    """Open *node* by clicking *toggle* until it stays open. The page opens it too,
+    unawaited (the reveal of the session's last artifact on load and on entering), and a
+    click toggles: a click that lands just after that reveal closes it again."""
+    for _ in range(10):
+        if node.get_attribute("aria-expanded") != "true":
+            toggle.click()
+        with suppress(AssertionError):
+            expect(node).to_have_attribute("aria-expanded", "true", timeout=1000)
+            return
+    expect(node).to_have_attribute("aria-expanded", "true")
 
 
 def _group_count(page: Page, sid: str, form: str):
@@ -398,7 +419,7 @@ def test_entering_an_older_transcript_keeps_its_save_and_a_terminal_clear_shows_
 # --- what the tree holds ------------------------------------------------------------
 
 
-def test_earlier_holds_untagged_artifacts_and_dispatch_and_watchdog_are_absent(hub, page):
+def test_unowned_dispatch_and_watchdog_artifacts_are_absent(hub, page):
     store = _store(hub)
     loose = store.save_file(b"# loose\n", "loose.md", "markdown", title="Loose note", session_id="")
     dispatched = store.save_file(
@@ -420,23 +441,13 @@ def test_earlier_holds_untagged_artifacts_and_dispatch_and_watchdog_are_absent(h
 
     _boot(page, hub)
     _open_all(page)
-    earlier_box = page.locator(f'{_TREE} [data-session-box="{_earlier_box_id(page)}"]')
-    expect(earlier_box.locator(f'.osprey-list-row[data-id="{loose.id}"]')).to_have_count(1)
+    # Every row the tree shows is an agent session's: no bucket for the rest.
+    expect(page.locator(f"{_TREE} [data-tree-earlier]")).to_have_count(0)
+    expect(_row(page, loose.id)).to_have_count(0)
     expect(_row(page, dispatched.id)).to_have_count(0)
     expect(_row(page, watched.id)).to_have_count(0)
     expect(page.locator(_TREE)).not_to_contain_text("Dispatched report")
     expect(page.locator(_TREE)).not_to_contain_text("Watchdog report")
-
-
-def _earlier_box_id(page: Page) -> str:
-    """The Earlier row's box id: the box right after the Earlier row."""
-    return page.evaluate(
-        """() => {
-          const row = document.querySelector('#sidebar-session-tree [data-tree-earlier]');
-          const box = row && row.nextElementSibling;
-          return box ? box.dataset.sessionBox ?? '' : '';
-        }"""
-    )
 
 
 def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tmp_path):
@@ -452,7 +463,14 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
 
     png = tmp_path / "screen.png"
     png.write_bytes(_PNG)
+    # A file picked while the /clear turn still runs is refused (the composer is
+    # disabled), so attach only once the composer takes input again, and see the chip.
+    box = page.locator('#operator-container textarea[aria-label="Message the agent"]')
+    expect(box).to_be_enabled(timeout=_TIMEOUT_MS)
     page.locator("#operator-container input[type=file]").set_input_files(str(png))
+    expect(page.locator("#operator-container .op-attach-chip")).to_have_count(
+        1, timeout=_TIMEOUT_MS
+    )
     _send(page, "What does this screen show?")
     _wait_for(lambda: any(t.uploads for t in hub.chat.turns))
 
@@ -526,12 +544,11 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
         other = fresh.new_page()
         _boot(other, hub)
         expect(_active(other)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
-        # Its last-open artifact comes back: shown when docked, else highlighted.
-        expect(
-            other.locator(
-                f'{_TREE} .osprey-list-row[data-id="{profile.id}"][aria-selected="true"]'
-            ).or_(other.locator(f'{_TREE} .osprey-tree-highlight[data-id="{profile.id}"]'))
-        ).to_have_count(1, timeout=_TIMEOUT_MS)
+        # Its last-open artifact comes back: shown (and selected) when docked,
+        # else revealed in the tree.
+        expect(other.locator(f'{_TREE} .osprey-list-row[data-id="{profile.id}"]')).to_have_count(
+            1, timeout=_TIMEOUT_MS
+        )
     finally:
         fresh.close()
 
@@ -557,7 +574,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     expect(_active(page)).to_have_attribute("data-session-id", f"key:{minted}", timeout=_TIMEOUT_MS)
 
 
-def test_without_a_docked_artifacts_panel_page_load_only_highlights(hub, page):
+def test_without_a_docked_artifacts_panel_page_load_only_reveals(hub, page):
     profile = next(e for e in _store(hub).list_entries() if e.kind == BEAM_PROFILE_KIND)
     sid = _PROFILE.transcript_id
     _boot(page, hub)
@@ -578,9 +595,9 @@ def test_without_a_docked_artifacts_panel_page_load_only_highlights(hub, page):
     # The layout is left as it was: the Artifacts tile is not docked again.
     page.wait_for_timeout(1000)
     expect(page.locator(_ARTIFACTS_TILE_CLOSE)).to_have_count(0)
-    expect(page.locator(f'{_TREE} .osprey-tree-highlight[data-id="{profile.id}"]')).to_have_count(
-        1, timeout=_TIMEOUT_MS
-    )
+    expect(_row(page, profile.id)).to_have_count(1, timeout=_TIMEOUT_MS)
+    # Nothing shows an artifact, so no row is highlighted.
+    expect(page.locator(f'{_TREE} [aria-selected="true"]')).to_have_count(0)
 
 
 def _remove_artifacts_from_rail(page: Page) -> None:
@@ -599,13 +616,60 @@ def _remove_artifacts_from_rail(page: Page) -> None:
 # --- the streaming guard and browsing -----------------------------------------------
 
 
-def test_a_session_click_while_streaming_asks_and_browsing_leaves_the_agent_alone(hub, page):
+def test_the_agent_row_folds_the_tree_and_option_click_expands_every_session(hub, page):
+    """With the Agent pane open the Agent row folds and unfolds the whole tree (a
+    display rule once outranked ``hidden``, so the tree stayed on screen); ⌥-click
+    expands every session, a second ⌥-click collapses them all. The row has no
+    chevron, and its menu's Expand all does what ⌥-click does."""
+    _boot(page, hub)
+    agent = page.locator("#sidebar-agent-row")
+    tree = page.locator(_TREE)
+    expect(page.locator("html")).not_to_have_attribute("data-agent", "closed")
+    expect(tree).to_be_visible()
+    expect(agent.locator("svg.osprey-nav-disc, [data-disc]")).to_have_count(0)
+
+    agent.click()
+    expect(agent).to_have_attribute("aria-expanded", "false")
+    expect(tree).to_be_hidden()
+    agent.click()
+    expect(agent).to_have_attribute("aria-expanded", "true")
+    expect(tree).to_be_visible()
+
+    sessions = page.locator(f"{_TREE} .osprey-tree-session")
+    folded = page.locator(f'{_TREE} .osprey-tree-session[aria-expanded="false"]')
+    expect(sessions).not_to_have_count(0)
+    expect(sessions).not_to_have_count(1)
+    agent.click(modifiers=["Alt"])
+    expect(folded).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(sessions.count())
+    expect(page.locator("html")).not_to_have_attribute("data-agent", "closed")
+
+    sessions.last.locator(".osprey-tree-title").click(modifiers=["Alt"])
+    expect(page.locator(f'{_TREE} .osprey-tree-session[aria-expanded="true"]')).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(0)
+
+    # The menu's Expand all is the same gesture: every session opens.
+    _menu(page, agent, "Expand all")
+    expect(folded).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(sessions.count())
+    expect(agent).to_have_attribute("aria-expanded", "true")
+
+    # Keyboard still folds the tree from the row.
+    agent.focus()
+    page.keyboard.press("Enter")
+    expect(agent).to_have_attribute("aria-expanded", "false")
+    page.keyboard.press("Space")
+    expect(agent).to_have_attribute("aria-expanded", "true")
+
+
+def test_a_session_click_while_streaming_asks_and_another_session_never_opens_in_place(hub, page):
     _boot(page, hub)
     before = _active(page).get_attribute("data-session-id")
 
-    # Browsing another session opens it in the tree; the Agent stays where it was.
-    _session(page, _PROFILE.transcript_id).locator("[data-tree-disc]").click()
-    expect(_session(page, _PROFILE.transcript_id)).to_have_attribute("aria-expanded", "true")
+    # Only the session in use shows its artifacts: another has no disclosure.
+    other = _session(page, _PROFILE.transcript_id)
+    expect(other).to_have_attribute("aria-expanded", "false")
+    expect(other.locator("[data-tree-disc]")).to_have_count(0)
     expect(_active(page)).to_have_attribute("data-session-id", before)
 
     hub.chat.delay_s = 30.0
@@ -637,6 +701,34 @@ def _re(pattern: str):
     import re
 
     return re.compile(pattern)
+
+
+# --- each session keeps its own layout ----------------------------------------------
+
+
+def test_a_panel_closed_in_one_session_is_back_on_returning_to_another(hub, page):
+    a, b = _PROFILE.transcript_id, _RF_AFTER_CLEAR.transcript_id
+    tile = page.locator(_ARTIFACTS_TILE_CLOSE)
+    _boot(page, hub)
+    _session(page, a).locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute("data-session-id", a, timeout=_TIMEOUT_MS)
+    expect(tile).to_have_count(1, timeout=_TIMEOUT_MS)
+    page.wait_for_timeout(1000)  # the session's layout is written debounced
+
+    # B starts from the layout on screen; closing the panel there is B's alone.
+    _session(page, b).locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute("data-session-id", b, timeout=_TIMEOUT_MS)
+    tile.click()
+    expect(tile).to_have_count(0, timeout=_TIMEOUT_MS)
+    page.wait_for_timeout(1000)
+
+    _session(page, a).locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute("data-session-id", a, timeout=_TIMEOUT_MS)
+    expect(tile).to_have_count(1, timeout=_TIMEOUT_MS)
+
+    _session(page, b).locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute("data-session-id", b, timeout=_TIMEOUT_MS)
+    expect(tile).to_have_count(0, timeout=_TIMEOUT_MS)
 
 
 # --- names, the switcher and More sessions ------------------------------------------
@@ -785,3 +877,36 @@ def test_palette_find_enters_a_session_and_delete_asks_first(hub, page):
     _menu(page, row, "Delete…")
     page.locator(_DIALOG).locator(".posture-modal-confirm").click()
     expect(row).to_have_count(0, timeout=_TIMEOUT_MS)
+
+
+def test_deleting_a_past_session_drops_its_row_and_its_artifacts(hub, page):
+    profile = next(e for e in _store(hub).list_entries() if e.kind == BEAM_PROFILE_KIND)
+    sid = _PROFILE.transcript_id
+    _boot(page, hub)
+    current = _session(page, _RF_AFTER_CLEAR.transcript_id)
+    current.locator(".osprey-tree-title").click()
+    expect(_active(page)).to_have_attribute(
+        "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
+    )
+    _settle_pointer(page)
+
+    # The session the Agent is on offers Delete… disabled.
+    current.click(button="right")
+    expect(page.get_by_role("menuitem", name="Delete…")).to_have_attribute("aria-disabled", "true")
+    page.keyboard.press("Escape")
+
+    row = _session(page, sid)
+    expect(row).to_have_attribute("data-count", _re(r"^[1-9]"), timeout=_TIMEOUT_MS)
+    _menu(page, row, "Delete…")
+    dialog = page.locator(_DIALOG)
+    expect(dialog.locator(".posture-modal-title")).to_have_text("Delete session?")
+    expect(dialog).to_contain_text("This deletes the session")
+    dialog.locator(".posture-modal-confirm").click()
+    expect(row).to_have_count(0, timeout=_TIMEOUT_MS)
+    assert _store(hub).get_entry(profile.id) is None
+
+    page.reload(wait_until="domcontentloaded")
+    expect(_active(page)).to_have_attribute(
+        "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
+    )
+    expect(_session(page, sid)).to_have_count(0)

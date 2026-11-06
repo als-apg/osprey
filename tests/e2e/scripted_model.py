@@ -109,7 +109,9 @@ class ScriptedModel:
     def start(self) -> None:
         """Bind an ephemeral loopback port and serve in a daemon thread."""
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler_for(self))
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:

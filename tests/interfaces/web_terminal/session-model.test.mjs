@@ -422,6 +422,20 @@ describe('listing and refresh', () => {
     expect(listings()).toHaveLength(0);
   });
 
+  test('session_deleted drops the row without a listing', async () => {
+    await boot();
+    const seen = vi.fn();
+    model.subscribe(seen);
+    for (const fn of mocks.hubHandlers) fn({ type: 'session_deleted', transcript_id: T2 });
+    expect(model.rows().map((r) => r.transcript_id)).not.toContain(T2);
+    expect(seen).toHaveBeenCalledWith({ reason: 'rows' });
+    seen.mockClear();
+    for (const fn of mocks.hubHandlers) fn({ type: 'session_deleted', transcript_id: T2 });
+    expect(seen).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(model.REFRESH_THROTTLE_MS + 10);
+    expect(listings()).toHaveLength(0);
+  });
+
   test('sessionOfArtifact finds the owner row, else null', async () => {
     await boot();
     expect(model.sessionOfArtifact({ owner: T2 })?.transcript_id).toBe(T2);

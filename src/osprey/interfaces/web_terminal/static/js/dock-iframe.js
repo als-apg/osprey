@@ -67,7 +67,7 @@
  * export for the exact signature its consumer wires against.
  */
 
-import { getDockApi, setServiceRedock } from './dock-workspace.js';
+import { applyingSessionLayout, getDockApi, setServiceRedock } from './dock-workspace.js';
 import { setDragShield } from './dock-drop.js';
 import {
   PLACEHOLDER_COMPONENT,
@@ -95,6 +95,8 @@ import { isPoppedOut } from './popout.js';
  * @property {number} [lastH]
  * @property {HTMLElement} [glowEl]
  * @property {HTMLElement} [noticeEl]
+ * @property {HTMLElement} [standIn]  what the tile shows while the iframe
+ *   lives in an attached window (attached-popout.js); drawn in its place
  */
 
 const OVERLAY_CLASS = 'dock-iframe-overlay';
@@ -196,7 +198,7 @@ function ensureOverlay() {
  * @param {boolean} on
  */
 export function setIframePointerShield(on) {
-  for (const e of managed.values()) e.iframe.style.pointerEvents = on ? 'none' : 'auto';
+  for (const e of managed.values()) shownOf(e).style.pointerEvents = on ? 'none' : 'auto';
 }
 
 /**
@@ -207,6 +209,16 @@ export function setIframePointerShield(on) {
  * it, because the overlay is outside the card and its `overflow: hidden` clip.
  */
 const TILE_BODY_RADIUS = '0 0 var(--radius-xl) var(--radius-xl)';
+
+/**
+ * The element a managed panel shows in its tile: its stand-in while the iframe
+ * lives in an attached window, else the iframe.
+ * @param {ManagedPanel} entry
+ * @returns {HTMLElement}
+ */
+function shownOf(entry) {
+  return entry.standIn ?? entry.iframe;
+}
 
 /** @param {HTMLIFrameElement} iframe */
 function styleOverlayIframe(iframe) {
@@ -261,7 +273,7 @@ function place(panelId, entry) {
  */
 function concealEntry(entry) {
   entry.visible = false;
-  entry.iframe.style.display = 'none';
+  shownOf(entry).style.display = 'none';
   if (entry.noticeEl) entry.noticeEl.style.display = 'none';
 }
 
@@ -270,14 +282,15 @@ function concealEntry(entry) {
  * stored-layout restore): orphaned placeholders leave the layout, geometry is
  * re-synced — which shows every managed panel the applied layout docks and
  * conceals every one it lacks — and panel-manager's placeholders-applied
- * handler runs. Registered with dock-workspace's setServiceRedock.
+ * handler runs, told whether the layout is a session's own (`asLeft`).
+ * Registered with dock-workspace's setServiceRedock.
  */
 function reconcilePlaceholders() {
   const api = getDockApi();
   if (!api || !overlayEl) return;
   pruneOrphanPlaceholders();
   syncGeometry();
-  placeholdersAppliedHandler?.();
+  placeholdersAppliedHandler?.({ asLeft: applyingSessionLayout() });
 }
 
 /**
@@ -287,11 +300,11 @@ function reconcilePlaceholders() {
  * that was open, but only the landing panel's activation creates an iframe;
  * without this the other restored tiles would stay empty cards until their
  * sidebar rows are clicked.
- * @type {(() => void) | null}
+ * @type {((options: { asLeft: boolean }) => void) | null}
  */
 let placeholdersAppliedHandler = null;
 
-/** @param {(() => void) | null} fn */
+/** @param {((options: { asLeft: boolean }) => void) | null} fn */
 export function setPlaceholdersAppliedHandler(fn) {
   placeholdersAppliedHandler = fn;
 }
@@ -437,34 +450,72 @@ function applyGeometry() {
   for (const [panelId, entry] of managed) {
     if (docked.has(panelId)) entry.visible = true;
     else if (entry.visible) concealEntry(entry);
-    const { iframe } = entry;
+    const shown = shownOf(entry);
     const panel = entry.visible ? api.getPanel(entry.placeholderId) : null;
     const group = panel?.group;
     const content = group?.element?.querySelector('.dv-content-container');
     if (!panel || !content || group.activePanel !== panel) {
-      iframe.style.display = 'none';
+      shown.style.display = 'none';
       if (entry.noticeEl) entry.noticeEl.style.display = 'none';
       continue;
     }
     const r = content.getBoundingClientRect();
     const w = Math.round(r.width);
     const h = Math.round(r.height);
-    place(iframe, r, base);
-    iframe.style.display = '';
+    place(shown, r, base);
+    shown.style.display = '';
     // The notice spans the whole content rectangle: that is what the wash covers.
     const notice = ensureNoticeEl(panelId, entry, overlayEl);
     place(notice, r, base);
     notice.style.display = '';
     paintNotice(notice, panelId);
-    if (entry.lastW !== w || entry.lastH !== h) {
+    if (!entry.standIn && (entry.lastW !== w || entry.lastH !== h)) {
       entry.lastW = w;
       entry.lastH = h;
-      dispatchResize(iframe);
+      dispatchResize(entry.iframe);
     }
   }
 }
 
 // ---- Public API -----------------------------------------------------------
+
+/**
+ * A managed panel's iframe and tile title, or null for a panel without one.
+ * @param {string} panelId
+ * @returns {{ iframe: HTMLIFrameElement, title: string } | null}
+ */
+export function managedIframe(panelId) {
+  const entry = managed.get(panelId);
+  return entry ? { iframe: entry.iframe, title: entry.title } : null;
+}
+
+/**
+ * Draw `standIn` in the panel's tile in place of its iframe (the iframe lives
+ * in an attached window), or the iframe again (`null`). The caller has
+ * already put the stand-in in the overlay where the iframe stood
+ * (attached-window.js); this only tells the geometry pass which to draw.
+ * @param {string} panelId
+ * @param {HTMLElement | null} standIn
+ */
+export function setIframeStandIn(panelId, standIn) {
+  const entry = managed.get(panelId);
+  if (!entry) return;
+  if (standIn) entry.standIn = standIn;
+  else delete entry.standIn;
+  // The size the panel last heard is stale once it was elsewhere.
+  delete entry.lastW;
+  delete entry.lastH;
+  syncGeometry();
+}
+
+/**
+ * Whether the layout holds a tile for the panel.
+ * @param {string} panelId
+ * @returns {boolean}
+ */
+export function isPanelDocked(panelId) {
+  return dockedServiceKeys().has(panelId);
+}
 
 /**
  * Initialize the adapter. Records the fallback mount host (panel-manager's

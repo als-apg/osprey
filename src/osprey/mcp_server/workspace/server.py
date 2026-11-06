@@ -51,7 +51,6 @@ def create_server() -> FastMCP:
             create_static_plot,
             facility_description,
             focus_tools,
-            lattice_tools,
             panel_tools,
             prior_answer,
             provenance_locator,

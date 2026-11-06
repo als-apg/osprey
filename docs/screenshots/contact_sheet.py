@@ -26,7 +26,7 @@ to it with a canned PTY (no live agent, no provider, no hardware).
 :func:`capture_contact_sheet` drives a headless browser over that stack once per
 entry in :data:`VARIANTS` (plus the :data:`EXTRA_VARIANTS` showcase cards),
 then boots every supported subpanel's real app
-(:data:`PANEL_SURFACES` — ARIEL, channels, lattice, knowledge, events, and the
+(:data:`PANEL_SURFACES` — ARIEL, channels, knowledge, events, and the
 Bluesky scan panel) and captures each in dark and light — always through the
 hub's own iframe URL shape (``embedded=true`` + theme), so each card is the panel exactly as the
 terminal embeds it — writing one viewport PNG per card.
@@ -714,14 +714,14 @@ class _FakeChatClient:
 
 
 class NamingSeam:
-    """The stubbed ``run_query`` the hub's session namer calls.
+    """The stubbed ``aget_chat_completion`` the hub's session namer calls.
 
     The real :func:`~osprey.services.session_naming.name_session` and
     :class:`~osprey.services.session_naming.SessionNamer` run; only the model
     call is replaced. Each call waits ``delay_s`` (settable at any time), then
     answers ``titles[prompt]`` when given, else ``"Named: <first words>"``;
-    with ``fail`` set it raises instead, as an unavailable CLI does. ``calls``
-    lists the prompts asked about.
+    with ``fail`` set it raises instead, as an unreachable provider does.
+    ``calls`` lists the prompts asked about.
     """
 
     def __init__(self) -> None:
@@ -730,18 +730,14 @@ class NamingSeam:
         self.titles: dict[str, str] = {}
         self.calls: list[str] = []
 
-    async def run_query(self, project_dir: Path, prompt: str, **kwargs: Any) -> Any:  # noqa: ARG002
-        from types import SimpleNamespace
-
+    async def complete(self, *, chat_request: Any, **kwargs: Any) -> str:
+        prompt = chat_request.messages[-1].content
         self.calls.append(prompt)
         if self.delay_s > 0:
             await asyncio.sleep(self.delay_s)
         if self.fail:
             raise RuntimeError("the hermetic naming seam was told to fail")
-        title = self.titles.get(prompt) or "Named: " + " ".join(prompt.split()[:4])
-        return SimpleNamespace(
-            result=SimpleNamespace(is_error=False, result=title), text_blocks=[title]
-        )
+        return self.titles.get(prompt) or "Named: " + " ".join(prompt.split()[:4])
 
 
 # ---------------------------------------------------------------------------
@@ -923,7 +919,7 @@ def hermetic_hub(
     - the operator chat's child is a :class:`FakeChat` patched in for
       ``ClaudeSDKClient``, so a chat turn runs the real route end to end;
     - the session namer's model call is a :class:`NamingSeam` patched in for
-      ``run_query`` (and the namer is installed even though the throwaway
+      ``aget_chat_completion`` (and the namer is installed even though the throwaway
       project has no config to resolve a provider from).
 
     On exit both servers stop and both the project directory and its
@@ -987,7 +983,7 @@ def hermetic_hub(
                 # The demo artifacts carry DEMO_SESSION_ID, but nothing here gives
                 # the ledger a row for it (a deployment gets one from the spawn, a
                 # turn end or the startup backfill; the capture runs none of them),
-                # so they would file under Earlier. Append the row a resumed
+                # so no session would list them. Append the row a resumed
                 # pre-feature session has: (key, key, epoch).
                 from osprey.interfaces.web_terminal import session_meta
                 from osprey.stores import session_ledger
@@ -1061,12 +1057,12 @@ def hermetic_hub(
 
             naming = NamingSeam()
             stack.enter_context(
-                mock.patch("osprey.agent_runner.runner.run_query", naming.run_query)
+                mock.patch("osprey.models.completion.aget_chat_completion", naming.complete)
             )
             stack.enter_context(
                 mock.patch(
-                    "osprey.services.session_naming._naming_model",
-                    return_value="haiku",
+                    "osprey.services.session_naming._naming_route",
+                    return_value=("hermetic", "fast-model", {}),
                 )
             )
 
@@ -1290,15 +1286,14 @@ _PLOT_ROW_SELECTOR = f'#sidebar-session-tree .osprey-list-row[data-id="{DEMO_PLO
 
 #: One poll of :func:`open_tree_to_row`: true once the artifact's row is in
 #: the tree, else one closed node opened (a form group, then a session's
-#: disclosure, then Earlier). A row exists only under an open session and an
+#: disclosure). A row exists only under an open session and an
 #: open form group, and both start closed.
 OPEN_TREE_TO_ROW_JS = """(id) => {
   const tree = document.querySelector('#sidebar-session-tree');
   if (!tree) return false;
   if (tree.querySelector(`.osprey-list-row[data-id="${CSS.escape(id)}"]`)) return true;
   const closed = tree.querySelector('[data-group-head][aria-expanded="false"]')
-    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]')
-    ?? tree.querySelector('.osprey-tree-earlier[aria-expanded="false"]');
+    ?? tree.querySelector('.osprey-tree-session[aria-expanded="false"] [data-tree-disc]');
   closed?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   return false;
 }"""
@@ -1793,13 +1788,6 @@ def _boot_channel_finder(workspace: Path):
     return run_app_server(create_app(project_cwd=str(workspace)))
 
 
-def _boot_lattice(workspace: Path):
-    from osprey.interfaces._serving import run_app_server
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    return run_app_server(create_app(workspace_root=workspace / "lattice_ws"))
-
-
 def _boot_okf(workspace: Path):
     from osprey.interfaces._serving import run_app_server
     from osprey.interfaces.okf_panel.app import create_app
@@ -1839,7 +1827,6 @@ def _boot_bluesky_web(_workspace: Path):
 _PANEL_BOOTS = {
     "ariel": _boot_ariel,
     "channel_finder": _boot_channel_finder,
-    "lattice": _boot_lattice,
     "okf": _boot_okf,
     "dispatch": _boot_dispatch_dashboard,
     "bluesky": _boot_bluesky_web,
@@ -1852,7 +1839,6 @@ _PANEL_BOOTS = {
 PANEL_SURFACES: list[PanelSurface] = [
     PanelSurface("ariel", "ARIEL — logbook search", "/", "ariel"),
     PanelSurface("channels", "Channels — channel finder", "/", "channel_finder"),
-    PanelSurface("lattice", "Lattice — machine dashboard", "/", "lattice"),
     PanelSurface("knowledge", "Knowledge — OKF browser", "/", "okf", wait_selector="#tree"),
     PanelSurface("events", "Events — dispatch dashboard", "/", "dispatch"),
     PanelSurface(

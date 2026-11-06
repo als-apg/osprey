@@ -89,7 +89,6 @@ _ROWS = "#ariel-list [data-entry-id]"
 _PILL = ".ariel-new-pill"
 _READER_TITLE = "#ariel-reader-body .entry-detail-title"
 _NOT_LISTED = "This entry is not shown in the list."
-_PENDING_NOTICE = "Added to the prompt when the agent is free"
 
 #: Installed in every frame before any page script. ``__flashed`` lists the
 #: entry id of every row the moment it gains ``agent-flash``; ``__navReady``
@@ -654,19 +653,19 @@ def test_ariel_entry_publish_in_view_flashes_and_pill_unchanged(stack_factory):
 
 
 # ---------------------------------------------------------------------------
-# (5) Ask agent → composer, unsent; during a streaming turn, after it
+# (5) Ask agent → composer, unsent; during a streaming turn too
 # ---------------------------------------------------------------------------
 
 
-def test_ariel_ask_agent_lands_in_composer_unsent_and_waits_for_a_streaming_turn(
+def test_ariel_ask_agent_lands_in_composer_unsent_even_during_a_streaming_turn(
     stack_factory,
 ):
     """The reader's "Ask agent" cites the entry in the prompt and never sends it.
 
     First with the agent idle: the citation is in the composer at once. Then
-    with a turn streaming (held on a gate): the composer is disabled, the host
-    says the text waits, and it lands once the turn ends, appended and still
-    unsent. The fake SDK's prompt log is the proof nothing was sent.
+    with a turn streaming (held on a gate): the composer stays open, so the
+    citation lands at once there too, and is still unsent once the turn ends.
+    The fake SDK's prompt log is the proof nothing was sent.
     """
     stack = stack_factory("#sel=orb-03")
     page = stack.page
@@ -692,26 +691,21 @@ def test_ariel_ask_agent_lands_in_composer_unsent_and_waits_for_a_streaming_turn
     expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
         "Working on it", timeout=10_000
     )
-    expect(textarea).to_be_disabled(timeout=10_000)
+    expect(textarea).to_be_enabled(timeout=10_000)
 
     stack.tool("entry_open", entry_id="orb-05", attachment_id=None)
     expect(stack.frame_locator.locator(_READER_TITLE)).to_contain_text(
         "Orbit correction 5", timeout=10_000
     )
     ask.click()
-    expect(page.locator("#undo-notice, .undo-notice").first).to_contain_text(
-        _PENDING_NOTICE, timeout=10_000
-    )
-    page.wait_for_timeout(300)
-    assert "orb-05" not in textarea.input_value()
-
-    requests.post(f"{stack.base_url}/__test__/release", timeout=10).raise_for_status()
-    expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text("Done.", timeout=10_000)
-    expect(textarea).to_be_enabled(timeout=10_000)
     expect(textarea).to_have_value(
         re.compile(r"Logbook entry orb-05 .*\n> Orbit correction 5 applied"),
         timeout=10_000,
     )
+
+    requests.post(f"{stack.base_url}/__test__/release", timeout=10).raise_for_status()
+    expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text("Done.", timeout=10_000)
+    expect(textarea).to_have_value(re.compile(r"Logbook entry orb-05"), timeout=10_000)
     page.wait_for_timeout(500)
     assert OBSERVED_PROMPTS == [prompt], f"a pending citation was sent: {OBSERVED_PROMPTS}"
 

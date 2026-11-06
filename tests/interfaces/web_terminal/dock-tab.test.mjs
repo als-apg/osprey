@@ -27,16 +27,19 @@ const { closeTerminalPanel, closeDockPanel } = vi.hoisted(() => ({
   closeTerminalPanel: vi.fn(() => true),
   closeDockPanel: vi.fn(() => true),
 }));
-const { popOutPanel, canPopOut } = vi.hoisted(() => ({
-  popOutPanel: vi.fn(() => true),
-  canPopOut: vi.fn(() => true),
+const { popOutAttached, attachBlocker } = vi.hoisted(() => ({
+  popOutAttached: vi.fn(() => true),
+  attachBlocker: vi.fn(() => /** @type {string | null} */ (null)),
 }));
 
-// The pop-out itself (window, handle, tile retirement) is popout.js's
+/** What the gate says about an opaque-origin panel. */
+const OPAQUE = 'This panel runs at an opaque origin and cannot be popped out.';
+
+// The pop-out itself (the attached window, the stand-in) is attached-popout's
 // contract; the bar only has to ask it the right things at the right times.
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  popOutPanel,
-  canPopOut,
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/attached-popout.js', () => ({
+  popOutAttached,
+  attachBlocker,
 }));
 
 // dock-tab closes every tile through dock-workspace (the layout holder); the
@@ -92,7 +95,7 @@ function detachedTerminalHeader() {
 
 /**
  * The chat console's Agent bar as the page has it before the dock adopts it:
- * built by chat-console.js, with the bell and Export the feature modules add,
+ * built by chat-console.js, with the bell the feature modules add,
  * and its label marked as the session switcher's button the way
  * attachSessionSwitcher marks it, inside a detached console container.
  * @returns {HTMLElement}
@@ -101,10 +104,7 @@ function detachedConsoleBar() {
   const { bar, label: switcher } = buildConsole();
   switcher.setAttribute('role', 'button');
   switcher.setAttribute('aria-label', 'Switch session');
-  for (const [cls, label] of [
-    ['op-attention-toggle', 'Desktop notifications'],
-    ['op-export', 'Export'],
-  ]) {
+  for (const [cls, label] of [['op-attention-toggle', 'Desktop notifications']]) {
     const btn = document.createElement('button');
     btn.className = `osprey-icon-btn ${cls}`;
     btn.setAttribute('aria-label', label);
@@ -121,8 +121,8 @@ describe('tile-tab renderer', () => {
     vi.restoreAllMocks();
     closeTerminalPanel.mockClear();
     closeDockPanel.mockClear();
-    popOutPanel.mockClear();
-    canPopOut.mockReset().mockReturnValue(true);
+    popOutAttached.mockClear();
+    attachBlocker.mockReset().mockReturnValue(null);
   });
 
   test('service tab renders visible title and close', async () => {
@@ -192,21 +192,30 @@ describe('tile-tab renderer', () => {
       new MouseEvent('click', { bubbles: true, cancelable: true })
     );
 
-    expect(popOutPanel).toHaveBeenCalledExactlyOnceWith('ariel');
+    expect(popOutAttached).toHaveBeenCalledExactlyOnceWith('ariel');
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has no Pop out button', async () => {
+  test('the Agent tile has the same Pop out, before its close, popping the Agent pane out', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const tab = createTileTab('terminal');
     tab.init({ title: 'Agent', params: {}, api: fakeApi() });
 
-    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
+    const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
+    expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Pop out',
+      'Close Agent pane',
+    ]);
+    /** @type {HTMLElement} */ (actions.querySelector('.tile-tab-popout')).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+    expect(popOutAttached).toHaveBeenCalledExactlyOnceWith('terminal');
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
   });
 
   test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
-    canPopOut.mockReturnValue(false);
+    attachBlocker.mockReturnValue(OPAQUE);
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
@@ -217,9 +226,9 @@ describe('tile-tab renderer', () => {
     expect(popout.disabled).toBe(false);
     popout.dispatchEvent(new Event('pointerenter'));
     expect(popout.disabled).toBe(true);
-    expect(popout.title).toBe('This panel runs at an opaque origin and cannot be popped out.');
+    expect(popout.title).toBe(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(popOutPanel).not.toHaveBeenCalled();
+    expect(popOutAttached).not.toHaveBeenCalled();
   });
 
   test('the gate is read again at click time: a frame that resolved opaque after the bar was built', async () => {
@@ -229,12 +238,12 @@ describe('tile-tab renderer', () => {
     const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
     expect(popout.disabled).toBe(false);
 
-    canPopOut.mockReturnValue(false);
+    attachBlocker.mockReturnValue(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-    expect(popOutPanel).not.toHaveBeenCalled();
+    expect(popOutAttached).not.toHaveBeenCalled();
     expect(popout.disabled).toBe(true);
-    expect(popout.title).toBe('This panel runs at an opaque origin and cannot be popped out.');
+    expect(popout.title).toBe(OPAQUE);
   });
 
   test('Pop out pointerdown is prevented so it cannot start a tile drag', async () => {
@@ -374,7 +383,7 @@ describe('tile-tab renderer', () => {
         'Switch session',
         'New conversation',
         'Desktop notifications',
-        'Export',
+        'Pop out',
         'Close Agent pane',
       ]);
     });

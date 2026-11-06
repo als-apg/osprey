@@ -1,9 +1,10 @@
-"""``POST /api/artifacts/session-summary``: per-session counts, Earlier and the owned total.
+"""``POST /api/artifacts/session-summary``: per-session counts and the owned total.
 
 The summary is the sidebar's count source, so its numbers must agree with what
 ``session-list`` actually lists: a form's count equals that form's rows under
 ``runs=grouped``, a run counts once whatever its head, and the loaded sessions
-plus "More sessions" plus Earlier add up to every operator-visible entry.
+plus "More sessions" add up to every owned operator-visible entry. An entry no
+session owns counts nowhere.
 """
 
 from __future__ import annotations
@@ -236,7 +237,7 @@ class TestCountsMatchTheListing:
         assert summary["counts"][T1] == {"total": 0, "by_form": {}}
         assert summary["counts"][T_OTHER] == {"total": 0, "by_form": {}}
         assert summary["owned_total"] == 0
-        assert summary["earlier"] == {"total": 0, "by_form": {}}
+        assert "earlier" not in summary
 
     def test_one_runs_count_while_the_groups_head_changes(self, client, store, state_dir):
         _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
@@ -265,23 +266,20 @@ class TestTotalsAddUp:
         _text(store, "dispatch", minute=3, session_id=keys[0], run_id="run-1")
         _text(store, "watchdog", minute=4, origin="watchdog")
 
-        visible_total = sum(1 for e in store.list_entries() if operator_visible(e))
+        # The untagged and unknown-key entries are visible but owned by no session.
+        owned_visible = sum(1 for e in store.list_entries() if operator_visible(e)) - 2
         first = _summary(client, keys[:150])
         second = _summary(client, keys[150:])
         assert first["owned_total"] == second["owned_total"]
-        assert first["earlier"] == second["earlier"]
         requested = sum(c["total"] for c in first["counts"].values())
         requested += sum(c["total"] for c in second["counts"].values())
         more = first["owned_total"] - requested
         assert more == 0
-        assert requested + more + first["earlier"]["total"] == visible_total
-        assert first["earlier"]["total"] == 2
+        assert requested + more == owned_visible
 
         # Only the first page loaded: the rest is "More sessions".
         loaded = sum(c["total"] for c in first["counts"].values())
-        assert loaded + (first["owned_total"] - loaded) + first["earlier"]["total"] == (
-            visible_total
-        )
+        assert loaded + (first["owned_total"] - loaded) == owned_visible
         assert first["owned_total"] - loaded == sum(c["total"] for c in second["counts"].values())
 
 
@@ -301,22 +299,18 @@ class TestOwnership:
         assert summary["counts"][T2]["total"] == 2
         assert summary["counts"][T2]["by_form"] == {"plots": 2}
         assert summary["owned_total"] == 5
-        assert summary["earlier"]["total"] == 0
 
-    def test_earlier_excludes_owned_dispatch_and_watchdog(self, client, store, state_dir):
+    def test_unowned_dispatch_and_watchdog_entries_count_nowhere(self, client, store, state_dir):
         _write_ledger(state_dir, [(KEY, T1, session_ledger.EPOCH)])
         _text(store, "owned", minute=1, session_id=KEY)
-        untagged = _text(store, "untagged", minute=2)
-        unknown = _text(store, "unknown key", minute=3, session_id=T_OTHER)
+        _text(store, "untagged", minute=2)
+        _text(store, "unknown key", minute=3, session_id=T_OTHER)
         _text(store, "dispatch", minute=4, run_id="run-1")
         _text(store, "dispatch tagged", minute=5, session_id=KEY, run_id="run-2")
         _text(store, "watchdog", minute=6, origin="watchdog")
 
         summary = _summary(client, [T1])
-        earlier_rows = _listed(client, {"earlier": True, "runs": "grouped"})
-        assert sorted(r["id"] for r in earlier_rows) == sorted([untagged.id, unknown.id])
-        assert summary["earlier"]["total"] == 2
-        assert summary["earlier"]["by_form"] == _by_form(earlier_rows)
+        assert set(summary) == {"counts", "owned_total", "ledger"}
         assert summary["counts"][T1]["total"] == 1
         assert summary["owned_total"] == 1
 
@@ -333,9 +327,7 @@ class TestOwnership:
         assert summary["counts"][T1]["total"] == 1
         assert summary["owned_total"] == 3
 
-    def test_an_unreadable_ledger_says_so_and_tagged_entries_are_earlier(
-        self, client, store, state_dir
-    ):
+    def test_an_unreadable_ledger_says_so_and_owns_nothing(self, client, store, state_dir):
         _text(store, "tagged", minute=1, session_id=KEY)
         _text(store, "untagged", minute=2)
         (state_dir / session_ledger.STORE_FILENAME).write_text("not json")
@@ -343,7 +335,6 @@ class TestOwnership:
         assert summary["ledger"] == "unavailable"
         assert summary["counts"][T1]["total"] == 0
         assert summary["owned_total"] == 0
-        assert summary["earlier"]["total"] == 2
 
 
 class TestValidation:

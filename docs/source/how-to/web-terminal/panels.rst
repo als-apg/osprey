@@ -2,8 +2,8 @@ Panels
 ======
 
 A **panel** is a self-contained, themed mini-app the Web Terminal shows
-beside the chat. OSPREY's own tools — Channel Finder, the Logbook, the lattice
-dashboard, the artifact gallery — are all panels, and you can add your own.
+beside the chat. OSPREY's own tools — Channel Finder, the Logbook, the
+knowledge reader, the artifact gallery — are all panels, and you can add your own.
 A panel that takes its colors from the shared design tokens (:doc:`theming`)
 matches your theme automatically, in light and dark, with no extra work. A
 service that brings its own colors — most facility dashboards do — follows
@@ -18,7 +18,7 @@ Enable OSPREY's built-in panels in ``config.yml``:
      panels:
        ariel: true
        channel-finder: true
-       lattice: true
+       system-health: true
 
 Panels that need a section as well as a tick
 --------------------------------------------
@@ -44,20 +44,18 @@ saying the panel is unavailable.
      - ``facility_knowledge:``
      - ``bundle_path``, the compiled knowledge bundle the KNOWLEDGE tab serves.
 
-The lattice tab launches from the ``lattice: true`` tick alone; a
-``lattice_dashboard`` section (``host``, ``port``, ``auto_launch``) only moves
-where it listens. The shipped ``control-assistant`` preset ships that tick, and
-the sections for KNOWLEDGE and CHANNELS, which is why all three work out of the
-box. :doc:`lattice-dashboard` describes the tab.
+The shipped ``control-assistant`` preset ships the sections for KNOWLEDGE and
+CHANNELS, which is why both work out of the box.
 
 Where the panels live
 ---------------------
 
 Panels have a row in the sidebar on the left of the window.
-**Events** (when the deployment enables it) is in the **Workspace** section,
-with **Agent**. **Artifacts** has no row: its artifacts are in the Agent row's
-session tree, and the palette opens the panel. All other panels are in the
-**Tools** section, followed by **+ Add panel**. See :ref:`web-terminal-sidebar`.
+**Agent** is in the **Workspace** section. **Artifacts** has no row: its
+artifacts are in the Agent row's session tree, and the palette opens the panel.
+**Events** (when the deployment enables it) and **Health** are in the
+**System** section. All other panels are in the **Tools** section, which ends
+with **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
 Dragging sidebar rows
 ---------------------
@@ -74,10 +72,9 @@ Taking panels out of the sidebar
 To remove a panel row, right-click it or use the **×** of the row. You can
 undo this for a few seconds.
 
-A panel can be open without a sidebar row. In the ``control-assistant`` preset
-SYSTEM starts that way (``web.panels.system-health.hidden: true``): open it
-from **+ Add panel** or the command palette, and right-click its tile to pin it
-to the sidebar.
+A panel can be open without a sidebar row (``web.panels.<id>.hidden: true``):
+open it from **+ Add panel** or the command palette, and right-click its tile
+to pin it to the sidebar.
 
 When a panel stops answering
 ----------------------------
@@ -92,7 +89,7 @@ because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.
 
-This applies to panels that have a health check: Jupyter, CANOPY, SYSTEM, and any
+This applies to panels that have a health check: Jupyter, CANOPY, Health, and any
 URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be
@@ -407,7 +404,7 @@ menu label and each value is the tiles:
              size: 2
            - split: column
              items:
-               - tabs: [lattice]
+               - tabs: [system-health]
                - tabs: [okf]
        "Logbook review":
          split: row

@@ -6,6 +6,8 @@ Pinned here:
   artifact and the last-active key are on disk and read back by a fresh app.
 * **An empty user title reverts to the auto title**, and a naming outcome never
   overwrites a user title.
+* **A session's layout** round-trips, is checked (version, shape, root-relative
+  pages, size cap; unknown fields dropped) and goes with the tombstone.
 * **A damaged document loads defaults**; ``naming_since`` is stamped once, at the
   store's first creation, and kept across reloads.
 * **The identity guard** refuses a hub whose terminal user is not the acting
@@ -63,6 +65,8 @@ class TestMetaRoundTrip:
             "auto_title": None,
             "naming": None,
             "last_artifact_id": None,
+            "layout": None,
+            "deleted": None,
         }
         assert session_meta.get_last_active(app) is None
 
@@ -84,12 +88,26 @@ class TestMetaRoundTrip:
             "auto_title": "Beam orbit check",
             "naming": "done",
             "last_artifact_id": "art-1",
+            "layout": None,
+            "deleted": None,
         }
         t2 = session_meta.get(fresh, T2)
         assert (t2["title"], t2["title_source"], t2["naming"]) == ("My session", "user", "failed")
         last = session_meta.get_last_active(fresh)
         assert last is not None and last["session_key"] == KEY and last["at"]
         assert session_meta.naming_since(fresh) == since
+
+    def test_a_tombstone_replaces_the_record_and_survives_a_reload(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_title(app, T1, "My session")
+        session_meta.set_last_artifact(app, T1, "art-1")
+        session_meta.mark_deleted(app, T1)
+        fresh = _app()
+        session_meta.load(fresh)
+        record = session_meta.get(fresh, T1)
+        assert record["deleted"] and record["title"] is None and record["last_artifact_id"] is None
+        assert session_meta.deleted_ids(fresh) == {T1}
 
     def test_the_document_is_beside_the_transcript_map(self):
         app = _app()
@@ -139,6 +157,90 @@ class TestTitles:
         session_meta.set_auto_title(app, T1, "Auto name", "done")
         record = session_meta.get(app, T1)
         assert (record["title"], record["auto_title"]) == ("Mine", "Auto name")
+
+
+LAYOUT = {
+    "version": 2,
+    "layout": {"root": {"kind": "tile", "id": "t1", "keys": ["terminal"]}},
+    "panels": {"knowledge": {"title": "Knowledge"}},
+    "pages": {"knowledge": "/panel/knowledge/page/beam"},
+}
+
+
+@pytest.mark.usefixtures("shared_root")
+class TestLayout:
+    def test_a_layout_survives_a_reload(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_layout(app, T1, LAYOUT)
+        fresh = _app()
+        session_meta.load(fresh)
+        assert session_meta.get(fresh, T1)["layout"] == LAYOUT
+        assert session_meta.get(fresh, T2)["layout"] is None
+
+    def test_unknown_fields_are_dropped_and_missing_maps_default(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_layout(app, T1, {"version": 2, "layout": None, "sidebar": "wide"})
+        assert session_meta.get(app, T1)["layout"] == {
+            "version": 2,
+            "layout": None,
+            "panels": {},
+            "pages": {},
+        }
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            [],
+            {"layout": None},
+            {**LAYOUT, "version": 1},
+            {**LAYOUT, "layout": [1]},
+            {**LAYOUT, "panels": {"knowledge": "Knowledge"}},
+            {**LAYOUT, "pages": {"knowledge": "https://elsewhere.example/x"}},
+            {**LAYOUT, "pages": {"knowledge": "//elsewhere.example/x"}},
+            {**LAYOUT, "pages": {"knowledge": "javascript:alert(1)"}},
+        ],
+    )
+    def test_what_is_not_a_layout_is_refused(self, bad):
+        app = _app()
+        session_meta.load(app)
+        with pytest.raises(ValueError):
+            session_meta.set_layout(app, T1, bad)
+        assert session_meta.get(app, T1)["layout"] is None
+
+    def test_a_layout_over_the_cap_is_refused(self):
+        app = _app()
+        session_meta.load(app)
+        big = {**LAYOUT, "panels": {"x": {"params": "a" * session_meta.LAYOUT_MAX_BYTES}}}
+        with pytest.raises(session_meta.LayoutTooLarge):
+            session_meta.set_layout(app, T1, big)
+
+    def test_none_forgets_it(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_layout(app, T1, LAYOUT)
+        session_meta.set_layout(app, T1, None)
+        assert session_meta.get(app, T1)["layout"] is None
+
+    def test_a_damaged_layout_on_disk_loads_as_none(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_layout(app, T1, LAYOUT)
+        path = session_meta.store_path()
+        document = json.loads(path.read_text())
+        document["sessions"][T1]["layout"] = {"version": 2, "layout": "nope"}
+        path.write_text(json.dumps(document))
+        fresh = _app()
+        session_meta.load(fresh)
+        assert session_meta.get(fresh, T1)["layout"] is None
+
+    def test_the_layout_goes_with_the_tombstone(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_layout(app, T1, LAYOUT)
+        session_meta.mark_deleted(app, T1)
+        assert session_meta.get(app, T1)["layout"] is None
 
 
 @pytest.mark.usefixtures("shared_root")
@@ -275,6 +377,13 @@ class TestBackfill:
             (KEY, KEY, session_ledger.EPOCH),
             (KEY, T1, "2026-10-01T08:00:00+00:00"),
         ]
+
+    def test_a_deleted_transcript_is_not_seeded(self, hub):
+        _write_map({KEY: T1})
+        _jsonl(hub.sessions_dir, T1, "2026-10-01T08:00:00.000Z")
+        session_meta.mark_deleted(hub.app, T1)
+        assert session_meta.backfill_ledger(hub.app) == 1
+        assert _rows() == [(KEY, KEY, session_ledger.EPOCH)]
 
     def test_a_cleared_key_whose_transcript_is_gone_keeps_only_its_first_row(self, hub):
         _write_map({KEY: T1})

@@ -36,6 +36,7 @@ import { isMacPlatform } from '/design-system/js/platform.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { initChat, enterFromTerminal, renderChatBootFailure } from './chat.js';
 import { initDockWorkspace } from './dock-workspace.js';
+import { initSessionLayout } from './session-layout.js';
 import { panelFocusAnchor } from './dock-iframe.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initControlTargetChip } from './control-target-chip.js';
@@ -51,6 +52,7 @@ import {
 } from './sidebar-artifacts.js';
 import { whilePanelServed } from './panel-availability.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
+import { queryAllDocuments } from './attached-window.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   initTheme({ role: 'hub' });
@@ -92,8 +94,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // One tooltip layer for the whole page. A sidebar row whose label shows
   // needs only its explanation; every other tip carries label and detail.
   initTooltips(document.body, {
+    // A session's title can be cut short in the row, so its tip keeps the label.
     mode: (el) =>
       el.closest('#sidebar') &&
+      !el.matches('.osprey-tree-title') &&
       document.documentElement.getAttribute('data-sidebar') !== 'collapsed'
         ? 'detail'
         : 'label+detail',
@@ -108,6 +112,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // the rest of boot — the source subtrees stay in the page if it no-ops.
   try {
     initDockWorkspace();
+    // Each session keeps its own layout from here on (after the dock exists).
+    initSessionLayout();
   } catch (err) {
     console.error('Failed to init dock workspace:', err);
   }
@@ -662,7 +668,7 @@ export function moveFocusOutOfPanel(source, direction) {
  */
 function panelIdForMessageSource(source) {
   if (!source) return null;
-  for (const el of document.querySelectorAll('iframe.panel-iframe')) {
+  for (const el of queryAllDocuments('iframe.panel-iframe')) {
     const iframe = /** @type {HTMLIFrameElement} */ (el);
     if (iframe.contentWindow === source && iframe.dataset.panelId) return iframe.dataset.panelId;
   }
