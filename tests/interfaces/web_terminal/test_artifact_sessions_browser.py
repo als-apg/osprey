@@ -156,17 +156,26 @@ def _open_session(page: Page, sid: str) -> None:
     if "active" not in (row.get_attribute("class") or "").split():
         row.locator(".osprey-tree-title").click()
         expect(row).to_have_class(_re(r"\bactive\b"), timeout=_TIMEOUT_MS)
-    if row.get_attribute("aria-expanded") != "true":
-        row.locator("[data-tree-disc]").click()
-    expect(row).to_have_attribute("aria-expanded", "true")
+    _click_until_open(row, row.locator("[data-tree-disc]"))
 
 
 def _open_group(page: Page, sid: str, form: str) -> None:
     head = page.locator(f'{_TREE} [data-group-head="{sid}:{form}"]')
     expect(head).to_be_visible(timeout=_TIMEOUT_MS)
-    if head.get_attribute("aria-expanded") != "true":
-        head.click()
-    expect(head).to_have_attribute("aria-expanded", "true")
+    _click_until_open(head, head)
+
+
+def _click_until_open(node, toggle) -> None:
+    """Open *node* by clicking *toggle* until it stays open. The page opens it too,
+    unawaited (the reveal of the session's last artifact on load and on entering), and a
+    click toggles: a click that lands just after that reveal closes it again."""
+    for _ in range(10):
+        if node.get_attribute("aria-expanded") != "true":
+            toggle.click()
+        with suppress(AssertionError):
+            expect(node).to_have_attribute("aria-expanded", "true", timeout=1000)
+            return
+    expect(node).to_have_attribute("aria-expanded", "true")
 
 
 def _group_count(page: Page, sid: str, form: str):
