@@ -1275,6 +1275,12 @@ jobs:
       timeout-minutes: 5
       run: uv run python scripts/cli_tool_inventory.py --check
 
+    # Seeded agent history is authored to the pinned build's transcript format;
+    # this step proves the build still resumes such a transcript as its own.
+    - name: Resume an authored transcript under the pinned CLI
+      timeout-minutes: 5
+      run: uv run python scripts/transcript_resume_probe.py
+
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # Identical pin to the two-shape-boot-e2e lane below, for the identical
       # reason: `podman compose` delegates to whichever provider it finds, and

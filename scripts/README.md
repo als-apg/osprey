@@ -13,6 +13,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching a gated directory; when cutting a release |
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching the plugin tree |
 | `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
+| `transcript_resume_probe.py` | Prove the pinned build resumes a transcript OSPREY authored | ~5 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` or changing `transcript_author.py` |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
 | `facility_demo/facility_overview.py` | Generate the control-assistant facility overview, booster and storage-ring sector screens from the example records | < 1 s | After changing the example facility's records or the generated screens' layout |
 | `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
@@ -233,6 +234,33 @@ name can reject a real tool, but a recorded name is never one the build lacks.
 ```bash
 uv run python scripts/cli_tool_inventory.py --write   # after bumping the pin
 uv run python scripts/cli_tool_inventory.py --check   # what the static-checks CI job runs
+```
+
+---
+
+### transcript_resume_probe.py
+
+**Purpose**: Prove, without a model, that the pinned Claude Code build reads a
+transcript written by `osprey.agent_runner.transcript_author` (the seeded
+`demo-history` conversations) as one it recorded.
+
+**What it does**: Authors the `demo-history` session `sector-3-corrector-nudge`
+into a fresh config directory, points `ANTHROPIC_BASE_URL` at a localhost stub
+that records the first `/v1/messages` request and answers `500`, and runs the
+build with `-p --resume`. It passes when that request holds the authored
+prompts plus the new one, in order and count, and every authored `tool_use` id
+with exactly one `tool_result`. It fails when no request arrives, the build
+finds no conversation, or the body is not JSON. `--cli PATH` probes a given
+binary instead of npm-installing the pin.
+
+**CLI bump**: a PR that bumps `_DEFAULT_CLAUDE_CLI_VERSION` needs the
+`full-ci` label, so the live resume test (`tests/e2e/test_demo_history_resume.py`)
+runs on it too.
+
+**Usage**:
+```bash
+uv run python scripts/transcript_resume_probe.py              # what the static-checks CI job runs
+uv run python scripts/transcript_resume_probe.py --cli "$(uv run python scripts/pinned_claude.py)/claude"
 ```
 
 ---
