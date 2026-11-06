@@ -52,6 +52,7 @@ import {
 } from './sidebar-artifacts.js';
 import { whilePanelServed } from './panel-availability.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
+import { queryAllDocuments } from './attached-window.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   initTheme({ role: 'hub' });
@@ -661,7 +662,7 @@ export function moveFocusOutOfPanel(source, direction) {
  */
 function panelIdForMessageSource(source) {
   if (!source) return null;
-  for (const el of document.querySelectorAll('iframe.panel-iframe')) {
+  for (const el of queryAllDocuments('iframe.panel-iframe')) {
     const iframe = /** @type {HTMLIFrameElement} */ (el);
     if (iframe.contentWindow === source && iframe.dataset.panelId) return iframe.dataset.panelId;
   }

@@ -85,6 +85,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   closeTerminalPanel,
   isTerminalPanelOpen,
   resetDockLayout,
+  agentPaneContent: () => null,
   // Pulled in by dock-iframe.js on the transitive import chain; a mock must
   // supply them or they resolve to undefined.
   // Captured, so a test can replay "a layout was applied" the way
@@ -2963,7 +2964,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(menuLabels()).toEqual([
       'Focus Logbook',
       'Open in a new tile',
-      'Pop out',
+      'Open in new window',
       'Move to Workspace',
       'Move to System',
       'Move to new group…',
@@ -3001,7 +3002,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(contextMenu()).toBeNull();
   });
 
-  test('"Pop out" opens the panel’s pop-out page in a named popup and retires the tile', async () => {
+  test('"Open in new window" opens the panel’s pop-out page in a named popup and retires the tile', async () => {
     const { api, mod, calls } = await bootWorkspace();
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
@@ -3011,7 +3012,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
 
     // The standalone page, stamped like an embed but with `popout` — never
     // `embedded`, never a token — under the protocol's window name, as a
@@ -3046,7 +3047,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
     const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
     calls.length = 0;
 
     // The rail click, the palette's Focus and the agent's open all land on the
@@ -3069,7 +3070,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
     const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
     const okfGroup = api.getPanel('iframe:okf').group.id;
 
     rightClick(entry('ariel'));
@@ -3196,7 +3197,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
     const iframe = /** @type {HTMLElement} */ (
       document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
     );
@@ -3291,7 +3292,12 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
     // The pane verbs live on the Agent tile header.
     expect(await agentTileMenu()).toBe(true);
-    expect(menuLabels()).toEqual(['Restart terminal', 'Reset layout', 'Close Agent pane']);
+    expect(menuLabels()).toEqual([
+      'Pop out',
+      'Restart terminal',
+      'Reset layout',
+      'Close Agent pane',
+    ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Agent actions');
 
     /** @type {HTMLElement} */ (menuRow('Restart terminal')).click();
@@ -3317,13 +3323,18 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('in chat the Agent tile menu keeps only the layout rows', async () => {
+  test('in chat the Agent tile menu offers Pop out, Export and the layout rows', async () => {
     await bootWorkspace();
 
     // The tile hosts the operator console there, so the PTY verb would
     // act on a surface the operator cannot see and is withheld.
     expect(await agentTileMenu()).toBe(true);
-    expect(menuLabels()).toEqual(['Reset layout', 'Close Agent pane']);
+    expect(menuLabels()).toEqual([
+      'Pop out',
+      'Export conversation',
+      'Reset layout',
+      'Close Agent pane',
+    ]);
     /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
     await agentTileMenu();
