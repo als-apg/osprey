@@ -107,3 +107,9 @@ def test_the_manifest_carries_the_tier_and_description():
     harness = _item(E2E_ROOT / "test_y.py", harness_benchmark=pytest.mark.harness_benchmark.mark)
     assert agentic_tiers.manifest_entry(harness) == {"lane": "harness"}
     assert agentic_tiers.manifest_entry(_item(E2E_ROOT / "test_z.py")) == {"lane": "unmarked"}
+
+
+def test_a_not_applicable_skip_reason_carries_the_label_the_board_shows():
+    reason = agentic_tiers.not_applicable("no vision", "provider p has no images")
+    assert reason == "n/a: no vision (provider p has no images)"
+    assert reason.startswith(agentic_tiers.NOT_APPLICABLE)

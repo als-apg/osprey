@@ -237,3 +237,41 @@ def test_rendered_artifact_names_the_judge_the_runs_recorded(tmp_path):
         timeout=120,
     )
     assert "graded by <code>claude-haiku-5-5</code>" in out.read_text()
+
+
+def test_a_vision_test_on_a_model_without_vision_reads_not_applicable(tmp_path):
+    """Owner ruling 2026-11-06: the vision task shows "n/a: no vision" in a
+    text-only model's cell, is not hidden, and does not cost that model its
+    all-green check."""
+    results = tmp_path / "results"
+    results.mkdir()
+    vision = "tests/e2e/test_ariel_picture_agentic.py::test_agent_reads_the_attached_plot"
+    (results / "t__seed1.lanes.json").write_text(
+        json.dumps({_CAP: _meta(1, "Read one channel"), vision: _meta(1, "Read a logbook plot")})
+    )
+    tests = [
+        {"name": _CAP, "outcome": "passed", "duration_s": 10.0},
+        {
+            "name": vision,
+            "outcome": "skipped",
+            "duration_s": 0.1,
+            "reason": "n/a: no vision (provider cborg does not carry images on its route)",
+        },
+    ]
+    (results / "t__seed1.json").write_text(json.dumps(_summary("t", 1, tests)))
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [sys.executable, str(_BENCH / "matrix_dashboard.py"), "--results-dir", str(results)]
+        + ["--out", str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    page = out.read_text()
+    row = page[page.index("<summary>Read a logbook plot</summary>") :]
+    assert "<td class=muted>n/a: no vision</td>" in row[: row.index("</tr>")]
+    # the one Tier 1 test that applies passed, so the model is all green
+    assert "<span class=ok>✓</span>" in page
+    assert dash.not_applicable_label(tests[1]) == "n/a: no vision"
+    assert dash.not_applicable_label({**tests[1], "reason": "ARIEL DB not up"}) is None
+    assert dash.not_applicable_label(tests[0]) is None

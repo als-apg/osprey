@@ -222,6 +222,10 @@ try:
             summary[KEY[outcome]] += 1
             summary["total"] += 1
             entry = {"name": name, "outcome": outcome, "duration_s": dur}
+            # A skip's reason; "n/a: <label> (...)" marks a test that does not
+            # apply to this model (tests/e2e/agentic_tiers.py), shown as such.
+            if outcome == "skipped":
+                entry["reason"] = tc.find("skipped").get("message", "")
             # The tier the test's agentic marker carried when it ran
             # (tests/e2e/conftest.py writes it into the report).
             tier = tc.find("properties/property[@name='agentic_tier']")

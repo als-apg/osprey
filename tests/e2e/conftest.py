@@ -70,18 +70,19 @@ def pytest_runtest_logreport(report):
                 if "timeout" in text
                 else ("error" if report.when == "setup" else "failed")
             )
+        record = {
+            "name": report.nodeid,
+            "outcome": outcome,
+            "duration_s": round(getattr(report, "duration", 0.0), 2),
+        }
+        longrepr = getattr(report, "longrepr", None)
+        if outcome == "skipped" and isinstance(longrepr, tuple) and len(longrepr) == 3:
+            # The skip's reason, as the JUnit summary carries it: the board
+            # shows an "n/a: ..." reason in the model's cell.
+            record["reason"] = str(longrepr[2]).removeprefix("Skipped: ")
         try:
             with open(live, "a") as f:
-                f.write(
-                    json.dumps(
-                        {
-                            "name": report.nodeid,
-                            "outcome": outcome,
-                            "duration_s": round(getattr(report, "duration", 0.0), 2),
-                        }
-                    )
-                    + "\n"
-                )
+                f.write(json.dumps(record) + "\n")
         except Exception:
             pass
 

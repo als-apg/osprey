@@ -68,6 +68,9 @@ REFERENCE_MODELS = {
     "claude-opus-4-6",
 }
 SEEDS = [1, 2, 3]
+# The skip-reason prefix of a test that does not apply to the model under test
+# (tests/e2e/agentic_tiers.py NOT_APPLICABLE).
+NOT_APPLICABLE = "n/a: "
 OUTCOME_COLORS = {
     "passed": "#1a7f37",
     "failed": "#cf222e",
@@ -360,6 +363,16 @@ def fmt_tokens(n: float | None) -> str:
     return f"{n / 1000:.1f}k" if n >= 1000 else f"{n:.0f}"
 
 
+def not_applicable_label(test: dict) -> str | None:
+    """``n/a: <label>`` for a result skipped because the test does not apply to
+    the model (a skip reason ``n/a: <label> (<detail>)``, tests/e2e/agentic_tiers.py),
+    else None."""
+    reason = test.get("reason") or ""
+    if test.get("outcome") != "skipped" or not reason.startswith(NOT_APPLICABLE):
+        return None
+    return reason.split(" (", 1)[0]
+
+
 def tier_of(test: dict, tiers: dict[tuple, dict]) -> int | None:
     """The tier a result belongs to: the manifest's, else the one the worker
     recorded with the result, else None (no tier: harness, or renamed since)."""
@@ -625,11 +638,16 @@ def main() -> int:
     # union of all test names, grouped by file; (file,test) -> model -> {seed: outcome}
     all_tests: dict[str, set] = defaultdict(set)
     test_results: dict[tuple, dict] = defaultdict(lambda: defaultdict(dict))
+    # (file,test) -> model -> label, for a test that does not apply to the model
+    not_applicable: dict[tuple, dict] = defaultdict(dict)
     for (m, s), d in runs.items():
         for t in d.get("tests", []):
             file, short = canon_name(t["name"])
             all_tests[file].add(short)
             test_results[(file, short)][m][s] = t["outcome"]
+            label_na = not_applicable_label(t)
+            if label_na:
+                not_applicable[(file, short)][m] = label_na
 
     done = sum(1 for d in runs.values() if not d.get("_partial"))
     live_n = sum(1 for d in runs.values() if d.get("_partial") and not d.get("_stalled"))
@@ -868,6 +886,13 @@ def main() -> int:
             H.append(f"<tr><td class=l>{row_label(file, short)}</td>")
             for m in models:
                 seeds_map = test_results[(file, short)].get(m, {})
+                if m in not_applicable[(file, short)]:
+                    # Not applicable to this model: said so, never hidden, and
+                    # (as a skip) counted against neither passes nor all-green.
+                    H.append(
+                        f"<td class=muted>{html.escape(not_applicable[(file, short)][m])}</td>"
+                    )
+                    continue
                 dots = []
                 for s in seeds_for(m, runs):  # ref models render a single square, not 3
                     o = seeds_map.get(s)

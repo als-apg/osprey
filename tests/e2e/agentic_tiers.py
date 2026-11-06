@@ -45,6 +45,17 @@ HARNESS_MARKER = "harness_benchmark"
 #: The directory whose tests must all be tier 2.
 TIER2_DIR = "tier2"
 
+#: How a skip reason says the test does not apply to the model under test. The
+#: board shows ``n/a: <label>`` in the model's cell and counts the result
+#: against neither its passes nor its all-green check.
+NOT_APPLICABLE = "n/a: "
+
+
+def not_applicable(label: str, detail: str) -> str:
+    """The skip reason for a test that does not apply to this model, such as a
+    vision task on a model without vision."""
+    return f"{NOT_APPLICABLE}{label} ({detail})"
+
 
 def marker_problem(marker: pytest.Mark) -> str | None:
     """What is wrong with one ``agentic`` marker, or None when it is complete."""
