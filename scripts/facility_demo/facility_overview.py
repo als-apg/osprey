@@ -226,13 +226,20 @@ class Records:
         return options.index(option)
 
 
+def _safe_load(text: str) -> Any:
+    """``yaml.safe_load`` of *text*, on libyaml's scanner when it is installed.
+
+    ``yaml.safe_load`` never reaches libyaml; the two loaders share the
+    constructor and resolver, so the records parse to the same objects.
+    """
+    return yaml.load(text, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+
+
 def load_records(path: Path) -> Records:
     """The channel records at ``path`` and the device records beside them."""
-    rows = yaml.safe_load(path.read_text(encoding="utf-8"))
+    rows = _safe_load(path.read_text(encoding="utf-8"))
     devices_path = path.with_name(DEVICES_FILE)
-    devices = (
-        yaml.safe_load(devices_path.read_text(encoding="utf-8")) if devices_path.is_file() else []
-    )
+    devices = _safe_load(devices_path.read_text(encoding="utf-8")) if devices_path.is_file() else []
     return Records({row["id"]: row for row in rows}, {row["id"]: row for row in devices})
 
 
