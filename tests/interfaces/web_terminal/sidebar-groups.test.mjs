@@ -75,7 +75,7 @@ afterEach(() => {
 describe('the default model', () => {
   test('three built-in groups, and nothing placed', () => {
     expect(defaultModel()).toEqual({
-      version: 1,
+      version: 2,
       groups: [
         { id: 'workspace', label: 'Workspace' },
         { id: 'tools', label: 'Tools' },
@@ -123,6 +123,20 @@ describe('the default model', () => {
     expect(isBuiltinGroup('tools')).toBe(true);
     expect(isBuiltinGroup('system')).toBe(true);
     expect(isBuiltinGroup(addGroup('Mine'))).toBe(false);
+  });
+});
+
+describe('a value written under the current version', () => {
+  test.each([
+    ['events', 'workspace'],
+    ['system-health', 'tools'],
+  ])('%s moved to %s survives a reload', (panel, group) => {
+    expect(moveToGroup(panel, group)).toBe(true);
+    expect(stored().version).toBe(2);
+    expect(groupOf(panel)).toBe(group);
+    // A reload reads the stored text again, with nothing held in memory.
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(stored(), null, 1));
+    expect(groupOf(panel)).toBe(group);
   });
 });
 
@@ -318,7 +332,7 @@ describe('persistence', () => {
     moveToGroup('ariel', id);
 
     expect(stored()).toEqual({
-      version: 1,
+      version: 2,
       groups: [
         { id: 'workspace', label: 'Workspace' },
         { id, label: 'Beamline' },

@@ -12,7 +12,7 @@
  * browser, per user, and never on the server. One JSON value is stored under
  * `scopedStorageKey('osprey-sidebar-groups')`:
  *
- *   { version: 1,
+ *   { version: 2,
  *     groups: [{ id, label }, …],         in sidebar order; an id is
  *                                         `workspace`, `tools`, `system` or `g-<8 hex>`
  *     placement: { <panel id>: <group id> } }
@@ -57,7 +57,7 @@ import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 
 /**
  * @typedef {object} GroupsModel
- * @property {1} version
+ * @property {2} version
  * @property {SidebarGroup[]} groups - in sidebar order
  * @property {Record<string, string>} placement - panel id → group id
  */
@@ -68,7 +68,12 @@ export const GROUPS_STORAGE_KEY = 'osprey-sidebar-groups';
 /** The name a group made from a menu has until the operator renames it. */
 export const NEW_GROUP_LABEL = 'New group';
 
-const MODEL_VERSION = 1;
+const MODEL_VERSION = 2;
+
+/** The version written before the current defaults (System holding Events and
+ *  Health, defaults not stored). Its values are migrated once, on read; the
+ *  next change writes the current version, and from then on moves stick. */
+const OLD_VERSION = 1;
 
 /** The longest group name, in characters. */
 const MAX_LABEL_LENGTH = 40;
@@ -163,7 +168,7 @@ export function defaultModel(panelIds = []) {
 }
 
 /**
- * `value` as a model, or null when it is not one. A model is version 1; its
+ * `value` as a model, or null when it is not one. A model is the current version, or the old one (migrated); its
  * groups have unique, well-formed ids, clean names, and the built-ins (System is added when missing)
  * among them; every placement names one of those groups.
  * @param {unknown} value
@@ -172,7 +177,7 @@ export function defaultModel(panelIds = []) {
 function validModel(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const { version, groups, placement } = /** @type {Record<string, unknown>} */ (value);
-  if (version !== MODEL_VERSION || !Array.isArray(groups)) return null;
+  if ((version !== MODEL_VERSION && version !== OLD_VERSION) || !Array.isArray(groups)) return null;
   /** @type {Set<string>} */
   const ids = new Set();
   /** @type {SidebarGroup[]} */
@@ -199,7 +204,8 @@ function validModel(value) {
   // A System group that holds nothing was never used: the layout predates the
   // current defaults, whether System was just added or saved empty by an
   // intermediate build.
-  const migrate = predatesBuiltins || !Object.values(placement).includes('system');
+  const migrate =
+    version === OLD_VERSION && (predatesBuiltins || !Object.values(placement).includes('system'));
   for (const [panelId, groupId] of Object.entries(placement)) {
     if (typeof groupId !== 'string' || !ids.has(groupId)) return null;
     const wasDefault = Object.hasOwn(PRE_SYSTEM_DEFAULT, panelId)

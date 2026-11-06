@@ -37,10 +37,10 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 _KEY = "osprey-sidebar-groups"
 
 
-def _stored(placement: dict[str, str]) -> dict:
+def _stored(placement: dict[str, str], version: int = 1) -> dict:
     """A layout as the build before System stored it: two groups, no System."""
     return {
-        "version": 1,
+        "version": version,
         "groups": [
             {"id": "workspace", "label": "Workspace"},
             {"id": "tools", "label": "Tools"},
@@ -90,6 +90,14 @@ def test_empty_system_group_still_shows_events(tmp_path, chromium_browser):
     stored["groups"].append({"id": "system", "label": "System"})
     group, _ = _group_of_events(chromium_browser, tmp_path, stored)
     assert group == "system"
+
+
+def test_current_version_events_in_workspace_sticks(tmp_path, chromium_browser):
+    """On the current version, Events moved to Workspace is the operator's choice."""
+    stored = _stored({"events": "workspace"}, version=2)
+    stored["groups"].append({"id": "system", "label": "System"})
+    group, _ = _group_of_events(chromium_browser, tmp_path, stored)
+    assert group == "workspace"
 
 
 def test_deliberately_moved_events_stays_put(tmp_path, chromium_browser):
