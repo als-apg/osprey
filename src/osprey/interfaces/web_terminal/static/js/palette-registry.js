@@ -10,13 +10,19 @@
  * `deps`, so this module imports nothing, touches no DOM, and is unit-testable
  * in isolation. The caller (palette.js) rebuilds the registry each time the
  * palette opens, then fuzzy-filters the returned items by their `searchText`.
+ *
+ * It also builds the Sessions and Artifacts async providers (the palette's
+ * groups that answer from the session model and the artifacts panel), with
+ * the same rule: every reader and verb is injected.
  */
 
 /**
  * A navigable palette item, or a non-navigable Settings status decoration.
  *
  * Navigable items carry `run` (invoked on selection) and `searchText` (scored
- * by the fuzzy matcher). Settings status rows are static decorations with
+ * by the fuzzy matcher). Panel rows also carry `names`: the whole words that
+ * name their panel (label, id, domain synonyms), lower-cased, so a query that
+ * IS one of them can put the Panels group first (palette.js). Settings status rows are static decorations with
  * neither — the UI renders them and excludes them from keyboard navigation.
  *
  * @typedef {(
@@ -25,6 +31,7 @@
  *     label: string,
  *     detail?: string,
  *     searchText: string,
+ *     names?: string[],
  *     run: () => void,
  *   }
  *   |
@@ -83,7 +90,7 @@
 
 /**
  * Domain vocabulary for the built-in panels — the words an operator reaches
- * for when they do not have the catalog label in mind ("logbook" for ARIEL,
+ * for when they do not have the catalog label in mind ("elog" for the Logbook,
  * "pv" for Channel Finder). Folded into the searchText of EVERY row for that
  * panel, so any of its verbs is reachable by the domain word. Keyed by catalog
  * panel id; ids absent here (custom facility panels) contribute no aliases.
@@ -93,7 +100,6 @@ const PANEL_SYNONYMS = {
   ariel: 'logbook elog',
   'channel-finder': 'pv channels',
   artifacts: 'gallery files',
-  lattice: 'optics',
   okf: 'knowledge docs',
   'system-health': 'status monitoring',
   canopy: 'screens gui operator',
@@ -120,6 +126,18 @@ function panelSearchText(verb, panel, verbAliases) {
   return [verb, panel.label, panel.id, verbAliases, PANEL_SYNONYMS[panel.id]]
     .filter(Boolean)
     .join(' ');
+}
+
+/**
+ * The whole words that name a panel: its label, its id and its domain
+ * synonyms, lower-cased. A query equal to one of them names the panel.
+ *
+ * @param {{ id: string, label: string }} panel
+ * @returns {string[]}
+ */
+function panelNames(panel) {
+  const synonyms = (PANEL_SYNONYMS[panel.id] ?? '').split(' ');
+  return [panel.label, panel.id, ...synonyms].filter(Boolean).map((name) => name.toLowerCase());
 }
 
 /**
@@ -277,6 +295,7 @@ function buildPanels(deps) {
       group: 'Panels',
       label: `Show ${panel.label}`,
       searchText: panelSearchText('show', panel),
+      names: panelNames(panel),
       run: () => {
         if (typeof showPanel === 'function') {
           showPanel(id);
@@ -291,6 +310,7 @@ function buildPanels(deps) {
       group: 'Panels',
       label: `Focus ${panel.label}`,
       searchText: panelSearchText('focus', panel),
+      names: panelNames(panel),
       run: () => {
         if (typeof focusPanel === 'function') {
           focusPanel(id);
@@ -305,6 +325,7 @@ function buildPanels(deps) {
       group: 'Panels',
       label: `Pop out ${panel.label}`,
       searchText: panelSearchText('pop out', panel, POPOUT_ALIASES),
+      names: panelNames(panel),
       run: () => {
         if (typeof popoutPanel === 'function') {
           popoutPanel(id);
@@ -320,6 +341,7 @@ function buildPanels(deps) {
         group: 'Panels',
         label: `Open ${panel.label} in a new tile`,
         searchText: panelSearchText('open', panel, BESIDE_ALIASES),
+        names: panelNames(panel),
         run: () => {
           openPanelBeside(id);
         },
@@ -409,4 +431,261 @@ export function buildRegistry(deps) {
     ...buildLayouts(d),
     ...buildActions(d),
   ];
+}
+
+// ---- Async providers: Sessions and Artifacts ----
+
+/**
+ * One row an async provider answers: rendered in the provider's order, with
+ * neither fuzzy ranking nor highlight.
+ * @typedef {{ label: string, detail?: string, run: () => void }} ProviderHit
+ */
+
+/**
+ * An async palette group. `start(onChange)` runs once per open; `search(q)`
+ * answers the rows for a non-empty query, or null while they are loading,
+ * and calls the open's `onChange` when a pending answer lands.
+ * @typedef {{
+ *   group: string,
+ *   search: (q: string) => ProviderHit[] | null,
+ *   start: (onChange: () => void) => void,
+ * }} AsyncProvider
+ */
+
+/**
+ * A session row as the session model lists it (the fields the palette reads).
+ * @typedef {{
+ *   transcript_id: string | null,
+ *   session_key: string | null,
+ *   title?: string,
+ *   current_for_key?: boolean,
+ *   synthesized?: boolean,
+ * }} PaletteSessionRow
+ */
+
+/**
+ * An artifact as the artifacts panel lists it (the fields the palette reads).
+ * @typedef {{
+ *   id: string,
+ *   title?: string,
+ *   filename?: string,
+ *   artifact_type?: string,
+ *   form?: string | null,
+ *   form_label?: string | null,
+ *   owner?: string | null,
+ *   exec_id?: string | null,
+ *   run_part?: string | null,
+ * }} PaletteArtifact
+ */
+
+/** Most rows the Sessions group shows. */
+export const SESSION_HIT_CAP = 8;
+
+/** Most rows the Artifacts group shows. */
+export const ARTIFACT_HIT_CAP = 8;
+
+/** Most title-matched sessions one batched `session-list` asks for. */
+export const SESSION_BATCH_CAP = 5;
+
+/** Quiet time after the last keystroke before the Artifacts read fires. */
+export const ARTIFACT_SEARCH_DEBOUNCE_MS = 200;
+
+/** The title a session row shows. */
+const sessionTitle = (/** @type {PaletteSessionRow} */ row) => row.title || 'Untitled session';
+
+/**
+ * The session rows whose title contains `q` (case-insensitive), in the
+ * model's order (newest first).
+ * @param {PaletteSessionRow[]} rows
+ * @param {string} q
+ * @returns {PaletteSessionRow[]}
+ */
+function sessionsTitled(rows, q) {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return [];
+  return rows.filter((row) => sessionTitle(row).toLowerCase().includes(needle));
+}
+
+/**
+ * The "Sessions" group: the operator's loaded sessions matched by title on
+ * the client. Picking one enters it through the guarded `switchTo`.
+ * @param {{
+ *   rows: () => PaletteSessionRow[],
+ *   switchTo: (row: PaletteSessionRow, options: { reason: string }) => unknown,
+ * }} deps
+ * @returns {AsyncProvider}
+ */
+export function createSessionsProvider(deps) {
+  return {
+    group: 'Sessions',
+    start: () => {},
+    search(q) {
+      return sessionsTitled(safeRows(deps.rows), q)
+        .slice(0, SESSION_HIT_CAP)
+        .map((row) => ({
+          label: sessionTitle(row),
+          run: () => void deps.switchTo(row, { reason: 'gesture' }),
+        }));
+    },
+  };
+}
+
+/** @param {() => PaletteSessionRow[]} rows */
+function safeRows(rows) {
+  try {
+    const list = rows();
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Collapse a run to one hit: a run's part (its preview, code or result,
+ * anything but a listed output) gives way to its head, and a part whose head
+ * did not match stands in for the run once. First seen order is kept; a head
+ * arriving after its part takes the part's place.
+ * @param {PaletteArtifact[]} entries
+ * @returns {PaletteArtifact[]}
+ */
+export function collapseRuns(entries) {
+  /** @type {PaletteArtifact[]} */
+  const out = [];
+  /** @type {Map<string, number>} */
+  const runAt = new Map();
+  const seen = new Set();
+  for (const entry of entries) {
+    if (!entry || typeof entry.id !== 'string' || seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    const isHead = entry.form === 'runs';
+    const isPart = !isHead && !!entry.exec_id && !!entry.run_part && entry.run_part !== 'output';
+    if (!isHead && !isPart) {
+      out.push(entry);
+      continue;
+    }
+    const key = /** @type {string} */ (entry.exec_id || entry.id);
+    const at = runAt.get(key);
+    if (at === undefined) {
+      runAt.set(key, out.length);
+      out.push(entry);
+    } else if (isHead && out[at].form !== 'runs') {
+      out[at] = entry;
+    }
+  }
+  return out;
+}
+
+/**
+ * The "Artifacts" group: the panel's search (title, file name, description,
+ * type and form label; a run once, at its head) plus the artifacts of the
+ * first ≤ {@link SESSION_BATCH_CAP} sessions whose title matches, newest
+ * first, in one batched `session-list`. The read is debounced and the newest
+ * query wins; until it lands the group shows "Loading…". A failed read
+ * contributes no rows.
+ *
+ * Opening a hit owned by a loaded session enters it (`switchTo` with the
+ * artifact as the pick); one with no session is shown and the session stays.
+ *
+ * @param {{
+ *   rows: () => PaletteSessionRow[],
+ *   searchArtifacts: (q: string) => Promise<PaletteArtifact[]>,
+ *   listSessions: (transcriptIds: string[]) => Promise<PaletteArtifact[]>,
+ *   sessionOfArtifact: (artifact: PaletteArtifact) => PaletteSessionRow | null,
+ *   switchTo: (
+ *     row: PaletteSessionRow,
+ *     options: { artifactId: string, reason: string },
+ *   ) => unknown,
+ *   showArtifact: (artifact: PaletteArtifact) => unknown,
+ *   debounceMs?: number,
+ * }} deps
+ * @returns {AsyncProvider}
+ */
+export function createArtifactsProvider(deps) {
+  const wait = deps.debounceMs ?? ARTIFACT_SEARCH_DEBOUNCE_MS;
+  /** @type {() => void} */
+  let onChange = () => {};
+  /** @type {{ q: string, hits: ProviderHit[] } | null} */
+  let answer = null;
+  /** @type {string | null} */
+  let pendingQ = null;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let timer = null;
+  let seq = 0;
+
+  /** @param {PaletteArtifact} artifact */
+  function open(artifact) {
+    const row = deps.sessionOfArtifact(artifact);
+    if (row) void deps.switchTo(row, { artifactId: artifact.id, reason: 'gesture' });
+    else void deps.showArtifact(artifact);
+  }
+
+  /**
+   * @param {PaletteArtifact} artifact
+   * @returns {ProviderHit}
+   */
+  function hitOf(artifact) {
+    const row = deps.sessionOfArtifact(artifact);
+    const kind = artifact.form_label || artifact.artifact_type || '';
+    const detail = [kind, row ? sessionTitle(row) : ''].filter(Boolean).join(' · ');
+    /** @type {ProviderHit} */
+    const hit = {
+      label: artifact.title || artifact.filename || artifact.id,
+      run: () => open(artifact),
+    };
+    if (detail) hit.detail = detail;
+    return hit;
+  }
+
+  /** @param {string} q */
+  async function read(q) {
+    const batch = sessionsTitled(safeRows(deps.rows), q)
+      .map((row) => row.transcript_id)
+      .filter((id) => typeof id === 'string' && id)
+      .slice(0, SESSION_BATCH_CAP);
+    const [found, owned] = await Promise.all([
+      deps.searchArtifacts(q).catch(() => []),
+      batch.length
+        ? deps.listSessions(/** @type {string[]} */ (batch)).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    const all = [...(Array.isArray(found) ? found : []), ...(Array.isArray(owned) ? owned : [])];
+    return collapseRuns(all).slice(0, ARTIFACT_HIT_CAP).map(hitOf);
+  }
+
+  /** @param {string} q */
+  function schedule(q) {
+    if (timer) clearTimeout(timer);
+    pendingQ = q;
+    const token = ++seq;
+    timer = setTimeout(() => {
+      timer = null;
+      read(q)
+        .catch(() => [])
+        .then((hits) => {
+          if (token !== seq) return;
+          pendingQ = null;
+          answer = { q, hits };
+          onChange();
+        });
+    }, wait);
+  }
+
+  return {
+    group: 'Artifacts',
+    start(change) {
+      onChange = change;
+      answer = null;
+      pendingQ = null;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      seq++;
+    },
+    search(q) {
+      const needle = q.trim();
+      if (!needle) return [];
+      if (answer && answer.q === needle) return answer.hits;
+      if (pendingQ !== needle) schedule(needle);
+      return null;
+    },
+  };
 }

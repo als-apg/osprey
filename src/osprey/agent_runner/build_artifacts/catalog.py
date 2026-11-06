@@ -241,7 +241,19 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_approval.py",
             output_path=".claude/hooks/osprey_approval.py",
             description="Human-approval gate hook",
-            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
+            requires=(
+                "hooks/hook-log",
+                "hooks/plan-mode",
+                "hooks/safety-file",
+                "hooks/target-state",
+            ),
+        ),
+        BuildArtifact(
+            canonical_name="hooks/plan-mode",
+            template_path="claude/hooks/osprey_plan_mode.py",
+            output_path=".claude/hooks/osprey_plan_mode.py",
+            description="Refuses the tools that act while the session is in plan mode",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/writes-check",

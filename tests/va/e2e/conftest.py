@@ -341,8 +341,8 @@ def _monitor_addresses(facility: Path) -> list[str]:
     """
     from importlib import metadata
 
+    from osprey.facility import TEXTURE
     from osprey.simulation.engines import ENTRY_POINT_GROUP
-    from osprey_connectors.simulation.view import TEXTURE
 
     models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
     monitors: set[str] = set()

@@ -1,14 +1,13 @@
 """Tests for artifact deletion — ``artifact_delete``, ``artifact_delete_all``, store.
 
-The artifact store partitions entries by ``ArtifactEntry.category``, and the
-read path honours it (``list_entries(category_filter=...)``). These tests pin
-the same partition onto the destructive path, so "clear the gallery" cannot
-silently unlink archiver datasets, run results and data files that the
-``artifact_list`` / ``artifact_read`` views present as a separate namespace.
+The agent-facing tools scope by form (``artifact_list``'s grouping), so "clear
+the plots" cannot silently unlink archiver datasets, run results and data
+files. The store keeps ``delete_category`` for entries saved before categories
+were retired, which still carry one.
 
 Covers:
   - ``artifact_delete`` removes one artifact's index entry and file
-  - ``delete_category`` deletes exactly one category, spares the rest
+  - ``delete_category`` deletes exactly one legacy category, spares the rest
   - ``delete_everything`` is the whole-store clear and fires delete listeners
   - ``artifact_delete_all`` requires an explicit ``scope`` (no default)
   - scoped tool calls report exactly what was destroyed
@@ -46,14 +45,22 @@ def delete_all_tool():
 
 
 def _dataset(store, tool="archiver_read", category="archiver_data"):
-    """Save a data-namespace artifact (what ``save_data`` produces)."""
-    return store.save_data(
+    """Save a data-namespace artifact (what ``save_data`` produces), carrying
+    the legacy ``category`` an entry saved before the retirement still has."""
+    entry = store.save_data(
         tool=tool,
         data={"series": {"SR:CURRENT": {"timestamps": [1], "values": [2.0]}}},
         title=f"{tool} dataset",
         summary={"points": 1},
-        category=category,
     )
+    if category:
+        entry = store.update_entry_metadata(entry.id, category=category)
+    return entry
+
+
+def _legacy(store, entry, category):
+    """Stamp *entry* with a pre-retirement ``category``."""
+    return store.update_entry_metadata(entry.id, category=category)
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +73,7 @@ class TestDeleteCategory:
 
     def test_spares_other_categories_on_disk_and_in_index(self, store, tmp_path):
         dataset = _dataset(store)
-        plot = store.save_object("<h1>plot</h1>", title="Plot", category="visualization")
+        plot = _legacy(store, store.save_object("<h1>plot</h1>", title="Plot"), "visualization")
 
         deleted = store.delete_category("visualization")
 
@@ -102,7 +109,7 @@ class TestDeleteEverything:
 
         entries = [
             _dataset(store),
-            store.save_object("<h1>plot</h1>", title="Plot", category="visualization"),
+            store.save_object("<h1>plot</h1>", title="Plot"),
             store.save_object("plain", title="No Category"),
         ]
 
@@ -145,24 +152,30 @@ class TestArtifactDeleteAllScope:
         assert "scope" in schema.get("required", []), schema
 
     @pytest.mark.asyncio
-    async def test_category_scope_spares_the_data_namespace(self, store, delete_all_tool):
+    async def test_form_scope_spares_the_data_namespace(self, store, delete_all_tool):
         dataset = _dataset(store)
-        run = _dataset(store, tool="get_run_data", category="code_output")
-        plot = store.save_object("<h1>plot</h1>", title="Plot", category="visualization")
+        doc = store.save_file(
+            file_content=b"# note",
+            filename="note.md",
+            artifact_type="markdown",
+            title="Note",
+            mime_type="text/markdown",
+            tool_source="create_document",
+        )
 
-        payload = json.loads(await delete_all_tool("visualization"))
+        payload = json.loads(await delete_all_tool("documents"))
 
         assert payload["status"] == "success"
-        assert payload["scope"] == "visualization"
+        assert payload["scope"] == "documents"
         assert payload["deleted_count"] == 1
-        assert payload["artifact_ids"] == [plot.id]
-        assert "visualization" in payload["message"]
-        assert {e.id for e in store.list_entries()} == {dataset.id, run.id}
+        assert payload["artifact_ids"] == [doc.id]
+        assert "documents" in payload["message"]
+        assert [e.id for e in store.list_entries()] == [dataset.id]
 
     @pytest.mark.asyncio
     async def test_everything_scope_reports_the_full_blast_radius(self, store, delete_all_tool):
         _dataset(store)
-        store.save_object("<h1>plot</h1>", title="Plot", category="visualization")
+        store.save_object("<h1>plot</h1>", title="Plot")
         store.save_object("plain", title="No Category")
 
         payload = json.loads(await delete_all_tool("everything"))
@@ -170,22 +183,19 @@ class TestArtifactDeleteAllScope:
         assert payload["status"] == "success"
         assert payload["scope"] == "everything"
         assert payload["deleted_count"] == 3
-        assert payload["deleted_by_category"] == {
-            "archiver_data": 1,
-            "visualization": 1,
-            "uncategorized": 1,
-        }
+        assert len(payload["artifact_ids"]) == 3
+        assert "deleted_by_category" not in payload
         assert store.list_entries() == []
 
     @pytest.mark.asyncio
-    async def test_uncategorised_scope_spares_categorised_entries(self, store, delete_all_tool):
+    @pytest.mark.parametrize("retired", ["uncategorized", "visualization", "archiver_data"])
+    async def test_a_category_is_not_a_scope(self, store, delete_all_tool, retired):
+        """Categories are retired: naming one deletes nothing."""
         dataset = _dataset(store)
-        bare = store.save_object("plain", title="No Category")
 
-        payload = json.loads(await delete_all_tool("uncategorized"))
+        with assert_raises_error(error_type="validation_error"):
+            await delete_all_tool(retired)
 
-        assert payload["deleted_count"] == 1
-        assert payload["artifact_ids"] == [bare.id]
         assert [e.id for e in store.list_entries()] == [dataset.id]
 
     @pytest.mark.asyncio

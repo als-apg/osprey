@@ -44,7 +44,8 @@ _HEALTH = "/panel/system-health/"
 _BOTH = frozenset({"artifacts", "system-health"})
 
 _TITLE = "Orbit report"
-_ROW = f"#sidebar-artifacts-list .osprey-list-row:has-text('{_TITLE}')"
+_TREE = "#sidebar-session-tree"
+_ROW = f"{_TREE} .osprey-list-row:has-text('{_TITLE}')"
 _DOT = "#sidebar-target-health"
 
 #: Keeps the page's EventSources reachable, so a test can drop one the way a
@@ -91,21 +92,21 @@ def _companion() -> FastAPI:
     async def checks():
         return {"results": [{"status": "ok"}], "interval_s": 5}
 
-    @app.get("/api/artifacts")
-    async def artifacts(run: bool = False):
+    @app.post("/api/artifacts/session-list")
+    async def session_list(request: Request):
+        scope = await request.json()
         entry = {
             "id": "a1",
             "artifact_type": "markdown",
+            "form": "documents",
             "timestamp": "2026-10-30T11:00:00Z",
             "title": _TITLE,
             "filename": "a1.md",
-            "run_record": False,
+            "owner": None,
         }
-        return (
-            {"artifacts": [], "total": 0, "next_cursor": None}
-            if run
-            else {"artifacts": [entry], "total": 1, "next_cursor": None}
-        )
+        # The active session's listing holds it; Earlier holds nothing.
+        listed = [] if scope.get("earlier") else [entry]
+        return {"artifacts": listed, "total": len(listed), "next_cursor": None}
 
     @app.get("/api/focus")
     async def focus():
@@ -139,6 +140,12 @@ def _open(browser: Browser, base_url: str) -> tuple[Page, list[str]]:
     page.add_init_script(_RECORD_SOURCES)
     page.goto(base_url, wait_until="load")
     return page, asked
+
+
+def _group_by_activity(page: Page) -> None:
+    """Switch the session tree to Activity, so the active session lists its artifacts flat."""
+    page.locator(f"{_TREE} .osprey-tree-session.active").click(button="right")
+    page.get_by_role("menuitemcheckbox", name="Group by Activity").click()
 
 
 def _reopen_stream(page: Page) -> None:
@@ -179,13 +186,14 @@ def test_a_served_panel_works_as_ever(tmp_path, chromium_browser):
         ) as (base_url, _app),
     ):
         page, asked = _open(chromium_browser, base_url)
+        _group_by_activity(page)
 
         expect(page.locator(_ROW)).to_be_visible(timeout=10_000)
         expect(page.locator(_DOT)).to_have_attribute(
             "aria-label", "Service health: ok", timeout=10_000
         )
         routes = _sidebar_routes(asked)
-        for route in ("/api/artifacts", "/api/focus", "/api/events", "/checks"):
+        for route in ("/api/artifacts/session-list", "/api/focus", "/api/events", "/checks"):
             assert any(route in url for url in routes), f"never read {route}: {routes}"
         page.context.close()
 
@@ -197,6 +205,7 @@ def test_a_panel_appearing_and_leaving_is_followed_without_a_reload(tmp_path, ch
         live_chat_server(tmp_path, enabled_panels=_BOTH) as (base_url, app),
     ):
         page, asked = _open(chromium_browser, base_url)
+        _group_by_activity(page)
         page.wait_for_timeout(1_000)
         assert asked == [], f"the page asked a panel that is not served: {asked}"
         boot = page.evaluate("() => performance.timeOrigin")

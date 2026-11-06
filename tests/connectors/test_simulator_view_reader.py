@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility import TEXTURE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     PLANES,
     REFRESH,
     ROLES,
     SCENARIOS_DIR,
-    TEXTURE,
     VARIABLES_FILE,
     VIEW_RELPATH,
     Binding,

@@ -264,7 +264,7 @@ class ARIELContext:
             try:
                 await self._service.aclose()
             except Exception:
-                logger.debug("Error closing ARIEL service (ignored)", exc_info=True)
+                logger.debug("Error closing the ARIEL service (ignored)", exc_info=True)
             self._service = None
             logger.info("ARIELContext: shutdown complete")
 

@@ -60,7 +60,6 @@ from tests.interfaces._launchers import (
     launch_ariel,
     launch_artifacts,
     launch_channel_finder,
-    launch_lattice_dashboard,
     launch_okf_panel,
     launch_web_terminal,
 )
@@ -298,7 +297,9 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
         page.on("websocket", _on_websocket)
 
         page.goto(base_url, wait_until="load")
-        expect(page.locator('button[data-panel-id="artifacts"]')).to_be_visible(timeout=10_000)
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="terminal"]:not(.disabled)')
+        ).to_be_visible(timeout=10_000)
         # Confirm the socket is actually OPEN (not just created) by polling
         # the already-attached framesent listener for the resize handshake
         # frame terminal.js's onOpen sends first. A one-shot
@@ -399,14 +400,6 @@ _CHROME_CONTRACT_PANELS = [
         launch_channel_finder,
         "",
         ".app-logo",
-        "osprey-display-menu",
-        _toggle_via_display_menu,
-    ),
-    (
-        "lattice_dashboard",
-        launch_lattice_dashboard,
-        "",
-        ".topbar-logo",
         "osprey-display-menu",
         _toggle_via_display_menu,
     ),

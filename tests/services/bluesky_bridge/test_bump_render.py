@@ -28,7 +28,14 @@ from typing import Any
 
 import pytest
 
-from osprey.services.bluesky_bridge.figure import DEFAULT_MAX_POINTS, Figure, LinesMark, RowWindow
+from osprey.services.bluesky_bridge.figure import (
+    _MIXED_UNITS_NOTE,
+    DEFAULT_MAX_POINTS,
+    Figure,
+    LinesMark,
+    RowWindow,
+    bind_units,
+)
 from osprey.services.bluesky_bridge.plans_core import orbit_bump_sweep as bump
 
 # =========================================================================
@@ -149,12 +156,14 @@ def _render(
     *,
     complete: bool = True,
     total: int | None = None,
+    units: dict[str, str] | None = None,
 ) -> Figure:
-    """`bump.render` over a `RowWindow`, complete unless told otherwise.
+    """`bump.render` over a `RowWindow`, complete unless told otherwise, units bound.
 
-    The figure route hands every render a window rather than a bare row list;
-    these tests build the same shape, defaulting to "these rows are the whole
-    run" so each case stays about its own subject.
+    The figure route hands every render a window rather than a bare row list
+    and states the axes' units with `bind_units`; these tests build the same
+    shape, defaulting to "these rows are the whole run" so each case stays
+    about its own subject.
     """
     columns = sorted({name for row in rows for name in row})
     window = RowWindow(
@@ -162,8 +171,17 @@ def _render(
         columns=columns,
         rows_complete=complete,
         total_seen=len(rows) if total is None else total,
+        units=units or {},
     )
-    return bump.render(window, params)
+    return bind_units(bump.render(window, params), window)
+
+
+def _declared(params: bump.PARAMS) -> dict[str, str]:
+    """The units a run declares: BPMs, correctors and monitors each in their own."""
+    units = dict.fromkeys(_bpm_names(params), "unit-of-bpm")
+    units.update(dict.fromkeys(params.correctors, "unit-of-corrector"))
+    units.update(dict.fromkeys(params.monitors, "unit-of-monitor"))
+    return units
 
 
 def _panel(figure: Figure, title: str):
@@ -193,7 +211,10 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     legitimately not have.
     """
     params = _params(monitors=["det1"])
-    figure = _render(_rows(params), params)
+    units = _declared(params)
+    figure = _render(_rows(params), params, units=units)
+    bpm, corrector = units[_bpm_names(params)[0]], units[params.correctors[0]]
+    monitor = units[params.monitors[0]]
 
     assert [panel.title for panel in figure.panels] == [
         "Orbit shift across BPMs",
@@ -206,7 +227,7 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     assert (orbit.x_label, orbit.y_label, orbit.y_units) == (
         "BPM index",
         "Orbit shift",
-        "BPM units",
+        bpm,
     )
     assert orbit.series_picker is True
 
@@ -214,14 +235,14 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     assert (band.x_label, band.y_label, band.y_units) == (
         "Amplitude step",
         "Residual (reached minus requested)",
-        "BPM units",
+        bpm,
     )
 
     offsets = _panel(figure, "Corrector offsets")
     assert (offsets.x_label, offsets.y_label, offsets.y_units) == (
         "Amplitude step",
         "Offset from working point",
-        "corrector units",
+        corrector,
     )
     # Three or four correctors is the whole schema: nothing to pick between.
     assert offsets.series_picker is False
@@ -230,11 +251,34 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     assert (monitors.x_label, monitors.y_label, monitors.y_units) == (
         "Bump amplitude (fraction of requested)",
         "Monitor reading",
-        None,
+        monitor,
     )
 
     # Every panel is lines: there is no fit here to draw as a matrix.
     assert all(isinstance(panel.mark, LinesMark) for panel in figure.panels)
+
+
+_UNIT_PANELS = ("Orbit shift across BPMs", "Band residual at constrained BPMs", "Corrector offsets")
+
+
+def test_a_run_that_declared_no_units_states_none() -> None:
+    params = _params()
+    figure = _render(_rows(params), params)
+
+    assert [_panel(figure, title).y_units for title in _UNIT_PANELS] == [None, None, None]
+
+
+def test_bpms_declaring_two_units_leave_the_bpm_panels_without_one() -> None:
+    params = _params()
+    units = {**_declared(params), params.closure_readbacks[0]: "another-unit"}
+    figure = _render(_rows(params), params, units=units)
+
+    for title in ("Orbit shift across BPMs", "Band residual at constrained BPMs"):
+        assert _panel(figure, title).y_units is None
+        assert _panel(figure, title).annotations.count(_MIXED_UNITS_NOTE) == 1
+    offsets = _panel(figure, "Corrector offsets")
+    assert offsets.y_units == units[params.correctors[0]]
+    assert _MIXED_UNITS_NOTE not in offsets.annotations
 
 
 def test_orbit_shift_draws_one_line_per_step_across_the_requested_bpms() -> None:
@@ -449,6 +493,8 @@ def test_a_bpm_the_panel_capped_away_is_still_checked_for_misses() -> None:
     drawn = [series.label for series in _lines(figure, "Band residual at constrained BPMs").series]
     assert hidden not in drawn
     assert len(drawn) == bump._MAX_BAND_SERIES + 2  # the band lines are not series it capped
+    assert panel.y_columns is not None
+    assert panel.y_columns.names == drawn[: bump._MAX_BAND_SERIES]  # the axis names what it draws
     assert any("Showing the first 12 of 14 constrained BPMs" in note for note in panel.annotations)
     assert any(f"is outside the band at {hidden}:" in note for note in panel.annotations)
 
@@ -659,12 +705,17 @@ def test_a_missing_bpm_key_is_a_gap_that_keeps_the_axis_aligned() -> None:
 
 def test_a_hyphenated_event_key_resolves_to_its_device() -> None:
     """ophyd keys a multi-signal device as `f"{name}-{signal}"`; render resolves
-    exact-then-prefix, so both spellings draw the same figure."""
+    exact-then-prefix, so both spellings draw the same figure, each axis bound
+    to the column its rows actually hold."""
     params = _params()
     bare = _render(_rows(params), params)
     hyphenated = _render(_rows(params, key=lambda name: f"{name}-readback"), params)
 
-    assert bare == hyphenated
+    drawing = {"panels": {"__all__": {"x_columns", "y_columns"}}}
+    assert bare.model_dump(exclude=drawing) == hyphenated.model_dump(exclude=drawing)
+    for plain, keyed in zip(bare.panels, hyphenated.panels, strict=True):
+        assert plain.y_columns is not None and keyed.y_columns is not None
+        assert keyed.y_columns.names == [f"{name}-readback" for name in plain.y_columns.names]
 
 
 def test_a_panel_with_nothing_finite_is_dropped_not_drawn_empty() -> None:

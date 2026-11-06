@@ -18,6 +18,8 @@ import {
 import { wireAgentLinks } from './agent-links.js';
 import { wireArtifactLinks } from './artifact-links.js';
 import { fetchJSON, withPrefix } from './api.js';
+import { setPointer } from './session-pointer.js';
+import { subscribe as subscribeToSessions } from './session-model.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -25,7 +27,8 @@ import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSafetySwitches } from './safety-switches.js';
 import { initCodeReviewTab } from './code-review-tab.js';
-import { initSessionSelector, startNewSession } from './sessions.js';
+import { startNewSession } from './sessions.js';
+import { attachSessionSwitcher } from './session-switcher.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initMoreMenu } from './more-menu.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
@@ -41,12 +44,19 @@ import { initControlTargetPopover } from './control-target-popover.js';
 import { initFeedback } from './feedback-boot.js';
 import { initSidebar } from './sidebar.js';
 import { initSidebarTarget } from './sidebar-target.js';
-import { initSidebarArtifacts, teardownSidebarArtifacts } from './sidebar-artifacts.js';
+import {
+  initSidebarArtifacts,
+  revealOnLoad,
+  teardownSidebarArtifacts,
+} from './sidebar-artifacts.js';
 import { whilePanelServed } from './panel-availability.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initTheme({ role: 'hub' });
+  // The server's last-active key wins over this browser's, before either
+  // surface reads the pointer: both bind from it once, synchronously.
+  await resumeLastActive();
   // Guarded: xterm.js loads from a CDN by default (local only in
   // OSPREY_OFFLINE), so a network blip must degrade the terminal card, not
   // kill the whole boot.
@@ -92,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // arrive without a listener.
   initHeaderContrib();
   initPanelManager('right-panel');
-  initSessionSelector('session-selector');
+  attachSessionSwitcher(document.getElementById('terminal-label'));
   // Dock the terminal + workspace panels into the dockview shell (replaces the
   // old fixed resize-handle split). Guarded so a dock init failure can't break
   // the rest of boot — the source subtrees stay in the page if it no-ops.
@@ -101,10 +111,20 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init dock workspace:', err);
   }
-  // The sidebar's Artifacts and Script runs lists, while the panel behind them
-  // is served. Their rows are page-owned, so they exist already; the lists
-  // follow every later sidebar render through `osprey-sidebar-rendered`.
-  whilePanelServed('artifacts', initSidebarArtifacts, teardownSidebarArtifacts);
+  // The Agent row's session tree: session rows always; their groups and
+  // counts only while the artifacts panel is served (Decision 14). The tree
+  // follows every later sidebar render through `osprey-sidebar-rendered`.
+  // Page load's artifact waits for both the listing and the served panel.
+  const retryLoadReveal = initLoadReveal();
+  initSidebarArtifacts({ served: false });
+  whilePanelServed(
+    'artifacts',
+    () => {
+      initSidebarArtifacts();
+      retryLoadReveal();
+    },
+    teardownSidebarArtifacts
+  );
   initKeyboardShortcuts();
   initCommandPalette();
   try {
@@ -127,6 +147,67 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
 });
+
+/* ---- Page-load resume ---- */
+
+/** How long page load waits on the server's last-active key. */
+export const LAST_ACTIVE_TIMEOUT_MS = 1500;
+
+/**
+ * Point the tab at the operator's last-active session, as the server knows
+ * it, before either surface boots. One bounded GET: on no key, an error or a
+ * timeout the pointer this browser holds stays, and with neither the surfaces
+ * mint a key as they always have. It never throws.
+ *
+ * Exported for testability: the DOMContentLoaded bootstrap awaits it.
+ * @param {{timeoutMs?: number}} [options]
+ * @returns {Promise<void>}
+ */
+export async function resumeLastActive({ timeoutMs = LAST_ACTIVE_TIMEOUT_MS } = {}) {
+  const controller = new AbortController();
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  // The race bounds the wait even where an abort is not honoured.
+  const expired = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`no answer in ${timeoutMs} ms`));
+    }, timeoutMs);
+  });
+  try {
+    const body = await Promise.race([
+      fetchJSON('/api/sessions/last-active', { signal: controller.signal }),
+      expired,
+    ]);
+    const key = body?.session_key;
+    if (typeof key === 'string' && key) setPointer(key);
+  } catch (err) {
+    console.warn('[app] last-active session unavailable:', /** @type {Error} */ (err).message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Page load's artifact (OR-3): once the listing has the active row and the
+ * artifacts panel is served, the tree reveals the row's last-open artifact
+ * (sidebar-artifacts.js's `revealOnLoad`), never through the open rule. It
+ * runs once; a key change before then (a switch, a new session) cancels it.
+ *
+ * Exported for testability: the DOMContentLoaded bootstrap calls it.
+ * @returns {() => void} the retry, for when the artifacts panel is served
+ */
+export function initLoadReveal() {
+  let pending = true;
+  const attempt = () => {
+    if (pending && revealOnLoad()) pending = false;
+  };
+  subscribeToSessions(({ reason }) => {
+    if (reason === 'pointer' || reason === 'switched') pending = false;
+    if (reason === 'rows') attempt();
+  });
+  return attempt;
+}
 
 /* ---- Control-system block ---- */
 
@@ -411,6 +492,8 @@ export function initArtifactLinks() {
         return 'unreachable';
       }
       navigateAndActivatePanel(ARTIFACTS_PANEL_ID, '');
+      // The session does not change; the owner remembers it as last open.
+      document.dispatchEvent(new CustomEvent('osprey-artifact-opened', { detail: { id } }));
       return 'shown';
     },
   });

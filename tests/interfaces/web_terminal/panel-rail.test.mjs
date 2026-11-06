@@ -61,7 +61,7 @@ const STATIC_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web
 const indexHtml = readFileSync(join(STATIC_DIR, 'index.html'), 'utf8');
 
 const PANELS = [
-  { id: 'artifacts', label: 'Artifacts' },
+  { id: 'events', label: 'Events' },
   { id: 'ariel', label: 'Ariel' },
   { id: 'channel-finder', label: 'Channels' },
 ];
@@ -169,7 +169,7 @@ describe('createRail', () => {
 
   test('renders one row per panel, in order, with data-panel-id', () => {
     createRail(rail, PANELS);
-    expect(entryIds(rail)).toEqual(['artifacts', 'ariel', 'channel-finder']);
+    expect(entryIds(rail)).toEqual(['events', 'ariel', 'channel-finder']);
   });
 
   test('marks the container as a list of labelled groups, the built-in two by default', () => {
@@ -192,9 +192,9 @@ describe('createRail', () => {
     ]);
   });
 
-  test('Artifacts sits under Workspace and every other panel under Tools until moved', () => {
+  test('Events sits under Workspace and every other panel under Tools until moved', () => {
     createRail(rail, PANELS);
-    expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Workspace', 'artifacts']);
+    expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Workspace', 'events']);
     expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'channel-finder']);
   });
 
@@ -207,10 +207,10 @@ describe('createRail', () => {
 
   test('each row carries a glyph and a label', () => {
     createRail(rail, PANELS);
-    const first = row(rail, 'artifacts');
+    const first = row(rail, 'events');
     expect(first.classList.contains('osprey-nav-row')).toBe(true);
     expect(first.querySelector('svg.osprey-ic.osprey-nav-icon')).not.toBeNull();
-    expect(first.querySelector('.osprey-nav-label')?.textContent).toBe('Artifacts');
+    expect(first.querySelector('.osprey-nav-label')?.textContent).toBe('Events');
   });
 
   test('the glyph is the panel icon when named, else the workspace glyph', () => {
@@ -228,13 +228,13 @@ describe('createRail', () => {
 
   test('rows start disabled and not current', () => {
     createRail(rail, PANELS);
-    const first = row(rail, 'artifacts');
+    const first = row(rail, 'events');
     expect(first.classList.contains('disabled')).toBe(true);
     expect(first.classList.contains('active')).toBe(false);
     expect(first.hasAttribute('aria-current')).toBe(false);
-    expect(first.getAttribute('title')).toBe('Artifacts');
-    expect(first.getAttribute('aria-label')).toBe('Artifacts');
-    expect(first.dataset.tip).toBe('Artifacts');
+    expect(first.getAttribute('title')).toBe('Events');
+    expect(first.getAttribute('aria-label')).toBe('Events');
+    expect(first.dataset.tip).toBe('Events');
   });
 
   test('a hint is appended to the tooltip, never to the accessible name or the label tip', () => {
@@ -284,9 +284,10 @@ describe('createRail', () => {
 });
 
 /**
- * The shipped page carries the Agent row, the Artifacts row (wrapping its
- * lists), the Script runs row and `+ Add panel`. A render MOVES them into
- * place; it never rebuilds them, so what other modules hang on them survives.
+ * The shipped page carries the Agent row (wrapping its session tree) and
+ * `+ Add panel`. A render MOVES them into place; it never rebuilds them, so
+ * what other modules hang on them survives. The artifacts panel has no row:
+ * its artifacts are in the Agent row's tree.
  */
 describe('page-owned rows', () => {
   /** @type {HTMLElement} */
@@ -294,11 +295,7 @@ describe('page-owned rows', () => {
   /** @type {HTMLElement} */
   let agentRow;
   /** @type {HTMLElement} */
-  let artifactsRow;
-  /** @type {HTMLElement} */
-  let artifactsButton;
-  /** @type {HTMLElement} */
-  let runsRow;
+  let agentWrap;
   /** @type {HTMLElement} */
   let addButton;
 
@@ -313,19 +310,18 @@ describe('page-owned rows', () => {
   beforeEach(() => {
     rail = pageRail();
     agentRow = /** @type {HTMLElement} */ (document.getElementById('sidebar-agent-row'));
-    artifactsRow = /** @type {HTMLElement} */ (document.getElementById('sidebar-artifacts-row'));
-    artifactsButton = /** @type {HTMLElement} */ (
-      artifactsRow.querySelector('.panel-rail-button[data-panel-id="artifacts"]')
-    );
-    runsRow = /** @type {HTMLElement} */ (document.getElementById('sidebar-runs-row'));
+    agentWrap = /** @type {HTMLElement} */ (document.getElementById('sidebar-agent-wrap'));
     addButton = /** @type {HTMLElement} */ (document.getElementById('panel-add-btn'));
   });
 
-  test('the shipped skeleton holds every node the renderer adopts', () => {
-    for (const el of [agentRow, artifactsRow, artifactsButton, runsRow, addButton]) {
-      expect(el).not.toBeNull();
-    }
+  test('the shipped skeleton holds every node the renderer adopts, and no Artifacts or Script runs row', () => {
+    for (const el of [agentRow, agentWrap, addButton]) expect(el).not.toBeNull();
+    expect(agentRow.parentElement).toBe(agentWrap);
+    expect(agentWrap.querySelector('[data-session-tree]')).not.toBeNull();
     expect(agentRow.getAttribute('data-panel-id')).toBe('terminal');
+    expect(document.getElementById('sidebar-artifacts-row')).toBeNull();
+    expect(document.getElementById('sidebar-runs-row')).toBeNull();
+    expect(rail.querySelector('[data-art-filter], [data-art-menu]')).toBeNull();
     expect(groupOrder(rail)).toEqual(['workspace', 'tools']);
   });
 
@@ -343,14 +339,12 @@ describe('page-owned rows', () => {
     expect(workspace.getAttribute('aria-labelledby')).toBe('sidebar-workspace-label');
   });
 
-  test('the Agent row leads the first group, and each group keeps the rail order', () => {
+  test('the Agent row leads the first group, each group keeps the rail order, and artifacts gets no row', () => {
     createRail(rail, ALL);
     expect(childKeys(group(rail, 'workspace'))).toEqual([
       'label:Workspace',
-      'sidebar-agent-row',
+      'sidebar-agent-wrap',
       'events',
-      'sidebar-artifacts-row',
-      'sidebar-runs-row',
     ]);
     expect(childKeys(group(rail, 'tools'))).toEqual([
       'label:Tools',
@@ -358,32 +352,15 @@ describe('page-owned rows', () => {
       'lattice',
       'panel-add-btn',
     ]);
-    expect(entryIds(rail)).toEqual(['terminal', 'events', 'artifacts', 'ariel', 'lattice']);
+    expect(entryIds(rail)).toEqual(['terminal', 'events', 'ariel', 'lattice']);
+    expect(rail.querySelector('[data-panel-id="artifacts"]')).toBeNull();
   });
 
-  test('the Artifacts row moves to another group as the same node, Script runs with it', () => {
-    const kids = document.getElementById('sidebar-artifacts-kids');
-    createRail(rail, ALL);
-    setActive(rail, 'artifacts');
-
-    moveToGroup('artifacts', 'tools');
-
-    expect(childKeys(group(rail, 'workspace'))).toEqual([
-      'label:Workspace',
-      'sidebar-agent-row',
-      'events',
-    ]);
-    expect(childKeys(group(rail, 'tools'))).toEqual([
-      'label:Tools',
-      'ariel',
-      'lattice',
-      'sidebar-artifacts-row',
-      'sidebar-runs-row',
-      'panel-add-btn',
-    ]);
-    expect(getEntry(rail, 'artifacts')).toBe(artifactsButton);
-    expect(document.getElementById('sidebar-artifacts-kids')).toBe(kids);
-    expect(artifactsButton.classList.contains('active')).toBe(true);
+  test('addEntry refuses an artifacts entry', () => {
+    createRail(rail, [{ id: 'terminal', label: 'Agent' }]);
+    expect(addEntry(rail, { id: 'artifacts', label: 'Artifacts' })).toBeNull();
+    expect(entryIds(rail)).toEqual(['terminal']);
+    expect(rail.querySelector('[data-panel-id="artifacts"]')).toBeNull();
   });
 
   test('+ Add panel closes the last group, whichever group that is', () => {
@@ -399,30 +376,24 @@ describe('page-owned rows', () => {
 
   test('a group whose rows are all parked shows its empty line', () => {
     createRail(rail, [{ id: 'ariel', label: 'Ariel' }]);
-    // The parked rows stay in their group, hidden, so it reads as empty.
     expect(childKeys(group(rail, 'workspace'))).toEqual([
       'label:Workspace',
       'empty',
-      'sidebar-agent-row',
-      'sidebar-artifacts-row',
-      'sidebar-runs-row',
+      'sidebar-agent-wrap',
     ]);
-    expect([agentRow, artifactsRow, runsRow].every((el) => el.hidden)).toBe(true);
+    expect(agentWrap.hidden).toBe(true);
     expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'panel-add-btn']);
   });
 
   test('the page-owned nodes are adopted, never rebuilt, across renders', () => {
-    const kids = document.getElementById('sidebar-artifacts-kids');
+    const tree = agentWrap.querySelector('[data-session-tree]');
     createRail(rail, ALL);
     createRail(rail, ALL);
     expect(getEntry(rail, 'terminal')).toBe(agentRow);
-    expect(getEntry(rail, 'artifacts')).toBe(artifactsButton);
-    expect(document.getElementById('sidebar-artifacts-row')).toBe(artifactsRow);
-    expect(document.getElementById('sidebar-artifacts-kids')).toBe(kids);
-    expect(document.getElementById('sidebar-runs-row')).toBe(runsRow);
+    expect(document.getElementById('sidebar-agent-wrap')).toBe(agentWrap);
+    expect(agentWrap.querySelector('[data-session-tree]')).toBe(tree);
     expect(document.getElementById('panel-add-btn')).toBe(addButton);
     expect(rail.querySelectorAll('#sidebar-agent-row').length).toBe(1);
-    expect(rail.querySelectorAll('[data-panel-id="artifacts"]').length).toBe(1);
   });
 
   test('an adopted row takes the identity it is rendered with', () => {
@@ -440,66 +411,30 @@ describe('page-owned rows', () => {
     createRail(rail, ALL, { onActivate: second });
 
     agentRow.click();
-    artifactsButton.click();
 
     expect(first).not.toHaveBeenCalled();
-    expect(second.mock.calls).toEqual([['terminal'], ['artifacts']]);
+    expect(second.mock.calls).toEqual([['terminal']]);
   });
 
   test('a page-owned row whose panel is absent is parked hidden and counts as absent', () => {
     createRail(rail, [{ id: 'ariel', label: 'Ariel' }]);
     expect(agentRow.isConnected).toBe(true);
-    expect(agentRow.hidden).toBe(true);
-    expect(artifactsRow.hidden).toBe(true);
+    expect(agentWrap.hidden).toBe(true);
     expect(getEntry(rail, 'terminal')).toBeNull();
-    expect(getEntry(rail, 'artifacts')).toBeNull();
     expect(entryIds(rail)).toEqual(['ariel']);
-  });
-
-  test('the Script runs row is shown exactly while Artifacts is', () => {
-    createRail(rail, [{ id: 'terminal', label: 'Agent' }]);
-    expect(runsRow.hidden).toBe(true);
-
-    createRail(rail, ALL);
-    expect(runsRow.hidden).toBe(false);
-  });
-
-  test('removeEntry parks a page-owned row in place and hides the Script runs row', () => {
-    createRail(rail, ALL);
-    const renders = countRenders();
-
-    removeEntry(rail, 'artifacts');
-    renders.stop();
-
-    expect(artifactsRow.isConnected).toBe(true);
-    expect(artifactsRow.hidden).toBe(true);
-    expect(runsRow.hidden).toBe(true);
-    expect(getEntry(rail, 'artifacts')).toBeNull();
-    expect(renders.count).toBe(1);
-  });
-
-  test('addEntry brings a parked page-owned row back, Script runs row with it', () => {
-    createRail(rail, [{ id: 'terminal', label: 'Agent' }]);
-    const renders = countRenders();
-
-    const entry = addEntry(rail, { id: 'artifacts', label: 'Artifacts' });
-    renders.stop();
-
-    expect(entry).toBe(artifactsButton);
-    expect(artifactsRow.hidden).toBe(false);
-    expect(runsRow.hidden).toBe(false);
-    expect(renders.count).toBe(1);
-    expect(entryIds(rail)).toEqual(['terminal', 'artifacts']);
   });
 
   test('removing and re-adding the Agent row keeps the same node', () => {
     createRail(rail, ALL);
+    const renders = countRenders();
     removeEntry(rail, 'terminal');
-    expect(agentRow.hidden).toBe(true);
+    renders.stop();
+    expect(agentWrap.hidden).toBe(true);
     expect(getEntry(rail, 'terminal')).toBeNull();
+    expect(renders.count).toBe(1);
 
     expect(addEntry(rail, { id: 'terminal', label: 'Agent' })).toBe(agentRow);
-    expect(agentRow.hidden).toBe(false);
+    expect(agentWrap.hidden).toBe(false);
   });
 
   test('a built Tools row added at runtime lands just above + Add panel', () => {
@@ -515,20 +450,17 @@ describe('page-owned rows', () => {
   });
 
   test('a built row added at runtime joins the foot of its group', () => {
-    createRail(rail, [
-      { id: 'terminal', label: 'Agent' },
-      { id: 'artifacts', label: 'Artifacts' },
-    ]);
+    createRail(rail, [{ id: 'terminal', label: 'Agent' }]);
     addEntry(rail, { id: 'events', label: 'Events' });
-    expect(entryIds(rail)).toEqual(['terminal', 'artifacts', 'events']);
+    expect(entryIds(rail)).toEqual(['terminal', 'events']);
     expect(group(rail, 'workspace').contains(getEntry(rail, 'events'))).toBe(true);
   });
 
-  test('the attention dot sits before the disclosure chevron of a parent row', () => {
+  test('the attention dot sits before the disclosure chevron of the Agent row', () => {
     createRail(rail, ALL);
-    setEntryAttention(rail, 'artifacts', true);
+    setEntryAttention(rail, 'terminal', true);
     const dot = /** @type {HTMLElement} */ (
-      artifactsButton.querySelector(':scope > [data-attention-badge]')
+      agentRow.querySelector(':scope > [data-attention-badge]')
     );
     expect(dot.nextElementSibling?.classList.contains('osprey-nav-disc')).toBe(true);
   });
@@ -541,8 +473,6 @@ describe('page-owned rows', () => {
   });
 
   test('a render under a borrowed tooltip retitles the stash, so the clear restores it', () => {
-    // An adopted row keeps its live state across renders, a status message
-    // included; the identity the render brings must be what the clear puts back.
     createRail(rail, ALL);
     setEntryStatus(rail, 'terminal', { failed: false, message: 'starting' });
 
@@ -604,7 +534,6 @@ describe('groups', () => {
     expect(childKeys(group(rail, 'workspace'))).toEqual([
       'label:Workspace',
       'terminal',
-      'artifacts',
       'ariel',
       'events',
       'okf',
@@ -640,14 +569,14 @@ describe('groups', () => {
       'lattice',
       'okf',
     ]);
-    expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Workspace', 'artifacts', 'events']);
+    expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Workspace', 'events']);
     expect(entryIds(rail)[0]).toBe('terminal');
   });
 
   test('a deleted group gives its rows back to Tools and leaves the rail', () => {
     const id = addGroup('Beamline');
     createRail(rail, ROWS);
-    moveToGroup('artifacts', id);
+    moveToGroup('events', id);
     moveToGroup('lattice', id);
 
     removeGroup(id);
@@ -655,8 +584,8 @@ describe('groups', () => {
     expect(groupOrder(rail)).toEqual(['workspace', 'tools']);
     expect(childKeys(group(rail, 'tools'))).toEqual([
       'label:Tools',
-      'artifacts',
       'ariel',
+      'events',
       'lattice',
       'okf',
     ]);
@@ -932,7 +861,7 @@ describe('drag from the sidebar (onDragStart / onDragEnd)', () => {
 describe('reorder and move by drag (onReorder)', () => {
   const ROW = [
     { id: 'terminal', label: 'Agent' },
-    { id: 'artifacts', label: 'Artifacts' },
+    { id: 'events', label: 'Events' },
     { id: 'ariel', label: 'Ariel' },
     { id: 'channel-finder', label: 'Channels' },
     { id: 'lattice', label: 'Lattice' },
@@ -947,7 +876,7 @@ describe('reorder and move by drag (onReorder)', () => {
    * happy-dom has no layout: stack every heading (24 px) and every row in
    * view (40 px) top to bottom, in DOM order. Every row shares one column,
    * so x never decides anything. With the default groups that puts the
-   * Workspace heading at 0, the Agent row at 24, Artifacts at 64, the Tools
+   * Workspace heading at 0, the Agent row at 24, Events at 64, the Tools
    * heading at 104, then ariel 128, channel-finder 168, lattice 208 and
    * okf 248.
    */
@@ -1031,19 +960,19 @@ describe('reorder and move by drag (onReorder)', () => {
 
   test('a drop into another group moves the row there first, then places it', () => {
     grab('lattice');
-    rail.dispatchEvent(pointerEvent('dragover', 70)); // upper half of artifacts (64–104)
-    expect(marked()).toEqual([['artifacts', 'before']]);
+    rail.dispatchEvent(pointerEvent('dragover', 70)); // upper half of events (64–104)
+    expect(marked()).toEqual([['events', 'before']]);
 
     rail.dispatchEvent(pointerEvent('drop', 70));
     expect(groupOf('lattice')).toBe('workspace');
     expect(group(rail, 'workspace').contains(row(rail, 'lattice'))).toBe(true);
-    expect(moves).toEqual([['lattice', 'artifacts']]);
+    expect(moves).toEqual([['lattice', 'events']]);
   });
 
   test('a drop at the foot of another group moves the row there, last', () => {
     grab('ariel');
-    rail.dispatchEvent(pointerEvent('dragover', 100)); // below the middle of artifacts
-    expect(marked()).toEqual([['artifacts', 'after']]);
+    rail.dispatchEvent(pointerEvent('dragover', 100)); // below the middle of events
+    expect(marked()).toEqual([['events', 'after']]);
 
     rail.dispatchEvent(pointerEvent('drop', 100));
     expect(groupOf('ariel')).toBe('workspace');
@@ -1053,7 +982,7 @@ describe('reorder and move by drag (onReorder)', () => {
   test('the Agent row is never a target: a drop above it lands after it', () => {
     grab('lattice');
     rail.dispatchEvent(pointerEvent('dragover', 30));
-    expect(marked()).toEqual([['artifacts', 'before']]);
+    expect(marked()).toEqual([['events', 'before']]);
   });
 
   test('an empty group takes a drop, under its empty line', () => {
@@ -1136,19 +1065,19 @@ describe('addEntry (non-destructive)', () => {
   test('appends a new Tools row, preserving existing ones', () => {
     createRail(rail, PANELS);
     addEntry(rail, { id: 'lattice', label: 'Lattice' });
-    expect(entryIds(rail)).toEqual(['artifacts', 'ariel', 'channel-finder', 'lattice']);
+    expect(entryIds(rail)).toEqual(['events', 'ariel', 'channel-finder', 'lattice']);
   });
 
   test('preserves live state on existing rows (no rebuild)', () => {
     createRail(rail, PANELS);
-    setActive(rail, 'artifacts');
-    setEntryEnabled(rail, 'artifacts', true);
+    setActive(rail, 'events');
+    setEntryEnabled(rail, 'events', true);
 
     addEntry(rail, { id: 'lattice', label: 'Lattice' });
 
-    const artifacts = getEntry(rail, 'artifacts');
-    expect(artifacts?.classList.contains('active')).toBe(true);
-    expect(artifacts?.classList.contains('disabled')).toBe(false);
+    const events = getEntry(rail, 'events');
+    expect(events?.classList.contains('active')).toBe(true);
+    expect(events?.classList.contains('disabled')).toBe(false);
   });
 
   test('is idempotent by id — no duplicate node', () => {
@@ -1187,20 +1116,20 @@ describe('removeEntry', () => {
 
   test('removes a built row node, preserving the others', () => {
     removeEntry(rail, 'ariel');
-    expect(entryIds(rail)).toEqual(['artifacts', 'channel-finder']);
-    expect(allRowIds(rail)).toEqual(['artifacts', 'channel-finder']);
+    expect(entryIds(rail)).toEqual(['events', 'channel-finder']);
+    expect(allRowIds(rail)).toEqual(['events', 'channel-finder']);
     expect(getEntry(rail, 'ariel')).toBeNull();
   });
 
   test('a removed row can be re-added (remove ≠ forget)', () => {
     removeEntry(rail, 'ariel');
     addEntry(rail, { id: 'ariel', label: 'Ariel' });
-    expect(entryIds(rail)).toEqual(['artifacts', 'channel-finder', 'ariel']);
+    expect(entryIds(rail)).toEqual(['events', 'channel-finder', 'ariel']);
   });
 
   test('is a no-op for an unknown id', () => {
     expect(() => removeEntry(rail, 'nope')).not.toThrow();
-    expect(entryIds(rail)).toEqual(['artifacts', 'ariel', 'channel-finder']);
+    expect(entryIds(rail)).toEqual(['events', 'ariel', 'channel-finder']);
   });
 });
 
@@ -1216,7 +1145,7 @@ describe('placeEntry', () => {
     rail = pageRail();
     createRail(rail, [
       { id: 'terminal', label: 'Agent' },
-      { id: 'artifacts', label: 'Artifacts' },
+      { id: 'events', label: 'Events' },
       { id: 'ariel', label: 'Ariel' },
       { id: 'channel-finder', label: 'Channels' },
       { id: 'lattice', label: 'Lattice' },
@@ -1242,19 +1171,18 @@ describe('placeEntry', () => {
   });
 
   test('a beforeId in an earlier group puts the row at the head of its own group', () => {
-    placeEntry(rail, 'lattice', 'artifacts');
+    placeEntry(rail, 'lattice', 'events');
     expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
   });
 
   test('the Agent row never moves, and no row leaves its group', () => {
     placeEntry(rail, 'terminal', null);
-    placeEntry(rail, 'artifacts', 'lattice');
-    expect(entryIds(rail)).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder', 'lattice']);
+    placeEntry(rail, 'events', 'lattice');
+    expect(entryIds(rail)).toEqual(['terminal', 'events', 'ariel', 'channel-finder', 'lattice']);
     expect(childKeys(group(rail, 'workspace'))).toEqual([
       'label:Workspace',
-      'sidebar-agent-row',
-      'sidebar-artifacts-row',
-      'sidebar-runs-row',
+      'sidebar-agent-wrap',
+      'events',
     ]);
   });
 
@@ -1264,9 +1192,8 @@ describe('placeEntry', () => {
     moveToGroup('lattice', 'workspace');
     expect(childKeys(group(rail, 'workspace'))).toEqual([
       'label:Workspace',
-      'sidebar-agent-row',
-      'sidebar-artifacts-row',
-      'sidebar-runs-row',
+      'sidebar-agent-wrap',
+      'events',
       'lattice',
       'channel-finder',
     ]);
@@ -1274,7 +1201,7 @@ describe('placeEntry', () => {
 
   test('an unknown id is a no-op', () => {
     expect(() => placeEntry(rail, 'nope', 'ariel')).not.toThrow();
-    expect(entryIds(rail)).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder', 'lattice']);
+    expect(entryIds(rail)).toEqual(['terminal', 'events', 'ariel', 'channel-finder', 'lattice']);
   });
 
   test('the moved row keeps its node and its live state', () => {

@@ -758,7 +758,8 @@ function setConnectionIndicator(connected) {
 export function setSessionLabel(sessionId) {
   const label = document.getElementById('terminal-label');
   if (!label) return;
-  label.textContent = 'Agent';
+  // Once the session switcher owns the label, its text is the session's title.
+  if (!label.classList.contains('session-switcher')) label.textContent = 'Agent';
   if (sessionId) {
     label.title = `Session ${sessionId}`;
     label.dataset.sessionId = sessionId;

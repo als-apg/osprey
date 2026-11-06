@@ -9,11 +9,13 @@
  *
  * What is pinned here: the dock persists the layout holder as
  * `{version: 2, layout, panels}` under the user-scoped key; a reload restores
- * the same tiles, tabs, showing tab and sizes through the holder; a layout the
- * dockview-era shell stored (dockview's own serialization) is read into the
- * dock form; any other version or an invalid value silently opens the default;
- * reset goes through the holder; the terminal closes as its tile and reopens
- * at the dock's right edge; and a change dockview makes on its own (its
+ * the same tiles, the panel each shows and the sizes through the holder; a
+ * tile stored with several panels (by the release that had tabs) comes back
+ * with the one it showed, and is stored that way; a layout the dockview-era
+ * shell stored (dockview's own serialization) is read into the dock form; any
+ * other version or an invalid value silently opens the default; reset goes
+ * through the holder; the terminal closes as its tile and reopens at the
+ * dock's right edge; and a change dockview makes on its own (its
  * drag-and-drop) is read back into the holder, never re-applied.
  *
  * Imported by RELATIVE path — this module lives under web_terminal, so the
@@ -22,6 +24,7 @@
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
 
+import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { loadDockview, settle } from './_dock-real.mjs';
 
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
@@ -142,14 +145,15 @@ async function boot(scope) {
 }
 
 /**
- * Open a service the way an activation does: a tab in front of the service
- * tile used last (dock-open's openTab through the holder).
+ * Open a service the way an activation does, by the open rule: it takes the
+ * service tile used last, replacing its panel (dock-open's openPanel through
+ * the holder).
  * @param {Awaited<ReturnType<typeof boot>>} page
  * @param {string} key
  */
 async function openService(page, key) {
   page.holder.run((/** @type {any} */ layout, /** @type {any} */ ctx) =>
-    page.open.openTab(layout, key, ctx)
+    page.open.openPanel(layout, key, ctx)
   );
   await settle();
 }
@@ -236,7 +240,43 @@ describe('dock layout persistence under the user-scoped key', () => {
   });
 });
 
-describe('a reload restores tiles, the showing tab and sizes', () => {
+describe('a change made just before the page goes away is stored', () => {
+  // A write waits 150 ms after the first change of a burst. A reload or a
+  // closed tab inside that window must still find the change stored.
+  /** @type {[string, () => void][]} */
+  const leaving = [
+    ['pagehide', () => window.dispatchEvent(new Event('pagehide'))],
+    [
+      'the page going out of sight',
+      () => {
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          value: 'hidden',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+      },
+    ],
+  ];
+
+  test.each(leaving)('%s writes the change still waiting to be stored', async (_name, leave) => {
+    const page = await boot(null);
+    localStorage.removeItem(KEY);
+    await openService(page, 'ariel');
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    try {
+      leave();
+    } finally {
+      Reflect.deleteProperty(document, 'visibilityState');
+    }
+
+    const stored = localStorage.getItem(KEY);
+    expect(stored).not.toBeNull();
+    expect(JSON.parse(stored ?? '').layout).toEqual(page.holder.layout);
+  });
+});
+
+describe('a reload restores tiles, the panel each shows and sizes', () => {
   test('the stored tiles come back as stored, with their records', async () => {
     localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL, { ariel: { title: 'ARIEL' } }));
 
@@ -256,12 +296,57 @@ describe('a reload restores tiles, the showing tab and sizes', () => {
     const page = await boot(null);
     localStorage.removeItem(KEY);
 
-    await openService(page, 'artifacts');
+    // "Open in a new tile": artifacts splits off below ariel, which stays.
+    page.holder.run((/** @type {any} */ layout, /** @type {any} */ ctx) =>
+      page.open.openAt(layout, 'artifacts', { referenceTile: 't1', direction: 'bottom' }, ctx)
+    );
+    await settle();
     const stored = await storedAt(KEY);
 
-    // The restored record rides along with the new tab's.
+    // The restored record rides along with the new panel's.
     expect(stored.panels).toEqual({ ariel: { title: 'ARIEL' }, artifacts: { title: 'artifacts' } });
-    expect(stored.layout.items[0].tabs).toEqual(['ariel', 'artifacts']);
+    expect(keysOf(stored.layout)).toEqual(['ariel', 'artifacts', 'terminal']);
+  });
+
+  test('a stored tile of several panels comes back with the one it showed, and is stored that way', async () => {
+    localStorage.setItem(
+      KEY,
+      v2(
+        {
+          split: 'row',
+          items: [
+            { tile: 't1', tabs: ['ariel', 'artifacts'], showing: 'artifacts', size: 0.7 },
+            { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.3 },
+          ],
+        },
+        { ariel: { title: 'ARIEL' }, artifacts: { title: 'ARTIFACTS' } }
+      )
+    );
+
+    const { api, holder } = await boot(null);
+
+    expect(rounded(holder.layout)).toEqual({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['artifacts'], showing: 'artifacts', size: 0.7 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.3 },
+      ],
+    });
+    expect(groups(api)).toEqual([
+      { tile: 't1', views: ['iframe:artifacts'], active: 'iframe:artifacts' },
+      { tile: 't2', views: ['terminal'], active: 'terminal' },
+    ]);
+    expect(api.getPanel('iframe:ariel')).toBeFalsy();
+
+    // The next write (here a sash drag's) stores the dock as it now is.
+    localStorage.removeItem(KEY);
+    api.getPanel('iframe:artifacts').api.setSize({ width: 500 });
+    const stored = await storedAt(KEY);
+    expect(stored.layout.items.map((/** @type {any} */ i) => i.tabs)).toEqual([
+      ['artifacts'],
+      ['terminal'],
+    ]);
+    expect(stored.panels).toEqual({ artifacts: { title: 'ARTIFACTS' } });
   });
 
   test('a change the page leaves inside the persist debounce is stored on pagehide', async () => {
@@ -347,10 +432,12 @@ describe('a reload restores tiles, the showing tab and sizes', () => {
     // The old title is healed; the next write is in this format.
     expect(api.getPanel('terminal').title).toBe('Agent');
     localStorage.removeItem(KEY);
+    // An open takes the service tile ariel shows (the first one), replacing it.
     await openService(page, 'artifacts');
     const stored = await storedAt(KEY);
     expect(stored.version).toBe(2);
-    expect(stored.layout.items[0].tabs).toEqual(['ariel', 'artifacts']);
+    expect(stored.layout.items[0]).toMatchObject({ tile: 'g1', tabs: ['artifacts'] });
+    expect(stored.panels).toEqual({ artifacts: { title: 'artifacts' } });
   });
 });
 
@@ -443,7 +530,7 @@ describe('reset and the terminal go through the holder', () => {
 });
 
 describe('what dockview does on its own is read back into the holder (sizes only)', () => {
-  test('a tab click records the focused tile', async () => {
+  test('a click in a tile records the focused tile', async () => {
     localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL));
     const { api, holder } = await boot(null);
 

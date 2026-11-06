@@ -106,11 +106,20 @@ class ClientAnswer:
     newer: bool = False
     more: bool = False
     reason: str = ""
+    refused: bool = False
 
     @classmethod
     def failed(cls, reason: str) -> ClientAnswer:
         """An unavailable answer naming *reason*."""
         return cls(unavailable=reason)
+
+    @classmethod
+    def rejected(cls, reason: str) -> ClientAnswer:
+        """The service refused the read itself (a 400: a parameter it does not
+        take, as an older service answers a newer client). Unavailable as data,
+        but ``refused`` lets a caller report it as an incomplete answer rather
+        than a record outage."""
+        return cls(unavailable=reason, refused=True)
 
     @property
     def available(self) -> bool:
@@ -139,9 +148,10 @@ def _decode(response: httpx.Response) -> ClientAnswer:
         if status == "unavailable":
             return ClientAnswer.failed(reason or "the record is unavailable")
         detail = f": {reason}" if reason else ""
-        return ClientAnswer.failed(
-            f"agent-record refused the read ({response.status_code}){detail}"
-        )
+        refusal = f"agent-record refused the read ({response.status_code}){detail}"
+        if response.status_code == 400:
+            return ClientAnswer.rejected(refusal)
+        return ClientAnswer.failed(refusal)
     complete, more, newer, cursor = (
         body.get("complete"),
         body.get("more"),
@@ -333,14 +343,23 @@ class RecordClient:
         self,
         *,
         since: datetime | None = None,
+        before: datetime | None = None,
         limit: int | None = None,
+        session_ids: Collection[str] | None = None,
         wait: Drain | WaitMark | None = None,
         narrow_session: str | None = None,
         narrow_runs: Collection[str] = (),
     ) -> ClientAnswer:
-        """Every session the login sees, newest activity first."""
+        """Every session the login sees, newest activity first; with *before*,
+        those whose activity ended before it; with *session_ids* (not empty),
+        only those."""
+        ids = ",".join(sorted(set(session_ids))) if session_ids else None
         return self._read(
-            "list_sessions", {"since": since, "limit": limit}, wait, narrow_session, narrow_runs
+            "list_sessions",
+            {"since": since, "before": before, "limit": limit, "session_ids": ids},
+            wait,
+            narrow_session,
+            narrow_runs,
         )
 
     def session_users(

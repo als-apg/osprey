@@ -2,8 +2,7 @@
  * Unit tests for the Artifact Gallery state/fetch/filter layer (state.js).
  *
  * Pure-logic/DOM guard, happy-dom environment (configured globally), `fetch`
- * mocked via vi.stubGlobal — mirrors tests/interfaces/lattice_dashboard/net.test.mjs
- * and tests/interfaces/web_terminal/scaffold/data.test.mjs:
+ * mocked via vi.stubGlobal — mirrors tests/interfaces/web_terminal/scaffold/data.test.mjs:
  *   npx vitest run tests/interfaces/artifacts/state.test.mjs
  *
  * Covers accessor correctness (every get/set pair round-trips), fileUrl,

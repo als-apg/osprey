@@ -365,26 +365,30 @@ export async function renderArtifacts({ apiFetch, showToast, cache }) {
   cache.artifacts = data;
 
   const totals = data.totals || {};
-  const cats = totals.categories || {};
+  /** @type {{key: string, label: string, count: number}[]} */
+  const forms = Array.isArray(totals.forms) ? totals.forms : [];
 
   let html = `<div class="totals-bar">
     <span><span class="val">${totals.entry_count || 0}</span> entries</span>
     <span><span class="val">${fmtBytes(totals.total_bytes)}</span></span>`;
-  for (const [cat, count] of Object.entries(cats)) {
-    html += `<span class="cat-pill">${esc(cat)}: ${count}</span>`;
+  for (const form of forms) {
+    html += `<span class="cat-pill">${esc(form.label || form.key)}: ${form.count}</span>`;
   }
   html += `</div>`;
 
-  /** @type {Record<string, any[]>} */
-  const grouped = {};
+  // One grouping level: the entry's form (the server names it); an entry the
+  // server sent without one is data, the forms' own fallback.
+  /** @type {Map<string, any[]>} */
+  const grouped = new Map();
   for (const entry of data.entries) {
-    const cat = entry.category || 'uncategorized';
-    (grouped[cat] = grouped[cat] || []).push(entry);
+    const label = entry.form_label || 'Data';
+    if (!grouped.has(label)) grouped.set(label, []);
+    /** @type {any[]} */ (grouped.get(label)).push(entry);
   }
 
-  for (const [cat, entries] of Object.entries(grouped)) {
+  for (const [label, entries] of grouped) {
     html += `<details class="artifact-group" open>
-      <summary>${esc(cat)} (${entries.length})</summary>`;
+      <summary>${esc(label)} (${entries.length})</summary>`;
     for (const entry of entries) {
       const channels = entry.channels || [];
       html += `<div class="artifact-entry">

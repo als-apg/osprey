@@ -63,7 +63,7 @@ async def test_keeps_the_rendition_as_an_image_artifact(keyset_harness, store, g
     assert Path(store.get_file_path(entry.id)).read_bytes() == KEYSET_RENDITION_BYTES
     assert entry.artifact_type == "image"
     assert entry.mime_type == "image/png"
-    assert entry.category == "visualization"
+    assert entry.category == ""
     assert entry.tool_source == "attachment_to_artifact"
     assert entry.origin == ""
     assert entry.title == f"orbit-plot.png (entry {KEYSET_ENTRY_ID})"
@@ -205,11 +205,9 @@ def test_registered_gated_and_offered_to_the_main_agent():
         _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL,
         _ariel_read_tools,
     )
-    from osprey.mcp_server.ariel.server import VIEW_GATED_TOOLS
-    from osprey.registry.mcp import ARIEL_VIEW_TOOLS, FRAMEWORK_SERVERS
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
 
     assert "attachment_to_artifact" in FRAMEWORK_SERVERS["ariel"].permissions_allow
     assert "attachment_to_artifact" not in FRAMEWORK_SERVERS["ariel"].permissions_ask
     assert "attachment_to_artifact" in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
-    assert "attachment_to_artifact" not in _ariel_read_tools(True)
-    assert set(ARIEL_VIEW_TOOLS) == VIEW_GATED_TOOLS
+    assert "attachment_to_artifact" not in _ariel_read_tools({})

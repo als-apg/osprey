@@ -4,7 +4,9 @@ An agent changes the operator's dock only through these routes. Each write
 route checks what the server can check, relays one ``panel_op`` frame to the
 browser whose dock report is current (the dock client), and answers with the
 layout and ``rev`` that client reports back through ``/api/panel-op-result``,
-or with a named refusal, in which case nothing changed.
+or with a named refusal, in which case nothing changed — except
+``no_dock_answer``: the client did not answer in time and may still apply the
+op, so its outcome is unknown until the panels are read again.
 
 One producer. The dock client's layout holder is the only thing that changes
 the dock: it answers every op and every report, and the server stores what it
@@ -34,7 +36,13 @@ from osprey.interfaces.web_terminal.dock_layout import (
     layout_refusal,
     normalize_layout,
 )
-from osprey.interfaces.web_terminal.presets import preset_refusal, prune_preset_layout
+from osprey.interfaces.web_terminal.presets import (
+    ONE_PANEL_PER_TILE,
+    ONE_PANEL_PER_TILE_TEXT,
+    crowded_tile,
+    preset_refusal,
+    prune_preset_layout,
+)
 from osprey.interfaces.web_terminal.routes.panels import (
     _TERMINAL_PANEL_ID,
     _checked_dock_layout,
@@ -51,24 +59,32 @@ router = APIRouter()
 
 
 # The only agent dock-write path. A write route checks what the server can
-# check (argument shapes, known panels, the terminal invariant, a pop-out, a
-# stale ``base_rev``), then relays one ``panel_op`` frame addressed to the
-# current dock client — the client whose report is current — and waits for that
-# client to run the op against its layout holder and POST the outcome to
-# ``/api/panel-op-result``. That route records the resulting layout as the
-# client's report and mints the ``rev`` the write returns. A refusal at either
-# end has a named reason and changes nothing.
+# check (argument shapes, known panels, the terminal invariant, one panel per
+# tile, a pop-out, a stale ``base_rev``), then relays one ``panel_op`` frame
+# addressed to the current dock client — the client whose report is current —
+# and waits for that client to run the op against its layout holder and POST
+# the outcome to ``/api/panel-op-result``. That route records the resulting
+# layout as the client's report and mints the ``rev`` the write returns. A
+# refusal at either end has a named reason and changes nothing. A client that
+# does not answer in time is the one exception: the frame went out, so the
+# write answers ``no_dock_answer`` (the outcome is unknown), and the server
+# keeps the request id so that the client's late answer is still recorded as
+# its report.
 
 #: How long a write route waits for the dock client's answer. The MCP op helper's
 #: socket timeout (8 s) is longer, so a timeout here is always the route's
-#: ``no_dock_client`` refusal and never a dropped connection.
+#: ``no_dock_answer`` refusal and never a dropped connection.
 OP_TIMEOUT_S = 5.0
+
+#: How many requests the server remembers after it stopped waiting for their
+#: answers (``no_dock_answer``), the oldest forgotten first. A dock client that
+#: applies such an op late still answers it, and that answer is recorded.
+UNANSWERED_CAP = 64
 
 #: The agent-activity tool name each op is recorded under (the MCP verbs).
 OP_ACTIVITY_TOOLS: dict[str, str] = {
     "drop": "drop_panel",
-    "close_tab": "close_panel_tab",
-    "close_tile": "close_panel_tile",
+    "close": "close_panel",
     "open": "open_panel",
     "open_set": "open_panel_set",
     "open_arrangement": "arrange_workspace",
@@ -80,9 +96,12 @@ OP_ACTIVITY_TOOLS: dict[str, str] = {
 OP_REFUSAL_TEXT: dict[str, str] = {
     "stale_base": "the workspace changed since base_rev was read; read the panels again",
     "no_dock_client": "no dock client is showing the workspace",
+    "no_dock_answer": (
+        "the dock client did not answer in time and may still apply the op; "
+        "read the panels again to see whether it did"
+    ),
     "terminal_not_agent_movable": (
-        "the Agent pane is always its own tile: never an agent drop source or close "
-        "target, and no tab is dropped into it"
+        "the Agent pane is always its own tile: never an agent drop source or close target"
     ),
     "terminal_in_layout": "a layout names service panels only, never the terminal",
     "popped_out": (
@@ -98,17 +117,17 @@ OP_REFUSAL_TEXT: dict[str, str] = {
         "a panel driven by its own workspace tool takes no url, and no url may reach "
         "such a panel's mount or process"
     ),
-    "unknown_key": "no such tab",
+    "unknown_key": "no such panel in the current layout",
     "unknown_tile": "no tile with this id in the current layout",
     "unknown_arrangement": "no preset with this name",
     "duplicate_member": "a member is named twice",
     "invalid_source": "a drop source is {new: {panel}}, {tab: key} or {tile: id}",
-    "invalid_target": (
-        "a drop target is {tile, zone: 'centre'}, {tile, zone: 'tab', index}, "
-        "{tile, edge}, {border: {tile, side}} or {outer}"
-    ),
+    "invalid_target": "a drop target is {tile, edge}, {border: {tile, side}} or {outer}",
+    ONE_PANEL_PER_TILE: ONE_PANEL_PER_TILE_TEXT,
     "invalid_layout": "as: 'layout' needs a layout, and only as: 'layout' takes one",
-    "duplicate_request": "a request with this request_id is already pending",
+    "duplicate_request": (
+        "a request with this request_id is already pending, or still awaits its late answer"
+    ),
     "invalid_result": "the dock client answered with a layout the server refused",
 }
 
@@ -120,9 +139,12 @@ _REQUEST_ID = Field(min_length=1, max_length=128)
 class OpRefused(Exception):
     """An op refused for a named ``reason``; nothing changed.
 
+    The one exception is ``no_dock_answer``: the dock client was sent the op and
+    did not answer in time, so the outcome is unknown.
+
     ``status`` is 422 for a refused argument and 409 for a refusal that depends
-    on the workspace's state (stale base, no dock client, a pop-out, the
-    client's own).
+    on the workspace's state (stale base, no dock client, a dock client that did
+    not answer, a pop-out, the client's own).
     """
 
     def __init__(self, reason: str, detail: str | None = None, *, status: int = 422):
@@ -168,12 +190,29 @@ def _pending_ops(state) -> dict[str, _PendingOp]:
     return ops
 
 
+def _unanswered_ops(state) -> dict[str, str]:
+    """The requests the server stopped waiting for, each with its dock client, oldest first."""
+    ops = getattr(state, "panel_ops_unanswered", None)
+    if ops is None:
+        ops = {}
+        state.panel_ops_unanswered = ops
+    return ops
+
+
+def _remember_unanswered(state, request_id: str, target: str) -> None:
+    """Keep a timed-out request for its late answer, forgetting the oldest past the cap."""
+    unanswered = _unanswered_ops(state)
+    unanswered[request_id] = target
+    while len(unanswered) > UNANSWERED_CAP:
+        del unanswered[next(iter(unanswered))]
+
+
 def _popouts(request: Request) -> list[str]:
     return list(getattr(request.app.state, "dock_popouts", []))
 
 
 def _tiles_of(layout: dict | None) -> dict[str, list[str]]:
-    """Every tile of a dock-form layout: ``{tile id: its tab keys}``."""
+    """Every tile of a dock-form layout: ``{tile id: the keys in its tabs}``."""
     found: dict[str, list[str]] = {}
 
     def walk(node: dict) -> None:
@@ -196,20 +235,17 @@ def _names_terminal(layout: object) -> bool:
         return False
 
 
-def _current_tile(
-    request: Request, tile: object, *, source: bool = False, zone: bool = False
-) -> str:
+def _current_tile(request: Request, tile: object, *, source: bool = False) -> str:
     """``tile`` checked against the current layout.
 
-    The Agent pane's tile is never a source and never takes a tab (a ``zone``
-    target); an edge beside it is fine.
+    The Agent pane's tile is never a source; an edge or a border beside it is fine.
     """
     tiles = _tiles_of(getattr(request.app.state, "dock_layout", None))
     if not isinstance(tile, str) or not tile:
         raise OpRefused("invalid_source" if source else "invalid_target")
     if tile not in tiles:
         raise OpRefused("unknown_tile", f"no tile {tile!r} in the current layout")
-    if (source or zone) and _TERMINAL_PANEL_ID in tiles[tile]:
+    if source and _TERMINAL_PANEL_ID in tiles[tile]:
         raise OpRefused("terminal_not_agent_movable")
     return tile
 
@@ -262,15 +298,34 @@ def _drop_source(request: Request, source: dict) -> tuple[dict, str, list[str]]:
             _not_popped_out(request, value)
         layout = getattr(request.app.state, "dock_layout", None)
         if not isinstance(value, str) or value not in layout_keys(layout):
-            raise OpRefused("unknown_key", f"no tab {value!r} in the current layout")
+            raise OpRefused("unknown_key", f"no panel {value!r} in the current layout")
         return {"tab": value}, value, []
     if kind == "tile":
         return {"tile": _current_tile(request, value, source=True)}, value, []
     raise OpRefused("invalid_source")
 
 
+def _is_zone_target(target: dict) -> bool:
+    """Whether ``target`` is a well-formed engine ``zone`` target: a tile's centre or a place in its header."""
+    tile = target.get("tile")
+    if not isinstance(tile, str) or not tile:
+        return False
+    if set(target) == {"tile", "zone"}:
+        return bool(target["zone"] == "centre")
+    if set(target) == {"tile", "zone", "index"} and target["zone"] == "tab":
+        index = target["index"]
+        return isinstance(index, int) and not isinstance(index, bool) and index >= 0
+    return False
+
+
 def _drop_target(request: Request, target: dict) -> dict:
-    """A drop target, its tile ids checked against the current layout."""
+    """A drop target, its tile ids checked against the current layout.
+
+    Every target splits: a tile's edge, the border between two items, or an
+    edge of the dock. A ``zone`` target (a tile's centre or a place in its
+    header) would put a second panel in that tile, so it is refused
+    ``one_panel_per_tile`` whatever tile it names.
+    """
     keys = set(target)
     if keys == {"outer"} and target["outer"] in _SIDES:
         return dict(target)
@@ -287,22 +342,30 @@ def _drop_target(request: Request, target: dict) -> dict:
     if keys == {"tile", "edge"} and target["edge"] in _SIDES:
         _current_tile(request, target["tile"])
         return dict(target)
-    if keys == {"tile", "zone"} and target["zone"] == "centre":
-        _current_tile(request, target["tile"], zone=True)
-        return dict(target)
-    if keys == {"tile", "zone", "index"} and target["zone"] == "tab":
-        index = target["index"]
-        if isinstance(index, int) and not isinstance(index, bool) and index >= 0:
-            _current_tile(request, target["tile"], zone=True)
-            return dict(target)
+    if _is_zone_target(target):
+        raise OpRefused(
+            ONE_PANEL_PER_TILE,
+            f"{ONE_PANEL_PER_TILE_TEXT}: drop beside a tile (its edge, a border or a "
+            "dock edge), never into it",
+        )
     raise OpRefused("invalid_target")
+
+
+def _one_panel_per_tile(layout: Mapping) -> None:
+    """Refuse a structurally valid layout that puts several panels in one tile."""
+    where = crowded_tile(layout)
+    if where is not None:
+        raise OpRefused(
+            ONE_PANEL_PER_TILE, f"{where}: {ONE_PANEL_PER_TILE}: {ONE_PANEL_PER_TILE_TEXT}"
+        )
 
 
 def _set_layout(members: list[str], layout: dict | None) -> dict | None:
     """A collection-form layout over ``members``, refused by its named reason.
 
     The terminal is checked first: a layout naming it is ``terminal_in_layout``
-    whatever else is wrong with it.
+    whatever else is wrong with it. A layout that keeps every layout rule but
+    puts several panels in one tile is ``one_panel_per_tile``.
     """
     if layout is None:
         return None
@@ -312,6 +375,7 @@ def _set_layout(members: list[str], layout: dict | None) -> dict | None:
     if refusal is not None:
         reason, where = refusal
         raise OpRefused(reason, f"{where}: {reason}: {REASON_TEXT[reason]}")
+    _one_panel_per_tile(layout)
     return normalize_layout(layout, form="collection")
 
 
@@ -331,7 +395,7 @@ def _set_members(request: Request, members: list[str]) -> list[str]:
 
 
 def _member_index_layout(node: Mapping, index: dict[str, int]) -> dict:
-    """A panel-id preset layout rewritten with member indexes in its tabs."""
+    """A panel-id preset layout rewritten with member indexes for its panel ids."""
     if "split" in node:
         return {**node, "items": [_member_index_layout(item, index) for item in node["items"]]}
     out = {**node, "tabs": [index[key] for key in node["tabs"]]}
@@ -353,7 +417,8 @@ def resolve_preset(request: Request, name: str) -> PresetArrangement:
     Raises:
         OpRefused: ``unknown_arrangement`` for a name no preset carries,
             ``terminal_in_layout`` for a layout naming the terminal,
-            ``invalid_layout`` for an entry without a valid layout,
+            ``one_panel_per_tile`` for a layout putting several panels in one
+            tile, ``invalid_layout`` for an entry without a valid layout,
             ``unknown_member`` for a preset left with no member.
     """
     presets: list[dict] = list(getattr(request.app.state, "panel_presets", []))
@@ -364,6 +429,8 @@ def resolve_preset(request: Request, name: str) -> PresetArrangement:
     layout = match.get("layout")
     if _names_terminal(layout):
         raise OpRefused("terminal_in_layout")
+    if isinstance(layout, dict) and layout_refusal(layout, form="collection") is None:
+        _one_panel_per_tile(layout)
     if preset_refusal(layout) is not None:
         raise OpRefused("invalid_layout", f"preset {name!r} has no valid layout")
     known = _known_panel_ids(request)
@@ -403,9 +470,11 @@ async def _relay_op(
 
     Raises:
         OpRefused: ``stale_base`` at once when ``base_rev`` is behind the
-            current rev; ``no_dock_client`` when no report is current or the
-            client does not answer within :data:`OP_TIMEOUT_S`; the client's
-            own refusal otherwise.
+            current rev; ``no_dock_client`` when no report is current (nothing
+            was sent) or the client's stream closes first;
+            ``no_dock_answer`` when the client does not answer within
+            :data:`OP_TIMEOUT_S` — it may still apply the op, so the request id
+            is kept for its late answer; the client's own refusal otherwise.
     """
     state = request.app.state
     if base_rev is not None and base_rev < getattr(state, "dock_layout_rev", 0):
@@ -414,7 +483,7 @@ async def _relay_op(
     if target is None:
         raise OpRefused("no_dock_client", status=409)
     pending = _pending_ops(state)
-    if request_id in pending:
+    if request_id in pending or request_id in _unanswered_ops(state):
         raise OpRefused("duplicate_request", status=409)
     future: asyncio.Future = asyncio.get_running_loop().create_future()
     pending[request_id] = _PendingOp(target, future)
@@ -432,7 +501,8 @@ async def _relay_op(
         state.broadcaster.send_to(target, frame, reliable=True)
         return await asyncio.wait_for(future, timeout=OP_TIMEOUT_S)
     except TimeoutError:
-        raise OpRefused("no_dock_client", status=409) from None
+        _remember_unanswered(state, request_id, target)
+        raise OpRefused("no_dock_answer", status=409) from None
     finally:
         pending.pop(request_id, None)
 
@@ -497,13 +567,8 @@ class DropOpRequest(_OpRequest):
     target: dict
 
 
-class CloseTabOpRequest(_OpRequest):
+class CloseOpRequest(_OpRequest):
     key: str = Field(min_length=1)
-
-
-class CloseTileOpRequest(_OpRequest):
-    base_rev: int = Field(ge=0)
-    tile: str = Field(min_length=1)
 
 
 class OpenOpRequest(_OpRequest):
@@ -515,7 +580,7 @@ class OpenSetOpRequest(_OpRequest):
     model_config = ConfigDict(populate_by_name=True)
 
     members: list[str] = Field(min_length=1)
-    as_: Literal["tabs", "side", "layout"] = Field(alias="as")
+    as_: Literal["side", "layout"] = Field(alias="as")
     layout: dict | None = None
 
 
@@ -523,17 +588,18 @@ class OpenArrangementOpRequest(_OpRequest):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str = Field(min_length=1)
-    as_: Literal["tabs", "side", "layout"] | None = Field(default=None, alias="as")
+    as_: Literal["side", "layout"] | None = Field(default=None, alias="as")
 
 
 @router.post("/api/panel-op/drop")
 async def op_drop(body: DropOpRequest, request: Request):
-    """The ``drop {source, target}`` op: move a tab or tile, or open a panel at a target.
+    """The ``drop {source, target}`` op: move a panel or a tile, or open a panel at a target.
 
     A ``new`` source is ``{panel}``; the dock mints its key. Tile ids name the
-    layout of ``base_rev``. The terminal tab, and a tile holding it, is never a
-    source; a target may be the terminal's tile. A panel in a pop-out window is
-    never a source (``popped_out``).
+    layout of ``base_rev``. The terminal, and the tile holding it, is never a
+    source; a target may be beside the terminal's tile. Every target splits
+    (:func:`_drop_target`): a drop into a tile is refused ``one_panel_per_tile``.
+    A panel in a pop-out window is never a source (``popped_out``).
 
     Returns:
         ``{"status": "ok", "layout", "popouts", "rev"}``, or a ``{"status":
@@ -550,9 +616,12 @@ async def op_drop(body: DropOpRequest, request: Request):
     return await _run_op(request, "drop", body.request_id, body.base_rev, prepare)
 
 
-@router.post("/api/panel-op/close-tab")
-async def op_close_tab(body: CloseTabOpRequest, request: Request):
-    """The ``close_tab {key}`` op; the terminal tab and a pop-out are never agent close targets."""
+@router.post("/api/panel-op/close")
+async def op_close(body: CloseOpRequest, request: Request):
+    """The ``close {key}`` op: the tile showing that panel closes, and the panel stays on the rail.
+
+    The terminal and a panel in a pop-out window are never agent close targets.
+    """
 
     def prepare() -> _Prepared:
         if body.key == _TERMINAL_PANEL_ID:
@@ -562,23 +631,17 @@ async def op_close_tab(body: CloseTabOpRequest, request: Request):
         _not_popped_out(request, body.key)
         return _Prepared({"key": body.key}, body.key)
 
-    return await _run_op(request, "close_tab", body.request_id, None, prepare)
-
-
-@router.post("/api/panel-op/close-tile")
-async def op_close_tile(body: CloseTileOpRequest, request: Request):
-    """The ``close_tile {tile}`` op; a tile holding the terminal is never closed by an agent."""
-
-    def prepare() -> _Prepared:
-        tile = _current_tile(request, body.tile, source=True)
-        return _Prepared({"tile": tile}, tile)
-
-    return await _run_op(request, "close_tile", body.request_id, body.base_rev, prepare)
+    return await _run_op(request, "close", body.request_id, None, prepare)
 
 
 @router.post("/api/panel-op/open")
 async def op_open(body: OpenOpRequest, request: Request):
     """The ``open {member, url?}`` op; where the panel lands is the dock's open rule.
+
+    The rule is the dock client's: the panel replaces the one the service tile
+    used last showed (that panel stays on the rail), a panel already docked is
+    focused where it is, and with no service tile it opens beside the Agent
+    pane, which is never the target.
 
     ``url`` is read the way a browser's URL parser reads it
     (:func:`~osprey.interfaces.panel_urls.normalise_navigation_url`, the
@@ -620,7 +683,12 @@ async def op_open(body: OpenOpRequest, request: Request):
 
 @router.post("/api/panel-op/open-set")
 async def op_open_set(body: OpenSetOpRequest, request: Request):
-    """The ``open_set {members, as, layout?}`` op; ``layout`` keys are member indexes."""
+    """The ``open_set {members, as, layout?}`` op: side by side, or as ``layout`` says.
+
+    ``as`` is ``side`` (a tile each, beside the focused tile) or ``layout``,
+    whose collection-form ``layout`` keys are member indexes and lists one
+    member per tile (``one_panel_per_tile``).
+    """
 
     def prepare() -> _Prepared:
         members = _set_members(request, body.members)
@@ -641,7 +709,7 @@ async def op_open_arrangement(body: OpenArrangementOpRequest, request: Request):
 
     The members and layout are resolved here (:func:`resolve_preset`), so the
     dock client needs no preset table. A preset opens as its layout says unless
-    ``as`` asks for its panels as tabs or side by side instead. Presets keep
+    ``as: side`` asks for its panels side by side instead. Presets keep
     their prune-to-members rail behaviour: once the dock shows the arrangement,
     the rail holds its members.
     """
@@ -673,37 +741,55 @@ class PanelOpResultRequest(BaseModel):
     detail: str | None = Field(default=None, max_length=500)
 
 
+def _settle(pending: _PendingOp | None, outcome: dict | OpRefused) -> None:
+    """Hand an answer to the write still waiting on it; a late answer has none."""
+    if pending is None or pending.future.done():
+        return
+    if isinstance(outcome, OpRefused):
+        pending.future.set_exception(outcome)
+    else:
+        pending.future.set_result(outcome)
+
+
 @router.post("/api/panel-op-result")
 async def panel_op_result(body: PanelOpResultRequest, request: Request):
     """Record a dock client's outcome for a pending op (browser-session tier).
 
     Only a pending ``request_id``, answered by the client the op was addressed
-    to, is accepted. A layout is recorded as that client's current report
-    (:func:`_record_dock_report`), which mints the ``rev`` both this response
-    and the waiting write return; the client takes it as its ack baseline. A
-    refusal is passed to the write unchanged and records nothing.
+    to, is accepted — or, once, the late answer to a request whose write gave
+    up waiting (``no_dock_answer``) and that the server still remembers
+    (:data:`UNANSWERED_CAP`). A layout is recorded as that client's current
+    report (:func:`_record_dock_report`), which mints the ``rev`` this response
+    and a waiting write return; the client takes it as its ack baseline. A late
+    layout passes the same checks and is recorded the same way, as a layout
+    report would be: the write has already returned, so nothing else follows
+    from it. A refusal is passed to a waiting write unchanged and records
+    nothing.
 
     Returns:
         ``{"status": "ok", "layout": <dict|None>, "popouts": [...], "rev": <int>}``
 
     Raises:
-        HTTPException: 404 for a request id that is not pending, 403 for a
-            client the op was not addressed to, 422 for an answer that is not
-            exactly one of ``layout`` and ``refusal`` or whose layout is refused.
+        HTTPException: 404 for a request id that is neither pending nor awaiting
+            a late answer, 403 for a client the op was not addressed to, 422 for
+            an answer that is not exactly one of ``layout`` and ``refusal`` or
+            whose layout is refused.
     """
     state = request.app.state
     pending = _pending_ops(state).get(body.request_id)
-    if pending is None:
+    target = pending.target if pending is not None else _unanswered_ops(state).get(body.request_id)
+    if target is None:
         raise HTTPException(status_code=404, detail="No pending op with this request_id")
-    if body.client_id != pending.target:
+    if body.client_id != target:
         raise HTTPException(status_code=403, detail="The op was addressed to another client")
+    if pending is None:
+        del _unanswered_ops(state)[body.request_id]
     if (body.layout is None) == (body.refusal is None):
         raise HTTPException(status_code=422, detail="Answer with exactly one of layout or refusal")
     if body.refusal is not None:
         if not _REFUSAL_REASON_RE.match(body.refusal):
             raise HTTPException(status_code=422, detail="A refusal is a snake_case reason")
-        if not pending.future.done():
-            pending.future.set_exception(OpRefused(body.refusal, body.detail, status=409))
+        _settle(pending, OpRefused(body.refusal, body.detail, status=409))
         return {
             "status": "ok",
             "layout": None,
@@ -714,12 +800,10 @@ async def panel_op_result(body: PanelOpResultRequest, request: Request):
         layout = _checked_dock_layout(request, body.layout)
         popouts = _checked_popouts(request, body.popouts, layout)
     except HTTPException as exc:
-        if not pending.future.done():
-            pending.future.set_exception(OpRefused("invalid_result", str(exc.detail), status=409))
+        _settle(pending, OpRefused("invalid_result", str(exc.detail), status=409))
         raise
     rev, _ = _record_dock_report(state, body.client_id, layout, True, popouts)
-    if not pending.future.done():
-        pending.future.set_result({"layout": layout, "popouts": popouts, "rev": rev})
+    _settle(pending, {"layout": layout, "popouts": popouts, "rev": rev})
     return {"status": "ok", "layout": layout, "popouts": popouts, "rev": rev}
 
 

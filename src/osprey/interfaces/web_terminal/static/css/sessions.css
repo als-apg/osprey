@@ -1,136 +1,68 @@
-/* OSPREY Web Terminal — Session Picker Styles */
+/* OSPREY Web Terminal — Session switcher (session-switcher.js)
+ *
+ * The Agent tile's header label on both surfaces (`.op-session-label` in chat,
+ * `#terminal-label` on the terminal) names the session with a ▾ and opens one
+ * body-level `.osprey-popover`; the primitives draw its surface and rows. */
 
-.session-selector {
-  position: relative;
+.session-switcher {
   display: inline-flex;
-  align-items: center;
-}
-
-.session-picker-btn {
-  background: none;
-  border: 1px solid var(--border-default);
-  color: var(--text-secondary);
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  line-height: var(--leading-none);
-  transition: all var(--wt-transition-fast);
+  border-radius: var(--radius-sm, 4px);
 }
 
-.session-picker-btn:hover {
-  background: var(--bg-elevated);
+.session-switcher:hover .session-switcher-caret,
+.session-switcher[aria-expanded='true'] .session-switcher-caret {
   color: var(--text-primary);
-  border-color: var(--border-accent);
 }
 
-/* Body-level and fixed. The picker button is adopted into dockview's tab strip
- * (dock-tab.js), which is overflow:hidden and one bar tall AND carries a
- * transform — that opens a stacking context, so an absolutely-positioned
- * dropdown is both clipped away and pinned below the terminal content pane no
- * matter how high its z-index. sessions.js appends this to <body> and sets
- * left/top from the button's rect; everything here is appearance only. */
-.session-dropdown {
-  display: none;
-  position: fixed;
-  z-index: var(--z-dropdown);
-  min-width: 280px;
-  max-height: 360px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-dropdown);
+.session-switcher:focus-visible {
+  outline: 2px solid var(--color-accent, currentColor);
+  outline-offset: 2px;
+}
+
+/* The terminal header's label is a mono uppercase tag; a session title reads
+   as a name, so it keeps its own case. */
+.terminal-label.session-switcher {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.session-switcher-title {
+  min-width: 0;
   overflow: hidden;
-}
-
-.session-dropdown.open {
-  display: block;
-}
-
-.session-dropdown-header {
-  padding: 8px 12px;
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border-default);
-  font-family: var(--font-display);
-}
-
-.session-dropdown-list {
-  max-height: 310px;
-  overflow-y: auto;
-  padding: var(--space-1);
-}
-
-.session-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 8px 10px;
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  color: var(--text-primary);
-  transition: background var(--wt-transition-fast);
-  font-family: var(--font-display);
-}
-
-.session-item:hover {
-  background: var(--bg-elevated);
-}
-
-.session-item.active {
-  background: var(--accent-tint-08);
-  border-left: 2px solid var(--color-accent-light);
-  padding-left: var(--space-2);
-}
-
-.session-item.empty {
-  color: var(--text-muted);
-  cursor: default;
-  text-align: center;
-  padding: var(--space-4);
-  font-style: italic;
-}
-
-.session-item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2px;
-}
-
-.session-item-id {
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  color: var(--color-accent-light);
-  font-weight: var(--weight-medium);
-}
-
-.session-item-time {
-  font-size: var(--text-base);
-  color: var(--text-muted);
-}
-
-.session-item-preview {
-  font-size: var(--text-md);
-  color: var(--text-secondary);
   white-space: nowrap;
-  overflow: hidden;
   text-overflow: ellipsis;
-  line-height: var(--leading-snug);
 }
 
-.session-item-meta {
-  font-size: var(--text-sm);
+.session-switcher-caret {
+  flex: none;
+  font-size: var(--text-xs);
   color: var(--text-muted);
-  margin-top: 2px;
 }
 
-/* New session button in terminal header */
-.new-session-btn {
-  font-family: var(--font-display);
+.session-switcher-menu {
+  width: 340px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.session-switcher-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-switcher-menu .osprey-popover-check {
+  margin-left: 0;
+}
+
+/* The menu's last row: the way to the other surface, deliberately quiet. */
+.session-switcher-surface {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }

@@ -95,7 +95,7 @@ function flushMicro() {
 function makeDeps(over = {}) {
   return {
     getHiddenPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
-    getVisiblePanels: () => [{ id: 'lattice', label: 'Lattice' }],
+    getVisiblePanels: () => [{ id: 'channel-finder', label: 'Channels' }],
     getPresets: () => [{ name: 'Focus', panels: ['ariel'] }],
     showPanel: vi.fn(),
     focusPanel: vi.fn(),
@@ -200,15 +200,15 @@ describe('filtering + highlight', () => {
   });
 
   test('a row found through its searchText alone renders its label un-highlighted', async () => {
-    // "optics" is a Lattice synonym carried only in searchText: it ranks the
-    // row, but no character of "Focus Lattice" is marked for it.
+    // "pv" is a Channels synonym carried only in searchText: it ranks the
+    // row, but no character of "Focus Channels" is marked for it.
     openPalette(makeDeps());
     await flushMicro();
-    typeQuery('optics');
+    typeQuery('pv');
     const labels = [...document.querySelectorAll('.command-palette-item-label')];
-    const lattice = labels.find((l) => l.textContent === 'Focus Lattice');
-    if (!lattice) throw new Error('no Focus Lattice row');
-    expect(lattice.querySelectorAll('.command-palette-match')).toHaveLength(0);
+    const channels = labels.find((l) => l.textContent === 'Focus Channels');
+    if (!channels) throw new Error('no Focus Channels row');
+    expect(channels.querySelectorAll('.command-palette-match')).toHaveLength(0);
   });
 
   test('a non-matching query renders the empty state', async () => {
@@ -227,6 +227,53 @@ describe('filtering + highlight', () => {
       (h) => h.textContent
     );
     expect(headings).toEqual(['Settings', 'Panels', 'Layouts', 'Actions']);
+  });
+});
+
+describe('a query that names a panel', () => {
+  /** Settings keys that all contain the panel id, as a deployment's ariel.* keys do. */
+  const ARIEL_SECTIONS = {
+    ariel: { database: { uri: 'x' }, web: { port: 1 }, search: { k: 2 } },
+    logbook: { name: 'ops' },
+    elog: { url: 'y' },
+  };
+
+  test('its old id lists the panel first, ahead of every setting that contains it', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(
+      makeDeps({
+        getHiddenPanels: () => [],
+        getVisiblePanels: () => [],
+        getPopoutPanels: () => [{ id: 'ariel', label: 'Logbook' }],
+        popoutPanel: vi.fn(),
+      })
+    );
+    await flushMicro();
+    typeQuery('ariel');
+
+    expect(headings()[0]).toBe('Panels');
+    expect(rowLabels()[0]).toBe('Pop out Logbook');
+    const active = document.querySelector('.command-palette-item--active');
+    expect(active?.textContent).toContain('Pop out Logbook');
+  });
+
+  test('its label and its domain words also lead with the panel', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(makeDeps({ getHiddenPanels: () => [{ id: 'ariel', label: 'Logbook' }] }));
+    await flushMicro();
+    for (const q of ['logbook', 'Logbook', 'elog']) {
+      typeQuery(q);
+      expect(headings()[0], q).toBe('Panels');
+    }
+  });
+
+  test('a partial word keeps the fixed group order', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(makeDeps({ getHiddenPanels: () => [{ id: 'ariel', label: 'Logbook' }] }));
+    await flushMicro();
+    typeQuery('ari');
+
+    expect(headings()[0]).toBe('Settings');
   });
 });
 

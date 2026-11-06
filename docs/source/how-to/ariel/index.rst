@@ -99,8 +99,8 @@ reasoning over results delegated to the OSPREY agent layer.
             osprey init my-project --preset control-assistant
             cd my-project
 
-         Its build (Step 2) gives you a ready-to-use ``config.yml`` with
-         PostgreSQL, the ARIEL web interface, and all search modules
+         Its build gives you a ready-to-use ``config.yml``
+         with PostgreSQL, the ARIEL web interface, and all search modules
          enabled --- skip to Step 2. The repository's ``profile.yml`` is what
          the build reads, and its ``.env`` is where your provider keys belong.
 

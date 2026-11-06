@@ -1046,13 +1046,16 @@ def _capture_agentic(
                     secret=operator_secret,
                 )
 
-                # Select the plot by its row in the hub sidebar's artifact list:
-                # the row click shows the plot in the work pane, and the row's
-                # ``data-id`` pins the viewer to the plot (unlike relying on
-                # newest-auto-select) even as the agent keeps emitting later
-                # artifacts.
+                # Select the plot by its row in the hub sidebar's session tree
+                # (opened down to it): the row click shows the plot in the work
+                # pane, and the row's ``data-id`` pins the viewer to the plot
+                # (unlike relying on newest-auto-select) even as the agent keeps
+                # emitting later artifacts.
+                from docs.screenshots.contact_sheet import open_tree_to_row
+
+                open_tree_to_row(page, plot_id)
                 page.locator(
-                    f'#sidebar-artifacts-list .osprey-list-row[data-id="{plot_id}"]'
+                    f'#sidebar-session-tree .osprey-list-row[data-id="{plot_id}"]'
                 ).first.click(timeout=30_000)
                 panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
                 panel.locator("#preview-content .preview-viewport > *").first.wait_for(

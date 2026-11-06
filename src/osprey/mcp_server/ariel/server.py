@@ -10,7 +10,8 @@ Usage:
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -18,7 +19,13 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from osprey.ariel_attachment_view import DEFAULT_VIEW_ENABLED, VIEW_ENABLED_KEY
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.errors import make_error  # re-exported for ARIEL tools
+from osprey.services.ariel_search.entry_url import (  # re-exported for ARIEL tools
+    ARIEL_NATIVE_SOURCE_SYSTEM as ARIEL_NATIVE_SOURCE_SYSTEM,
+)
+from osprey.services.ariel_search.entry_url import build_entry_url as build_entry_url
+from osprey.services.ariel_search.entry_url import is_ariel_only as is_ariel_only
 
 if TYPE_CHECKING:
     import mcp.types as mt
@@ -71,8 +78,57 @@ def check_attachment_view_offered() -> None:
     )
 
 
-class AttachmentViewOfferMiddleware(Middleware):
-    """Leave the picture tools out of ``tools/list`` when the view is switched off.
+#: The tool that runs the agent's raw SQL, as the store's SELECT-only login.
+SQL_QUERY_TOOL = "sql_query"
+
+
+def sql_tool_offered_here() -> bool:
+    """Return whether ``SQL_QUERY_TOOL`` is offered here.
+
+    Offered exactly when the ARIEL context resolved a read-only login
+    (``config.database.readonly_uri``). With no context to read it from the
+    tool is offered, as :func:`attachment_view_offered` offers the picture
+    tools, so a process that only lists tools sees the full surface.
+    """
+    from osprey.mcp_server.ariel.server_context import get_ariel_context
+
+    try:
+        config = get_ariel_context().config
+    except RuntimeError:
+        return True
+    return config.database.readonly_uri is not None
+
+
+def check_sql_tool_offered() -> None:
+    """Refuse with ``not_supported`` naming the key when no read-only login is configured."""
+    if sql_tool_offered_here():
+        return
+    from osprey.services.ariel_search.config import READONLY_URI_KEY
+
+    make_error(
+        "not_supported",
+        "The SQL tool is not served on this deployment: ariel.database.uri is set "
+        f"and {READONLY_URI_KEY} is not.",
+        [
+            f"An administrator can name a SELECT-only login in {READONLY_URI_KEY} "
+            "in the build profile, then rebuild."
+        ],
+        details={"key": READONLY_URI_KEY},
+    )
+
+
+#: Each config-gated tool and the predicate that offers it here.
+_TOOL_OFFERS: tuple[tuple[frozenset[str], Callable[[], bool]], ...] = (
+    (VIEW_GATED_TOOLS, attachment_view_offered),
+    (frozenset({SQL_QUERY_TOOL}), sql_tool_offered_here),
+)
+
+
+class ToolOfferMiddleware(Middleware):
+    """Leave every tool whose offer predicate is false out of ``tools/list``.
+
+    The picture tools follow :func:`attachment_view_offered` and ``sql_query``
+    follows :func:`sql_tool_offered_here`.
 
     It hides the tools and does not refuse them. The refusal lives in each
     tool, so a call that reaches the server anyway gets an answer naming the
@@ -84,11 +140,27 @@ class AttachmentViewOfferMiddleware(Middleware):
         context: MiddlewareContext[mt.ListToolsRequest],
         call_next: CallNext[mt.ListToolsRequest, Sequence[Tool]],
     ) -> Sequence[Tool]:
-        """Return the listed tools, without ``VIEW_GATED_TOOLS`` when they are not offered."""
+        """Return the listed tools, without those not offered here."""
         tools = await call_next(context)
-        if attachment_view_offered():
+        withheld: set[str] = set()
+        for names, offered in _TOOL_OFFERS:
+            if not offered():
+                withheld |= names
+        if not withheld:
             return tools
-        return [tool for tool in tools if tool.name not in VIEW_GATED_TOOLS]
+        return [tool for tool in tools if tool.name not in withheld]
+
+
+@asynccontextmanager
+async def _lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
+    """Close the ARIEL service the server's context built when the server exits."""
+    try:
+        yield {}
+    finally:
+        try:
+            await get_ariel_context().shutdown()
+        except Exception:
+            logger.debug("Error during ARIEL shutdown (ignored)", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +168,7 @@ class AttachmentViewOfferMiddleware(Middleware):
 # ---------------------------------------------------------------------------
 mcp = FastMCP(
     "ariel",
+    lifespan=_lifespan,
     instructions=(
         "Search facility logbook entries and operational records. "
         "When an entry includes an `entry_url`, link to it verbatim; "
@@ -108,15 +181,7 @@ mcp = FastMCP(
         "`records` list means the current facility file no longer holds it."
     ),
 )
-mcp.add_middleware(AttachmentViewOfferMiddleware())
-
-# The source_system value ARIEL stamps on its own natively-created entries
-# (see tools/entry.py entry_create direct mode). Such entries are not (yet) in
-# the facility logbook, so no canonical entry_url exists for them.
-ARIEL_NATIVE_SOURCE_SYSTEM = "ARIEL MCP"
-
-# One-time guard so a malformed template does not spam the per-entry hot path.
-_entry_url_template_warned = False
+mcp.add_middleware(ToolOfferMiddleware())
 
 
 # ---------------------------------------------------------------------------
@@ -147,60 +212,6 @@ def parse_date_filters(
         parse_time_bound(start_date, end=False) if start_date else None,
         parse_time_bound(end_date, end=True) if end_date else None,
     )
-
-
-def build_entry_url(entry_id: str | None, source_system: str | None = None) -> str | None:
-    """Render the config-driven canonical logbook entry URL, or ``None``.
-
-    An egress transform mirroring ``to_facility_iso``: it reads the
-    facility-supplied ``ariel.entry_url_template`` from the merged config and
-    renders it with the URL-encoded ``entry_id`` so the agent links entries
-    verbatim instead of inventing a URL.
-
-    Returns ``None`` (emit no URL) when:
-
-    - ``source_system`` marks an ARIEL-native entry not yet in the facility
-      logbook (``ARIEL_NATIVE_SOURCE_SYSTEM``);
-    - ``entry_id`` is empty/blank;
-    - no ``ariel.entry_url_template`` is configured (a deployment that
-      configures no template emits no ``entry_url`` and the agent shows
-      plain IDs);
-    - the template is malformed (fail-safe — this runs per-entry on the search
-      hot path, so a one-character typo in the template must degrade to "no URL",
-      never crash a read).
-    """
-    from urllib.parse import quote
-
-    from osprey_connectors.config import get_config_value
-
-    if source_system == ARIEL_NATIVE_SOURCE_SYSTEM:
-        return None
-    if not entry_id or not str(entry_id).strip():
-        return None
-
-    try:
-        template = get_config_value("ariel.entry_url_template", None)
-    except Exception:
-        # Config not loaded/resolvable (e.g. no config.yml): treat as an
-        # unconfigured deployment — emit no URL rather than crash the read.
-        return None
-    if not template:
-        return None
-
-    try:
-        if not isinstance(template, str):
-            raise TypeError(f"expected a string, got {type(template).__name__}")
-        return template.format(entry_id=quote(str(entry_id), safe=""))
-    except Exception:
-        global _entry_url_template_warned
-        if not _entry_url_template_warned:
-            _entry_url_template_warned = True
-            logger.warning(
-                "Malformed ariel.entry_url_template %r (needs a single {entry_id} "
-                "placeholder); emitting no entry_url.",
-                template,
-            )
-        return None
 
 
 def serialize_entry(
@@ -262,7 +273,9 @@ def serialize_entry(
         **entry_text_fields(entry["raw_text"], text_limit, field="raw_text"),
         "summary": entry.get("summary"),
     }
-    entry_url = build_entry_url(entry["entry_id"], entry["source_system"])
+    entry_url = build_entry_url(
+        entry["entry_id"], entry["source_system"], metadata=entry.get("metadata")
+    )
     if entry_url is not None:
         result["entry_url"] = entry_url
     if "_score" in entry:

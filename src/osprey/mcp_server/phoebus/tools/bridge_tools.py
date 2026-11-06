@@ -828,7 +828,6 @@ async def phoebus_snapshot(
                 "file_format": "PNG",
                 "view_hint": f"Open {fpath} with your file-reading tool to view the snapshot.",
             },
-            category="screenshot",
         )
         return prepend_line(label, json.dumps(entry.to_tool_response(), default=str))
     except ToolError:

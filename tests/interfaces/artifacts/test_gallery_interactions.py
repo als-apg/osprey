@@ -96,11 +96,11 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
     ArtifactStore writes the index + content files, then create_app()'s own
     ArtifactStore (same workspace_root) loads that index at construction.
 
-    Each fixture sets a real `category` (from type_registry.py's CATEGORIES,
-    not ARTIFACT_TYPES) -- render.js's tree sections group by
-    `category || artifact_type`, and the preview badge class reflects the
-    category. Viewport selection in preview.js is unaffected -- that
-    dispatch switches on the raw `artifact_type`, not `category`.
+    The server derives each fixture's form from what it is (markdown and html
+    are Documents, json is Data): render.js's tree sections group by that
+    form, and the preview badge class reflects it. Viewport selection in
+    preview.js is unaffected -- that dispatch switches on the raw
+    `artifact_type`.
     """
     monkeypatch.chdir(tmp_path)
 
@@ -115,7 +115,6 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
         description="A markdown fixture artifact",
         mime_type="text/markdown",
         tool_source="test_fixture",
-        category="document",
     )
     seed_store.save_file(
         file_content=b"<html><body><h1>Orbit</h1></body></html>",
@@ -125,7 +124,6 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
         description="An html fixture artifact",
         mime_type="text/html",
         tool_source="test_fixture",
-        category="visualization",
     )
     # A json fixture: the shape a channel-finder result lands as.
     seed_store.save_file(
@@ -136,7 +134,6 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
         description="A json fixture artifact",
         mime_type="application/json",
         tool_source="test_fixture",
-        category="channel_values",
     )
 
     from osprey.interfaces.artifacts.app import create_app
@@ -171,7 +168,6 @@ def _launch_many_artifacts(
             title=f"Paged Artifact {i:03d}",
             mime_type="text/markdown",
             tool_source="test_fixture",
-            category="document",
         )
 
     from osprey.interfaces.artifacts.app import create_app
@@ -398,15 +394,16 @@ def test_selecting_artifact_renders_preview_for_its_type(tmp_path, monkeypatch, 
 
         _card_for_title(page, MARKDOWN_TITLE).click()
         expect(page.locator(".preview-header-title")).to_have_text(MARKDOWN_TITLE, timeout=10_000)
-        # Badge class reflects `category` (set on the fixture, see
-        # _launch_artifacts) over artifact_type; viewport dispatch below is
-        # keyed on the raw artifact_type regardless.
-        expect(page.locator(".preview-header .badge")).to_have_class("badge badge-document")
+        # Badge class reflects the form the server derived (see
+        # _launch_artifacts), never the file format; viewport dispatch below
+        # is keyed on the raw artifact_type regardless.
+        expect(page.locator(".preview-header .badge")).to_have_class("badge badge-documents")
+        expect(page.locator(".preview-header .badge")).to_have_text("Documents")
         expect(page.locator(".preview-viewport .md-preview-container")).to_be_visible(timeout=5_000)
 
         _card_for_title(page, HTML_TITLE).click()
         expect(page.locator(".preview-header-title")).to_have_text(HTML_TITLE, timeout=10_000)
-        expect(page.locator(".preview-header .badge")).to_have_class("badge badge-visualization")
+        expect(page.locator(".preview-header .badge")).to_have_class("badge badge-documents")
         expect(page.locator(".preview-viewport iframe.preview-iframe-light")).to_be_visible(
             timeout=5_000
         )

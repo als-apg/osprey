@@ -179,7 +179,7 @@ from tests.e2e.fixtures.teams_fakes import (
     personal_activity,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow]
+pytestmark = [pytest.mark.slow]
 # No ``dockerbuild`` marker and no ``skipif``: this lane builds no image, starts no
 # container and reaches no network beyond loopback. See the gating note in the docstring.
 
