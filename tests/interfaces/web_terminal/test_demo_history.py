@@ -202,6 +202,24 @@ def _events(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [e for t in turns for e in t.get("events") or []]
 
 
+def _listed_by_key(client: TestClient, owner_of: dict[str, str] | None = None) -> list[str]:
+    """Every artifact id ``/api/session-summary`` lists, asking once per session key.
+
+    The route answers for one key's current transcript. With ``owner_of`` (artifact id →
+    owning transcript id), each answer must hold exactly what that transcript owns.
+    """
+    ids: list[str] = []
+    for key in sorted({r["session_key"] for r in _rows(client)}):
+        listed = client.get("/api/session-summary", params={"session_id": key}).json()
+        assert listed["session"] is not None, (key, listed["reason"])
+        got = [e["id"] for e in listed["entries"]]
+        if owner_of is not None:
+            owned = [eid for eid, tid in owner_of.items() if tid == listed["session"]]
+            assert sorted(got) == sorted(owned), key
+        ids += got
+    return ids
+
+
 def _authored_prompts(part: dict[str, Any]) -> list[str]:
     return [turn["prompt"].strip() for turn in part["turns"]]
 
@@ -253,9 +271,9 @@ def test_demo_history_fresh_hub_lists_and_replays_the_seeded_sessions(deployment
         assert counts == expected
         assert summary["owned_total"] == len(entry_owner)
 
-        # /api/session-summary lists the seeded artifacts, and nothing else.
-        listed = client.get("/api/session-summary").json()
-        assert {e["id"] for e in listed["entries"]} == set(entry_owner)
+        # /api/session-summary lists each key's own seeded artifacts, and nothing else.
+        listed = _listed_by_key(client, entry_owner)
+        assert sorted(listed) == sorted(entry_owner)
 
         # The store holds no example plot.
         entries = dep.store().list_entries()
@@ -353,8 +371,7 @@ def _assert_one_copy(dep: Deployment, client: TestClient, expected: dict[str, An
     rows = _rows(client)
     tids = [r["transcript_id"] for r in rows]
     assert len(tids) == len(set(tids)) == len(expected["transcripts"])
-    listed = client.get("/api/session-summary").json()
-    ids = [e["id"] for e in listed["entries"]]
+    ids = _listed_by_key(client)
     assert sorted(ids) == sorted(a[0] for a in expected["artifacts"])
 
 
