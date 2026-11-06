@@ -1310,7 +1310,7 @@ the current directory is used.
    freezes the apply-time anchor to an ISO-8601 instant so seeded logbook
    dates are reproducible; a naive value takes the facility timezone, and the
    ``OSPREY_SIM_NOW`` environment variable is read when the option is absent.
-   Scenario sessions laid down at the first deploy are never added or removed.
+   It never adds or removes the scenario sessions a first deploy laid down.
 
 .. code-block:: bash
 

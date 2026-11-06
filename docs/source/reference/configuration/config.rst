@@ -53,10 +53,10 @@ may touch.
        logbook, and only while no set has been chosen. Absent, ``null`` or
        ``[]`` starts in ``nominal`` alone, which is the default: the build
        derives no start set. The control-assistant preset sets
-       ``[rf-thermal, demo-history]``; the other presets leave it out. The
-       sessions of ``demo-history`` are laid down at the first deploy only, so
-       an upgraded deployment gets them only from a fresh ``osprey init``. A value that is not a list of non-empty
-       names, or a name that is not a scenario the facility serves (its own or
+       ``[rf-thermal, demo-history]``; the other presets leave it out. Only
+       this first activation lays down ``demo-history``'s sessions, so an
+       existing deployment gets them from a fresh ``osprey init``. A value that
+       is not a list of non-empty names, or a name that is not a scenario the facility serves (its own or
        the built-in ``still``), stops the
        build with a ``profile-invalid`` line naming the key (see
        :ref:`architecture-facility-settings`).

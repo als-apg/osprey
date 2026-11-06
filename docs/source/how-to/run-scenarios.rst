@@ -58,8 +58,8 @@ The preset starts a fresh deployment in ``rf-thermal`` and ``demo-history``,
 as the profile key ``simulation.default_scenarios`` names (see
 :doc:`/reference/configuration/config`).
 
-A scenario's sessions are laid down once, by the first deploy whose default set
-includes it. ``osprey sim apply`` never adds or removes sessions: a set
+A scenario's sessions are laid down only by a deployment's first deploy, from
+its default set. ``osprey sim apply`` never adds or removes sessions: a set
 without ``demo-history`` drops its archive events and logbook entries only.
 
 Apply a scenario
@@ -172,9 +172,9 @@ name. Every key is optional:
    * - ``sessions``
      - Past agent sessions, ``[{slug, title, when, parts}]``; each part (a
        ``/clear`` starts the next) has a ``title`` and ``turns``. A turn has
-       ``prompt``, ``at_offset_s``, ``channels``, ``logbook_ids``, ``steps``
-       (``{tool: {server, name}, input, result, approved?}`` or ``{answer}``)
-       and optionally ``artifacts``. ``channels`` must be facility channels
+       ``prompt`` and ``steps`` (``{tool: {server, name}, input, result,
+       approved?}`` or ``{answer}``), and optionally ``at_offset_s``,
+       ``channels``, ``logbook_ids`` and ``artifacts``. ``channels`` must be facility channels
        and ``logbook_ids`` entries of ``nominal`` or the scenario itself, or
        the build stops. The scenario must also state, under ``archiver`` and
        ``logbook``, the events its sessions tell of, so a resumed session that
