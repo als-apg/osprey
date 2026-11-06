@@ -1541,6 +1541,7 @@ jobs:
           tests/interfaces/web_terminal/test_scaffold_detail.py \
           tests/interfaces/web_terminal/test_session_page.py \
           tests/interfaces/web_terminal/test_sidebar_resize_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_divider_browser.py \
           tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
           tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
           tests/interfaces/web_terminal/test_attached_popout_browser.py \
