@@ -23,7 +23,11 @@
  * group (its run opened), scrolled to and shown, the panels left to the
  * session's own layout (session-layout.js). A click (or double-click) on the
  * session in use folds or unfolds it. The fold is this tab's own state, reset
- * on every switch. An artifact click shows it without changing the session,
+ * on every switch. The one exception to "only the session in use":
+ * ⌥-click (altKey) on a session or on the Agent row ({@link toggleAllSessions})
+ * expands every session, or collapses them all when all are open; a plain
+ * session click or a switch afterwards returns to the session in use alone,
+ * left open. An artifact click shows it without changing the session,
  * focusing an already docked Artifacts panel in place, and records it as its
  * owner's last-open artifact.
  *
@@ -97,6 +101,8 @@ function freshState() {
     view: 'activity',
     /** The session in use folded by the operator (reset on a switch). */
     activeFolded: false,
+    /** Every session expanded by ⌥-click (reset by a plain click or a switch). */
+    expandAll: false,
     /** Open form groups per session. @type {Map<string, Set<string>>} */
     openGroups: new Map(),
     /** Open runs, by run key. @type {Set<string>} */
@@ -231,7 +237,8 @@ async function summarize(all = false) {
 /** @param {{reason: string}} change */
 function onModelChange({ reason }) {
   // The session switched to always opens; the fold was the previous one's.
-  if (reason === 'pointer' || reason === 'switched') state.activeFolded = false;
+  if (reason === 'pointer' || reason === 'switched')
+    Object.assign(state, { activeFolded: false, expandAll: false });
   if (reason === 'rows') void summarize();
   render();
 }
@@ -497,7 +504,7 @@ function treeNodes() {
     const count = data.totals.counts[treeId]?.total ?? 0;
     loadedTotal += row.transcript_id ? count : 0;
     const isActive = treeId === active;
-    const open = served && isActive && !state.activeFolded;
+    const open = served && unfolded(treeId, active);
     const node = rows.sessionRow(/** @type {any} */ (row), {
       active: isActive,
       open,
@@ -622,10 +629,13 @@ function onClick(event) {
     // A double-click's second click is the same gesture: it never undoes the
     // first (a fold, or the switch it started).
     if (event.detail > 1) return;
+    if (event.altKey) return toggleAllSessions();
     const treeId = session.dataset.sessionId ?? '';
     // The session in use folds or unfolds; another is entered, never browsed.
+    // After expand-all, the click first returns to the session in use alone.
     if (treeId === activeTreeId()) {
-      state.activeFolded = !state.activeFolded;
+      state.activeFolded = state.expandAll ? false : !state.activeFolded;
+      state.expandAll = false;
       render();
     } else void openInAgent(treeId);
     return;
@@ -645,6 +655,25 @@ function onClick(event) {
     return render();
   }
   pickArtifact(/** @type {string} */ (row.dataset.id));
+}
+
+/**
+ * Whether a session row is open: the session in use unless folded, another
+ * only under expand-all.
+ * @param {string} treeId @param {string | null} active
+ */
+const unfolded = (treeId, active) => (treeId === active ? !state.activeFolded : state.expandAll);
+
+/**
+ * The ⌥-click on a session or on the Agent row (Finder's): expand every
+ * session, artifacts and all, or collapse them all when all are already open.
+ * @param {boolean} [force]  expand (true) or collapse (false) instead of toggling
+ */
+export function toggleAllSessions(force) {
+  const active = activeTreeId();
+  state.expandAll = force ?? !model.rows().every((r) => unfolded(treeIdOf(r), active));
+  state.activeFolded = !state.expandAll;
+  render();
 }
 
 /**
@@ -677,7 +706,7 @@ export async function openInAgent(treeId) {
   const moved = wasActive ? false : await model.switchTo(row, { reason: 'gesture' });
   if (!wasActive && !moved) return;
   const now = activeTreeId() ?? treeId;
-  state.activeFolded = false;
+  Object.assign(state, { activeFolded: false, expandAll: false });
   render();
   await reveal(now, model.pick() ?? row.last_artifact_id ?? null, false, !wasActive);
 }

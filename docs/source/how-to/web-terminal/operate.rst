@@ -561,6 +561,8 @@ opens on its proposed code. **More sessions** loads older ones.
   or older session keeps the layout on screen. The sidebar stays as it is.
   Click the current session's name to fold or unfold it. Only the current
   session shows its artifacts; the others stay folded until you switch to them.
+  ⌥-click (Alt+click) a session or **Agent** to expand every session, or
+  collapse them all if all are open.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.

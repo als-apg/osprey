@@ -463,7 +463,8 @@ describe('page-owned rows', () => {
     agentRow.click();
 
     expect(first).not.toHaveBeenCalled();
-    expect(second.mock.calls).toEqual([['terminal']]);
+    // The click rides along, so the policy can read its modifier keys.
+    expect(second.mock.calls).toEqual([['terminal', expect.any(MouseEvent)]]);
   });
 
   test('a page-owned row whose panel is absent is parked hidden and counts as absent', () => {

@@ -149,7 +149,7 @@ import {
  * through (the caller's policy — e.g. a disabled row); this module stays
  * policy-free.
  * @typedef {object} RailOptions
- * @property {(id: string) => void} [onActivate]   - a row was clicked
+ * @property {(id: string, e: MouseEvent) => void} [onActivate]   - a row was clicked
  * @property {(id: string, e: MouseEvent) => boolean} [onContextMenu]
  *   - a row was right-clicked, or asked for its menu from the keyboard
  *     (`ContextMenu` / Shift+F10, where `e` is a synthetic contextmenu event
@@ -471,7 +471,7 @@ function wireButton(railEl, btn, id, rowOptions) {
   wiredButtons.add(btn);
   const options = () => rowOptionsOf.get(btn) ?? {};
 
-  btn.addEventListener('click', () => options().onActivate?.(id));
+  btn.addEventListener('click', (event) => options().onActivate?.(id, event));
 
   // Right-click → the caller's context menu. The caller decides per-row
   // whether a menu exists (returns true); declining leaves the event alone so

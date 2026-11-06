@@ -125,9 +125,9 @@ function ctx() {
  */
 export function railOptions() {
   return {
-    onActivate: (/** @type {string} */ id) => {
+    onActivate: (/** @type {string} */ id, /** @type {MouseEvent | undefined} */ event) => {
       if (id === TERMINAL_RAIL_ID) {
-        activateAgentRow();
+        activateAgentRow(event);
         return;
       }
       // A failed sidecar's row has one verb: start it again.
@@ -180,10 +180,22 @@ export function railOptions() {
  * The Agent row's click. With the Agent pane closed it opens the pane and
  * unfolds the session list; with the pane open it folds or unfolds the list
  * and leaves the pane as it is — the pane closes only from its own header.
+ * A ⌥-click (altKey, from a pointer: Enter and Space stay a plain click)
+ * expands every session, or collapses them all when the list shows them all
+ * open (sidebar-artifacts.js, imported lazily: it imports this module),
+ * and leaves the pane as it is.
  * The one place that decides: sidebar.js handles only the collapsed
  * sidebar's flyout, and stops the click before it reaches here.
+ * @param {MouseEvent} [event]
  */
-function activateAgentRow() {
+function activateAgentRow(event) {
+  if (event?.altKey && event.detail > 0) {
+    // A folded list unfolds onto every session open, never onto a collapse.
+    const force = isListOpen(AGENT_LIST) ? undefined : true;
+    setListOpen(AGENT_LIST, true);
+    void import('./sidebar-artifacts.js').then((m) => m.toggleAllSessions(force));
+    return;
+  }
   if (isTerminalPanelOpen()) {
     setListOpen(AGENT_LIST, !isListOpen(AGENT_LIST));
     return;

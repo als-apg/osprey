@@ -23,6 +23,7 @@
 
 import { icon } from '/design-system/js/icons.js';
 import { facilityDayKey, formatFacilityTime } from '/design-system/js/facility-time.js';
+import { isMacPlatform } from '/design-system/js/platform.js';
 
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
 
@@ -225,9 +226,20 @@ export function agentDisclosure(open) {
 }
 
 /**
- * One session row: a disclosure (the active row only: no other session can be
- * opened without switching to it), the live dot, the title (or "naming…"), the
- * artifact count from the session summary (`data-count` once it is summarized).
+ * The modifier click that expands or collapses every session, as this
+ * platform names it.
+ * @returns {string}
+ */
+export function allSessionsClick() {
+  return isMacPlatform() ? '⌥-click' : 'Alt+click';
+}
+
+/**
+ * One session row: a disclosure (on the active row, and on any row the
+ * operator opened with expand-all; no other session opens without switching
+ * to it), the live dot, the title (or "naming…"), the artifact count from the
+ * session summary (`data-count` once it is summarized). The title's tooltip
+ * says what a click does and names the expand-all click.
  * @param {SessionRow} session
  * @param {{active: boolean, open: boolean, count: number, summarized?: boolean}} options
  * @returns {HTMLElement}
@@ -240,9 +252,10 @@ export function sessionRow(session, { active, open, count, summarized = false })
   );
   if (pending) title.classList.add('pending');
   title.title = title.textContent ?? '';
+  title.dataset.tipDetail = `${active ? 'Click to fold or unfold' : 'Click to switch to it'} · ${allSessionsClick()} to expand or collapse all`;
   const dot = document.createElement('span');
   dot.className = `osprey-dot ${session.state === 'live' ? 'ok' : 'hollow'}`;
-  const row = topRow('osprey-tree-session', open, [dot, title], active);
+  const row = topRow('osprey-tree-session', open, [dot, title], active || open);
   row.dataset.sessionId = session.transcript_id;
   if (active) row.classList.add('active');
   if (summarized) row.dataset.count = String(count);

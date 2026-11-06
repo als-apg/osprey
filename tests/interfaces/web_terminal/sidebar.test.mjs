@@ -511,6 +511,24 @@ describe('the Agent row', () => {
     expect(agentRow().hasAttribute('aria-description')).toBe(false);
   });
 
+  test('its tip names the ⌥-click that expands or collapses every session (Alt+click elsewhere)', async () => {
+    setPlatform('MacIntel');
+    await boot();
+    agentPane('open');
+    expect(agentRow().dataset.tipDetail).toBe(
+      'Click to fold the session list · ⌥-click to expand or collapse every session'
+    );
+    agentPane('closed');
+    expect(agentRow().dataset.tipDetail).toBe(
+      'Click to open the Agent pane · ⌥-click to expand or collapse every session'
+    );
+    setPlatform('Linux x86_64');
+    agentPane('open');
+    expect(agentRow().dataset.tipDetail).toBe(
+      'Click to fold the session list · Alt+click to expand or collapse every session'
+    );
+  });
+
   test('a re-render of the rows repaints the row', async () => {
     await boot();
     document.documentElement.setAttribute('data-agent', 'closed');

@@ -285,6 +285,20 @@ function click(el, detail = 1) {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
 }
 
+/** A ⌥-click (altKey). @param {Element} el */
+function altClick(el) {
+  el.dispatchEvent(
+    new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, altKey: true })
+  );
+}
+
+/** @returns {string[]} the open session rows' ids */
+function openSessions() {
+  return [...tree().querySelectorAll('.osprey-tree-session[aria-expanded="true"]')].map(
+    (r) => /** @type {HTMLElement} */ (r).dataset.sessionId ?? ''
+  );
+}
+
 /** A double-click: two clicks, the second with `detail` 2, then dblclick. @param {Element} el */
 function dblclick(el) {
   click(el, 1);
@@ -575,6 +589,83 @@ describe('expansion and clicks', () => {
     expect(pointer.getPointer()).toBe(K1);
     // No reveal: the session's rows were loaded, so nothing is fetched.
     expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
+  test('⌥-click on a session expands every session, artifacts shown; again collapses them all', async () => {
+    await boot();
+    altClick(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+    // The other session shows its artifacts, behind a disclosure, without a switch.
+    expect(tree().querySelector(`[data-session-box="${T2}"] [data-group-head]`)).not.toBeNull();
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+    expect(pointer.getPointer()).toBe(K1);
+
+    altClick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([]);
+    expect(tree().querySelectorAll('[data-session-box]')).toHaveLength(0);
+
+    // Not all open (only the current one): ⌥-click expands rather than collapses.
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1]);
+    altClick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+  });
+
+  test('toggleAllSessions (the Agent row’s ⌥-click) expands, collapses, and honours a forced value', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+    mod.toggleAllSessions();
+    await settle();
+    expect(openSessions()).toEqual([]);
+    mod.toggleAllSessions(true);
+    await settle();
+    mod.toggleAllSessions(true);
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+  });
+
+  test('a plain click on the current session after expand-all returns to it alone, still open', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1]);
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).toBeNull();
+    // From there the plain rule holds: the next click folds it.
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([]);
+  });
+
+  test('a switch after expand-all returns to the current-only rule', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
+    expect(openSessions()).toEqual([T2]);
+  });
+
+  test('a session title’s tip says what a click does and names the ⌥-click', async () => {
+    await boot();
+    const tip = (/** @type {string} */ id) =>
+      /** @type {HTMLElement} */ (sessionRowEl(id).querySelector('.osprey-tree-title')).dataset
+        .tipDetail ?? '';
+    expect(tip(T1)).toMatch(
+      /^Click to fold or unfold · (⌥-click|Alt\+click) to expand or collapse all$/
+    );
+    expect(tip(T2)).toMatch(
+      /^Click to switch to it · (⌥-click|Alt\+click) to expand or collapse all$/
+    );
   });
 
   test('openInAgent on the current session opens the Agent pane and keeps it unfolded', async () => {

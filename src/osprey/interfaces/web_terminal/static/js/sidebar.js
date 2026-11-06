@@ -54,6 +54,7 @@ import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { initSidebarResize } from './sidebar-resize.js';
 import { initSidebarFold } from './sidebar-fold.js';
 import { initSidebarDivider } from './sidebar-divider.js';
+import { allSessionsClick } from './sidebar-artifact-rows.js';
 
 /** The width's storage key, shared with sidebar-boot.js (pre-paint). */
 export const SIDEBAR_STORAGE_KEY = 'osprey-sidebar';
@@ -260,13 +261,16 @@ function paintAgentRow() {
     badge.hidden = !showBadge;
     badge.textContent = showBadge ? String(waiting) : '';
   }
+  const all = `${allSessionsClick()} to expand or collapse every session`;
   if (!closed) {
     row.dataset.tip = 'Agent';
+    row.dataset.tipDetail = `Click to fold the session list · ${all}`;
     row.removeAttribute('aria-description');
     return;
   }
   const state = showBadge ? `${waiting} waiting` : 'closed';
   row.dataset.tip = `Agent · ${state} — click to open`;
+  row.dataset.tipDetail = `Click to open the Agent pane · ${all}`;
   row.setAttribute(
     'aria-description',
     showBadge

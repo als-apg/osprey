@@ -607,6 +607,37 @@ def _remove_artifacts_from_rail(page: Page) -> None:
 # --- the streaming guard and browsing -----------------------------------------------
 
 
+def test_the_agent_row_folds_the_tree_and_option_click_expands_every_session(hub, page):
+    """With the Agent pane open the Agent row folds and unfolds the whole tree (a
+    display rule once outranked ``hidden``, so the tree stayed on screen); ⌥-click
+    expands every session, a second ⌥-click collapses them all."""
+    _boot(page, hub)
+    agent = page.locator("#sidebar-agent-row")
+    tree = page.locator(_TREE)
+    expect(page.locator("html")).not_to_have_attribute("data-agent", "closed")
+    expect(tree).to_be_visible()
+
+    agent.click()
+    expect(agent).to_have_attribute("aria-expanded", "false")
+    expect(tree).to_be_hidden()
+    agent.click()
+    expect(agent).to_have_attribute("aria-expanded", "true")
+    expect(tree).to_be_visible()
+
+    sessions = page.locator(f"{_TREE} .osprey-tree-session")
+    folded = page.locator(f'{_TREE} .osprey-tree-session[aria-expanded="false"]')
+    expect(sessions).not_to_have_count(0)
+    expect(sessions).not_to_have_count(1)
+    agent.click(modifiers=["Alt"])
+    expect(folded).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(sessions.count())
+    expect(page.locator("html")).not_to_have_attribute("data-agent", "closed")
+
+    sessions.last.locator(".osprey-tree-title").click(modifiers=["Alt"])
+    expect(page.locator(f'{_TREE} .osprey-tree-session[aria-expanded="true"]')).to_have_count(0)
+    expect(page.locator(f"{_TREE} [data-session-box]")).to_have_count(0)
+
+
 def test_a_session_click_while_streaming_asks_and_another_session_never_opens_in_place(hub, page):
     _boot(page, hub)
     before = _active(page).get_attribute("data-session-id")
