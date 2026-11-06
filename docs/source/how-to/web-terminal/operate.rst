@@ -50,7 +50,7 @@ The window has a sidebar on the left and two panes:
 - **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
-  **Workspace** and **Tools** sections, and a footer with **Docs**,
+  **Workspace**, **Tools** and **System** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
@@ -515,8 +515,8 @@ The sidebar is on the left. From top to bottom, it shows:
   :ref:`control-target popover <web-terminal-session-posture>`.
 - **Search**. It opens the command palette. The shortcut is ⌘K on macOS and
   Ctrl+K on other systems.
-- The groups of panel rows. At first there are two, **Workspace** and
-  **Tools**:
+- The groups of panel rows. At first there are three, **Workspace**, **Tools** and
+  **System**:
 
   - **Workspace** starts with these rows:
 
@@ -526,9 +526,10 @@ The sidebar is on the left. From top to bottom, it shows:
       is closed, the row shows a hollow dot. When the agent waits for your
       answer, the row shows the number of open questions. **Agent** is always
       the first row of the first group.
-    - **Events** shows only when the deployment enables the events panel.
 
   - **Tools** starts with all other panels that this deployment enables.
+  - **System** starts with **Events** (only when the deployment enables the
+    events panel) and **Health**.
 
   In each group, the rows are in your order. **+ Add panel** is always the
   last row of the last group. See :doc:`panels`.
@@ -596,8 +597,8 @@ these items:
   its name for editing.
 - **Move up** and **Move down**. These move the group in the sidebar.
 - **Delete group**. This item shows only for a group that you added. The
-  rows of the group go back to **Tools**. You cannot delete **Workspace** or
-  **Tools**, but you can rename them.
+  rows of the group go back to **Tools**. You cannot delete **Workspace**,
+  **Tools** or **System**, but you can rename them.
 
 Double-click a group's name to fold it down to its heading, and double-click
 again to unfold it. To make **Workspace** taller, drag the faint line below it;

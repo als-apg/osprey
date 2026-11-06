@@ -2965,6 +2965,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Open in a new tile',
       'Pop out',
       'Move to Workspace',
+      'Move to System',
       'Move to new group…',
       'Remove from rail',
     ]);
@@ -3633,7 +3634,7 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
     const groups = [...document.querySelectorAll('#panel-rail > .sidebar-group')];
     const ids = groups.map((g) => g.getAttribute('data-group'));
     // okf sits in Tools (its default group), so the new group lands below Tools.
-    expect(ids).toEqual(['workspace', 'tools', expect.stringMatching(/^g-[0-9a-f]{8}$/)]);
+    expect(ids).toEqual(['workspace', 'tools', expect.stringMatching(/^g-[0-9a-f]{8}$/), 'system']);
     expect(groups[2].contains(entry('okf'))).toBe(true);
     const field = groups[2].querySelector('.sidebar-group-rename');
     expect(field).not.toBeNull();
