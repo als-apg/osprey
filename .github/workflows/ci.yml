@@ -1431,10 +1431,9 @@ jobs:
     # `visual-theming-agent`, so neither waits for this suite to finish.
     # OSPREY_OFFLINE=1: the pages load their vendor libraries (xterm, dockview,
     # marked, DOMPurify, KaTeX, highlight.js) from the trees `osprey vendor
-    # fetch` writes below, not from cdn.jsdelivr.net. Online, every page of
-    # every test fetched them from the CDN, and a fetch it refused or dropped
-    # left a page with no terminal, rail or chat; four workers fetching at once
-    # made that failure likely enough to fail the lane.
+    # fetch` writes below, not from cdn.jsdelivr.net, so no page of the lane
+    # depends on the network: a CDN fetch refused or dropped leaves a hub page
+    # with no terminal, rail or chat.
     env:
       OSPREY_OFFLINE: "1"
 
@@ -1547,6 +1546,9 @@ jobs:
     # compute, so four workers fit a four-vCPU runner. `loadfile` keeps each
     # file on one worker: a file's tests share its module fixtures, and its
     # timing-sensitive cases run beside other files, never beside each other.
+    # No suite here starts a container: the ones that do run serially in
+    # `visual-theming-agent` (see its "Run the container-backed browser
+    # suites" step).
     - name: Run behavioral theming suite
       run: |
         uv run pytest -n 4 --dist loadfile \
@@ -1576,10 +1578,8 @@ jobs:
           tests/interfaces/web_terminal/test_dock_agent_parity_browser.py \
           tests/interfaces/web_terminal/test_jupyter_panel_browser.py \
           tests/interfaces/web_terminal/test_agent_activity_browser.py \
-          tests/interfaces/web_terminal/test_ariel_embedded_agent_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
           tests/interfaces/web_terminal/test_logout_resume_browser.py \
-          tests/interfaces/web_terminal/test_auth_login_browser.py \
           tests/interfaces/web_terminal/test_feedback_rail_browser.py \
           tests/interfaces/web_terminal/test_feedback_modal_browser.py \
           tests/interfaces/web_terminal/test_watchdog_dialog_browser.py \
@@ -1616,9 +1616,10 @@ jobs:
     timeout-minutes: 60
     # The rest of the browser lane, beside `visual-theming` rather than after
     # it: the watchdog suite (the one browser suite that needs the pinned agent
-    # CLI) and the visual-regression suite with its baseline upload and
-    # commit-back. No `if:` and no paths filter, for the reason the
-    # `visual-theming` lane gives. Chromium only: neither suite launches WebKit.
+    # CLI), the browser suites that start containers, and the
+    # visual-regression suite with its baseline upload and commit-back. No
+    # `if:` and no paths filter, for the reason the `visual-theming` lane
+    # gives. Chromium only: none of these suites launches WebKit.
     # The default GITHUB_TOKEN is read-only repo-wide; this job's last step
     # pushes regenerated Linux baselines back to the PR branch, so it alone
     # needs contents: write (matches docs.yml's workflow-level grant for the
@@ -1735,6 +1736,22 @@ jobs:
             sys.exit(1)
         print("every watchdog browser test ran; none skipped")
         PY
+
+    # The browser suites that start containers: the auth stack's (login) and
+    # ARIEL's Postgres (embedded agent). A container's start or stop adds or
+    # removes a veth interface, and every Chromium on the host takes that as a
+    # network change and fails its in-flight requests with
+    # ERR_NETWORK_CHANGED. A hub page loading at that moment loses some of its
+    # module scripts and never boots: no rail, no chat, no terminal. Run beside
+    # the four `visual-theming` workers they broke other suites' pages; here
+    # they run serially, as each starts its container before its first page
+    # and stops it after its last.
+    - name: Run the container-backed browser suites
+      run: |
+        uv run pytest \
+          tests/interfaces/web_terminal/test_auth_login_browser.py \
+          tests/interfaces/web_terminal/test_ariel_embedded_agent_browser.py \
+          -v --tb=short
 
     - name: Run visual regression suite
       # Linux is the authoritative platform for the pixel diff (see

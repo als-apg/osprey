@@ -4363,7 +4363,19 @@ BROWSER_JOB = "visual-theming"
 BROWSER_AGENT_JOB = "visual-theming-agent"
 BROWSER_JOBS = (BROWSER_JOB, BROWSER_AGENT_JOB)
 BROWSER_RUN_STEP = "Run behavioral theming suite"
+#: The serial step of the browser lane's second job: the suites that start
+#: containers, kept out of the parallel run step (see (h3b)).
+BROWSER_CONTAINER_STEP = "Run the container-backed browser suites"
 AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
+
+
+def _browser_step_naming(wf: dict[str, Any], test_file: str) -> dict[str, Any]:
+    """The browser-lane step whose pytest invocation names *test_file* on a line of its own."""
+    for job in BROWSER_JOBS:
+        for step in _jobs(wf)[job]["steps"]:
+            if f"{test_file} \\\n" in step.get("run", ""):
+                return step
+    raise AssertionError(f"no browser-lane step names {test_file}")
 
 
 #: What makes a step of the browser jobs one that runs suites. The lane runs
@@ -4505,7 +4517,7 @@ def test_browser_test_runs_in_the_browser_lane__mutation_drops_the_file(test_fil
     """Removing the file from the invocation must fail the guard — the exact
     vacuous-green shape above."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step = _browser_step_naming(mutated, test_file)
     step["run"] = step["run"].replace(f"{test_file} \\\n", "")
     assert test_file not in _browser_lane_files(mutated)
 
@@ -4653,10 +4665,49 @@ def test_every_browser_suite_on_disk_is_named_in_the_browser_lane(
 
 def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step = _browser_step_naming(mutated, AUTH_BROWSER_TEST_FILE)
     step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
     named = _browser_lane_named_files(mutated)
     assert [s for s in _browser_suites_on_disk() if s not in named] == [AUTH_BROWSER_TEST_FILE]
+
+
+# ---------------------------------------------------------------------------
+# (h3b) no suite that starts a container runs in the parallel run step: a
+# container's veth interface coming or going is a network change to every
+# Chromium on the host, which fails its in-flight requests with
+# ERR_NETWORK_CHANGED, so a page another worker is loading never boots
+# ---------------------------------------------------------------------------
+
+#: What a suite that starts containers imports: the repo's docker helpers or
+#: testcontainers itself.
+_CONTAINER_IMPORT = re.compile(
+    r"^\s*(?:from|import)\s+(?:tests\._container_support|testcontainers)\b", re.MULTILINE
+)
+
+
+def _parallel_step_container_suites(wf: dict[str, Any]) -> list[str]:
+    run = _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
+    return sorted(
+        tok
+        for tok in set(run.split())
+        if tok.endswith(".py") and _CONTAINER_IMPORT.search((REPO_ROOT / tok).read_text())
+    )
+
+
+def test_no_container_backed_suite_runs_in_the_parallel_step(workflow: dict[str, Any]) -> None:
+    assert _parallel_step_container_suites(workflow) == []
+    container_step = _find_named_step(workflow, BROWSER_AGENT_JOB, BROWSER_CONTAINER_STEP)
+    assert AUTH_BROWSER_TEST_FILE in container_step["run"]
+    assert " -n " not in container_step["run"]
+
+
+def test_no_container_backed_suite_runs_in_the_parallel_step__mutation_moves_one_back() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(
+        "--dist loadfile \\\n", f"--dist loadfile \\\n  {AUTH_BROWSER_TEST_FILE} \\\n", 1
+    )
+    assert _parallel_step_container_suites(mutated) == [AUTH_BROWSER_TEST_FILE]
 
 
 # ---------------------------------------------------------------------------
