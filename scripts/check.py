@@ -7,7 +7,7 @@ from there::
 
     check.py quick [--changed BASE [--worktree] | --base BASE] [--fix] [-- PATH...]
     check.py full  [--changed BASE [--worktree] | --base BASE]         [-- PATH...]
-    check.py run ID... [--base BASE] [--shard cli|rest-a|rest-b|macos] [-- EXEC-FLAGS...]
+    check.py run ID... [--base BASE] [--shard cli-a|cli-b|rest-a|rest-b|macos] [-- EXEC-FLAGS...]
     check.py list [--tier quick|full] [--changed BASE] [--json]
 
 An owner declares its checks in a ``repo_checks.py`` module beside its code:
