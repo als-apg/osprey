@@ -432,13 +432,13 @@ class _PinBody(BaseModel):
 
 @router.put("/api/sessions/{transcript_id}/pin")
 async def put_pin(request: Request, transcript_id: str, body: _PinBody):
-    """Pin or unpin the session in the operator's sidebar; 404 for a session not mine.
+    """Pin or unpin a session the sidebar lists; 404 for any other, or a deleted one.
 
     Every tab applies the change on the ``session_pinned`` frame.
     """
     tid = _uuid_id(transcript_id, "transcript_id")
     app = request.app
-    if not await asyncio.to_thread(_is_mine, app, tid):
+    if not await asyncio.to_thread(_is_pinnable, app, tid, _identity(request)):
         raise HTTPException(status_code=404, detail="No such session.")
     try:
         entry = await asyncio.to_thread(session_meta.set_pinned, app, tid, body.pinned)
@@ -474,6 +474,21 @@ def _is_mine(app, tid: str) -> bool:
         return False
     ledger = session_ledger.load(session_meta.ledger_state_dir())
     return _owned(app, tid, ledger, _sessions_dir(app))
+
+
+def _is_pinnable(app, tid: str, identity: str) -> bool:
+    """Whether the sidebar can list *tid*: it is mine, or the record lists it as my own.
+
+    The listing shows a session the hub holds nothing of when the record names
+    this operator on it, by the same two checks. A record that cannot answer
+    leaves :func:`_is_mine` alone.
+    """
+    if tid in session_meta.deleted_ids(app):
+        return False
+    if _is_mine(app, tid):
+        return True
+    row = _record_rows_by_id([tid], record_client()).get(tid)
+    return row is not None and _operator_row(row) and session_record.took_part(row, identity)
 
 
 @router.get("/api/sessions/{transcript_id}/layout")

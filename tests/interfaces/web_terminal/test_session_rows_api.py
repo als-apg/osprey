@@ -517,12 +517,39 @@ class TestPins:
         [row] = client.get("/api/sessions").json()["pinned_sessions"]
         assert row["transcript_id"] == T3 and row["message_count"] == 0
 
+    def test_a_session_only_the_record_lists_as_mine_can_be_pinned(self, client, record):
+        record.answers["list_sessions"] = _answer([_row(T2, 10)])
+        resp = client.put(f"/api/sessions/{T2}/pin", json={"pinned": True})
+        assert resp.status_code == 200 and resp.json()["pinned"]
+        assert record.calls_to("list_sessions") == [{"session_ids": [T2], "limit": 1}]
+        assert session_meta.pinned_ids(client.app) == [T2]
+        resp = client.put(f"/api/sessions/{T2}/pin", json={"pinned": False})
+        assert resp.status_code == 200 and resp.json()["pinned"] is None
+
     def test_another_operators_session_cannot_be_pinned(self, client, record):
-        record.answers["list_sessions"] = _answer([_row(T1, 20), _row(OTHER, 10)])
+        theirs = _row(OTHER, 10, persons=["bob"], identities=["bob"])
+        record.answers["list_sessions"] = _answer([theirs])
         resp = client.put(f"/api/sessions/{OTHER}/pin", json={"pinned": True})
         assert resp.status_code == 404
         assert session_meta.pinned_ids(client.app) == []
         assert client.app.state.broadcaster.frames == []
+
+    def test_a_row_the_listing_drops_cannot_be_pinned(self, client, record):
+        dispatched = _row(OTHER, 10, run_ids=["run-1"])
+        record.answers["list_sessions"] = _answer([dispatched])
+        assert client.put(f"/api/sessions/{OTHER}/pin", json={"pinned": True}).status_code == 404
+
+    def test_a_deleted_session_the_record_still_lists_cannot_be_pinned(self, client, record):
+        record.answers["list_sessions"] = _answer([_row(T2, 10)])
+        session_meta.mark_deleted(client.app, T2)
+        assert client.put(f"/api/sessions/{T2}/pin", json={"pinned": True}).status_code == 404
+        assert session_meta.pinned_ids(client.app) == []
+
+    def test_with_the_record_down_only_a_session_the_hub_holds_can_be_pinned(self, client, record):
+        record.answers["list_sessions"] = ClientAnswer(unavailable="record down")
+        assert client.put(f"/api/sessions/{T2}/pin", json={"pinned": True}).status_code == 404
+        _ledger((KEY, T2, "2026-11-01T09:00:00+00:00"))
+        assert client.put(f"/api/sessions/{T2}/pin", json={"pinned": True}).status_code == 200
 
     def test_a_pin_sends_the_session_pinned_frame(self, client):
         _ledger((KEY, T2, "2026-11-01T09:00:00+00:00"))
