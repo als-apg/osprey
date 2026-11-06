@@ -101,13 +101,20 @@ _CORRUPT = "corrupt"
 #: The deployments the matrix runs over, as ``(section, record)``: ``record``
 #: is ``None`` for no record at all, :data:`_CORRUPT` for one that cannot be
 #: read, or ``(target, switched-on machines)``.
+#:
+#: Both hooks read a record's switch only for its own target
+#: (``osprey_target_state.switch_position``), so per target the switched-on
+#: sets fall in three classes: no switch map at all, a map with the target off
+#: (only the other machine on), and a map with the target on. One set stands
+#: for each; the target-on one also has the other machine on, so a hook that
+#: read the wrong machine's switch would disagree with one of the other cells.
 DEPLOYMENTS = [
     pytest.param(TWO_TARGETS, None, id="no-record"),
     pytest.param(TWO_TARGETS, _CORRUPT, id="unreadable-record"),
     *(
         pytest.param(TWO_TARGETS, (target, on), id=f"{target}-on-{'+'.join(on) or 'none'}")
-        for target in ("live", "va")
-        for on in ((), ("live",), ("va",), ("live", "va"))
+        for target, other in (("live", "va"), ("va", "live"))
+        for on in ((), (other,), ("live", "va"))
     ),
     pytest.param(NO_TIER, ("live", ("live", "va")), id="no-tier-everything-on"),
 ]
