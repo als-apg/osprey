@@ -16,7 +16,7 @@
  * row (shipped in index.html) is parked `hidden` in place.
  *
  * The rows carry NO per-panel health readout: backend liveness is reported by
- * the SYSTEM panel's `web_panels` health category. `.disabled` and
+ * the Health panel's `web_panels` health category. `.disabled` and
  * `.unreachable` are the only health-derived states a row renders.
  *
  * Two fixtures: a bare element (no skeleton, so the module builds the groups
@@ -163,14 +163,14 @@ beforeEach(() => {
   localStorage.setItem(
     'osprey-sidebar-groups',
     JSON.stringify({
-      version: 1,
+      version: 3,
       groups: [
         { id: 'workspace', label: 'Workspace' },
         { id: 'tools', label: 'Tools' },
         { id: 'system', label: 'System' },
       ],
-      // System holds a panel, so this reads as the operator's own arrangement and
-      // Events in Workspace as their choice, not as a stale default.
+      // Stored on the current version, so Events in Workspace is the operator's
+      // own move, not an old default.
       placement: { events: 'workspace', 'system-health': 'system' },
     })
   );

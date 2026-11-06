@@ -306,7 +306,6 @@ web:
       enabled: true
     system-health:
       enabled: true
-      hidden: true
   scaffold_gallery:
     write_enabled: true
   theme: light
