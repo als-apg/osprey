@@ -331,6 +331,31 @@ def readable_process_table(monkeypatch):
 
 
 @pytest.fixture
+def short_process_waits() -> Iterator[None]:
+    """Shorten the production waits a process-tree test would otherwise sit out.
+
+    ``process_tree.READ_WAIT_S`` (5 s: how long an unreadable table is retried),
+    ``process_tree.END_TERM_WAIT_S`` (3 s: SIGTERM before SIGKILL) and
+    ``subprocess_capture._KILL_WAIT_S`` (5 s: a killed group's disappearance)
+    are windows these tests reach the far end of, never measure: a table kept
+    unreadable or a member that ignores SIGTERM runs each window to its end
+    whatever its length. Shorter windows take the same branches. The retry
+    window keeps room for more than one read at ``process_table._READ_RETRY_S``,
+    and the two signal waits keep a second of margin for a member that does
+    exit. Patched on its own ``MonkeyPatch``, so a test's ``monkeypatch.undo()``
+    keeps them short through its cleanup.
+    """
+    from osprey.deployment import subprocess_capture
+    from osprey.interfaces.web_terminal import process_tree
+
+    with pytest.MonkeyPatch.context() as patch_waits:
+        patch_waits.setattr(process_tree, "READ_WAIT_S", 0.3)
+        patch_waits.setattr(process_tree, "END_TERM_WAIT_S", 1.0)
+        patch_waits.setattr(subprocess_capture, "_KILL_WAIT_S", 1.0)
+        yield
+
+
+@pytest.fixture
 def isolated_app(tmp_path) -> Callable[[], AbstractContextManager[TestClient]]:
     """A factory booting the whole app with its agent-data stores on ``tmp_path``.
 
