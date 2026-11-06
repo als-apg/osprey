@@ -3443,7 +3443,7 @@ describe('tile ⋯ menu — the tile’s sections and verbs (openTileContextMenu
     expect(headings()).toEqual([]);
     expect(menuLabels()).toEqual([
       'Open in a new tile',
-      'Move to Workspace',
+      'Move to Sessions',
       'Move to System',
       'Move to new group…',
       // No attached Pop out: the tile is not docked in this harness.
