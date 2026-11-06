@@ -396,3 +396,61 @@ async def test_engine_wires_inflight_task_provider_to_lifecycle() -> None:
     # The lifecycle now sees the engine's in-flight refresh task for teardown.
     assert lifecycle._inflight_task_provider() is engine.current_refresh_task()
     await _drain(engine)
+
+
+# -- re-probe -----------------------------------------------------------------
+
+
+def _counting_records(counts: dict[str, int]) -> list[Any]:
+    from osprey.health.config import CategoryRecord, Cost
+
+    def make(name: str) -> Any:
+        def run() -> list[CheckResult]:
+            counts[name] = counts.get(name, 0) + 1
+            return [CheckResult(f"{name}.row", name, Status.OK, f"run {counts[name]}")]
+
+        return run
+
+    return [CategoryRecord(name=n, cost=Cost.POLL, timeout_s=5.0, func=make(n)) for n in "ab"]
+
+
+async def test_reprobe_reruns_one_category_and_merges_it_into_the_cache() -> None:
+    counts: dict[str, int] = {}
+    loaded = _loaded(_settings())._replace(records=_counting_records(counts))
+    wall = iter([100.0, 200.0, 300.0])
+    engine, _ = _engine(_FakeLoader(loaded), wall_clock=lambda: next(wall))
+    engine.get_checks()
+    await _drain(engine)
+
+    env = await engine.reprobe(checks=["b.row"])
+
+    assert counts == {"a": 1, "b": 2}
+    rows = {r["name"]: r for r in env["results"]}
+    assert rows["a.row"]["message"] == "run 1"
+    assert rows["b.row"]["message"] == "run 2"
+    assert rows["a.row"]["probed_at"] == 100.0
+    assert rows["b.row"]["probed_at"] == 200.0
+    assert env["scanned_at"] == 100.0
+
+
+async def test_reprobe_during_a_refresh_waits_for_it_instead_of_running_twice() -> None:
+    counts: dict[str, int] = {}
+    loaded = _loaded(_settings())._replace(records=_counting_records(counts))
+    engine, _ = _engine(_FakeLoader(loaded))
+    engine.get_checks()  # kicks the first refresh
+
+    await engine.reprobe(checks=["a.row"])
+
+    assert counts == {"a": 1, "b": 1}
+
+
+async def test_rescan_runs_everything() -> None:
+    counts: dict[str, int] = {}
+    loaded = _loaded(_settings())._replace(records=_counting_records(counts))
+    engine, _ = _engine(_FakeLoader(loaded))
+    engine.get_checks()
+    await _drain(engine)
+
+    await engine.reprobe()
+
+    assert counts == {"a": 2, "b": 2}

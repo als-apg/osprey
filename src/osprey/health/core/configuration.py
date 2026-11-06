@@ -318,8 +318,10 @@ def _check_environment_variables(config: dict[str, Any]) -> list[CheckResult]:
     from osprey.health.core.providers import used_providers
 
     used = used_providers(config)
-    api = config.get("api") if isinstance(config.get("api"), dict) else {}
-    catalogue = api.get("providers") if isinstance(api.get("providers"), dict) else {}
+    api_raw = config.get("api")
+    api: dict[str, Any] = api_raw if isinstance(api_raw, dict) else {}
+    catalogue_raw = api.get("providers")
+    catalogue: dict[str, Any] = catalogue_raw if isinstance(catalogue_raw, dict) else {}
     relevant = {
         **config,
         "api": {**api, "providers": {k: v for k, v in catalogue.items() if k in used}},

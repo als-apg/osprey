@@ -79,9 +79,13 @@ _PASSING = (Status.OK, Status.WARNING)
 _DEADLINE_MESSAGE = "suite deadline exceeded"
 
 
+#: How the placeholder row of an on_demand category the run skipped begins.
+ON_DEMAND_PREFIX = "on_demand category"
+
+
 def _on_demand_hint(category: str) -> str:
     return (
-        f"on_demand category; run with --full (e.g. `osprey health --full --category {category}`)"
+        f"{ON_DEMAND_PREFIX}; run with --full (e.g. `osprey health --full --category {category}`)"
     )
 
 

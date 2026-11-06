@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING
 from osprey.health.runner import run_health_suite
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+
     from osprey.health.lifecycle import HealthRuntimeLifecycle
     from osprey.health.loader import LoadedHealthConfig
     from osprey.health.models import CheckReport
@@ -32,6 +34,8 @@ if TYPE_CHECKING:
 async def run_poll_refresh(
     loaded: LoadedHealthConfig,
     lifecycle: HealthRuntimeLifecycle,
+    *,
+    categories: Collection[str] | None = None,
 ) -> CheckReport:
     """Produce the poll-tier report for one loaded config.
 
@@ -40,6 +44,11 @@ async def run_poll_refresh(
     runtime, then appends the unfiltered plugin-diagnostic rows
     (``loaded.extra_rows``) followed by any restart-notice rows the reconcile
     produced — in that order.
+
+    With *categories* only those categories run — a re-probe of part of a
+    cached report — still poll-tier (``full=False``; a selection never elevates
+    cost), and the plugin-diagnostic and notice rows are not appended: they
+    belong to the full report the caller merges the slice into.
 
     The caller owns scheduling and error/accounting policy: this helper neither
     catches suite/load failures nor mutates caller state, so a failure propagates
@@ -60,10 +69,11 @@ async def run_poll_refresh(
         runtime=runtime,
         config=loaded.expanded,
         full=False,
-        categories=None,
+        categories=None if categories is None else list(categories),
         suite_timeout_s=loaded.settings.suite_timeout_s,
         on_demand_timeout_s=loaded.settings.on_demand_timeout_s,
     )
-    report.results.extend(loaded.extra_rows)
-    report.results.extend(notice_rows)
+    if categories is None:
+        report.results.extend(loaded.extra_rows)
+        report.results.extend(notice_rows)
     return report

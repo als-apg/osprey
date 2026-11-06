@@ -38,6 +38,7 @@ from fnmatch import fnmatchcase
 from typing import Any
 
 from osprey.health.models import NOT_USED
+from osprey.health.runner import ON_DEMAND_PREFIX
 
 Row = dict[str, Any]
 
@@ -86,8 +87,8 @@ class Component:
 
 
 def _shown(rows: list[Row], name: str) -> str:
-    """The display text of the row called *name*, or ``""``."""
-    return next((r["display"] for r in rows if r["name"] == name), "")
+    """The value (else display text) of the row called *name*, or ``""``."""
+    return str(next((r.get("value") or r["display"] for r in rows if r["name"] == name), ""))
 
 
 def _ok_of(rows: list[Row]) -> str:
@@ -384,6 +385,9 @@ RULES: tuple[Rule, ...] = (
         "model-provider",
         "catalogue",
         "config parse api.providers",
+        display=lambda r: (
+            f"{_first_number(r['message'])} providers" if r["status"] == "ok" else r["message"]
+        ),
     ),
     Rule(
         "configuration",
@@ -456,7 +460,7 @@ RULES: tuple[Rule, ...] = (
         display=lambda r: _version([r]) or r["message"],
     ),
     Rule("claude_cli_pinned", "*", "claude-code", "version pin", "compare with build pin"),
-    Rule("model_chat", "*", "model-provider", "chat completion {tail}", "1-token completion"),
+    Rule("model_chat", "*", "model-provider", "chat completion", "chat completion"),
     Rule(
         "rendered",
         "rendered.agents",
@@ -787,12 +791,13 @@ def _rule_for(row: Row) -> Rule | None:
     return None
 
 
-def _display(row: Row) -> str:
-    text = row.get("value") or row["message"]
+def _display(row: Row, text: str | None = None) -> str:
+    """The row's shown value: *text* (else value, else message) with its latency once."""
+    shown = str(text or row.get("value") or row["message"])
     ms = row.get("latency_ms")
-    if ms and row["status"] != "skip":
-        return f"{text} · {round(ms)} ms"
-    return str(text)
+    if ms and row["status"] != "skip" and not re.search(r"\d ms\b", shown):
+        return f"{shown} · {round(ms)} ms"
+    return shown
 
 
 def annotate(row: Row, provider_roles: Mapping[str, str]) -> None:
@@ -834,11 +839,10 @@ def annotate(row: Row, provider_roles: Mapping[str, str]) -> None:
             group=_text(rule.group, row, tail) if rule.group is not None else None,
         )
     display = rule.display(row) if rule is not None and rule.display is not None else None
-    row["display"] = (
-        f"{display} · {round(row['latency_ms'])} ms"
-        if display and row.get("latency_ms") and row["status"] != "skip"
-        else display or _display(row)
-    )
+    if row["status"] == "skip" and row["message"].startswith(ON_DEMAND_PREFIX):
+        # The runner's placeholder for a costly category the poll never runs.
+        display = "on demand · osprey health --full"
+    row["display"] = _display(row, display)
 
 
 def _provider_method(row: Row) -> str:
@@ -881,6 +885,11 @@ def _clip(text: str) -> str:
     return text if len(text) <= _ISSUE_CHARS else text[: _ISSUE_CHARS - 1].rstrip() + "…"
 
 
+def _said(row: Row) -> str:
+    """What a faulty row says, without its latency: its value, else its display."""
+    return str(row.get("value") or row["display"])
+
+
 def _issue(rows: list[Row]) -> str | None:
     """The tile's issue text: the worst rows, said once."""
     bad = [r for r in rows if r["status"] in ("warning", "error")]
@@ -891,7 +900,7 @@ def _issue(rows: list[Row]) -> str | None:
     first = bad[0]
     if len(bad) == 1:
         where = " ".join(x for x in (first.get("group"), first["label"]) if x)
-        return _clip(f"{where}: {first['display']}")
+        return _clip(f"{where}: {_said(first)}")
     groups = {r.get("group") for r in bad}
     shown = {r.get("value") or r["display"] for r in bad}
     group = first.get("group")
@@ -899,7 +908,7 @@ def _issue(rows: list[Row]) -> str | None:
         total = sum(1 for r in rows if r.get("group") == group)
         what = shown.pop() if len(shown) == 1 else "faults"
         return _clip(f"{group}: {len(bad)} / {total} {what}")
-    return _clip(f"{len(bad)} faults · {first['label']}: {first['display']}")
+    return _clip(f"{len(bad)} faults · {first['label']}: {_said(first)}")
 
 
 def _group_summary(rows: list[Row]) -> str:
