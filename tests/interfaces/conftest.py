@@ -413,17 +413,6 @@ _DISMISS_TOUR = """
 """
 
 
-def _diag(page):
-    import sys as _s
-
-    page.on("requestfailed", lambda r: print("DIAG REQFAIL", r.url, r.failure, file=_s.stderr))
-    page.on("pageerror", lambda e: print("DIAG PAGEERROR", e, file=_s.stderr))
-    page.on(
-        "console",
-        lambda m: m.type == "error" and print("DIAG CONSOLE", m.text[:300], file=_s.stderr),
-    )
-
-
 def _install_auth_seam(browser: Browser) -> None:
     """Wrap ``browser.new_context``/``new_page`` so each is authorized on creation.
 
@@ -452,14 +441,12 @@ def _install_auth_seam(browser: Browser) -> None:
         context = original_new_context(*args, **kwargs)
         authorize_browser_context(context)
         context.add_init_script(_DISMISS_TOUR)
-        context.on("page", _diag)
         return context
 
     def new_page(*args, **kwargs):
         page = original_new_page(*args, **kwargs)
         authorize_browser_context(page.context)
         page.context.add_init_script(_DISMISS_TOUR)
-        _diag(page)
         return page
 
     browser.new_context = new_context
