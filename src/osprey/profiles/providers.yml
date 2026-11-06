@@ -132,6 +132,7 @@ providers:
     models:
       - claude-fable-5-1
       - claude-opus-5-5
+      - claude-sonnet-5-5
       - claude-sonnet-5
       - claude-haiku-4-5-20251001
       - claude-haiku-5-5
@@ -148,6 +149,17 @@ providers:
     models:
       - deepseek-v4-flash
       - deepseek-v4-pro
+    # The served model takes images? Enable them on this route:
+    # supports_images: true
+  # vLLM — a self-hosted OpenAI-compatible server (https://docs.vllm.ai).
+  # No API key required. A server on another host: export VLLM_BASE_URL, or
+  # forward the port (ssh -L 8000:127.0.0.1:8000 <host>).
+  vllm:
+    api_key: EMPTY                  # vLLM ignores auth unless started with --api-key
+    base_url: ${VLLM_BASE_URL:-http://localhost:8000/v1}
+    default_model: kolibri-1
+    models:                         # the --served-model-name of each model you serve
+      - kolibri-1
     # The served model takes images? Enable them on this route:
     # supports_images: true
   # OpenRouter — one key, models from many vendors, spelled <vendor>/<model>.
