@@ -178,9 +178,12 @@ def test_a_folded_session_peeks_at_its_artifacts_and_a_click_opens_one(hub, page
     )
     row = peek.locator(f'.osprey-list-row[data-id="{profile.id}"]')
     expect(row).to_be_visible()
-    # The tooltip stays quiet while the peek shows in its place.
+    # The peek is the only popup: the row title has no tooltip of its own.
     page.wait_for_timeout(600)
     expect(page.locator("#osprey-tooltip")).to_be_hidden()
+    title = folded.locator(".osprey-tree-title")
+    expect(title).not_to_have_attribute("title", re.compile(".*"))
+    expect(title).not_to_have_attribute("data-tip-detail", re.compile(".*"))
 
     # The pointer moves into the peek: it stays open.
     row.hover()
@@ -210,16 +213,13 @@ def test_a_folded_session_peeks_at_its_artifacts_and_a_click_opens_one(hub, page
     expect(peek).to_be_hidden()
 
 
-def test_the_active_rows_tip_follows_the_agent_pane(hub, page):
+def test_the_sessions_row_tip_follows_the_agent_pane_and_session_rows_have_none(hub, page):
     _boot(page, hub)
     title = _active(page).locator(".osprey-tree-title")
-    expect(title).to_have_attribute("data-tip-detail", re.compile(r"^Click to fold or unfold"))
+    expect(title).not_to_have_attribute("data-tip-detail", re.compile(".*"))
     page.locator(_ROW).focus()
     page.keyboard.press("Delete")
     expect(page.locator("html")).to_have_attribute("data-agent", "closed", timeout=_TIMEOUT_MS)
-    expect(_active(page).locator(".osprey-tree-title")).to_have_attribute(
-        "data-tip-detail", re.compile(r"^Click to reopen the Agent pane"), timeout=_TIMEOUT_MS
-    )
     expect(page.locator(_ROW)).to_have_attribute(
         "data-tip", "Sessions · Agent pane closed — click to open"
     )

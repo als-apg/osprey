@@ -242,23 +242,21 @@ export function allSessionsClick() {
  * One session row: a disclosure (on the active row, and on any row the
  * operator opened with expand-all; no other session opens without switching
  * to it), the live dot, the title (or "naming…"), the artifact count from the
- * session summary (`data-count` once it is summarized). The title's tooltip
- * says what a click does and names the expand-all click.
+ * session summary (`data-count` once it is summarized).
  *
  * Only the active row is bold (`.active`). The accent bar and tint
  * (`.accent`) sit on the active row, or on the row just clicked while the
  * switch to it is under way. `.is-busy` marks the session the agent is
  * working in: its bar breathes. A folded row's title names the peek
- * (sidebar-session-peek.js) in `aria-controls`, so the tooltip layer stays
- * quiet while the peek shows.
+ * (sidebar-session-peek.js) in `aria-controls`.
  * @param {SessionRow} session
  * @param {{active: boolean, open: boolean, count: number, summarized?: boolean,
- *   paneOpen?: boolean, accent?: boolean, busy?: boolean}} options
+ *   accent?: boolean, busy?: boolean}} options
  * @returns {HTMLElement}
  */
 export function sessionRow(
   session,
-  { active, open, count, summarized = false, paneOpen = true, accent = active, busy = false }
+  { active, open, count, summarized = false, accent = active, busy = false }
 ) {
   const pending = session.naming === 'pending';
   const title = treeSpan(
@@ -266,8 +264,6 @@ export function sessionRow(
     session.title || (pending ? 'naming…' : 'Untitled session')
   );
   if (pending) title.classList.add('pending');
-  title.title = title.textContent ?? '';
-  title.dataset.tipDetail = `${active ? (paneOpen ? 'Click to fold or unfold' : 'Click to reopen the Agent pane') : 'Click to switch to it'} · ${allSessionsClick()} to expand or collapse all`;
   const dot = document.createElement('span');
   dot.className = `osprey-dot ${session.state === 'live' ? 'ok' : 'hollow'}`;
   const row = topRow('osprey-tree-session', open, [dot, title], active || open);
