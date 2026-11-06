@@ -1911,7 +1911,7 @@ keys:
     evidence: 'lists no models and names no default_model'
     note: >-
       Provider NAMES are user-extensible data, not schema — membership
-      deliberately differs (11 providers in project/control_assistant/
+      deliberately differs (13 providers in project/control_assistant/
       hello_world; a deployment may list a subset). The
       guard checks SHAPE per provider (base_url present, default_model
       present and in the models list, models a non-empty list of ids), never
@@ -4183,7 +4183,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 364
+  expected_union_size: 369
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
