@@ -198,7 +198,7 @@ def repo(tmp_path: Path) -> Path:
     (root / TIERS_DIRNAME).mkdir()
     (root / "var" / "agent_data" / "memory").mkdir(parents=True)
     (root / "var" / "audit").mkdir(parents=True)
-    (root / "profile.yml").write_text("preset: control-assistant\n", encoding="utf-8")
+    (root / "profile.yml").write_text("preset: demo\n", encoding="utf-8")
     (root / "build" / "config.yml").write_text(_RENDERED_CONFIG, encoding="utf-8")
     (root / "data" / "channels.json").write_text("{}", encoding="utf-8")
     (root / "var" / "agent_data" / "memory" / "notes.md").write_text("remember", encoding="utf-8")
@@ -1345,7 +1345,7 @@ def test_the_build_zone_is_deleted_outright(repo):
 def test_the_source_zone_is_untouched(repo):
     run_reset(repo, FakeRuntime())
 
-    assert (repo / "profile.yml").read_text(encoding="utf-8") == "preset: control-assistant\n"
+    assert (repo / "profile.yml").read_text(encoding="utf-8") == "preset: demo\n"
     assert (repo / "data" / "channels.json").is_file()
     assert (repo / TIERS_DIRNAME).is_dir()
 
@@ -1393,7 +1393,7 @@ def test_without_a_build_the_profiles_project_name_wins_over_the_folder(repo):
     """The name the next build would render, not the directory it happens to sit in."""
     (repo / "build" / "config.yml").unlink()
     (repo / "profile.yml").write_text(
-        "preset: control-assistant\nproject_name: uitf_assistant\n", encoding="utf-8"
+        "preset: demo\nproject_name: uitf_assistant\n", encoding="utf-8"
     )
 
     plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
@@ -1405,7 +1405,7 @@ def test_without_a_build_the_profiles_project_name_wins_over_the_folder(repo):
 def test_without_a_build_the_hosts_overlay_outranks_profile_yml(repo):
     (repo / "build" / "config.yml").unlink()
     (repo / "profile.yml").write_text(
-        "preset: control-assistant\nproject_name: uitf_assistant\n", encoding="utf-8"
+        "preset: demo\nproject_name: uitf_assistant\n", encoding="utf-8"
     )
     (repo / "profiles").mkdir()
     (repo / "profiles" / "scratch.yml").write_text(

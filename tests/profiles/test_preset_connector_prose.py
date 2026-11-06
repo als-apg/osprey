@@ -16,7 +16,7 @@ complete one from being a list of names with nothing behind them:
 
 1. every type name the block mentions is a type the framework actually ships —
    a renamed or deleted connector cannot be left behind in the copy;
-2. ``control-assistant``, the reference document, mentions every shipped type —
+2. ``demo``, the reference document, mentions every shipped type —
    a new connector nobody documented fails here;
 3. a block that mentions only some of them points the reader at
    ``osprey config --defaults``, so a short list never reads as a complete one,
@@ -46,11 +46,11 @@ from osprey_connectors.types import (
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 
 #: The four documents an operator starts from.
-ROOT_PRESETS = ("control-assistant", "hello-world")
+ROOT_PRESETS = ("demo", "hello-world")
 
 #: The preset that enumerates the alternatives, and is therefore held to the
 #: complete list. The other three describe only the one type they set.
-REFERENCE_PRESET = "control-assistant"
+REFERENCE_PRESET = "demo"
 
 #: Where a block sends a reader whose type it does not name.
 FULL_LIST_POINTER = "osprey config --defaults"

@@ -103,7 +103,7 @@ Working with a Bundle
          ├── physics/            ← calibrations, beam-behavior notes
          └── references/         ← glossaries, standards, safety rules
 
-      The ``control-assistant`` preset ships an Example Research Facility bundle
+      The ``demo`` preset ships an Example Research Facility bundle
       you can read as a worked example, then replace with your own.
 
       Author the bundle in your **profile** (``data/facility/knowledge/`` in the deployment repository),
@@ -158,7 +158,7 @@ Working with a Bundle
 
       Relative paths are resolved against the project root — the deployment
       repo, not the ``build/`` render inside it, which every ``osprey build``
-      re-creates. For the ``control-assistant`` preset the example bundle is
+      re-creates. For the ``demo`` preset the example bundle is
       scaffolded into ``data/facility/knowledge/`` automatically.
 
       .. _shared-bundle-multi-user:
@@ -220,7 +220,7 @@ Working with a Bundle
       first to orient, search to narrow, read to synthesize, then submit the
       result.
 
-      It is enabled by default in the ``control-assistant`` preset. To enable or
+      It is enabled by default in the ``demo`` preset. To enable or
       disable it in a generated project, set the agent's ``enabled`` flag under
       ``claude_code.agents`` in ``config.yml``:
 

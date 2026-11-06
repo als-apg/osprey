@@ -303,7 +303,7 @@ else:
             "limits_checking": {"enabled": True, "mode": "optional"},
         }
     }
-    doc = build_facility(facility, project_name="control_assistant")
+    doc = build_facility(facility, project_name="demo")
     records = FacilityRecords(doc)
     write_simulator_view(
         view,

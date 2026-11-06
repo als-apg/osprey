@@ -4,7 +4,7 @@
 lists the screenshots. A :class:`DocVideo` names the file stem, the pages that
 embed it, the screen it starts on (its :class:`~docs.screenshots.video_layout.
 Layout`: view, active sidebar entry, open tiles), the deployment it is recorded on (``osprey init --set`` values on the
-control-assistant tutorial stack, and the environment variables that must
+demo tutorial stack, and the environment variables that must
 reach it) and its storyboard: beats from :mod:`docs.screenshots.video_beats`,
 plus custom beats where a probe is specific to one video.
 

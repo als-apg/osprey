@@ -366,7 +366,7 @@ class TestLoadPanelConfig:
         assert enabled == UNIVERSAL_PANELS
 
     def test_events_panel_is_url_backed_custom(self):
-        """The control-assistant EVENTS panel is URL-backed.
+        """The demo EVENTS panel is URL-backed.
 
         It must be emitted as a custom panel (carrying url/path/health) so the
         web terminal renders the iframe tab, not silently collapsed into the

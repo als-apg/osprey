@@ -575,9 +575,9 @@ def test_importing_the_archive_module_loads_no_lume() -> None:
 
 
 @pytest.fixture
-def demo_view(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
+def demo_view(built_demo: BuiltProject, tmp_path: Path) -> Path:
     prefix = "data/simulator/"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(prefix):
             target = tmp_path / "simulator" / name[len(prefix) :]
             target.parent.mkdir(parents=True, exist_ok=True)

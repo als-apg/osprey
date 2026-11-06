@@ -31,7 +31,7 @@ from ruamel.yaml import YAML
 
 from osprey.utils.config_writer import anchored_put
 
-# Cut from the shipped template (control_assistant/config.yml.j2): the
+# Cut from the shipped template (demo/config.yml.j2): the
 # acknowledgment prose is part of the header above `target_switch:`, the two
 # scalars carry wrapped inline comments, the commented-out example closes the
 # block, and a top-level section follows. `live_gateway_acknowledged` is not

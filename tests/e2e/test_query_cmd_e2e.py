@@ -5,7 +5,7 @@ Exercises the *shipped* command path end-to-end.
 Template: ``hello_world`` — the minimal preset with one ``controls`` server
 serving the hello-world facility's channels.  It is self-contained (no ARIEL
 Postgres, no real EPICS hardware) and resolves exit 0 in this environment.  The
-``control_assistant`` preset was considered but skipped: it declares additional
+``demo`` preset was considered but skipped: it declares additional
 MCP servers (channel-finder, ARIEL) that require running infrastructure absent
 here.
 

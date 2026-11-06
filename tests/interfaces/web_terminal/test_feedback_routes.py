@@ -678,7 +678,7 @@ def test_the_bundle_carries_the_deployment_build_facts(env: _Env) -> None:
     (``DeploymentIdentity.build_lines``) into each.
     """
     env.client.app.state.deployment_identity = resolve_deployment_identity(
-        preset="control-assistant",
+        preset="demo",
         preset_hash="a3f91c7d2e8b4f6a1c9d0e2f",
         channel_finder_mode="hierarchical",
     )
@@ -690,10 +690,10 @@ def test_the_bundle_carries_the_deployment_build_facts(env: _Env) -> None:
     ).json()["bundle"]
 
     assert "preset" in with_metadata
-    assert "control-assistant (a3f91c" in with_metadata
+    assert "demo (a3f91c" in with_metadata
     assert "hierarchical" in with_metadata
     # The checkbox governs them, so unticked means absent.
-    assert "control-assistant" not in without
+    assert "demo" not in without
 
 
 def test_the_bundle_carries_the_escalation_link(env: _Env) -> None:

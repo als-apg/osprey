@@ -32,7 +32,7 @@ from osprey_connectors.workspace import resolve_simulation_state_dir
 from tests._simulator_view import write_scenarios_view
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
-PRESET = Path(__file__).resolve().parents[2] / "src/osprey/profiles/presets/control-assistant.yml"
+PRESET = Path(__file__).resolve().parents[2] / "src/osprey/profiles/presets/demo.yml"
 HOST = "deployer"
 
 

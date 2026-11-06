@@ -556,7 +556,7 @@ def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_r
                 "records, which this import writes:",
                 *(_shown(facility_dir / path, repo_root) for path, _kind in written),
                 "move corrections into fixes.yaml and remove the record sources, "
-                "or start a new repo: osprey init <name> --preset control-assistant",
+                "or start a new repo: osprey init <name> --preset demo",
             ]
         if former:
             lines += [

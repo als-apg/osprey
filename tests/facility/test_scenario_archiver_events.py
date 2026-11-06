@@ -282,7 +282,7 @@ def test_the_build_stops_on_a_malformed_event(tmp_path: Path) -> None:
     assert "scenarios/warm.yaml `archiver` event 1 of channel BPM1:X" in caught.value.detail
 
 
-def test_the_shipped_scenarios_build_with_no_stop(built_control_assistant: Any) -> None:
-    facility = built_control_assistant.facility
+def test_the_shipped_scenarios_build_with_no_stop(built_demo: Any) -> None:
+    facility = built_demo.facility
     assert any(s.get("archiver") for s in facility["scenarios"])
     assert check_scenario_events(facility) == []

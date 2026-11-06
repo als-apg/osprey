@@ -333,9 +333,9 @@ class TestDependencyClosure:
 
     @pytest.mark.parametrize("preset", list_presets())
     def test_rendered_dockerfile_installs_no_native_backend(self, preset, tmp_path, request):
-        if preset == "control-assistant":
+        if preset == "demo":
             # The run's shared build of this preset (tests/_builds.py).
-            built = request.getfixturevalue("built_control_assistant")
+            built = request.getfixturevalue("built_demo")
             dockerfile = (built.build_dir / "Dockerfile").read_text()
         else:
             dockerfile = _render_dockerfile(tmp_path / "deploy", preset)

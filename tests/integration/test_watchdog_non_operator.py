@@ -145,15 +145,13 @@ class _Deployment:
 
 @pytest.fixture(scope="module")
 def deployment(
-    tmp_path_factory: pytest.TempPathFactory, built_control_assistant_watchdog_on: Path
+    tmp_path_factory: pytest.TempPathFactory, built_demo_watchdog_on: Path
 ) -> Iterator[_Deployment]:
     """A real ``osprey init`` + ``osprey build`` with the preset's watchdog turned on.
 
     A copy of the run's shared one, because the jev route is written into its render.
     """
-    repo = copy_build(
-        built_control_assistant_watchdog_on, tmp_path_factory.mktemp("watchdog-non-operator")
-    )
+    repo = copy_build(built_demo_watchdog_on, tmp_path_factory.mktemp("watchdog-non-operator"))
 
     jev = _HttpStub(_fake_jev_reply(FakeJev({QUESTION_ID: _FLAGGING_ANSWER})))
     build = repo / "build"

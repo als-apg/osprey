@@ -45,7 +45,7 @@ Three regressions, in the order a deployment meets them:
   removal path rebuilds roster entries, and a rebuild that dropped ``role:``
   (or replaced it with a ``tier:``) would silently re-tier everyone left.
 
-The bundled ``control-assistant`` preset is the exemplar throughout: its roster
+The bundled ``demo`` preset is the exemplar throughout: its roster
 is already the shape this matters for — a privileged ``admin`` tier, an
 unprivileged ``logbook`` app shared with the roster, and a ``default_tier``
 some entries inherit — so a regression that let the two spellings diverge shows
@@ -176,7 +176,7 @@ def _rebind(web_terminals: dict[str, Any], role: str, render: str) -> dict[str, 
 
 def _profile_twins() -> tuple[dict[str, Any], dict[str, Any]]:
     """The exemplar profile's ``config:`` block, pinned and role-bound."""
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
+    resolved, _preset_dir = resolve_build_profile(None, "demo", (), ())
     pinned = copy.deepcopy(resolved.config)
     role_bound = copy.deepcopy(pinned)
     role_bound[_PROFILE_WEB_KEY] = _role_bound(role_bound[_PROFILE_WEB_KEY])
@@ -207,13 +207,13 @@ def _deploy_config(web_terminals: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture(scope="session")
 def exemplar_web_terminals() -> dict[str, Any]:
-    """The bundled ``control-assistant`` roster and its renders, as the build writes them.
+    """The bundled ``demo`` roster and its renders, as the build writes them.
 
     The build projects every bundled tier and app file into ``renders``, each
     with the ``project`` and ``project_path`` it renders it under; the deploy
     config carries them.
     """
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
+    resolved, _preset_dir = resolve_build_profile(None, "demo", (), ())
     web_terminals = effective_web_terminals(resolved.config)
     web_terminals["renders"] = render_projection(_presets_dir(), _PROJECT_NAME)
     return web_terminals
@@ -227,7 +227,7 @@ def exemplar_deltas() -> dict[str, Any]:
     which is itself the point: moving a pin to a role must not change which
     deltas are in play.
     """
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
+    resolved, _preset_dir = resolve_build_profile(None, "demo", (), ())
     texts = _layer_profile_texts(resolved, "Exemplar", "")
     return _parsed_layer_deltas(texts)
 
@@ -479,7 +479,7 @@ class TestRoleOnlyRosterIsIndistinguishable:
 
 def _profile_for(config: dict[str, Any]) -> BuildProfile:
     """The exemplar profile carrying *config* — everything else left as resolved."""
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
+    resolved, _preset_dir = resolve_build_profile(None, "demo", (), ())
     resolved.config = config
     return resolved
 

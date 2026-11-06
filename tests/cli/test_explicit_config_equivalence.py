@@ -76,7 +76,7 @@ slow'``. On their own::
     uv run --extra dev pytest tests/cli/test_explicit_config_equivalence.py -q
 
 A full run is minutes, not seconds: each cell is a real ``osprey build``, and a
-control-assistant cell derives a large virtual-accelerator channel set. Each cell
+demo cell derives a large virtual-accelerator channel set. Each cell
 is therefore built once per module and shared between the tests that read it.
 Under the repo's ``--dist loadgroup`` scheduler an unmarked file goes to one
 worker whole (``tests/README.md``), so that cache holds in the parallel lane too
@@ -232,13 +232,13 @@ def _retired_governed_policies(document: str) -> tuple[Delta, ...]:
     )
 
 
-#: The control-assistant renders the feature moves: its root and its
+#: The demo renders the feature moves: its root and its
 #: ``readwrite`` tier open at ``asked`` instead of ``allowed``. ``admin``,
 #: ``readonly`` and the apps keep their writes posture.
 _ASKED_RENDERS = ("root", "readwrite")
 
-#: Every render a control-assistant cell freezes.
-_CONTROL_ASSISTANT_RENDERS = (
+#: Every render a demo cell freezes.
+_DEMO_RENDERS = (
     "root",
     "admin",
     "channel-finder",
@@ -249,14 +249,14 @@ _CONTROL_ASSISTANT_RENDERS = (
 )
 
 
-#: The control-assistant renders that show the CANOPY panel and open on it: the
+#: The demo renders that show the CANOPY panel and open on it: the
 #: root and its login tiers. The apps render the panel's block switched off and
 #: keep their own default tab.
 _CANOPY_RENDERS = ("root", "admin", "readonly", "readwrite")
 
 
 def _canopy_panel_deltas(document: str) -> tuple[Delta, ...]:
-    """The leaves the CANOPY panel adds to one control-assistant render."""
+    """The leaves the CANOPY panel adds to one demo render."""
     shown = document in _CANOPY_RENDERS
     deltas = [
         Delta(document=document, path="web.panels.canopy.enabled", fixture=ABSENT, live=shown),
@@ -302,9 +302,9 @@ def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
-def _control_assistant_deltas() -> tuple[Delta, ...]:
+def _demo_deltas() -> tuple[Delta, ...]:
     deltas: list[Delta] = []
-    for document in _CONTROL_ASSISTANT_RENDERS:
+    for document in _DEMO_RENDERS:
         deltas.extend(_retired_governed_policies(document))
         deltas.extend(_canopy_panel_deltas(document))
         deltas.extend(_retired_lattice_panel_deltas(document))
@@ -328,8 +328,7 @@ def _control_assistant_deltas() -> tuple[Delta, ...]:
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     "hello-world/unset": _retired_governed_policies("root") + _catalog_addition_deltas("root"),
     **{
-        f"control-assistant/{mode}": _control_assistant_deltas()
-        + _catalog_addition_deltas(*_CONTROL_ASSISTANT_RENDERS)
+        f"demo/{mode}": _demo_deltas() + _catalog_addition_deltas(*_DEMO_RENDERS)
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
 }
@@ -341,7 +340,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
 #: ``control_system.writes`` from ``allowed`` to ``asked``; one granted another
 #: tier (``admin``'s ``allowed``, ``readonly``'s ``never``) does not move.
 STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {
-    f"control-assistant/{mode}": {
+    f"demo/{mode}": {
         "alice": ("allowed", "asked"),
         "osprey-freeze-builder": ("allowed", "asked"),
     }
@@ -460,7 +459,7 @@ class Broken(NamedTuple):
 class CellRenderer:
     """Builds each cell at most once per module and hands out the result.
 
-    A cell is a real ``osprey init`` + ``osprey build``; a control-assistant cell
+    A cell is a real ``osprey init`` + ``osprey build``; a demo cell
     costs minutes. Several tests read the same cell, so the outcome — rendered, refused
     or broken — is cached under the cell directory.
     """
