@@ -148,7 +148,7 @@ and the board scores its first attempt:
    - **Measured against:** OSPREY ``[FULL-RUN: version]``
    - **Run:** [FULL-RUN: date] · open models via CBORG · ``kolibri-1`` self-hosted on vLLM · Anthropic references via als-apg · 3 seeds each
    - **Scope:** 34 tests per seed: 28 in Tier 1, 6 in Tier 2
-   - **Scoring:** first attempt only; a timeout counts as a failure (the model did not finish within the 1800s cap), and a test that dies in setup never reached the model and scores nothing. Tier 1: passes over all seeds and the median time per task. Tier 2: passes over all seeds.
+   - **Scoring:** first attempt only; a timeout counts as a failure (the model did not finish within the 1800s cap), and a test that dies in setup or that the provider refused (auth, network, unserved model) scores nothing. Tier 1: passes over all seeds and the median time per task. Tier 2: passes over all seeds.
 
    .. list-table::
       :header-rows: 1
