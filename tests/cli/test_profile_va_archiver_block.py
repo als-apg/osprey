@@ -320,6 +320,14 @@ def test_password_env_must_name_a_variable_not_hold_one() -> None:
     assert any("never in the profile" in error for error in errors)
 
 
+def test_a_password_env_starting_with_a_digit_is_refused_with_that_rule() -> None:
+    """The refusal states every rule the name check enforces, so a facility
+    whose name breaks the leading-digit rule learns which rule it broke."""
+    errors = _errors(password_env="1MONGO_PASSWORD")
+
+    assert any("not starting with a digit" in error for error in errors)
+
+
 def test_the_defaults_validate() -> None:
     """The shipped store must be a legal store."""
     assert _errors() == []
