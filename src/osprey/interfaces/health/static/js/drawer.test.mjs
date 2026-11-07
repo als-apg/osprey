@@ -1,11 +1,11 @@
 // @ts-check
-/* global document, history, location -- vitest runs these in happy-dom */
+/* global document, history, location, HTMLElement -- vitest runs these in happy-dom */
 /**
  * The in-place drawer (drawer.js):
  *   npx vitest run src/osprey/interfaces/health/static/js/drawer.test.mjs
  */
 
-import { test, expect, describe, beforeEach } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach } from 'vitest';
 
 import { demoEnvelope } from './demo.js';
 import { store, mcp, S, DS, indexModel } from './state.js';
@@ -99,5 +99,67 @@ describe('deep links', () => {
     const i = store.R.findIndex((r) => r.name === 'hooks.osprey_limits');
     store.R[i] = { ...store.R[i], status: 'error' };
     expect(drawerSignature('hooks')).not.toBe(a);
+  });
+});
+
+describe('caret', () => {
+  // happy-dom has no layout: give each tile a fixed x, and record where the
+  // caret stands (left, transition) at the forced reflow that precedes the
+  // transition, i.e. its start position, plus its final left.
+  const X = { hooks: 100, limits: 300, disk: 500 };
+  let starts = /** @type {{left: string, transition: string}[]} */ ([]);
+  const rectOf = HTMLElement.prototype.getBoundingClientRect;
+  const ow = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+
+  beforeEach(() => {
+    starts = [];
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      const x = this.id.startsWith('tile-') ? X[this.id.slice(5)] || 0 : 0;
+      return /** @type {DOMRect} */ ({ left: x, width: 0 });
+    };
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get() {
+        if (this.classList.contains('caret'))
+          starts.push({ left: this.style.left, transition: this.style.transition });
+        return 0;
+      },
+    });
+  });
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = rectOf;
+    if (ow) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', ow);
+  });
+
+  const caretLeft = (/** @type {string} */ band) =>
+    /** @type {HTMLElement} */ (document.querySelector(`#drawer-${band} .caret`)).style.left;
+
+  test('a fresh open lands under the tile, starting there, never at the far left', () => {
+    openTile('hooks');
+    expect(starts.at(-1)).toEqual({ left: '100px', transition: 'none' });
+    expect(caretLeft('chain')).toBe('100px');
+  });
+
+  test('another tile in the same open band slides from the previous position', () => {
+    const [a, b] = ['hooks', 'limits'].map(
+      (k) => document.getElementById('tile-' + k)?.closest('.band')?.id
+    );
+    expect(a).toBe(b);
+    openTile('hooks');
+    openTile('limits');
+    expect(starts.at(-1)).toEqual({ left: '100px', transition: 'none' });
+    expect(caretLeft('chain')).toBe('300px');
+  });
+
+  test('another band, a reopen, and a same-selection re-render never slide', () => {
+    openTile('hooks');
+    openTile('disk');
+    expect(starts.at(-1)).toEqual({ left: '500px', transition: 'none' });
+    closeDrawer();
+    openTile('hooks');
+    expect(starts.at(-1)?.left).toBe('100px');
+    show('chain', 'hooks', undefined, true);
+    expect(starts.at(-1)?.left).toBe('100px');
+    expect(caretLeft('chain')).toBe('100px');
   });
 });
