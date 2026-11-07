@@ -1967,7 +1967,7 @@ def deploy_down_web_terminals(
     """Tear down the web-terminal stack — the mirror of
     :func:`deploy_up_web_terminals`'s second compose invocation.
 
-    ``deploy_down``'s services invocation does not carry the web compose file
+    ``down_deployment``'s services invocation does not carry the web compose file
     in its ``-f`` list (the two stacks stay separate invocations — see the WHY
     TWO INVOCATIONS note on :func:`deploy_up_web_terminals`), so the web stack
     needs this dedicated ``down``. Without it the web containers outlive every
