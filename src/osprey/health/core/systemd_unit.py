@@ -42,13 +42,12 @@ no user manager is not an unhealthy host.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import os
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.health.core.claude_cli import _run_command
 from osprey.health.models import CheckResult, Status
 
 if TYPE_CHECKING:
@@ -103,39 +102,6 @@ def systemd_unit(
         return await _check_systemd_unit(base_dir or Path.cwd())
 
     return _run
-
-
-async def _run_systemctl(argv: list[str], timeout_s: float) -> tuple[int | None, str, str]:
-    """Run ``argv`` and return ``(returncode, stdout, stderr)``.
-
-    Args:
-        argv: Command and arguments to execute.
-        timeout_s: Wall-clock budget; on expiry the child is killed and reaped.
-
-    Returns:
-        The exit code and decoded stdout/stderr.
-
-    Raises:
-        FileNotFoundError: If the executable is not on ``PATH``.
-        TimeoutError: If the command exceeds ``timeout_s``.
-    """
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
-    except TimeoutError:
-        proc.kill()
-        with contextlib.suppress(Exception):
-            await proc.wait()
-        raise
-    return (
-        proc.returncode,
-        stdout.decode(errors="replace"),
-        stderr.decode(errors="replace"),
-    )
 
 
 def _user_unit_dir() -> Path:
@@ -217,7 +183,7 @@ async def _check_systemd_unit(repo_root: Path) -> list[CheckResult]:
 
     argv = ["systemctl", "--user", "show", "-p", "LoadState", "--value", _UNIT_NAME]
     try:
-        returncode, stdout, stderr = await _run_systemctl(argv, _SYSTEMCTL_TIMEOUT_S)
+        returncode, stdout, stderr = await _run_command(argv, _SYSTEMCTL_TIMEOUT_S)
     except FileNotFoundError:
         return [_row(Status.SKIP, "systemctl not found in PATH")]
     except TimeoutError:

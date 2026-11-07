@@ -1,6 +1,6 @@
 """Tests for the core ``systemd_unit`` category.
 
-Branch coverage patches the module's ``_run_systemctl`` helper and its
+Branch coverage patches the module's ``_run_command`` helper and its
 ``shutil.which``/``Path.home`` seams; a few tests patch
 ``asyncio.create_subprocess_exec`` directly to exercise the real subprocess
 helper (success, timeout-kill, missing executable).
@@ -25,14 +25,14 @@ _UNIT = "osprey.service"
 
 
 def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
-    """Patch ``_run_systemctl`` to return canned output or raise."""
+    """Patch ``_run_command`` to return canned output or raise."""
 
     async def _fake(_argv, _timeout_s):
         if raises is not None:
             raise raises
         return (returncode, stdout, stderr)
 
-    monkeypatch.setattr(mod, "_run_systemctl", _fake)
+    monkeypatch.setattr(mod, "_run_command", _fake)
 
 
 def _have_systemctl(monkeypatch, present=True):
@@ -284,7 +284,7 @@ class TestCwdDefault:
 
 
 # --------------------------------------------------------------------------- #
-# _run_systemctl against a fake asyncio subprocess
+# _run_command against a fake asyncio subprocess
 # --------------------------------------------------------------------------- #
 
 
@@ -296,7 +296,7 @@ class TestRunSystemctl:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
-        rc, out, err = await mod._run_systemctl(["systemctl", "--user", "show"], 5.0)
+        rc, out, err = await mod._run_command(["systemctl", "--user", "show"], 5.0)
         assert rc == 0
         assert out == "loaded\n"
         assert err == ""
@@ -309,7 +309,7 @@ class TestRunSystemctl:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
         with pytest.raises((TimeoutError, asyncio.TimeoutError)):
-            await mod._run_systemctl(["systemctl", "--user", "show"], 0.01)
+            await mod._run_command(["systemctl", "--user", "show"], 0.01)
         assert proc.killed is True
         assert proc.reaped is True
 
@@ -319,4 +319,4 @@ class TestRunSystemctl:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
         with pytest.raises(FileNotFoundError):
-            await mod._run_systemctl(["nope"], 5.0)
+            await mod._run_command(["nope"], 5.0)
