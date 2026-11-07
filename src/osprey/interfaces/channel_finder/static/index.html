@@ -10,6 +10,7 @@
   <script src="/design-system/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
+  <link rel="stylesheet" href="/design-system/css/primitives.css">
 
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css">
@@ -18,12 +19,42 @@
   <link rel="stylesheet" href="/static/css/channel-finder.css">
 </head>
 <body>
-  <main class="app-main" id="app-main">
-    <div class="view-container" id="view-container"></div>
+  <!-- The panel root: the size container named `panel` that the toolbar's
+       and the sidebar's narrow rules measure. One column: the panel toolbar, the active view (the only part
+       that scrolls), and the corpus strip. -->
+  <div class="cf-panel" id="cf-panel" data-panel-root>
+    <!-- The panel toolbar (DESIGN.md §12.3), driven by js/panel-toolbar.js.
+         The graph finder claims the toggle, the count and the search while it
+         is mounted; elsewhere they stay in their slots, disabled. The tile's ⋯
+         is the panel's one menu. -->
+    <header class="osprey-panel-toolbar" id="cf-toolbar">
+      <div class="osprey-panel-toolbar__start">
+        <button class="osprey-icon-btn" id="cf-sidebar-toggle" type="button"
+                aria-label="Show sidebar" disabled></button>
+        <div class="osprey-seg" id="cf-views" role="group" aria-label="View">
+          <button type="button" data-view="explore" aria-pressed="true">Explore</button>
+          <button type="button" data-view="feedback" aria-pressed="false">Feedback</button>
+        </div>
+      </div>
+      <div class="osprey-panel-toolbar__end">
+        <span class="osprey-panel-toolbar__text" id="cf-result-count" hidden></span>
+        <label class="osprey-search-field" id="cf-search-field">
+          <input type="search" id="cf-search" placeholder="Search devices, addresses and descriptions"
+                 aria-label="Search devices, addresses and descriptions" autocomplete="off"
+                 spellcheck="false" disabled>
+          <kbd class="osprey-kbd" title="Press / to search" aria-hidden="true">/</kbd>
+        </label>
+      </div>
+    </header>
 
-    <!-- Corpus strip: the corpus stats and the pipeline switcher live in the
-         panel body (the hub's tile bar is the only header). Pinned to the bottom edge; the
-         pipeline dropdown therefore opens upward. -->
+    <main class="app-main" id="app-main">
+      <div class="view-container" id="view-container"></div>
+    </main>
+
+    <!-- Corpus strip: the corpus stats, the store they came from and the
+         pipeline switcher, pinned under the view. Its provenance truncates
+         rather than run into the switcher; the pipeline dropdown opens
+         upward. -->
     <div class="corpus-strip" id="corpus-strip">
       <span class="stats-badges" id="stats-badges"></span>
       <!-- Graph paradigm only: the store the numbers came from and the tools
@@ -34,7 +65,7 @@
         <div class="pipeline-dropdown" id="pipeline-dropdown"></div>
       </div>
     </div>
-  </main>
+  </div>
 
   <div class="toast-container" id="toast-container"></div>
 

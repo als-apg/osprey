@@ -2,16 +2,17 @@
 /**
  * OSPREY Channel Finder — Application Entry Point
  *
- * Hash routing, module initialization, the tile bar's view tabs.
+ * Hash routing and module initialization. The view switch is the panel
+ * toolbar's (panel-toolbar.js): a press sets the hash, and this routes on it.
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
-import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { fetchJSON, putJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';
+import { initToolbar } from './panel-toolbar.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
 import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
 
@@ -39,6 +40,7 @@ let _initialized = false;
 async function init() {
   if (_initialized) return;
   _initialized = true;
+  initToolbar();
   // Load pipeline info
   try {
     const info = await fetchJSON('/api/info');
@@ -56,15 +58,6 @@ async function init() {
 
   // Load stats badges
   refreshStatsBadges();
-
-  onHeaderAction((id, value) => {
-    if (id === 'view') {
-      if (value && VIEWS[value]) location.hash = value;
-      return;
-    }
-    state.viewHeader?.onAction(id, value);
-  });
-  state.on('viewHeaderChanged', () => contributeViewNav());
 
   // Route to initial view
   routeFromHash();
@@ -97,35 +90,10 @@ function activateView(viewName) {
   // Clear container
   container.innerHTML = '';
 
-  // Mount new view
+  // Mount new view; the toolbar follows the active view (panel-toolbar.js).
   currentView = viewName;
   state.setActiveView(viewName);
   VIEWS[viewName].mount(container);
-  contributeViewNav();
-}
-
-// ---- Navigation ----
-
-/**
- * Publish the Explore/Feedback tabs into the hub's tile bar, marking the
- * current view active, behind whatever the active view adds of its own (the
- * graph finder's search box and ⋯ menu). The view's items come first: they
- * exist only in one view, and the header contract puts conditional items
- * before the persistent switcher so the switcher never slides. Sent whole on
- * every change — the hub renders only the latest contribution.
- */
-function contributeViewNav() {
-  contributeHeader([
-    ...(state.viewHeader?.items ?? []),
-    {
-      kind: 'nav',
-      id: 'view',
-      items: [
-        { id: 'explore', label: 'Explore', active: currentView === 'explore' },
-        { id: 'feedback', label: 'Feedback', active: currentView === 'feedback' },
-      ],
-    },
-  ]);
 }
 
 // ---- Pipeline Switcher ----

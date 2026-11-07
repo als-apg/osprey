@@ -3,13 +3,14 @@
  * OSPREY Channel Finder — graph-mode finder markup builders.
  *
  * Stateless, DOM-free string builders for the search-first Explore view: the
- * facet rail, the active-filter chips, the result table, the result footer and
- * the device card. It also owns the two pure helpers those builders read a
- * payload with — {@link fmt} and {@link directionOf} — which the mount imports
- * rather than keeping copies of. Nothing here reads or writes the document; the
- * mount (`explore-graph.js`) assigns the returned strings and delegates clicks,
- * and the state module owns what is selected. Every store-sourced value routed
- * into markup goes through `esc`.
+ * facet sidebar, the active-filter chips, the result table, the result footer,
+ * the toolbar's result count and the device card. It also owns the two pure
+ * helpers those builders read a payload with — {@link fmt} and
+ * {@link directionOf} — which the mount imports rather than keeping copies of.
+ * Nothing here reads or writes the document; the mount (`explore-graph.js`)
+ * assigns the returned strings and delegates clicks, and the state module owns
+ * what is selected. Every store-sourced value routed into markup goes through
+ * `esc`.
  *
  * ## Click contract
  *
@@ -138,7 +139,8 @@ function dirPill(dir) {
  * @returns {string}
  */
 function facetItem(facet, value, label, count, opts = {}) {
-  const classes = ['facet-item'];
+  // A sidebar row (primitives.css .osprey-list-row); `.on` is its selected look.
+  const classes = ['facet-item', 'osprey-list-row'];
   if (opts.on) classes.push('on');
   if (opts.zero) classes.push('zero');
   if (opts.abstract) classes.push('abstract');
@@ -160,7 +162,7 @@ function facetItem(facet, value, label, count, opts = {}) {
 
   return (
     `<button type="button" class="${classes.join(' ')}" data-facet="${esc(facet)}"` +
-    ` data-value="${esc(value)}"${depthAttr}${title}` +
+    ` data-value="${esc(value)}" aria-pressed="${Boolean(opts.on)}"${depthAttr}${title}` +
     `>${twisty}<span class="k">${esc(label)}</span><span class="n">${fmt(count)}</span></button>`
   );
 }
@@ -187,7 +189,7 @@ function facetGroup(key, title, body, active, collapsed) {
       : '';
   return (
     `<div class="facet${collapsed ? ' collapsed' : ''}" data-facet-group="${k}">` +
-    '<div class="facet-head">' +
+    '<div class="facet-head osprey-section-label">' +
     `<button type="button" class="facet-toggle" data-facet-toggle="${k}" aria-expanded="${!collapsed}">` +
     `<span class="tw" aria-hidden="true">▾</span><span class="facet-title">${esc(title)}</span></button>` +
     `${count}</div>` +
@@ -466,22 +468,38 @@ export function resultsHtml(rows, state, columns = DEFAULT_COLUMNS, focusPv = nu
 }
 
 /**
- * Render the result footer: the counts, the pager and the selection actions.
+ * Render the toolbar's result count: the channels a search matched and the
+ * devices behind them. It is status, so it is plain text in the panel
+ * toolbar, not a control.
+ * @param {number} total - Channels matching the search.
+ * @param {number} devices - Distinct devices behind those channels.
+ * @returns {string}
+ */
+export function resultCountHtml(total, devices) {
+  const n = Number(total) || 0;
+  const d = Number(devices) || 0;
+  return (
+    `<strong>${fmt(n)}</strong> ${n === 1 ? 'channel' : 'channels'} on ` +
+    `<strong>${fmt(d)}</strong> ${d === 1 ? 'device' : 'devices'}`
+  );
+}
+
+/**
+ * Render the result footer, one row: the pager, then the selection and the
+ * actions on it, Send last as the one primary.
  *
  * Send is drawn only when the finder is embedded in an assistant session,
- * because standalone there is nothing to send to. Copy, Send and Clear all act
+ * because standalone there is nothing to send to. Copy, Clear and Send all act
  * on the selection, so at zero selection all three are disabled rather than
  * hidden — the operator can see what selecting would unlock.
  *
- * @param {number} total - Channels matching the search.
- * @param {number} devices - Distinct devices behind those channels.
  * @param {number} page - Current page, 1-based.
  * @param {number} pages - Total pages.
  * @param {number} selectedCount
  * @param {boolean} embedded - Whether an assistant session is hosting the panel.
  * @returns {string}
  */
-export function footerHtml(total, devices, page, pages, selectedCount, embedded) {
+export function footerHtml(page, pages, selectedCount, embedded) {
   const current = Math.max(1, Number(page) || 1);
   const last = Math.max(1, Number(pages) || 1);
   const count = Number(selectedCount) || 0;
@@ -494,8 +512,6 @@ export function footerHtml(total, devices, page, pages, selectedCount, embedded)
 
   return (
     '<div class="result-foot">' +
-    `<span class="result-counts"><strong>${fmt(total)}</strong> channels on ` +
-    `<strong>${fmt(devices)}</strong> devices</span>` +
     '<span class="pager">' +
     '<button type="button" class="btn btn-secondary btn-sm" data-page="prev"' +
     `${current <= 1 ? ' disabled' : ''} aria-label="Previous page">‹</button>` +
@@ -507,9 +523,9 @@ export function footerHtml(total, devices, page, pages, selectedCount, embedded)
     `<span class="sel-count">${fmt(count)} selected</span>` +
     `<button type="button" class="btn btn-secondary btn-sm" data-action="copy"${off}>` +
     'Copy addresses</button>' +
-    sendBtn +
     `<button type="button" class="btn btn-secondary btn-sm" data-action="clear"${off}>` +
     'Clear</button>' +
+    sendBtn +
     '</div>'
   );
 }
@@ -668,23 +684,32 @@ export const FINDER_IDS = Object.freeze({
 });
 
 /**
- * The finder's skeleton.
+ * The finder's skeleton: the facet sidebar (a shared `.osprey-panel-sidebar`,
+ * closed until panel-sidebar.js opens it) and its handle, then the main
+ * column: the results with the active filters above them, and under them
+ * the device inspector behind its own horizontal handle, so an open device
+ * reads as one wide row while the results keep scrolling above it. The
+ * search field, the result count and the sidebar toggle are the panel
+ * toolbar's (index.html), which outlives this skeleton.
  * @returns {string} Markup for the panes and the regions inside them.
  */
 export function skeletonHtml() {
   return `
-    <div class="active-filters" id="${FINDER_IDS.chips}"></div>
     <div class="finder-layout">
-      <div class="facet-rail" id="${FINDER_IDS.rail}"></div>
+      <aside class="osprey-panel-sidebar facet-rail" id="${FINDER_IDS.rail}" data-open="false"
+             aria-label="Filters"></aside>
       <div class="osprey-splitter" id="${FINDER_IDS.railSplit}" role="separator" aria-orientation="vertical"
            aria-label="Resize the filters" tabindex="0" title="Drag to resize · double-click to hide"></div>
-      <div class="finder-results">
-        <div id="${FINDER_IDS.caution}"></div>
-        <div class="finder-table" id="${FINDER_IDS.table}"></div>
+      <div class="finder-main">
+        <div class="finder-results">
+          <div class="active-filters" id="${FINDER_IDS.chips}"></div>
+          <div id="${FINDER_IDS.caution}"></div>
+          <div class="finder-table" id="${FINDER_IDS.table}"></div>
+        </div>
+        <div class="osprey-splitter" id="${FINDER_IDS.cardSplit}" role="separator" aria-orientation="horizontal"
+             aria-label="Resize the device inspector" tabindex="0" hidden></div>
+        <div class="finder-inspector" id="${FINDER_IDS.card}" hidden></div>
       </div>
-      <div class="osprey-splitter" id="${FINDER_IDS.cardSplit}" role="separator" aria-orientation="vertical"
-           aria-label="Resize the device inspector" tabindex="0" hidden></div>
-      <div class="finder-inspector" id="${FINDER_IDS.card}" hidden></div>
     </div>
   `;
 }

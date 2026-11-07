@@ -524,11 +524,14 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
 
 
 def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_browser):
-    """channel_finder opens without a header band, and the pipeline switcher is reachable.
+    """channel_finder embedded opens on its panel toolbar, with no dead band.
 
-    The hub's tile bar is the panel's only header. The pipeline switcher sits
-    in the body's bottom corpus strip, which must stay rendered inside the
-    viewport for the panel to remain switchable.
+    The panel toolbar is the same embedded and standalone (DESIGN.md §12.3),
+    so it is the first thing in the frame, right under the hub's tile bar.
+    The view scrolls between it and the corpus strip, and the strip carries
+    the pipeline switcher: it must stay rendered inside the viewport, below
+    the view rather than over it, for the panel to remain switchable when
+    embedded.
     """
     # Arrange
     with launch_channel_finder(tmp_path, monkeypatch) as base_url:
@@ -537,12 +540,12 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
         # Act
         page.goto(f"{base_url}?embedded=true", wait_until="load")
 
-        # Assert -- no local header, and no padding that would clear one.
-        assert page.locator(".app-header").count() == 0
-        padding_top = page.evaluate(
-            "getComputedStyle(document.querySelector('.app-main')).paddingTop"
-        )
-        assert padding_top == "0px"
+        # Assert -- the panel toolbar is at the very top of the frame.
+        toolbar = page.locator("#cf-toolbar")
+        expect(toolbar).to_be_visible(timeout=10_000)
+        toolbar_box = toolbar.bounding_box()
+        assert toolbar_box is not None
+        assert toolbar_box["y"] == 0
 
         # Assert -- the pipeline switcher is rendered and positioned inside the viewport.
         # ``load`` fires before the switcher's layout settles, so on a loaded runner
@@ -557,10 +560,12 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
         assert box["width"] > 0 and box["height"] > 0
         assert 0 <= box["y"] <= viewport["height"]
 
-        # Assert -- content clears the fixed strip instead of running under it.
-        padding_bottom = page.evaluate(
-            "getComputedStyle(document.querySelector('.app-main')).paddingBottom"
-        )
-        assert padding_bottom == "28px"
+        # Assert -- the view ends where the strip begins instead of running under
+        # it, and the strip is the last thing in the frame.
+        main_box = page.locator("#app-main").bounding_box()
+        strip_box = page.locator("#corpus-strip").bounding_box()
+        assert main_box is not None and strip_box is not None
+        assert main_box["y"] + main_box["height"] == pytest.approx(strip_box["y"], abs=1)
+        assert strip_box["y"] + strip_box["height"] == pytest.approx(viewport["height"], abs=1)
 
         page.close()

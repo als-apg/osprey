@@ -4,11 +4,13 @@
  *
  * One builder per surface: a result row, a column header, a facet value, a
  * facet heading, an active-filter chip, the device inspector and its channel
- * rows. Each takes what the surface shows plus an
- * {@link Actions} object of bound verbs, and returns the rows the shared
- * context menu (/design-system/js/context-menu.js) draws. Nothing here touches
- * the document or the network, so which verb a surface offers — and when it
- * is disabled — is tested without a browser.
+ * rows. Each takes what the surface shows plus an {@link Actions} object of
+ * bound verbs, and returns the rows the shared context menu
+ * (/design-system/js/context-menu.js) draws. The panel's own ⋯ entries
+ * ({@link panelMenuEntries}) are plain data instead, because the hub's tile ⋯
+ * draws them too. Nothing here touches the document or the network, so which
+ * verb a surface offers — and when it is disabled — is tested without a
+ * browser.
  *
  * The verbs are the same ones the visible controls run: a row's "Copy address"
  * is the row's ⎘, "Only section SR01C" is a rail click, "Sort ascending" is a
@@ -20,6 +22,7 @@ import { facetCount, hasFacet } from './graph-finder-state.js';
 import { isDefaultLayout, visibleColumns } from '/design-system/js/table-columns.js';
 
 /** @typedef {import('/design-system/js/context-menu.js').MenuItem} MenuItem */
+/** @typedef {import('/design-system/js/header-contrib.js').HeaderMenuEntry} MenuEntry */
 /** @typedef {import('./graph-finder-state.js').FinderState} FinderState */
 /** @typedef {import('./graph-finder-state.js').Facet} Facet */
 /** @typedef {import('./graph-finder-state.js').SortKey} SortKey */
@@ -48,7 +51,6 @@ import { isDefaultLayout, visibleColumns } from '/design-system/js/table-columns
  * @property {() => void} autosizeAll
  * @property {() => void} resetColumns
  * @property {(density: 'comfortable'|'compact') => void} setDensity
- * @property {() => void} toggleRail
  */
 
 /**
@@ -59,8 +61,6 @@ import { isDefaultLayout, visibleColumns } from '/design-system/js/table-columns
  * @property {ColumnLayout} layout
  * @property {boolean} embedded - an assistant session hosts the panel, so Send exists
  * @property {string|null} openDevice - the URI the inspector shows, if any
- * @property {'comfortable'|'compact'} density
- * @property {boolean} railCollapsed
  * @property {Actions} actions
  */
 
@@ -349,6 +349,25 @@ export function chipMenu(ctx, key) {
   return [
     { label: 'Remove filter', run: () => ctx.actions.removeChip(key) },
     { label: 'Clear all filters', danger: true, run: () => ctx.actions.clearFilters() },
+  ];
+}
+
+/**
+ * The panel's ⋯ entries: row density, the columns, and the two bulk clears.
+ * They are the tile ⋯'s "This panel" section (a v3 `menu` contribution). An
+ * entry's id is what comes back to graph-finder-verbs.js runPanelMenu.
+ * @param {FinderState} finder
+ * @param {'comfortable'|'compact'} density
+ * @returns {MenuEntry[]}
+ */
+export function panelMenuEntries(finder, density) {
+  return [
+    { id: 'density-comfortable', label: 'Comfortable rows', checked: density === 'comfortable' },
+    { id: 'density-compact', label: 'Compact rows', checked: density === 'compact' },
+    { id: 'columns', label: 'Choose columns…' },
+    { id: 'reset-columns', label: 'Reset columns' },
+    { id: 'clear-filters', label: 'Clear all filters', disabled: !hasFilters(finder) },
+    { id: 'clear-selection', label: 'Clear selection', disabled: finder.selected.size === 0 },
   ];
 }
 
