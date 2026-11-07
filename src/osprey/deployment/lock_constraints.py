@@ -125,7 +125,10 @@ def export_lock_constraints(checkout_root: Path) -> str:
         )
     try:
         result = subprocess.run(
-            [uv, *EXPORT_ARGS, "--project", str(root)],
+            [uv, *EXPORT_ARGS],
+            # uv finds the project from its working directory, so the export
+            # reads this checkout's pyproject.toml and uv.lock.
+            cwd=root,
             capture_output=True,
             text=True,
             timeout=_EXPORT_TIMEOUT_S,
