@@ -45,6 +45,10 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
 }
 
 #: Interim: the listed names that had no user when this check was added. Each
