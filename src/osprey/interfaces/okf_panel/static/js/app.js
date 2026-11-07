@@ -29,10 +29,8 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
-import { debounce } from '/design-system/js/dom.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
-import '/design-system/js/components/osprey-display-menu.js';
 import {
   el,
   FACILITY_SCHEME,
@@ -57,14 +55,10 @@ import {
 } from './search.js';
 import { initSidebarResize } from './resize.js';
 
-// Standalone, this page owns its own theme chrome (the header
-// <osprey-display-menu>), so it runs theme-manager.js in the hub role:
-// persistence, OS auto-follow and ?theme= handling all come with it, and
-// broadcast is a structural no-op on a page with no iframes. Embedded in the
-// Web Terminal hub it is a follower instead: theme-boot.js already applied
-// data-theme pre-paint, and this attaches the postMessage listener for the
-// hub's live broadcasts.
-initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
+// A follower of the Web Terminal hub: theme-boot.js already applied data-theme
+// pre-paint, and this attaches the postMessage listener for the hub's live
+// broadcasts.
+initTheme({ role: 'follower' });
 
 /**
  * What the reading pane shows: `'browse'` is the structure overview (the list
@@ -77,18 +71,16 @@ let readerView = 'browse';
  * Publish this panel's tile-bar contribution. Embedded, the tile bar is the
  * panel's one header, with two items:
  *
- * - the sidebar's search box, rendered as the hub's magnifier pill (style.css
- *   hides the in-body one);
+ * - the search box, rendered as the hub's magnifier pill;
  * - a `view` nav whose Browse entry opens the structure overview. It is active
  *   while the overview is showing.
  *
  * The nav goes last, against the close button: it is the control aimed at
  * repeatedly, and it outranks the search when a narrow tile has to fold one.
- * Sent WHOLE (the hub replaces, never diffs) and a no-op standalone.
+ * Sent WHOLE (the hub replaces, never diffs).
  */
 function publishHeaderContribution() {
   contributeHeader([
-    // Placeholder matches the in-body input in index.html.
     { kind: 'search', id: 'search', placeholder: 'Search concepts…' },
     {
       kind: 'nav',
@@ -194,8 +186,6 @@ function requireEl(id) {
   // -- DOM handles -----------------------------------------------------------
   const treeEl = requireEl('tree');
   const readerEl = requireEl('reader-content');
-  const searchForm = requireEl('search-form');
-  const searchInput = /** @type {HTMLInputElement} */ (requireEl('search-input'));
   const searchResultsEl = requireEl('search-results');
   const structureLink = document.getElementById('structure-link');
   /** @type {Set<string> | null} */
@@ -473,22 +463,9 @@ function requireEl(id) {
     renderSearchResults(data.results || []);
   }
 
-  // debounce is imported from the shared design-system dom.js (identical
-  // trailing-edge behaviour to the local copy this replaces).
-  const debouncedSearch = debounce(function () {
-    runSearch(searchInput.value);
-  }, 200);
-
-  searchInput.addEventListener('input', debouncedSearch);
-  searchForm.addEventListener('submit', function (ev) {
-    ev.preventDefault();
-    runSearch(searchInput.value);
-  });
-
-  // Embedded: the same box lives in the hub's tile bar and posts its text back
-  // here. The hub already debounces before reporting, so this runs the search
-  // directly rather than through debouncedSearch. The bar's Browse entry opens
-  // the structure overview, like the sidebar's "Knowledge Base" link.
+  // The search box lives in the hub's tile bar and posts its text back here;
+  // the hub debounces before reporting. The bar's Browse entry opens the
+  // structure overview, like the sidebar's "Knowledge Base" link.
   onHeaderAction(function (id, value) {
     if (id === 'search') runSearch(value || '');
     else if (id === 'view' && value === 'browse') loadStructure();

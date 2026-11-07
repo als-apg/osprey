@@ -79,39 +79,6 @@ body {
    here; the only OKF-specific splitter rule is the `display: none` for the
    stacked responsive layout further down. */
 
-#search-box {
-  flex: 0 0 auto;
-  padding: var(--space-3);
-  border-bottom: 1px solid var(--border-default);
-}
-
-#search-form {
-  margin: 0;
-}
-
-#search-input {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  outline: none;
-  transition: border-color var(--duration-instant) ease,
-    box-shadow var(--duration-instant) ease;
-}
-
-#search-input::placeholder {
-  color: var(--text-muted);
-}
-
-#search-input:focus {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--accent-tint-08);
-}
-
 /* Home / structure-overview entry, pinned at the top of the sidebar. */
 #structure-nav {
   flex: 0 0 auto;
@@ -504,16 +471,4 @@ body {
 
 .bundle-health.has-warnings .health-text {
   color: var(--color-accent-secondary-light);
-}
-
-/* ================================================================
-   Embedded in the web-terminal hub
-   ----------------------------------------------------------------
-   The tile bar is the panel's one header: app.js
-   (publishHeaderContribution) contributes the search box and the Browse
-   view to it, so the in-body search box goes.
-   ================================================================ */
-
-body.embedded #search-box {
-  display: none;
 }

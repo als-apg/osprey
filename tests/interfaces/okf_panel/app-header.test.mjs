@@ -99,9 +99,6 @@ beforeAll(async () => {
   document.body.innerHTML = `
     <div id="app">
       <aside id="sidebar">
-        <div id="search-box">
-          <form id="search-form"><input id="search-input" type="search" /></form>
-        </div>
         <a id="structure-link" href="#__structure">Knowledge Base</a>
         <nav id="tree"></nav>
         <div id="search-results" hidden></div>
