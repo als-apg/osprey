@@ -849,6 +849,45 @@ def test_beam_profile_renders_through_its_stub_viewer_and_falls_back(hub, page):
     _wait_for(lambda: any("failed; showing the base view" in w for w in warnings))
 
 
+def test_open_in_new_window_keeps_the_artifact_the_tile_showed(hub, page):
+    """The frame loads again in its window and asks for its selection there: the
+    hub finds the frame wherever it lives and answers, so the window shows the
+    artifact the tile showed, and so does the tile after Reattach."""
+    store = _store(hub)
+    profile = next(e for e in store.list_entries() if e.kind == BEAM_PROFILE_KIND)
+    _boot(page, hub)
+    _open_session(page, _PROFILE.transcript_id)
+    _open_all(page)
+    _row(page, profile.id).click()
+    marker = f".ext-viewer-container .{BEAM_PROFILE_MARKER_CLASS}"
+    expect(page.frame_locator(_ARTIFACTS_FRAME).locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
+
+    with page.expect_popup() as info:
+        page.locator('.tile-tab[data-panel-id="iframe:artifacts"] .tile-tab-window').click()
+    popup = info.value
+    frame = popup.frame_locator(_ARTIFACTS_FRAME)
+    expect(frame.locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(frame.locator("#preview-empty")).to_be_hidden()
+
+    # A pick in the hub's tree reaches the frame in the window.
+    note = store.save_file(
+        b"# window note\n",
+        "window_note.md",
+        "markdown",
+        title="Window note",
+        session_id=_PROFILE.session_key,
+    )
+    _open_all(page)
+    _row(page, note.id).click()
+    expect(frame.locator(marker)).to_have_count(0, timeout=_TIMEOUT_MS)
+    expect(frame.locator("#preview-content .preview-viewport")).to_be_visible()
+
+    popup.locator(".attached-window-root > .tile-tab button.tile-tab-reattach").click()
+    docked = page.frame_locator(_ARTIFACTS_FRAME)
+    expect(docked.locator("#preview-content .preview-viewport")).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(docked.locator("#preview-empty")).to_be_hidden()
+
+
 # --- the palette and delete ---------------------------------------------------------
 
 

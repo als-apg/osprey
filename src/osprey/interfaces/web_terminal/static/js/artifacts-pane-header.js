@@ -28,6 +28,7 @@
 import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { withPrefix } from './api.js';
+import { managedIframe } from './dock-iframe.js';
 import { fmtBytes } from './session-helpers.js';
 import { ARTIFACTS_BASE } from './sidebar-artifact-listing.js';
 import { titleOf } from './sidebar-artifact-rows.js';
@@ -94,8 +95,9 @@ export function downloadArtifact(entry) {
  * @returns {string | null}
  */
 function artifactDir() {
-  const frame = document.querySelector('iframe.panel-iframe[data-panel-id="artifacts"]');
-  if (!(frame instanceof HTMLIFrameElement)) return null;
+  // Looked up by its panel: in its own window the frame is not in this document.
+  const frame = managedIframe('artifacts')?.iframe;
+  if (!frame) return null;
   try {
     const meta = frame.contentDocument?.querySelector('meta[name="osprey-artifact-dir"]');
     return meta?.getAttribute('content') || null;

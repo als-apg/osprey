@@ -14,6 +14,13 @@ import { test, expect, describe, afterEach, vi } from 'vitest';
 
 import { closeAllPopovers } from '/design-system/js/popover.js';
 
+/** The panel's frame as dock-iframe holds it. */
+const held = vi.hoisted(() => ({ frame: /** @type {HTMLIFrameElement | null} */ (null) }));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
+  managedIframe: (/** @type {string} */ id) =>
+    id === 'artifacts' && held.frame ? { iframe: held.frame, title: 'Artifacts' } : null,
+}));
+
 const header =
   await import('../../../src/osprey/interfaces/web_terminal/static/js/artifacts-pane-header.js');
 
@@ -154,6 +161,7 @@ describe('Info', () => {
     frame.className = 'panel-iframe';
     frame.dataset.panelId = 'artifacts';
     document.body.append(frame);
+    held.frame = frame;
     const meta = document.createElement('meta');
     meta.name = 'osprey-artifact-dir';
     meta.content = '/srv/osprey/artifacts';
