@@ -5148,7 +5148,11 @@ jobs:
       # `osprey up --dev` stages an `osprey-local-requirements.txt` beside the
       # Dockerfile and the COPY that picks it up is an optional glob. Staging an
       # empty one keeps that glob's cross-runtime behaviour out of this lane, so
-      # the proxy bridge stays the only thing that can fail here.
+      # the proxy bridge stays the only thing that can fail here. No
+      # `osprey-lock-constraints.txt` is staged, deliberately: without it the
+      # deps layer takes the index-resolving path a release build takes, which
+      # is the path a site behind a proxy builds its released images on, and
+      # the image is never run, so nothing is tested against what it resolved.
       #
       # OSPREY_VERSION is required by the Dockerfile (it exits non-zero when
       # empty) and OSPREY_DEV=1 is what lets a branch version that is not on

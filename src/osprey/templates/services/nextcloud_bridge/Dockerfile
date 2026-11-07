@@ -204,6 +204,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # writes the same `pyaml/` files, and neither the resolver nor `pip check` sees
 # two of them installed together. The manifest above is staged only beside these
 # wheels, so every build that installed it runs the assertion.
+#
 # On the lock-driven path (see the deps layer) the first install runs under
 # /opt/osprey/lock-constraints.txt, so anything the wheels add beyond what the
 # earlier layers installed is held to the checkout's uv.lock as well; the

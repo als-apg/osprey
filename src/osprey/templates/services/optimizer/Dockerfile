@@ -208,6 +208,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # and `pip check` cannot see a missing extra), beside the connectors wheel it
 # requires; then both are force-reinstalled --no-deps so their own modules
 # win, and `pip check` guards against residual mismatches.
+#
 # On the lock-driven path (see the deps layer) the first install runs under
 # /opt/osprey/lock-constraints.txt, so anything the wheels add beyond what the
 # earlier layers installed is held to the checkout's uv.lock as well; the
