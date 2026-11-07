@@ -181,6 +181,21 @@ def test_an_alias_panel_on_a_roster_gets_only_the_roster_grant(tmp_path: Path) -
     assert grant["secret_aliases"] == {}
 
 
+def test_an_alias_panel_on_a_disabled_roster_accepts_the_deployment_secret(
+    tmp_path: Path,
+) -> None:
+    """Switched-off per-user terminals hold no secret; the one terminal holds the deployment's."""
+    config = _deployment(tmp_path, {"operator": ("knob-demo",)})
+    config["services"]["knob-demo"] = _projected(single_user_alias=True)
+    config["modules"]["web_terminals"]["enabled"] = False
+    var = terminal_secret_var("ops")
+    assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops") == {
+        "secret_env_vars": [],
+        "roster_owners": f"{var.removeprefix('OSPREY_TERMINAL_SECRET_')}=ops",
+        "secret_aliases": {var: "OSPREY_TERMINAL_SECRET"},
+    }
+
+
 def test_no_alias_without_a_build_account_that_names_a_directory(tmp_path: Path) -> None:
     config = {"services": {"knob-demo": _projected(single_user_alias=True)}}
     assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: None) == (

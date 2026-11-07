@@ -15,7 +15,7 @@ panel:
   agent_routes:
     - [GET, /api/state]
     - [POST, /api/write]
-  roster_grant: {}
+  roster_grant: {single_user_alias: true}
 tools:
   module: knob_example.tools
   read: [read_corrector]

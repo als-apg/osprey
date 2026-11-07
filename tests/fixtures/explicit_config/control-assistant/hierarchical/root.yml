@@ -391,7 +391,7 @@ services:
     port: 10900
     roster_grant:
       panel_id: knob-example
-      single_user_alias: false
+      single_user_alias: true
     state: var/knob-example
     url: http://127.0.0.1:10900
   live_standin:
