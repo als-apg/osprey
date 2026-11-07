@@ -23,6 +23,7 @@
 #   OSPREY_E2E_BUDGET_SCALE     per-query max_budget_usd multiplier (default 1)
 #   OSPREY_BENCH_SELECT         optional pytest -k expression (matrix.py --select)
 #   OSPREY_BENCH_RESULTS_DIR    where the outputs below go (matrix.py --results-dir)
+#   OSPREY_BENCH_SUT_BASE_URL / OSPREY_BENCH_SUT_KEY   what the start-of-cell call uses
 #
 # Outputs (under $OSPREY_BENCH_RESULTS_DIR, default results/ in the repo root):
 #   results/<safe_model>__seed<seed>.xml    JUnit XML (per-test outcomes)
@@ -74,6 +75,16 @@ export OSPREY_E2E_QUERY_LOG="$RESULTS/${SAFE}__seed${SEED}.queries.jsonl"
 
 echo ">> model=$MODEL seed=$SEED provider=$OSPREY_E2E_FORCE_PROVIDER route=$ROUTE" >&2
 echo ">> junit=$XML" >&2
+
+# --- one small call to the model and the judge, before anything else ------
+# A refusal stops the cell here: the summary names who refused and why, and no
+# further tokens are spent.
+if ! "$PY" "$REPO/scripts/benchmark/cell_preflight.py" --model "$MODEL" --seed "$SEED" \
+    --provider "$OSPREY_E2E_FORCE_PROVIDER" --route "$ROUTE" \
+    --judge "${OSPREY_E2E_JUDGE_MODEL:-}" --out "$JSON"; then
+  echo "SETUP ERROR: the provider refused this cell (see PREFLIGHT above)." >&2
+  exit 2
+fi
 
 # --- per-cell ARIEL database isolation (issue #259) ----------------------
 # Concurrent matrix cells share one Postgres server. The scenario tests call

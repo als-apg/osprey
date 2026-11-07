@@ -298,3 +298,24 @@ def test_a_setup_error_costs_the_model_nothing_and_is_not_called_green(tmp_path)
     assert "class=no" not in page.split("<style>")[1].split("</style>")[1]
     assert "class=ok" not in page.split("<style>")[1].split("</style>")[1]
     assert dash.latency_stats("t", dash.load(str(results)), {})["median_task_s"] is None
+
+
+def test_a_refused_cell_says_who_refused_and_counts_for_nothing(tmp_path):
+    results = tmp_path / "results"
+    results.mkdir()
+    message = "als-apg refused m: 400: Invalid model name"
+    (results / "m__seed1.json").write_text(
+        json.dumps({**_summary("m", 1, []), "setup_error": message})
+    )
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [sys.executable, str(_BENCH / "matrix_dashboard.py"), "--results-dir", str(results)]
+        + ["--out", str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    page = out.read_text()
+    assert "setup error" in page and message in page
+    assert "class=no" not in page.split("</style>")[1]
+    assert "class=ok" not in page.split("</style>")[1]

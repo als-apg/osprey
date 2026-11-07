@@ -45,6 +45,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.types import WRITES_KEY, baseline_target
 from osprey_connectors_tests._harness import ci_diagnostics
+from tests.e2e import provider_refusal
 from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import build_model, build_provider
 
@@ -1687,6 +1688,7 @@ async def run_sdk_query(
     _harvest_subagent_traces(workflow, pending_tools, render)
 
     _log_query_timing(workflow, render)
+    provider_refusal.note_session(workflow.result, tool_calls=len(workflow.tool_traces))
     _persist_mcp_sidecar(workflow, repo)
     return workflow
 
@@ -1928,6 +1930,7 @@ async def run_sdk_query_with_hooks(
 
     workflow.hook_events = hook_events
     _log_query_timing(workflow, render)
+    provider_refusal.note_session(workflow.result, tool_calls=len(workflow.tool_traces))
     _persist_mcp_sidecar(workflow, repo)
     return workflow
 

@@ -32,6 +32,7 @@ travelling on as a URL.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import subprocess
@@ -242,6 +243,16 @@ def expand_grid(
 # ---------------------------------------------------------------------------
 
 
+def cell_is_done(summary: Path) -> bool:
+    """Whether a cell has a result. A cell its provider refused has none, so it runs again."""
+    if not summary.exists():
+        return False
+    try:
+        return not json.loads(summary.read_text()).get("setup_error")
+    except ValueError:
+        return True
+
+
 def cell_env(cell: Cell) -> dict[str, str]:
     """Compute the worker env for one cell.
 
@@ -255,6 +266,8 @@ def cell_env(cell: Cell) -> dict[str, str]:
     # --- model-under-test routing -----------------------------------------
     env["OSPREY_E2E_FORCE_PROVIDER"] = cell.provider
     env["OSPREY_E2E_FORCE_MODEL"] = cell.model
+    env["OSPREY_BENCH_SUT_BASE_URL"] = cell.base_url
+    env["OSPREY_BENCH_SUT_KEY"] = cell.key
     if cell.route == "proxy":
         # open / OpenAI-protocol model: the session fixture starts the
         # translation proxy and points it at this upstream.
@@ -423,7 +436,7 @@ def drive(
 
     todo, skipped = [], 0
     for cell in cells:
-        if (results_dir / cell.summary_json).exists():
+        if cell_is_done(results_dir / cell.summary_json):
             skipped += 1
         else:
             todo.append(cell)

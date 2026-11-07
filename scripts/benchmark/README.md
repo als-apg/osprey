@@ -107,7 +107,11 @@ The plan-stack and chart-reading tests deploy a stack with a fixed project name 
 ports, so parallel cells take turns on a host-wide lock. A test's timeout and its
 reported time cover its call, not that wait or the stack build. A test that dies in
 setup never reached the model: it shows as an error, and scores neither a pass nor a
-failure.
+failure. The same goes for a provider's refusal. Each cell first makes one small call to
+its model and its judge (`cell_preflight.py`), and a refusal stops the cell with the
+provider, the model and the reason; `matrix.py` runs it again on resume. Mid-session,
+`tests/e2e/provider_refusal.py` holds the rule: auth, network and unserved-model refusals
+are always setup errors, a rate limit or 5xx only if no model turn happened.
 
 The other in-scope tests carry `harness_benchmark` (the assertion is OSPREY's,
 not the model's); they run in CI, not on the board. Each cell writes a

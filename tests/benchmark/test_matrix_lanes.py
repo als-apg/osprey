@@ -455,3 +455,107 @@ def test_a_setup_error_scores_neither_a_pass_nor_a_failure():
     assert dash.conclusive_where(cell, keep) == (0, 0)
     passed = {"tests": [*cell["tests"], {"name": _JUNIT, "outcome": "passed"}]}
     assert dash.conclusive_where(passed, keep) == (1, 1)
+
+
+# ---------------------------------------------------------------------------
+# 5. A cell's start-of-run call to its model and judge
+# ---------------------------------------------------------------------------
+
+
+class TestCellPreflight:
+    """Each cell asks its model and judge once before anything else. No network: the
+    call is stood in for, and the delays are not waited out."""
+
+    @staticmethod
+    def _module():
+        return _load("cell_preflight")
+
+    def _check(self, replies: list[tuple[int | None, str]], key: str = "secret") -> tuple:
+        calls = []
+
+        def post(url, headers, body):
+            calls.append((url, headers, body))
+            return replies[min(len(calls) - 1, len(replies) - 1)]
+
+        reason = self._module().check(
+            "anthropic", "https://g/v1", key, "m", post=post, sleep=lambda _s: None
+        )
+        return reason, calls
+
+    def test_an_answer_passes(self):
+        reason, calls = self._check([(200, "")])
+        assert reason is None
+        assert calls[0][0] == "https://g/v1/messages"
+        assert calls[0][2]["max_tokens"] <= 16
+
+    def test_a_400_for_an_unserved_model_is_refused_at_once(self):
+        reason, calls = self._check([(400, "Invalid model name passed in model=m")])
+        assert reason.startswith("400: Invalid model name")
+        assert len(calls) == 1
+
+    def test_a_403_is_refused_at_once(self):
+        reason, calls = self._check([(403, "Access denied: IP address not recognized")])
+        assert reason.startswith("403: Access denied")
+        assert len(calls) == 1
+
+    def test_a_rate_limit_is_retried_and_may_clear(self):
+        reason, calls = self._check([(429, "slow"), (200, "")])
+        assert reason is None
+        assert len(calls) == 2
+
+    def test_a_5xx_that_outlasts_the_retries_is_a_refusal(self):
+        reason, calls = self._check([(503, "down")])
+        assert reason.startswith("503")
+        assert len(calls) == 3
+
+    def test_no_response_is_named_unreachable(self):
+        assert self._check([(None, "nodename not known")])[0].startswith("unreachable")
+
+    def test_the_key_never_reaches_the_reason(self):
+        assert "secret" not in self._check([(403, "your key secret is bad")])[0]
+
+    def test_the_openai_route_calls_chat_completions(self):
+        url, headers, _body = self._module()._request("openai", "http://h/v1/", "", "m")
+        assert url == "http://h/v1/chat/completions"
+        assert headers == {}
+
+    def test_a_refused_model_writes_the_summary_and_never_asks_the_judge(
+        self, monkeypatch, tmp_path
+    ):
+        module = self._module()
+        asked = []
+
+        def check(_proto, _base, _key, model):
+            asked.append(model)
+            return "400: Invalid model name"
+
+        monkeypatch.setattr(module, "check", check)
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://g")
+        out = tmp_path / "cell.json"
+        code = module.main(
+            ["--model", "m", "--seed", "1", "--provider", "als-apg", "--route", "direct"]
+            + ["--judge", "j", "--out", str(out)]
+        )
+        assert code == 1
+        assert asked == ["m"]
+        summary = json.loads(out.read_text())
+        assert summary["setup_error"] == "als-apg refused m: 400: Invalid model name"
+        assert summary["total"] == 0
+
+    def test_a_refused_judge_stops_the_cell_too(self, monkeypatch, tmp_path):
+        module = self._module()
+        monkeypatch.setattr(
+            module, "check", lambda _p, _b, _k, model: "403: no" if model == "j" else None
+        )
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://g")
+        out = tmp_path / "cell.json"
+        code = module.main(
+            ["--model", "m", "--seed", "1", "--provider", "cborg", "--route", "proxy"]
+            + ["--judge", "j", "--out", str(out)]
+        )
+        assert code == 1
+        assert json.loads(out.read_text())["setup_error"] == "judge refused j: 403: no"
+
+    def test_a_cell_runs_it_before_anything_else(self):
+        runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+        assert runner.index("cell_preflight.py") < runner.index("per-cell ARIEL database")

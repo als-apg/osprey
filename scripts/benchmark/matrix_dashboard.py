@@ -822,6 +822,13 @@ def main() -> int:
                         f"<div class=muted>{counts_text(c)}</div>"
                         f"{tag}</td>"
                     )
+                elif d and d.get("setup_error"):
+                    # The provider refused the cell at its start: nothing ran.
+                    H.append(
+                        "<td style='background:#ffd8c2'>setup error<div class=muted "
+                        f"title='{html.escape(d['setup_error'])}'>"
+                        f"{html.escape(d['setup_error'][:90])}</div></td>"
+                    )
                 elif d and not d["total"]:
                     H.append(
                         "<td style='background:#ffd8c2'>err<div class=muted>0 tests</div></td>"
@@ -1009,8 +1016,9 @@ def main() -> int:
         "Anthropic↔OpenAI translation proxy; Anthropic models connect directly. The per-test "
         "timeout is 1800s; a timeout <b>counts as a failure</b> (the model did not complete the "
         "task within the cap) and is shown as a distinct category so it can be told apart from a "
-        "logic failure. A test that dies in setup never reached the model: it shows as an error "
-        "and scores neither way. Anthropic Claude models, where present, are a reference ceiling: the "
+        "logic failure. A test that dies in setup, or a session the provider refused (auth, "
+        "network, unserved model), says nothing about the model: it shows as an error and "
+        "scores neither way. Anthropic Claude models, where present, are a reference ceiling: the "
         "models the tests were written for. "
         + judged
         + "Latency figures come from the agent SDK's own "

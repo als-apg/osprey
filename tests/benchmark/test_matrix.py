@@ -528,3 +528,13 @@ def test_run_cell_tells_the_worker_where_the_results_go(tmp_path, monkeypatch):
 
     matrix.run_cell(cell, results, results / "matrix.log", {})
     assert seen["OSPREY_BENCH_RESULTS_DIR"] == str(results.resolve())
+
+
+def test_a_cell_its_provider_refused_is_not_done(tmp_path):
+    """Resume runs it again: the VPN came back, or the gateway added the model."""
+    summary = tmp_path / "m__seed1.json"
+    assert not matrix.cell_is_done(summary)
+    summary.write_text('{"setup_error": "als-apg refused m: 400"}')
+    assert not matrix.cell_is_done(summary)
+    summary.write_text('{"total": 3}')
+    assert matrix.cell_is_done(summary)
