@@ -522,6 +522,40 @@ class TestCellPreflight:
         body = json.dumps({"error": {"message": "IP address 10.1.2.3 is not recognized"}})
         assert "10.1.2.3" not in self._check([(403, body)])[0]
 
+    def test_the_start_check_and_the_mid_session_path_share_one_scrubber(self):
+        """LiteLLM-style auth text through the start-of-cell path: the status and the
+        plain reason stay, the partial key, the hash and the address go."""
+        body = json.dumps(
+            {
+                "error": {
+                    "message": "Authentication Error, Invalid proxy server token passed. "
+                    "Received API Key = sk-...a7Qz, Key Hash (Token) ="
+                    "fb3c0a8e1d2f4b5a6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3 from fe80::1"
+                }
+            }
+        )
+        reason = self._check([(401, body)])[0]
+        assert reason.startswith("401: Authentication Error, Invalid proxy server token passed.")
+        assert "a7Qz" not in reason and "fb3c0a8e" not in reason and "fe80" not in reason
+
+    def test_a_missing_prerequisite_is_recorded_as_the_cells_setup_error(self, tmp_path):
+        out = tmp_path / "cell.json"
+        code = self._module().main(
+            ["--model", "m", "--seed", "1", "--provider", "p", "--route", "direct"]
+            + ["--out", str(out), "--setup-error", "could not create the ARIEL database"]
+        )
+        assert code == 1
+        assert json.loads(out.read_text())["setup_error"] == "could not create the ARIEL database"
+
+    def test_a_full_cell_stops_when_its_logbook_cannot_be_provisioned(self):
+        runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+        gate = runner[runner.index('if [ -n "$ARIEL_PROBLEM" ]') :]
+        assert '--setup-error "$ARIEL_PROBLEM"' in gate.split("fi\n", 1)[0]
+        assert runner.index('if [ -n "$ARIEL_PROBLEM" ]') < runner.index(
+            '"$PY" -m pytest tests/e2e/'
+        )
+        assert "will skip/gate" not in runner
+
     def test_the_openai_route_calls_chat_completions(self):
         url, headers, _body = self._module()._request("openai", "http://h/v1/", "", "m")
         assert url == "http://h/v1/chat/completions"

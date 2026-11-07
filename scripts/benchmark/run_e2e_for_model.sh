@@ -106,6 +106,7 @@ fi
 # psql authenticates as the per-cell URI below does, unless the shell says otherwise.
 export PGPASSWORD="${PGPASSWORD:-ariel}"
 PROV_DIR=""
+ARIEL_PROBLEM=""
 if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
   # Postgres unquoted identifiers fold to lowercase and forbid '-'/'/'; sanitize.
   CELL_DB="ariel_$(printf '%s' "${SAFE}_seed${SEED}" | tr -C 'a-zA-Z0-9' '_' | tr 'A-Z' 'a-z')"
@@ -135,13 +136,27 @@ if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
         && "$PY" -m osprey.cli.main ariel migrate \
         && "$PY" -m osprey.cli.main sim apply nominal --yes --no-seed-archiver \
         && "$PY" -m osprey.cli.main ariel reembed --model nomic-embed-text --dimension 768 ) >&2 \
-        || echo ">> WARNING: per-cell ARIEL provisioning failed; logbook tests in this cell will skip/gate" >&2
+        || ARIEL_PROBLEM="the per-cell ARIEL logbook ${CELL_DB} could not be provisioned (migrate, seed or re-embed failed)"
     else
-      echo ">> WARNING: provisioning project build failed; logbook tests will skip/gate" >&2
+      ARIEL_PROBLEM="the ARIEL provisioning project for ${CELL_DB} did not build"
     fi
   else
-    echo ">> WARNING: could not create per-cell DB ${CELL_DB}; logbook tests will skip/gate" >&2
+    ARIEL_PROBLEM="could not create the per-cell ARIEL database ${CELL_DB} with $PG_BIN/psql on localhost:5432 (no psql, no server, or no rights)"
   fi
+fi
+
+# Without its logbook the cell's logbook and scenario tests skip, and the cell
+# would score a model on fewer tests than its neighbours. A full cell stops here;
+# a smoke selection (OSPREY_BENCH_SELECT) is warned and goes on.
+if [ -n "$ARIEL_PROBLEM" ]; then
+  if [ -z "${OSPREY_BENCH_SELECT:-}" ]; then
+    "$PY" "$REPO/scripts/benchmark/cell_preflight.py" --model "$MODEL" --seed "$SEED" \
+      --provider "$OSPREY_E2E_FORCE_PROVIDER" --route "$ROUTE" \
+      --judge "${OSPREY_E2E_JUDGE_MODEL:-}" --out "$JSON" --setup-error "$ARIEL_PROBLEM"
+    echo "SETUP ERROR: $ARIEL_PROBLEM" >&2
+    exit 2
+  fi
+  echo ">> WARNING: $ARIEL_PROBLEM; logbook tests in this smoke run will skip" >&2
 fi
 
 START=$(date +%s)

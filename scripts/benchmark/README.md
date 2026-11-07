@@ -109,7 +109,10 @@ reported time cover its call, not that wait or the stack build. A test that dies
 setup never reached the model: it shows as an error, and scores neither a pass nor a
 failure. The same goes for a provider's refusal. Each cell first makes one small call to
 its model and its judge (`cell_preflight.py`), and a refusal stops the cell with the
-provider, the model and the reason; `matrix.py` runs it again on resume. Mid-session,
+provider, the model and the reason; `matrix.py` runs it again on resume, and exits 1
+(`MATRIX_EXIT_1`, never `MATRIX_EXIT_0`) while any cell has not run. A full cell also
+stops at its start when its ARIEL logbook database cannot be provisioned (it needs
+`psql` and a Postgres on localhost:5432), since its logbook tests would otherwise skip. Mid-session,
 `tests/e2e/provider_refusal.py` holds the rule: auth, network and unserved-model refusals
 are always setup errors, a rate limit or 5xx only if no model turn happened.
 

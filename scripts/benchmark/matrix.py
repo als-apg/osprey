@@ -458,10 +458,20 @@ def drive(
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
         list(pool.map(_work, todo))
 
+    # A refused cell (its provider, or a missing prerequisite, stopped it at the
+    # start) has no result, so the matrix is not complete: say so, and resume runs
+    # those cells again. Test failures are a per-test signal in the json, not this.
+    refused = [cell for cell in todo if not cell_is_done(results_dir / cell.summary_json)]
+    if refused:
+        _log(
+            log_path,
+            f"=== matrix incomplete: {len(refused)} of {len(todo)} cell(s) did not run "
+            f"({', '.join(f'{c.model} seed{c.seed}' for c in refused)}); resume runs them ===",
+        )
+        _log(log_path, "MATRIX_EXIT_1")
+        return 1
     _log(log_path, f"=== matrix complete cells_run={len(todo)} ===")
     _log(log_path, "MATRIX_EXIT_0")
-    # non-zero only if a worker itself failed to launch (pytest failures are a
-    # per-test signal captured in the json, not a driver error).
     return 0
 
 

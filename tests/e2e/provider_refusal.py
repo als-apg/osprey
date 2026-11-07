@@ -15,6 +15,7 @@ and the median task time, by the rule below:
 Off outside the board (no ``OSPREY_E2E_LANES``), so a CI lane fails as it always did.
 """
 
+import ipaddress
 import os
 import re
 from typing import Any
@@ -33,6 +34,56 @@ _UNREACHABLE = re.compile(
 )
 _API_ERROR_STATUS = re.compile(r"API Error: (\d{3})")
 
+#: What a provider's error text may echo that a published board must not carry,
+#: each with its stand-in. Applied in order: URLs before the hosts inside them.
+_SECRETS = (
+    (re.compile(r"\bhttps?://\S+"), "<url>"),
+    (re.compile(r"\bBearer\s+\S+", re.IGNORECASE), "Bearer ***"),
+    (re.compile(r"\bsk-[\w*.\-]{3,}"), "sk-***"),
+    (
+        re.compile(
+            r"\b((?:api[ _-]?)?key(?:[ _-]?hash)?|token|secret)(\s*[=:]\s*)\S+", re.IGNORECASE
+        ),
+        r"\1\2***",
+    ),
+    (re.compile(r"\b[0-9a-fA-F]{32,}\b"), "***"),
+    (
+        re.compile(
+            r"\b(?:[a-zA-Z0-9-]+\.)+(?:gov|com|org|net|edu|io|ai|dev|local|internal|cloud)\b"
+        ),
+        "<host>",
+    ),
+)
+#: Anything that might be an address; :func:`_mask_address` keeps only those that parse.
+_ADDRESS_CANDIDATE = re.compile(
+    r"(?<![\w:.])(?:[0-9A-Fa-f]{0,4}:){2,}[0-9A-Fa-f.:]*(?:%\w+)?|\b\d{1,3}(?:\.\d{1,3}){3}\b"
+)
+
+
+def _mask_address(match: re.Match) -> str:
+    candidate = match.group(0)
+    bare = candidate.split("%", 1)[0].rstrip(".:")
+    try:
+        ipaddress.ip_address(bare)
+    except ValueError:
+        return candidate
+    return "<address>" + candidate[len(bare) :] if "%" not in candidate else "<address>"
+
+
+def scrub(text: str, *, key: str = "") -> str:
+    """A provider's error text with keys, tokens, hosts and addresses replaced.
+
+    The board publishes a refusal's reason. A gateway can echo the caller's address
+    (CBORG's 403), a partial key or a key hash (LiteLLM's "Received API Key = sk-…"),
+    or its own host; the status and the provider's plain reason stay.
+    """
+    if key:
+        text = text.replace(key, "***")
+    for pattern, stand_in in _SECRETS:
+        text = pattern.sub(stand_in, text)
+    return _ADDRESS_CANDIDATE.sub(_mask_address, text)
+
+
 _noted: list[str] = []
 
 
@@ -43,13 +94,13 @@ def refusal_reason(*, status: int | None, text: str | None, model_turns: bool) -
         found = _API_ERROR_STATUS.search(text)
         status = int(found.group(1)) if found else None
     if status is None:
-        return f"unreachable: {text[:200]}" if _UNREACHABLE.search(text) else None
+        return f"unreachable: {scrub(text)[:200]}" if _UNREACHABLE.search(text) else None
     refused = (
         status in _ALWAYS_REFUSED
         or (status == 400 and _UNSERVED_MODEL.search(text) is not None)
         or ((status == 429 or 500 <= status <= 599) and not model_turns)
     )
-    return f"{status}: {text[:200]}" if refused else None
+    return f"{status}: {scrub(text)[:200]}" if refused else None
 
 
 def note_session(result: Any, *, tool_calls: int) -> None:

@@ -11,9 +11,9 @@ counts as a refusal too, since no model turn has happened.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
-import re
 import sys
 import time
 import urllib.error
@@ -24,7 +24,6 @@ from pathlib import Path
 RETRY_DELAYS_S = (5, 15)
 TIMEOUT_S = 120
 ASK = [{"role": "user", "content": "Reply with the word ok."}]
-_IP_ADDRESS = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){3,}[0-9a-fA-F:]*")
 
 
 def _post(url: str, headers: dict[str, str], body: dict) -> tuple[int | None, str]:
@@ -56,6 +55,15 @@ def _request(protocol: str, base_url: str, key: str, model: str) -> tuple[str, d
     return f"{base.removesuffix('/v1')}/v1/messages", headers, body
 
 
+def _scrub():
+    """The one scrubber the mid-session path uses too (tests/e2e/provider_refusal.py)."""
+    path = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "provider_refusal.py"
+    spec = importlib.util.spec_from_file_location("benchmark_provider_refusal", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.scrub
+
+
 def _readable(text: str, key: str) -> str:
     """The provider's own words, short, with nothing a published board should not carry."""
     try:
@@ -63,9 +71,7 @@ def _readable(text: str, key: str) -> str:
         text = str(error.get("message", text)) if isinstance(error, dict) else str(error)
     except (ValueError, AttributeError):
         pass
-    if key:
-        text = text.replace(key, "***")
-    return _IP_ADDRESS.sub("<address>", text)[:300].strip()
+    return _scrub()(text, key=key)[:300].strip()
 
 
 def check(
@@ -94,11 +100,46 @@ def _parse_cell(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     for name in ("--model", "--seed", "--provider", "--route", "--judge", "--out"):
         ap.add_argument(name, default="")
+    ap.add_argument(
+        "--setup-error",
+        default="",
+        help="record this setup error for the cell instead of calling anything (a "
+        "prerequisite the worker found missing), and exit 1",
+    )
     return ap.parse_args(argv)
+
+
+def _write_setup_error(args: argparse.Namespace, message: str) -> None:
+    Path(args.out).write_text(
+        json.dumps(
+            {
+                "model": args.model,
+                "seed": int(args.seed),
+                "provider": args.provider,
+                "route": args.route,
+                "judge": args.judge,
+                "pytest_rc": None,
+                "total_duration_s": 0,
+                "passed": 0,
+                "failed": 0,
+                "timeout": 0,
+                "skipped": 0,
+                "errors": 0,
+                "total": 0,
+                "tests": [],
+                "setup_error": message,
+            },
+            indent=2,
+        )
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_cell(argv)
+    if args.setup_error:
+        print(f"PREFLIGHT: {args.setup_error}", file=sys.stderr)
+        _write_setup_error(args, args.setup_error)
+        return 1
     env = os.environ
     protocol = "openai" if args.route == "proxy" else "anthropic"
     calls = [
@@ -119,28 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         message = f"{who} refused {model}: {reason}"
         print(f"PREFLIGHT: {message}", file=sys.stderr)
-        Path(args.out).write_text(
-            json.dumps(
-                {
-                    "model": args.model,
-                    "seed": int(args.seed),
-                    "provider": args.provider,
-                    "route": args.route,
-                    "judge": args.judge,
-                    "pytest_rc": None,
-                    "total_duration_s": 0,
-                    "passed": 0,
-                    "failed": 0,
-                    "timeout": 0,
-                    "skipped": 0,
-                    "errors": 0,
-                    "total": 0,
-                    "tests": [],
-                    "setup_error": message,
-                },
-                indent=2,
-            )
-        )
+        _write_setup_error(args, message)
         return 1
     return 0
 

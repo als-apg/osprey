@@ -117,3 +117,49 @@ def test_a_judge_call_the_provider_refused_is_noted():
 def test_a_judge_that_returned_something_unreadable_is_not_a_refusal():
     provider_refusal.note_judge_error(ValueError("bad json"), provider="als-apg", model="j")
     assert provider_refusal.take() is None
+
+
+@pytest.mark.parametrize(
+    ("text", "kept", "gone"),
+    [
+        ("Access denied: IP address 2a01:4f8::1 is not recognized.", "Access denied", "2a01"),
+        ("from fe80::1%en0.", "from <address>", "fe80"),
+        ("loopback ::1 refused", "loopback <address> refused", "::1"),
+        ("mapped ::ffff:a00:1 refused", "<address>", "ffff"),
+        ("IP address 10.1.2.3 is not recognized", "<address>", "10.1.2.3"),
+        (
+            "Authentication Error, Invalid proxy server token passed. Received API Key = "
+            "sk-...a7Qz, Key Hash (Token) =fb3c0a8e1d2f4b5a6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0"
+            "b1c2d3. Unable to find token in cache",
+            "Authentication Error, Invalid proxy server token passed.",
+            "a7Qz",
+        ),
+        ("401 Bearer abc.def denied", "401 Bearer *** denied", "abc.def"),
+        ("see https://api.cborg.lbl.gov/key/manage now", "see <url> now", "cborg"),
+        ("gateway gw.example.org said no", "gateway <host> said no", "example"),
+    ],
+)
+def test_the_scrubber_keeps_the_reason_and_drops_what_identifies(text, kept, gone):
+    scrubbed = provider_refusal.scrub(text)
+    assert kept in scrubbed
+    assert gone not in scrubbed
+
+
+@pytest.mark.parametrize(
+    "text", ["at 12:30:45", "model qwen2.5:32b", "claude-sonnet-5-5", "gpt-4.1"]
+)
+def test_the_scrubber_leaves_times_and_model_names_alone(text):
+    assert provider_refusal.scrub(text) == text
+
+
+def test_the_scrubber_drops_the_exact_key():
+    assert provider_refusal.scrub("bad key abc123xyz", key="abc123xyz") == "bad key ***"
+
+
+def test_a_refusal_after_real_turns_is_scrubbed_before_it_reaches_the_report():
+    text = "API Error: 403 Access denied: IP address 2001:5a8::36b8 not recognized, sk-live-9f2c"
+    provider_refusal.note_session(_result(result=text, usage={"output_tokens": 300}), tool_calls=3)
+    report = _report("call", "failed")
+    provider_refusal.apply_to_report(report)
+    assert "2001:5a8" not in report.longrepr and "sk-live" not in report.longrepr
+    assert "403" in report.longrepr and "<address>" in report.longrepr

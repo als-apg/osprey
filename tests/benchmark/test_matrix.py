@@ -538,3 +538,23 @@ def test_a_cell_its_provider_refused_is_not_done(tmp_path):
     assert not matrix.cell_is_done(summary)
     summary.write_text('{"total": 3}')
     assert matrix.cell_is_done(summary)
+
+
+def test_the_matrix_is_not_complete_while_a_cell_was_refused(tmp_path, monkeypatch):
+    """A refused cell writes a summary with a setup error and nothing else. The
+    driver must not log MATRIX_EXIT_0 then: the dashboard would call the run complete."""
+    cfg = _cfg()
+    results = tmp_path / "results"
+
+    def refuse(cell, results_dir, log_path, extra_env):  # noqa: ARG001 - run_cell's signature
+        (results_dir / cell.summary_json).write_text('{"setup_error": "p refused m: 403"}')
+        return 2
+
+    monkeypatch.setattr(matrix, "run_cell", refuse)
+    rc = matrix.drive(
+        cfg, results_dir=results, parallel=1, only=None, providers={"als-apg"}, extra_env={}
+    )
+    log = (results / "matrix.log").read_text()
+    assert rc == 1
+    assert "MATRIX_EXIT_0" not in log
+    assert "MATRIX_EXIT_1" in log and "1 of 1 cell(s) did not run (claude-sonnet-4-6 seed1)" in log
