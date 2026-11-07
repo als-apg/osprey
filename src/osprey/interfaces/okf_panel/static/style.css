@@ -5,8 +5,8 @@
  * linked in index.html's <head> before this file, so the panel reads as the
  * same "Precision Instrumentation" design system as every other OSPREY
  * interface and honours the hub's dark/light theme automatically:
- *   --bg-primary/secondary/panel/elevated, --text-primary/secondary/muted,
- *   --color-accent[-light], --color-accent-secondary-light, --color-success/warning,
+ *   --bg-primary/secondary/elevated, --text-primary/secondary/muted,
+ *   --color-accent[-light], --color-accent-secondary-light,
  *   --border-default/accent, --font-display, --font-mono, and the
  *   --accent-tint-N and --neutral-tint-N ramps. (Never write the token
  *   families glob-style here: an asterisk followed by a slash terminates
@@ -14,8 +14,8 @@
  *   every local token silently vanishes.)
  * Type, weight, leading, spacing, radius and duration all read the fleet
  * scales (--text-N, --weight-N, --leading-N, --space-N, --radius-N,
- * --duration-N). Only the translucent surfaces and the letter-spacing steps,
- * which have no fleet-wide equivalent, stay in the reduced :root below. The
+ * --duration-N). Only the translucent card surface and the letter-spacing
+ * step, which have no fleet-wide equivalent, stay in the reduced :root below. The
  * .osprey-md-rendered markdown block mirrors the web terminal's md-rendered.css.
  */
 
@@ -25,14 +25,12 @@
 
 :root {
   /* === Local-only surfaces ===
-     Translucent card/hover tints composited from canonical bg tokens so they
-     track the active theme without a per-theme override block. */
+     A translucent card tint composited from a canonical bg token so it
+     tracks the active theme without a per-theme override block. */
   --okf-surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
-  --okf-surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
 
   /* === Letter spacing (no fleet tracking scale) === */
   --tracking-wide: 0.05em;
-  --tracking-wider: 0.1em;
 }
 
 * {
@@ -55,66 +53,80 @@ body {
 
 #app {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
 }
 
-/* -- Sidebar -------------------------------------------------------------- */
-
-#sidebar {
-  /* flex-basis/max-width are overridden inline by js/resize.js when the
-     operator drags the #sidebar-resizer splitter (persisted per origin). */
-  flex: 0 0 300px;
-  max-width: 300px;
+/* Below the toolbar: the contents list, its divider and the reader, side by
+   side. In a narrow tile the list opens over the reader instead
+   (panel-sidebar.js); there is no stacked layout. */
+.okf-body {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
-  flex-direction: column;
-  background: var(--bg-panel);
-  border-right: 1px solid var(--border-default);
+}
+
+/* -- Toolbar: panel-local rules ------------------------------------------- */
+/* The toolbar is the shared .osprey-panel-toolbar (primitives.css, "Panel
+   chrome"). Local to this panel: the breadcrumb is context, not a control,
+   so where the toolbar is short of room the breadcrumb truncates (its last
+   crumb first) and the bundle chip and the search field keep their room.
+   The shared rule keeps `__start` at its size for a view switcher, which
+   this toolbar does not have. */
+.okf-toolbar > .osprey-panel-toolbar__start {
+  flex: 0 1 auto;
+}
+
+.okf-toolbar > .osprey-panel-toolbar__end {
+  flex: none;
+}
+
+/* The clip keeps a cut crumb off the chip; its padding, taken back by the
+   margin, keeps a focused link's outline inside it. */
+.okf-toolbar .osprey-crumb {
   overflow: hidden;
+  padding: var(--space-1);
+  margin: calc(-1 * var(--space-1));
 }
 
-/* The splitter between sidebar and reader carries `.osprey-splitter` from the
-   design system's base.css — the grip-pill visual shared with the artifact
-   gallery, the PLAN panel, and the hub's dockview sashes. Nothing to restate
-   here; the only OKF-specific splitter rule is the `display: none` for the
-   stacked responsive layout further down. */
-
-/* Home / structure-overview entry, pinned at the top of the sidebar. */
-#structure-nav {
-  flex: 0 0 auto;
-  padding: var(--space-2) var(--space-2) 0;
+/* Browse and the group crumb are links back to the overview. */
+.okf-toolbar a.osprey-crumb-root {
+  text-decoration: underline;
+  text-decoration-color: var(--border-default);
+  text-underline-offset: 3px;
 }
 
-.structure-link {
-  display: block;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
+.okf-toolbar a.osprey-crumb-root:hover {
   color: var(--text-primary);
-  text-decoration: none;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--okf-surface-card);
-  transition: background var(--duration-instant) ease,
-    border-color var(--duration-instant) ease, color var(--duration-instant) ease;
+  text-decoration-color: currentColor;
 }
 
-.structure-link:hover {
-  background: var(--okf-surface-hover);
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
+.okf-toolbar a.osprey-crumb-root:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
-.structure-link.active {
-  border-color: var(--color-accent);
-  color: var(--color-accent-light);
+/* -- Contents list (the panel sidebar) ------------------------------------ */
+/* The shared .osprey-panel-sidebar: js/contents.js opens and closes it, and
+   the shared .osprey-splitter after it sizes it. It holds the Knowledge Base
+   row, the concept tree and, while a search runs, its results. */
+
+/* Knowledge Base: the structure overview's row, a name over a caption. */
+.structure-link {
+  flex: none;
+  width: auto;
+  height: auto;
+  margin: var(--space-2) var(--space-2) 0;
+  padding: var(--space-1) var(--space-2);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
 }
 
-.structure-link .structure-sub {
-  display: block;
-  margin-top: 2px;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-regular);
+.structure-sub {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   color: var(--text-muted);
@@ -131,17 +143,12 @@ body {
   border-top: 1px solid var(--border-default);
 }
 
-.group {
-  margin-bottom: var(--space-3);
+.group + .group {
+  margin-top: var(--space-2);
 }
 
-.group-label {
-  margin: var(--space-3) var(--space-2) var(--space-1);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-bold);
-  letter-spacing: var(--tracking-wider);
-  text-transform: uppercase;
-  color: var(--text-secondary);
+.group > .osprey-section-label {
+  margin: 0;
 }
 
 .concept-list,
@@ -149,31 +156,6 @@ body {
   list-style: none;
   margin: 0;
   padding: 0;
-}
-
-.concept-link {
-  display: block;
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-base);
-  color: var(--text-primary);
-  text-decoration: none;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: background var(--duration-instant) ease, color var(--duration-instant) ease;
-}
-
-.concept-link:hover {
-  background: var(--okf-surface-hover);
-  color: var(--color-accent-light);
-}
-
-.concept-link.active {
-  background: var(--accent-tint-08);
-  color: var(--color-accent-light);
-  font-weight: var(--weight-semibold);
-  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .empty-group {
@@ -244,6 +226,7 @@ body {
 
 #reader {
   flex: 1 1 auto;
+  min-width: 0;
   overflow-y: auto;
   background: var(--bg-primary);
 }
@@ -252,6 +235,12 @@ body {
   max-width: 860px;
   margin: 0 auto;
   padding: var(--space-4) var(--space-6) var(--space-7);
+}
+
+/* A loading, empty or error state (panel-state.js) is centred in the whole
+   reading pane, not in a line at its top. */
+#reader-content:has(> .osprey-state) {
+  height: 100%;
 }
 
 .concept-title {
@@ -405,70 +394,13 @@ body {
 .osprey-md-rendered em { color: var(--text-secondary); font-style: italic; }
 .osprey-md-rendered img { max-width: 100%; border-radius: var(--radius-md); margin: 0.5em 0; }
 
-/* -- Responsive ----------------------------------------------------------- */
+/* -- Narrow tile ---------------------------------------------------------- */
+/* The panel root (#app) is the size container `panel`: in a tile 720 px wide
+   or less the reader takes less padding. The contents list opens over the
+   reader there (panel-sidebar.js). */
 
-@media (max-width: 720px) {
-  #app {
-    flex-direction: column;
-    height: auto;
-    min-height: 100vh;
-  }
-  #sidebar {
-    flex: 0 0 auto;
-    max-width: none;
-    width: 100%;
-    max-height: 45vh;
-    border-right: none;
-    border-bottom: 1px solid var(--border-default);
-  }
-  /* Stacked layout has no side-by-side split to resize. */
-  #sidebar-resizer {
-    display: none;
-  }
-  #reader {
-    flex: 1 1 auto;
-  }
+@container panel (max-width: 720px) {
   #reader-content {
     padding: var(--space-4) var(--space-4) var(--space-6);
   }
-}
-
-/* ================================================================
-   Bundle-health status line (osprey addition)
-   Sidebar footer reflecting /api/bundle_health. Uses the shared
-   design tokens above so it reads as the same instrument system.
-   ================================================================ */
-
-.bundle-health {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: auto;
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--neutral-tint-10);
-  font-size: var(--text-sm);
-  line-height: var(--leading-tight);
-  color: var(--text-secondary);
-}
-
-.bundle-health .health-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-}
-
-.bundle-health .health-dot.ok {
-  background: var(--color-success);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--color-success) 50%, transparent);
-}
-
-.bundle-health .health-dot.warn {
-  background: var(--color-warning);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--color-warning) 50%, transparent);
-}
-
-.bundle-health.has-warnings .health-text {
-  color: var(--color-accent-secondary-light);
 }
