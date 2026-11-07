@@ -77,6 +77,7 @@ from .build_profile_schema import (
     NextcloudBridgeProfileConfig,
     ProfileProvenance,
     ServiceDef,
+    SlackBridgeProfileConfig,
     TeamsBridgeProfileConfig,
     VAConfig,
 )
@@ -265,6 +266,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "slack_bridge",
         "va_archiver",
         "agent_record",
         "watchdogs",
@@ -1819,6 +1821,19 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             mentions=mentions,
         )
 
+    slack_bridge_raw = raw.get("slack_bridge")
+    slack_bridge = None
+    if slack_bridge_raw is not None:
+        if not isinstance(slack_bridge_raw, dict):
+            raise BuildProfileError("Profile 'slack_bridge' must be a mapping")
+        mentions = slack_bridge_raw.get("mentions", True)
+        if not isinstance(mentions, bool):
+            raise BuildProfileError("Profile 'slack_bridge.mentions' must be true or false")
+        slack_bridge = SlackBridgeProfileConfig(
+            trigger=slack_bridge_raw.get("trigger", "slack-question"),
+            mentions=mentions,
+        )
+
     provenance_raw = raw.get("provenance")
     provenance = None
     if provenance_raw is not None:
@@ -1906,6 +1921,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,
+        slack_bridge=slack_bridge,
         va_archiver=parse_va_archiver_block(raw, base=port_base),
         agent_record=parse_agent_record_block(raw, base=port_base),
         watchdogs=_block(raw, "watchdogs"),

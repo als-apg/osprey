@@ -31,6 +31,7 @@ from rich.console import Console
 from osprey.cli.build_profile import (
     GChatBridgeProfileConfig,
     NextcloudBridgeProfileConfig,
+    SlackBridgeProfileConfig,
     TeamsBridgeProfileConfig,
     resolve_build_profile,
 )
@@ -527,13 +528,14 @@ def test_the_services_group_names_every_chat_bridge_the_profile_carries() -> Non
         nextcloud_bridge=NextcloudBridgeProfileConfig(),
         gchat_bridge=GChatBridgeProfileConfig(),
         teams_bridge=TeamsBridgeProfileConfig(),
+        slack_bridge=SlackBridgeProfileConfig(),
     )
     named = [
         row["value"]
         for row in card_rows(profile, {})
         if row["group"] == "services" and row["label"] == "bridge"
     ]
-    assert named == ["Nextcloud Talk", "Google Chat", "Microsoft Teams"]
+    assert named == ["Nextcloud Talk", "Google Chat", "Microsoft Teams", "Slack"]
 
 
 def test_a_profile_without_a_teams_block_gets_no_teams_row() -> None:

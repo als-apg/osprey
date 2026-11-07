@@ -1531,6 +1531,18 @@ panel_presets: {}
 # teams_bridge:
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
+
+# --- Slack bridge ------------------------------------------------------------
+# Answers questions asked from a Slack channel, thread or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Slack credentials are runtime env, not profile keys: declare
+# SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
+# Mode app token) under `env.required`.
+#
+# slack_bridge:
+#   trigger: slack-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 """
 
 #: Deployment coordinates, filled in. Where this repo runs once it leaves the

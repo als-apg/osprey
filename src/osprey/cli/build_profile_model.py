@@ -61,6 +61,7 @@ from .build_profile_schema import (
     NextcloudBridgeProfileConfig,
     ProfileProvenance,
     ServiceDef,
+    SlackBridgeProfileConfig,
     TeamsBridgeProfileConfig,
     VAConfig,
     WatchdogsBlock,
@@ -447,6 +448,7 @@ class BuildProfile:
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
     teams_bridge: TeamsBridgeProfileConfig | None = None
+    slack_bridge: SlackBridgeProfileConfig | None = None
     va_archiver: VAArchiverConfig | None = None
     """The stored archive a simulated deployment keeps its history in
     (``va_archiver:``).
@@ -2106,6 +2108,15 @@ class BuildProfile:
                     "teams_bridge",
                     self.teams_bridge.trigger,
                     "every Teams message",
+                    profile_dir,
+                )
+            )
+        if self.slack_bridge is not None:
+            errors.extend(
+                self._validate_chat_bridge(
+                    "slack_bridge",
+                    self.slack_bridge.trigger,
+                    "every Slack message",
                     profile_dir,
                 )
             )

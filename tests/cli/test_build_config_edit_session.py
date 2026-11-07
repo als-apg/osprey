@@ -92,6 +92,7 @@ def test_the_injectors_run_on_a_flushed_file(
         nextcloud_bridge=None,
         gchat_bridge=None,
         teams_bridge=None,
+        slack_bridge=None,
         bluesky=None,
         bluesky_web=None,
         virtual_accelerator=None,
