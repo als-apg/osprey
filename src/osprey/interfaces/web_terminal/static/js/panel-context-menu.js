@@ -15,7 +15,7 @@
  *
  *   <div class="rail-context-menu" role="menu" aria-label="Logbook actions">
  *     <button class="rail-context-item" role="menuitem" type="button">
- *       <span class="rail-context-label">Pop out</span>
+ *       <span class="rail-context-label">Open in new window</span>
  *       <span class="rail-context-glyph" aria-hidden="true">↗</span>
  *     </button>
  *     <div class="rail-context-divider" role="separator"></div>

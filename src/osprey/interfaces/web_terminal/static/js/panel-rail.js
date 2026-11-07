@@ -81,7 +81,7 @@
  * A row's tooltip detail (`data-tip-detail`) is the panel's sentence from
  * panel-catalog.js; a panel without one has none.
  *
- * Beyond activation, a row's verbs (open in a new tile, pop out, move to another
+ * Beyond activation, a row's verbs (open in a new tile, open in a new window, move to another
  * group, remove) live in the caller's right-click context menu — the rail
  * only forwards the contextmenu event through `onContextMenu` and suppresses
  * the browser menu when the caller reports it handled. A caller-supplied
@@ -105,7 +105,7 @@
  * never answered), `.unreachable` (backend stopped answering), `.failed` (a
  * sidecar that failed to start; dimmed but clickable), `.agent-attention`
  * (the agent touched the panel and the operator has not looked yet; drawn as
- * an `.osprey-nav-badge` dot inside the row), `.popped-out` (the panel runs
+ * an `.osprey-nav-badge` dot inside the row), `.detached` (the panel runs
  * in its own window; drawn as a trailing `maximize` glyph). While a badge
  * time, an unreachable notice or a status message owns the tooltip, the row
  * carries a transient `data-title-base` holding the tooltip it borrowed;
@@ -178,9 +178,11 @@ export {
   setActive,
   setEntryAttention,
   setEntryEnabled,
-  setEntryPoppedOut,
+  setEntryDetached,
   setEntryReachable,
   setEntryStatus,
+  DETACHED_DETAIL,
+  DETACHED_TRAIL_ATTR,
 } from './rail-row-state.js';
 
 /** The event dispatched on `document` after a render. */
@@ -414,7 +416,7 @@ function announceRender() {
 /**
  * Give a row its identity: label, accessible name, tooltips. The tooltip's
  * explanatory line is the panel's sentence (panel-catalog.js), written so a
- * popped-out mark or a borrowed title keeps showing (rail-row-state.js).
+ * detached mark or a borrowed title keeps showing (rail-row-state.js).
  * @param {HTMLElement} btn
  * @param {RailPanel} panel
  */

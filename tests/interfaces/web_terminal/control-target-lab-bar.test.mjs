@@ -19,7 +19,7 @@
  * 2. **The bar mounts into the wrong place, or twice.** JupyterLab owns
  *    `#main`'s layout and reflows what it finds there; the chip needs a host
  *    that is stable across its own re-renders. Both are asserted below.
- * 3. **The bar drifts from the chip.** A popped-out Lab page must say what the
+ * 3. **The bar drifts from the chip.** A Lab page in its own window must say what the
  *    sidebar chip says and do what it does: the kind and the three state
  *    words (off, asked, allowed), the three-option control, the widening
  *    confirm and its sentence, all-off, the stamped-retry rule, the
@@ -617,7 +617,7 @@ describe('reads', () => {
   });
 });
 
-/* ---- the chip's words and gestures, on a popped-out Lab page -------------- */
+/* ---- the chip's words and gestures, on a Lab page in its own window -------------- */
 
 describe("the chip's words and gestures", () => {
   const posts = () => fetchCalls.filter((c) => c.method === 'POST');

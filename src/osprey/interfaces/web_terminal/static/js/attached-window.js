@@ -92,7 +92,7 @@ const MOUNT_STYLE =
 
 /**
  * Why a node came back: its window closed, or the hub asked for it.
- * @typedef {'closed' | 'bring-back'} ReturnReason
+ * @typedef {'closed' | 'reattach'} ReturnReason
  */
 
 /**
@@ -318,7 +318,7 @@ function dressWindow(entry) {
  * @param {string} key
  */
 export function returnAttached(key) {
-  release(key, 'bring-back');
+  release(key, 'reattach');
 }
 
 /**

@@ -1,6 +1,6 @@
 """Browser e2e: a pane in a window of its own, on the hermetic hub.
 
-The tile header's Pop out moves a pane's live content into a window the hub
+The tile header's Open in new window moves a pane's live content into a window the hub
 drives, opened on the hub's shell page (pane-window.js, attached-window.js), and
 the tile leaves the dock. Pins:
 
@@ -33,8 +33,11 @@ from docs.screenshots.contact_sheet import hermetic_hub
 from tests.interfaces.web_terminal.test_panels_browser import (
     _contributing_panel,
     _live_server,
+    _open_palette,
     _open_second_tile,
+    _palette_input,
     _palette_live_server,
+    _palette_row,
     _search_menu_panel_backend,
     _service_tab,
 )
@@ -85,7 +88,7 @@ def page(chromium_browser):
 def _boot(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
-    expect(page.locator(f"{_AGENT_TILE} .tile-tab-popout")).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(page.locator(f"{_AGENT_TILE} .tile-tab-window")).to_be_visible(timeout=_TIMEOUT_MS)
 
 
 def _boot_with_artifacts(page: Page, hub) -> None:
@@ -118,7 +121,7 @@ def _send(box, prompt: str) -> None:
 
 def _detach_agent(page: Page) -> Page:
     with page.expect_popup() as info:
-        page.locator(f"{_AGENT_TILE} .tile-tab-popout").click()
+        page.locator(f"{_AGENT_TILE} .tile-tab-window").click()
     popup = info.value
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
@@ -126,7 +129,7 @@ def _detach_agent(page: Page) -> Page:
 
 def _detach_artifacts(page: Page) -> Page:
     with page.expect_popup() as info:
-        page.locator(f"{_ARTIFACTS_TILE} .tile-tab-popout").click()
+        page.locator(f"{_ARTIFACTS_TILE} .tile-tab-window").click()
     popup = info.value
     expect(popup.locator(_ARTIFACTS_FRAME)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
@@ -355,7 +358,7 @@ def test_ariel_keeps_its_entry_and_after_its_window_closes_only_its_row_opens_it
         page.locator(frame).evaluate("(el) => { el.contentWindow.location.hash = '#entry?id=X'; }")
 
         with page.expect_popup() as info:
-            page.locator(f"{tile} .tile-tab-popout").click()
+            page.locator(f"{tile} .tile-tab-window").click()
         popup = info.value
 
         # R1: the same frame, in the window, on the entry it showed.
@@ -594,7 +597,7 @@ def _panel_with_controls_in_a_window(tmp_path, chromium_browser):
             tab = _service_tab(page, "SEARCHY")
             expect(tab.locator(".contrib-search-input")).to_be_visible(timeout=_TIMEOUT_MS)
             with page.expect_popup() as info:
-                tab.locator(".tile-tab-popout").click()
+                tab.locator(".tile-tab-window").click()
             popup = info.value
             expect(popup.locator(f"{_BAR} .contrib-search-input")).to_be_visible(
                 timeout=_TIMEOUT_MS
@@ -680,7 +683,7 @@ def test_reattach_is_top_right_and_the_window_has_no_dock_buttons(hub, page):
         box = popup.locator(_BAR_REATTACH).bounding_box()
         assert box["y"] < 40, box
         assert box["x"] + box["width"] > 800 - 24, box
-        expect(popup.locator(f"{_BAR} .tile-tab-popout")).to_have_count(0)
+        expect(popup.locator(f"{_BAR} .tile-tab-window")).to_have_count(0)
         expect(popup.locator(f"{_BAR} .tile-tab-close")).to_have_count(0)
 
 
@@ -779,3 +782,153 @@ def test_the_console_bar_comes_home_when_the_agent_window_closes(hub, page):
     page.evaluate("() => document.querySelector('#sidebar-agent-row')?.click()")
     expect(page.locator(f"{_AGENT_TILE} .op-session-new")).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(".op-session-bar")).to_have_count(1)
+
+
+_ARIEL_TILE = '.tile-tab[data-panel-id="iframe:ariel"]'
+_ARIEL_FRAME = 'iframe.panel-iframe[data-panel-id="ariel"]'
+_ARIEL_ROW = 'button.panel-rail-button[data-panel-id="ariel"]'
+_TRAIL = "[data-detached-trail]"
+
+
+def _boot_ariel_beside_artifacts(page: Page, base_url: str) -> None:
+    """ARIEL docked in a tile of its own, right of the Artifacts tile."""
+    page.goto(base_url, wait_until="domcontentloaded")
+    expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+    expect(page.locator(_ARIEL_ROW)).not_to_have_class(
+        re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
+    )
+    page.locator(_ARIEL_ROW).click(button="right")
+    page.get_by_role("menuitem", name="Open in a new tile").click()
+    expect(page.locator(_ARIEL_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+    expect(page.locator(_ARIEL_FRAME)).to_be_visible(timeout=_TIMEOUT_MS)
+
+
+def _detach_ariel(page: Page) -> Page:
+    with page.expect_popup() as info:
+        page.locator(f"{_ARIEL_TILE} .tile-tab-window").click()
+    popup = info.value
+    expect(popup.locator(_ARIEL_FRAME)).to_be_visible(timeout=_TIMEOUT_MS)
+    return popup
+
+
+def _beside(page: Page, left: str, right: str) -> bool:
+    """Whether the tile bar *right* starts where the tile bar *left* ends."""
+    first, second = page.locator(left).bounding_box(), page.locator(right).bounding_box()
+    return (
+        abs(second["y"] - first["y"]) < 2
+        and first["x"] < second["x"]
+        and second["x"] - (first["x"] + first["width"]) < 16
+    )
+
+
+def test_a_panels_row_focuses_its_window_and_its_icon_docks_it_beside_a_reminted_neighbour(
+    tmp_path, chromium_browser
+):
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    with _palette_live_server(workspace) as (base_url, _app):
+        ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+        page = ctx.new_page()
+        _boot_ariel_beside_artifacts(page, base_url)
+        assert _beside(page, _ARTIFACTS_TILE, _ARIEL_TILE)
+        _spy_on_window_focus(page)
+        popup = _detach_ariel(page)
+        expect(page.locator(_ARIEL_ROW)).to_have_class(re.compile(r"\bdetached\b"))
+        expect(page.locator(f"{_ARIEL_ROW} {_TRAIL}")).to_be_visible()
+        expect(page.locator(_ARIEL_ROW)).to_have_attribute(
+            "aria-description", "In its own window — click to bring it to the front"
+        )
+
+        # One row says what the window can do, both ways.
+        page.locator(_ARIEL_ROW).click(button="right")
+        labels = page.locator(f"{_MENU} .rail-context-label").all_inner_texts()
+        assert "Reattach" in labels, labels
+        assert "Open in new window" not in labels, labels
+        page.keyboard.press("Escape")
+
+        # A click on the row brings the window to the front, and moves nothing.
+        before = _tiles(page)
+        page.locator(_ARIEL_ROW).click()
+        page.wait_for_function("() => window.__focused >= 1", timeout=_TIMEOUT_MS)
+        assert _tiles(page) == before
+        assert not popup.is_closed()
+
+        # The neighbour's tile goes and comes back, under a new tile id.
+        page.locator(f"{_ARTIFACTS_TILE} .tile-tab-close").click()
+        expect(page.locator(_ARTIFACTS_TILE)).to_have_count(0, timeout=_TIMEOUT_MS)
+        # Off the rail here, so the path an agent's focus takes brings it back.
+        page.evaluate(
+            """async () => {
+              const { activateTab } = await import('/static/js/panel-manager.js');
+              activateTab('artifacts', { userInitiated: true });
+            }"""
+        )
+        expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+
+        # A click on the icon reattaches, beside the neighbour by its key.
+        with popup.expect_event("close", timeout=_TIMEOUT_MS):
+            page.locator(f"{_ARIEL_ROW} {_TRAIL}").click()
+        expect(page.locator(_ARIEL_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+        expect(page.locator(_ARIEL_FRAME)).to_be_visible(timeout=_TIMEOUT_MS)
+        expect(page.locator(f"{_ARIEL_ROW} {_TRAIL}")).to_have_count(0)
+        expect(page.locator(_ARIEL_ROW)).not_to_have_class(re.compile(r"\bdetached\b"))
+        assert _beside(page, _ARTIFACTS_TILE, _ARIEL_TILE)
+        ctx.close()
+
+
+def test_the_sessions_row_focuses_the_agent_window_and_its_icon_reattaches(hub, page):
+    _boot(page, hub)
+    _spy_on_window_focus(page)
+    popup = _detach_agent(page)
+    row = page.locator("#sidebar-agent-row")
+    expect(row).to_have_class(re.compile(r"\bdetached\b"))
+    # The row's own icon hides in the expanded sidebar; this one is a different element.
+    expect(row.locator(_TRAIL)).to_be_visible()
+    expect(row).to_have_attribute(
+        "data-tip", "Sessions · Agent pane in its own window — click to bring it to the front"
+    )
+
+    before = _tiles(page)
+    row.click()
+    page.wait_for_function("() => window.__focused >= 1", timeout=_TIMEOUT_MS)
+    assert _tiles(page) == before
+    assert not popup.is_closed()
+
+    row.click(button="right")
+    labels = page.locator(f"{_MENU} .rail-context-label").all_inner_texts()
+    assert "Reattach" in labels, labels
+    assert "Close Agent pane" in labels, labels
+    assert "Open in new window" not in labels, labels
+    page.keyboard.press("Escape")
+
+    with popup.expect_event("close", timeout=_TIMEOUT_MS):
+        row.locator(_TRAIL).click()
+    expect(page.locator(_AGENT_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+    expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(row.locator(_TRAIL)).to_have_count(0)
+    expect(row).not_to_have_class(re.compile(r"\bdetached\b"))
+    expect(row).to_have_attribute("data-tip", "Sessions")
+    assert row.get_attribute("aria-description") is None
+
+
+def test_the_tile_button_and_the_palette_say_open_in_new_window_and_reattach(
+    tmp_path, chromium_browser
+):
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    with _palette_live_server(workspace) as (base_url, _app):
+        ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+        page = ctx.new_page()
+        _boot_ariel_beside_artifacts(page, base_url)
+        button = page.locator(f"{_ARIEL_TILE} .tile-tab-window")
+        expect(button).to_have_attribute("aria-label", "Open in new window")
+
+        popup = _detach_ariel(page)
+        _open_palette(page)
+        _palette_input(page).fill("reattach logbook")
+        row = _palette_row(page, "Reattach Logbook")
+        expect(row).to_be_visible(timeout=_TIMEOUT_MS)
+        with popup.expect_event("close", timeout=_TIMEOUT_MS):
+            row.click()
+        expect(page.locator(_ARIEL_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+        ctx.close()

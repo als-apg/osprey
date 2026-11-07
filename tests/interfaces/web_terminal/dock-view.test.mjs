@@ -65,7 +65,7 @@ describe('surfacedPanel', () => {
     expect(mod.surfacedPanel(() => true)).toBeUndefined();
   });
 
-  test('is null with no service tile, with an unknown panel, or one popped out', () => {
+  test('is null with no service tile, with an unknown panel, or one detached', () => {
     dock.target = null;
     expect(mod.surfacedPanel(() => true)).toBeNull();
     dock.target = { showing: 'lattice' };

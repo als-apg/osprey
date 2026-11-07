@@ -31,7 +31,9 @@ import {
   applyMenuPreset,
   navigateAndActivatePanel,
 } from './panel-manager.js';
-import { detach } from './pane-window.js';
+import { detach, reattach } from './pane-window.js';
+import { isDetached } from './dock-apply.js';
+import { PANELS } from './panel-catalog.js';
 import { CANOPY_PANEL_ID, createCanopyProvider } from './canopy-provider.js';
 import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
@@ -143,7 +145,7 @@ function artifactsPanelPresent() {
 /**
  * Whether this deployment carries the CANOPY panel. Without it there is nothing
  * to search and nowhere to open a row. Hidden and visible panels exclude the
- * active one; the pop-out list includes it once its URL has resolved, which is
+ * active one; the new-window list includes it once its URL has resolved, which is
  * also the earliest the panel could show a row's target.
  * @returns {boolean}
  */
@@ -244,6 +246,11 @@ function buildPaletteDeps() {
     // window and are not in one — the context menu's row reads the same way.
     getPopoutPanels,
     popoutPanel: detach,
+    getDetachedPanels: () =>
+      PANELS.filter((p) => isDetached(p.id)).map((p) => ({ id: p.id, label: p.label })),
+    reattachPanel: (id) => {
+      reattach(id);
+    },
     actions,
   };
 

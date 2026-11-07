@@ -55,13 +55,12 @@ import { isTerminalSurface } from './agent-surface.js';
 import { focusTerminal, restartTerminal, startTerminal } from './terminal.js';
 import { buildAgentRowMenuItems, initTreeMenus } from './sidebar-artifact-menus.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
-import { getEntry, entryIds } from './panel-rail.js';
+import { getEntry, entryIds, DETACHED_TRAIL_ATTR } from './panel-rail.js';
 import { isListOpen, setListOpen, toggleEverySession } from './sidebar.js';
 import { showUndoNotice } from './undo-notice.js';
 import { detach, detachBlocker, focusWindow, reattach } from './pane-window.js';
 import { isDetached } from './dock-apply.js';
 import { exportConversation } from './chat-export.js';
-import { isPanelDocked } from './dock-iframe.js';
 import {
   NEW_GROUP_LABEL,
   addGroup,
@@ -129,6 +128,11 @@ function ctx() {
 export function railOptions() {
   return {
     onActivate: (/** @type {string} */ id, /** @type {MouseEvent | undefined} */ event) => {
+      // The icon on a detached pane's row reattaches it, the Sessions row included.
+      if (isDetached(id) && onDetachedTrail(event)) {
+        reattach(id);
+        return;
+      }
       if (id === TERMINAL_RAIL_ID) {
         activateAgentRow(event);
         return;
@@ -179,9 +183,20 @@ export function railOptions() {
 }
 
 /**
+ * Whether a row's click landed on the row's detached icon.
+ * @param {MouseEvent | undefined} event
+ * @returns {boolean}
+ */
+function onDetachedTrail(event) {
+  const target = event?.target;
+  return target instanceof Element && target.closest(`[${DETACHED_TRAIL_ATTR}]`) !== null;
+}
+
+/**
  * The Agent row's click. With the Agent pane closed it opens the pane and
  * unfolds the session list; with the pane open it folds or unfolds the list
- * and leaves the pane as it is — the pane closes only from its own header.
+ * and leaves the pane as it is — the pane closes only from its own header;
+ * with the pane in its own window it brings that window to the front.
  * A ⌥-click (altKey, from a pointer: Enter and Space stay a plain click)
  * expands every session, or collapses them all when the list shows them all
  * open (sidebar-artifacts.js, imported lazily: it imports this module),
@@ -195,6 +210,10 @@ function activateAgentRow(event) {
     // A folded list unfolds onto every session open, never onto a collapse.
     const force = isListOpen(AGENT_LIST) ? undefined : true;
     toggleEverySession(force);
+    return;
+  }
+  if (isDetached(TERMINAL_RAIL_ID)) {
+    focusWindow(TERMINAL_RAIL_ID);
     return;
   }
   if (isTerminalPanelOpen()) {
@@ -311,7 +330,7 @@ export function openRailContextMenu(id, x, y) {
       y,
       anchorEl: entry,
       ariaLabel: `${TERMINAL_RAIL_LABEL} actions`,
-      items: [...buildAgentRowMenuItems(), ...closedAgentRows()],
+      items: [...buildAgentRowMenuItems(), ...tilelessAgentRows()],
     });
     return true;
   }
@@ -329,7 +348,7 @@ export function openRailContextMenu(id, x, y) {
  * The sidebar's enabled gate has no counterpart here on purpose. It exists so
  * a panel that has never answered cannot be acted on from an offline row; a
  * tile header only exists for a panel already occupying a tile, and its verbs
- * (focus it, pop it out, drop it from the rail) stay meaningful even if health
+ * (focus it, open it in a window, drop it from the rail) stay meaningful even if health
  * polling has since gone quiet.
  *
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
@@ -400,11 +419,9 @@ export function setServiceMenuExtras(panelId, fn) {
  * the panel's tile header so the two surfaces cannot drift apart, and followed
  * by the rows registered through {@link setServiceMenuExtras}.
  *
- * A panel with a tile offers "Pop out", the tile button's window, and "Open
- * in new window", which stays inert while the panel cannot leave
- * (pane-window.js's detachBlocker). A panel in its window offers "Bring back"
- * in their place and no "Open in a new tile", because the panel has no tile
- * while its window is open.
+ * One row moves the panel between the workspace and its window
+ * ({@link paneWindowRow}). A panel in its window offers no "Open in a new tile",
+ * because the panel has no tile while its window is open.
  *
  * A member's rows also move its sidebar row between the sidebar's groups:
  * "Move to <group>" for every other group, then "Move to new group…".
@@ -422,7 +439,7 @@ export function buildServiceMenuItems(id, { mode = 'tile', noticeIn } = {}) {
   const inWindow = mode === 'detached';
   const label = ctx().labelOf(id);
   const member = ctx().isMember(id);
-  const popped = isDetached(id);
+  const detached = isDetached(id);
   const extras = serviceMenuExtras.get(id)?.() ?? [];
   const newTile = { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) };
   return [
@@ -434,18 +451,8 @@ export function buildServiceMenuItems(id, { mode = 'tile', noticeIn } = {}) {
     ...(inWindow
       ? []
       : [{ label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) }]),
-    ...(popped ? [] : [newTile]),
-    // Pop out is the tile's own button, so it is offered while the panel has a
-    // tile.
-    ...(!popped && isPanelDocked(id) ? [paneWindowRow(id, noticeIn)] : []),
-    popped
-      ? { label: 'Bring back', glyph: '⊟', run: () => reattach(id, noticeIn) }
-      : {
-          label: 'Open in new window',
-          glyph: '↗',
-          disabled: detachBlocker(id) !== null,
-          run: () => detach(id),
-        },
+    ...(detached ? [] : [newTile]),
+    paneWindowRow(id, noticeIn),
     ...(member && !inWindow ? groupMoveItems(id) : []),
     { divider: true },
     // The one server-side membership change in the menu.
@@ -501,38 +508,43 @@ function moveToNewGroup(id) {
 }
 
 /**
- * The tile header's Pop out button as a row (pane-window.js): Pop out, or
- * Reattach while the content is in its window.
+ * The one row that moves a pane between the workspace and its window
+ * (pane-window.js): "Open in new window", inert while the pane cannot leave, or
+ * "Reattach" while it is in its window. Every menu takes it from here.
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
  * @param {Document} [noticeIn]  where a refused Reattach says so
  * @returns {import('./panel-context-menu.js').MenuItem}
  */
-function paneWindowRow(id, noticeIn) {
+export function paneWindowRow(id, noticeIn) {
   return isDetached(id)
     ? { label: 'Reattach', glyph: '⊟', run: () => reattach(id, noticeIn) }
-    : { label: 'Pop out', glyph: '⧉', disabled: detachBlocker(id) !== null, run: () => detach(id) };
+    : {
+        label: 'Open in new window',
+        glyph: '↗',
+        disabled: detachBlocker(id) !== null,
+        run: () => detach(id),
+      };
 }
 
 /**
- * What the Sessions row adds while the Agent pane is closed: it has no tile
- * whose button could open it in a window.
+ * What the Sessions row adds while the Agent pane has no tile, closed or in its
+ * window: the verbs the tile's bar would otherwise offer.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
-function closedAgentRows() {
-  if (isTerminalPanelOpen() || isDetached(TERMINAL_RAIL_ID)) return [];
-  return [
-    { divider: true },
-    {
-      label: 'Open in new window',
-      glyph: '↗',
-      disabled: detachBlocker(TERMINAL_RAIL_ID) !== null,
-      run: () => detach(TERMINAL_RAIL_ID),
-    },
-  ];
+function tilelessAgentRows() {
+  if (isDetached(TERMINAL_RAIL_ID)) {
+    return [
+      { divider: true },
+      paneWindowRow(TERMINAL_RAIL_ID),
+      { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
+    ];
+  }
+  if (isTerminalPanelOpen()) return [];
+  return [{ divider: true }, paneWindowRow(TERMINAL_RAIL_ID)];
 }
 
 /**
- * The Agent tile header's menu rows: Pop out (or Reattach), Export
+ * The Agent tile header's menu rows: {@link paneWindowRow}, Export
  * conversation in chat, Restart terminal on the terminal, Reset layout, Close
  * Agent pane. The Agent row in the sidebar heads the session tree and has
  * its own menu (buildAgentRowMenuItems, sidebar-artifact-menus.js), which is

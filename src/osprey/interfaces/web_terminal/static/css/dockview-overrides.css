@@ -211,7 +211,7 @@
  * below).
  *
  *   SERVICE tiles show the panel's name (.tile-tab-title) + its contributed
- *     controls + pop out + close.
+ *     controls + open in new window + close.
  *   The AGENT tile shows its adopted bar + close: the chat console's
  *     .op-session-bar in chat (operator.css), the .terminal-header on the
  *     terminal surface (terminal.css). It is always its own tile.
@@ -617,7 +617,7 @@
   color: var(--color-accent);
 }
 
-/* Actions cluster: right-anchored; a service tile's pop out (`.tile-tab-popout`)
+/* Actions cluster: right-anchored; a service tile's open in new window (`.tile-tab-window`)
  * and every tile's close (`.tile-tab-close`) are `.osprey-icon-btn`s, so the
  * primitive gives them their size, washes and disabled look.
  * Tiles drag, close and resize, so their header bars are live chrome. */

@@ -8,10 +8,10 @@
  * the sidebar is where the operator switches panels.
  *
  *   service tiles — the identity is the panel's name (`.tile-tab-title`); its
- *     contributed controls, Pop out and × sit beside it. The × closes the
+ *     contributed controls, Open in new window and × sit beside it. The × closes the
  *     tile LOCALLY (the panel keeps its sidebar row; dock-sync routes the
  *     click to a vacate handler).
- *   the Agent tile — an adopted live bar, Pop out and close. In chat it adopts
+ *   the Agent tile — an adopted live bar, Open in new window and close. In chat it adopts
  *     the console's `.op-session-bar` (status dot, `Agent`, New conversation,
  *     notifications); on the terminal surface it adopts the `.terminal-header`
  *     (session label, session selector, "+ New"). The bar is chosen when the
@@ -19,7 +19,7 @@
  *     dock-workspace's closeTerminalPanel, which keeps `html[data-agent]` and
  *     the `osprey-agent-pane` event in step.
  *
- * Pop out, on every tile, moves the tile's content into a window the hub
+ * Open in new window, on every tile, moves the tile's content into a window the hub
  * drives and closes the tile (pane-window.js).
  *
  * A pane in its own window keeps this same bar, built in `mode: 'detached'` and
@@ -360,8 +360,11 @@ export function measureTabRects(scope = document) {
 
 // --- the renderer -----------------------------------------------------------------
 
+/** The tile button's name, and its tooltip while nothing blocks it. */
+const WINDOW_BUTTON_LABEL = 'Open in new window';
+
 /**
- * A tile's Pop out button: moves the tile's content into a window of its own
+ * A tile's Open in new window button: moves the tile's content into a window of its own
  * (pane-window.js). It runs the pop-out inside the click, the gesture the
  * browser needs to open a window at all. Content that cannot go (a panel not
  * loaded yet, an opaque-origin panel) gets the button disabled, with the
@@ -374,17 +377,17 @@ export function measureTabRects(scope = document) {
  *   prefix), or TERMINAL_RAIL_ID
  * @returns {HTMLButtonElement}
  */
-function buildPopoutButton(panelId) {
+function buildWindowButton(panelId) {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'tile-tab-popout osprey-icon-btn';
+  btn.className = 'tile-tab-window osprey-icon-btn';
   btn.appendChild(icon('popout'));
-  btn.setAttribute('aria-label', 'Pop out');
-  btn.title = 'Pop out';
+  btn.setAttribute('aria-label', WINDOW_BUTTON_LABEL);
+  btn.title = WINDOW_BUTTON_LABEL;
   const paint = () => {
     const blocker = detachBlocker(panelId);
     btn.disabled = blocker !== null;
-    btn.title = blocker ?? 'Pop out';
+    btn.title = blocker ?? WINDOW_BUTTON_LABEL;
   };
   btn.addEventListener('pointerenter', paint);
   btn.addEventListener('focus', paint);
@@ -515,7 +518,7 @@ class TileTab {
     }
 
     actions.appendChild(
-      buildPopoutButton(terminal ? TERMINAL_RAIL_ID : (this._servicePanelId ?? id))
+      buildWindowButton(terminal ? TERMINAL_RAIL_ID : (this._servicePanelId ?? id))
     );
     const close = document.createElement('button');
     close.type = 'button';

@@ -4,7 +4,7 @@
  * tab that IS each tile's header bar. A tile holds ONE panel, so every tile
  * gets one bar — identity on the left, actions right-anchored, no tab strip;
  * the bar itself is the drag handle. Service tiles carry a visible
- * `.tile-tab-title`, the panel's contribution region, a Pop out button and a
+ * `.tile-tab-title`, the panel's contribution region, an Open in new window button and a
  * close; the Agent tile adopts a live bar instead — the chat console's
  * `.op-session-bar` in chat, the `.terminal-header` on the terminal surface.
  * The last suite builds the bars on the pinned real dockview (see
@@ -34,7 +34,7 @@ const { detach, detachBlocker } = vi.hoisted(() => ({
 }));
 
 /** What the gate says about an opaque-origin panel. */
-const OPAQUE = 'This panel runs at an opaque origin and cannot be popped out.';
+const OPAQUE = 'This panel runs at an opaque origin and cannot open in a new window.';
 
 // The window itself is pane-window's contract; the bar only has to ask it the
 // right things at the right times.
@@ -173,30 +173,30 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('a service tile has a Pop out button before its close, an icon button with the popout icon', async () => {
+  test('a service tile has an Open in new window button before its close, an icon button with the popout icon', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
 
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
-    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-popout'));
+    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-window'));
     expect([...actions.children].map((el) => el.className)).toEqual([
-      'tile-tab-popout osprey-icon-btn',
+      'tile-tab-window osprey-icon-btn',
       'tile-tab-close osprey-icon-btn',
     ]);
-    expect(popout.title).toBe('Pop out');
-    expect(popout.getAttribute('aria-label')).toBe('Pop out');
+    expect(popout.title).toBe('Open in new window');
+    expect(popout.getAttribute('aria-label')).toBe('Open in new window');
     expect(popout.disabled).toBe(false);
     expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
   });
 
-  test('Pop out pops the service panel out, inside the click', async () => {
+  test('Open in new window moves the service panel, inside the click', async () => {
     const { createTileTab } = await import(MOD);
     const api = fakeApi();
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api });
 
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-popout')).dispatchEvent(
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(
       new MouseEvent('click', { bubbles: true, cancelable: true })
     );
 
@@ -204,7 +204,7 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has the same Pop out, before its close, popping the Agent pane out', async () => {
+  test('the Agent tile has the same button, before its close, moving the Agent pane', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const tab = createTileTab('terminal');
@@ -212,10 +212,10 @@ describe('tile-tab renderer', () => {
 
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
-      'Pop out',
+      'Open in new window',
       'Close Agent pane',
     ]);
-    /** @type {HTMLElement} */ (actions.querySelector('.tile-tab-popout')).dispatchEvent(
+    /** @type {HTMLElement} */ (actions.querySelector('.tile-tab-window')).dispatchEvent(
       new MouseEvent('click', { bubbles: true, cancelable: true })
     );
     expect(detach).toHaveBeenCalledExactlyOnceWith('terminal');
@@ -227,7 +227,7 @@ describe('tile-tab renderer', () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
-    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
 
     // Built enabled: the URL and frame kind are not known yet, and a button
     // disabled now would never get the pointer event that re-reads the gate.
@@ -243,7 +243,7 @@ describe('tile-tab renderer', () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
-    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
     expect(popout.disabled).toBe(false);
 
     detachBlocker.mockReturnValue(OPAQUE);
@@ -254,12 +254,12 @@ describe('tile-tab renderer', () => {
     expect(popout.title).toBe(OPAQUE);
   });
 
-  test('Pop out pointerdown is prevented so it cannot start a tile drag', async () => {
+  test('Open in new window pointerdown is prevented so it cannot start a tile drag', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
     const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-popout')).dispatchEvent(ev);
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
   });
 
@@ -391,7 +391,7 @@ describe('tile-tab renderer', () => {
         'Switch session',
         'New conversation',
         'Desktop notifications',
-        'Pop out',
+        'Open in new window',
         'Close Agent pane',
       ]);
     });
@@ -767,7 +767,7 @@ describe('the bars on a real dock', () => {
     return { mod, api, root, holder, barOf };
   }
 
-  test('a service bar: its title, contribution region, Pop out and Close tile — no strip', async () => {
+  test('a service bar: its title, contribution region, Open in new window and Close tile — no strip', async () => {
     const { root, barOf } = await mountBars();
     expect(root.querySelectorAll('.tile-tab')).toHaveLength(2);
     const bar = barOf('t1');
@@ -781,7 +781,7 @@ describe('the bars on a real dock', () => {
     expect(bar.querySelector('.tile-tab-title')?.textContent).toBe('Ariel');
     const actions = /** @type {HTMLElement} */ (bar.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
-      'Pop out',
+      'Open in new window',
       'Close tile',
     ]);
     expect(bar.querySelector('.tile-tab-tabs, .tile-tab-item')).toBeNull();
@@ -871,7 +871,7 @@ describe('the bar of a pane in its own window', () => {
     expect(reattach.classList.contains('tile-tab-reattach')).toBe(true);
     expect(reattach.textContent).toBe('Reattach');
     expect(reattach.title).toBe('Put Ariel back in the workspace');
-    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
+    expect(tab.element.querySelector('.tile-tab-window')).toBeNull();
     expect(tab.element.querySelector('.tile-tab-close')).toBeNull();
     reattach.click();
     expect(onReattach).toHaveBeenCalledTimes(1);
@@ -891,7 +891,7 @@ describe('the bar of a pane in its own window', () => {
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
     expect(tab.element.querySelector('.tile-tab-reattach')).toBeNull();
-    expect(tab.element.querySelector('.tile-tab-popout')).not.toBeNull();
+    expect(tab.element.querySelector('.tile-tab-window')).not.toBeNull();
     expect(tab.element.querySelector('.tile-tab-close')).not.toBeNull();
   });
 

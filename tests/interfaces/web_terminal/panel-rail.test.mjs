@@ -6,7 +6,7 @@
  * panel-rail.js is a pure DOM module: it places the sidebar's panel rows in
  * the operator's groups (sidebar-groups.js: Workspace and Tools until the
  * operator changes them) and exposes imperative mutators (active / enabled /
- * attention / popped out / non-destructive append, place & remove) that
+ * attention / detached / non-destructive append, place & remove) that
  * panel-manager's state machine drives. These tests pin that DOM contract —
  * selectors, data-* attributes, class hooks, callback wiring — the same
  * contract the Playwright browser suite selects on.

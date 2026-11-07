@@ -41,10 +41,11 @@ import {
   placeEntry,
   setActive,
   setEntryEnabled,
-  setEntryPoppedOut,
+  setEntryDetached,
   setEntryReachable,
   setEntryStatus,
 } from './panel-rail.js';
+import { paintAgentRow } from './sidebar.js';
 
 /** @typedef {import('./panel-catalog.js').Panel} Panel */
 /** @typedef {import('./panel-manager.js').PanelState} PanelState */
@@ -195,7 +196,20 @@ export function renderRail() {
     railOptions()
   );
   setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
-  for (const id of ctx().memberSet) if (isDetached(id)) setEntryPoppedOut(railEl, id, true);
+  for (const id of [TERMINAL_RAIL_ID, ...ctx().memberSet]) {
+    if (isDetached(id)) setEntryDetached(railEl, id, true);
+  }
+}
+
+/**
+ * A pane arrived in its window or came back from it: mark its row. The Sessions
+ * row's own painter has the last word on that row's tips.
+ * @param {string} id
+ * @param {boolean} detached
+ */
+export function markDetachedRow(id, detached) {
+  setEntryDetached(ctx().getRailEl(), id, detached);
+  if (id === TERMINAL_RAIL_ID) paintAgentRow();
 }
 
 /**
@@ -221,7 +235,7 @@ export function applyRailOrder(order) {
  * Re-apply a sidebar row's live state after addEntry (re)built or re-showed it
  * — enabled from the panel's health, the active accent when this panel is
  * the surfaced one (a "+"-menu reveal activates locally BEFORE the membership
- * echo adds the row), and the popped-out mark while its window is open.
+ * echo adds the row), and the detached mark while its window is open.
  * @param {string} panelId
  */
 function applyEntryState(panelId) {
@@ -235,7 +249,7 @@ function applyEntryState(panelId) {
   if (ps.failedMessage)
     setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
   if (c.getActive() === panelId) setActive(c.getRailEl(), panelId);
-  if (isDetached(panelId)) setEntryPoppedOut(c.getRailEl(), panelId, true);
+  if (isDetached(panelId)) setEntryDetached(c.getRailEl(), panelId, true);
 }
 
 /**

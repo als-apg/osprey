@@ -3103,11 +3103,12 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // rail row stays (membership is untouched, nothing is POSTed).
     expect(dockedTiles(api)).toEqual(['okf']);
     expect(entry('ariel')).not.toBeNull();
-    expect(entry('ariel').classList.contains('popped-out')).toBe(true);
+    expect(entry('ariel').classList.contains('detached')).toBe(true);
     expect(posts(calls)).toEqual([]);
     // The menu now offers the way back; the palette's rows skip it.
     rightClick(entry('ariel'));
-    expect(menuLabels()).toContain('Bring back');
+    expect(menuLabels()).toContain('Reattach');
+    expect(menuLabels()).not.toContain('Open in new window');
     expect(menuLabels()).not.toContain('Open in a new tile');
     expect(mod.getPopoutPanels().map((p) => p.id)).toEqual(['okf']);
     open.mockRestore();
@@ -3122,7 +3123,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
     rightClick(entry('ariel'));
     expect(menuRow('Open in new window')?.getAttribute('aria-disabled')).not.toBe('true');
-    expect(menuLabels()).not.toContain('Pop out');
+    expect(menuLabels().filter((label) => label === 'Open in new window')).toHaveLength(1);
     /** @type {HTMLElement} */ (menuRow('Open in new window')).click();
 
     expect(open).toHaveBeenCalledTimes(1);
@@ -3130,10 +3131,10 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(
       popup.document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
     ).not.toBeNull();
-    expect(entry('ariel').classList.contains('popped-out')).toBe(true);
+    expect(entry('ariel').classList.contains('detached')).toBe(true);
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Bring back')).click();
+    /** @type {HTMLElement} */ (menuRow('Reattach')).click();
     expect(dockedTiles(api)).toContain('ariel');
     expect(popup.close).toHaveBeenCalledTimes(1);
     open.mockRestore();
@@ -3161,17 +3162,32 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     open.mockRestore();
   });
 
-  test('"Bring back" docks the panel where it was and closes the window', async () => {
+  test('the row icon reattaches, where a click on the rest of the row focuses', async () => {
+    const { api, popup, open } = await detachAriel();
+
+    entry('ariel').click();
+    expect(popup.focus).toHaveBeenCalled();
+    expect(popup.close).not.toHaveBeenCalled();
+
+    /** @type {HTMLElement} */ (entry('ariel').querySelector('[data-detached-trail]')).click();
+
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'okf']);
+    expect(entry('ariel').classList.contains('detached')).toBe(false);
+    open.mockRestore();
+  });
+
+  test('"Reattach" docks the panel where it was and closes the window', async () => {
     const { api, calls, popup, open } = await detachAriel();
     calls.length = 0;
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Bring back')).click();
+    /** @type {HTMLElement} */ (menuRow('Reattach')).click();
 
     expect(popup.close).toHaveBeenCalledTimes(1);
     expect(dockedTiles(api).sort()).toEqual(['ariel', 'okf']);
     expect(document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')).not.toBeNull();
-    expect(entry('ariel').classList.contains('popped-out')).toBe(false);
+    expect(entry('ariel').classList.contains('detached')).toBe(false);
     expect(posts(calls).filter((url) => !url.endsWith('/api/panel-layout'))).toEqual([]);
     open.mockRestore();
   });
@@ -3180,7 +3196,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const { api, popup, open } = await detachAriel();
 
     popup.closed = true;
-    await settled(() => expect(entry('ariel').classList.contains('popped-out')).toBe(false));
+    await settled(() => expect(entry('ariel').classList.contains('detached')).toBe(false));
     expect(dockedTiles(api)).toEqual(['okf']);
     const frame = /** @type {HTMLIFrameElement} */ (
       document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
@@ -3317,7 +3333,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // The pane verbs live on the Agent tile header.
     expect(await agentTileMenu()).toBe(true);
     expect(menuLabels()).toEqual([
-      'Pop out',
+      'Open in new window',
       'Restart terminal',
       'Reset layout',
       'Close Agent pane',
@@ -3347,14 +3363,14 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('in chat the Agent tile menu offers Pop out, Export and the layout rows', async () => {
+  test('in chat the Agent tile menu offers Open in new window, Export and the layout rows', async () => {
     await bootWorkspace();
 
     // The tile hosts the operator console there, so the PTY verb would
     // act on a surface the operator cannot see and is withheld.
     expect(await agentTileMenu()).toBe(true);
     expect(menuLabels()).toEqual([
-      'Pop out',
+      'Open in new window',
       'Export conversation',
       'Reset layout',
       'Close Agent pane',

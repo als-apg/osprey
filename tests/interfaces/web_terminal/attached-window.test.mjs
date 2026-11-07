@@ -184,7 +184,7 @@ describe('open', () => {
     vi.advanceTimersByTime(mod.READY_POLL_MS * 4);
     expect(content.parentElement).toBe(parent);
     expect(onDress).not.toHaveBeenCalled();
-    // A second Pop out meanwhile brings the loading window forward.
+    // A second Open in new window meanwhile brings the loading window forward.
     expect(
       mod.openAttached({ key: 'k', title: 't', content, name: 'w-k', anchor: anchorEl() })
     ).toBe(win);
@@ -231,7 +231,7 @@ describe('open', () => {
     expect(stuck.close).toHaveBeenCalledTimes(1);
     expect(content.parentElement).toBe(parent);
     expect(onReturn).not.toHaveBeenCalled();
-    // Gone: a new Pop out opens a new window.
+    // Gone: a new Open in new window opens a new window.
     mod.openAttached({ key: 'b', title: 't', content, name: 'w-k', anchor: anchorEl() });
     expect(open).toHaveBeenCalledTimes(3);
   });
@@ -437,7 +437,7 @@ describe('return', () => {
     mod.returnAttached('k');
     expect(win.close).toHaveBeenCalledTimes(1);
     expect(content.parentElement).toBe(parent);
-    expect(onReturn).toHaveBeenCalledExactlyOnceWith('bring-back');
+    expect(onReturn).toHaveBeenCalledExactlyOnceWith('reattach');
   });
 
   test('closeAttached is a close: the reason is `closed`', () => {

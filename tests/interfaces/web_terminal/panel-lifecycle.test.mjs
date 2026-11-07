@@ -43,7 +43,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js', (
   placeEntry: vi.fn(),
   setActive: vi.fn(),
   setEntryEnabled: m.setEntryEnabled,
-  setEntryPoppedOut: vi.fn(),
+  setEntryDetached: vi.fn(),
   setEntryReachable: vi.fn(),
   setEntryStatus: m.setEntryStatus,
 }));

@@ -593,7 +593,7 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
   });
 
   describe('a panel in its own window', () => {
-    /** The classic dock with c popped out: its tile left the dock with it. */
+    /** The classic dock with c detached: its tile left the dock with it. */
     function seedPoppedOut() {
       const holder = seedClassic();
       holder.run((/** @type {any} */ l) => dockOpen.closeKey(l, 'c'));

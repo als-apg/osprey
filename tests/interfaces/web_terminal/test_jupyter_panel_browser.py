@@ -451,7 +451,7 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
 
 
 # ===========================================================================
-# A popped-out notebook, its own control-target bar, and what a cell is on
+# A notebook in its own window, its own control-target bar, and what a cell is on
 # ===========================================================================
 
 #: The cell that reports what this cell is routed at. One line, because a
@@ -705,7 +705,7 @@ def _detached_notebook(
     hub.goto(_NOTEBOOK_URL.format(base_url), wait_until="domcontentloaded")
     expect(_lab(hub).locator(".jp-NotebookPanel")).to_be_visible(timeout=_LAB_BOOT_MS)
     with hub.expect_popup() as info:
-        hub.locator('.tile-tab[data-panel-id="iframe:jupyter"] .tile-tab-popout').click()
+        hub.locator('.tile-tab[data-panel-id="iframe:jupyter"] .tile-tab-window').click()
     window = info.value
     frame = 'iframe.panel-iframe[data-panel-id="jupyter"]'
     expect(window.frame_locator(frame).locator(".jp-NotebookPanel")).to_be_visible(

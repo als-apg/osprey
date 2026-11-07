@@ -123,7 +123,7 @@ export function labThemeFor(themeId) {
 }
 
 /**
- * Start following the hub's theme, when the hub framed or popped out this
+ * Start following the hub's theme, when the hub framed or moved to a window this
  * page; a no-op anywhere else, and on a second call.
  *
  * The address's `theme` is read here, before Lab boots: Lab's router rewrites

@@ -53,6 +53,9 @@ const DETACHED_ATTRIBUTE = 'data-osprey-detached';
 /** Why a panel with no frame to move cannot leave yet. */
 const NOT_LOADED = 'This panel has not loaded yet.';
 
+/** Why a panel at an opaque origin cannot leave. */
+const OPAQUE = 'This panel runs at an opaque origin and cannot open in a new window.';
+
 /** The notice shown when the browser refused the window. */
 const BLOCKED_MESSAGE = 'Pop-ups are blocked for this site.';
 
@@ -158,7 +161,7 @@ export function detachBlocker(id) {
     const managed = deps.managedIframe?.(id);
     if (!managed && !deps.canLoadFrame?.(id)) return NOT_LOADED;
     const kind = managed?.iframe.dataset.panelFrame;
-    if (kind === 'opaque') return 'This panel runs at an opaque origin and cannot be popped out.';
+    if (kind === 'opaque') return OPAQUE;
     // Not known yet to be first-party: it may still turn out opaque.
     if (kind === 'pending') return NOT_LOADED;
   }

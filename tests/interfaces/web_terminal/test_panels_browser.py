@@ -922,7 +922,7 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
         expect(tab.locator(".tile-tab-grip")).to_have_count(0)
         expect(tab.locator(".tile-tab-title")).to_have_text(_title_case("DATA VIZ"))
         expect(tab.locator(".tile-tab-close")).to_have_count(1)
-        expect(tab.locator(".tile-tab-popout")).to_have_count(1)
+        expect(tab.locator(".tile-tab-window")).to_have_count(1)
         page.wait_for_timeout(600)
 
         posts = _track_panel_posts(page)
@@ -2220,7 +2220,7 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
             ws.locator(".osprey-crumb-root:visible, .tile-tab-title:visible").first
         ).to_have_text("Artifacts")
         expect(ws.locator(".tile-tab-close")).to_have_count(1)
-        expect(ws.locator(".tile-tab-popout")).to_have_count(1)
+        expect(ws.locator(".tile-tab-window")).to_have_count(1)
 
         # Same bar height as the terminal's — one header system, one size.
         svc_h = _strip_height(page, terminal=False)
@@ -3293,7 +3293,7 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
 def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser):
     """In chat the PTY verb would act on a surface the operator cannot see.
 
-    The Agent tile header keeps Pop out, Export conversation and the layout
+    The Agent tile header keeps Open in new window, Export conversation and the layout
     rows; the Agent rail row holds the session rows.
     """
     workspace = tmp_path / "_agent_data"
@@ -3322,7 +3322,7 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
 
         _open_agent_header_menu(page)
         assert _menu_labels(page) == [
-            "Pop out",
+            "Open in new window",
             "Export conversation",
             "Reset layout",
             "Close Agent pane",
@@ -3364,7 +3364,7 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
 
         _open_agent_header_menu(page)
         assert _menu_labels(page) == [
-            "Pop out",
+            "Open in new window",
             "Restart terminal",
             "Reset layout",
             "Close Agent pane",
@@ -3453,7 +3453,6 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             assert _menu_labels(page) == [
                 "Focus Searchy",
                 "Open in a new tile",
-                "Pop out",
                 "Open in new window",
                 "Move to Sessions",
                 "Move to System",

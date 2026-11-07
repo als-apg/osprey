@@ -410,8 +410,8 @@ html[data-sidebar="collapsed"] .sidebar :is(
   box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
-/* Popped out (panel-rail.js setEntryPoppedOut): the panel runs in its own
-   window, so the row carries a trailing window glyph and a quieter label. */
+/* Detached (rail-row-state.js setEntryDetached): the pane runs in its own
+   window, so the row carries a trailing reattach icon and a quieter label. */
 .sidebar .panel-rail-button .osprey-nav-trail {
   margin-left: auto;
   display: inline-flex;
@@ -423,7 +423,7 @@ html[data-sidebar="collapsed"] .sidebar :is(
   height: 14px;
 }
 
-.sidebar .panel-rail-button.popped-out .osprey-nav-label {
+.sidebar .panel-rail-button.detached .osprey-nav-label {
   color: var(--text-secondary);
 }
 

@@ -1,6 +1,6 @@
 /**
  * The Agent's two menus (panel-menu-policy.js): the tile header keeps the
- * pane verbs (Pop out, Export conversation in chat, Restart terminal on the
+ * pane verbs (Open in new window, Export conversation in chat, Restart terminal on the
  * terminal, Reset layout, Close Agent pane), and the
  * Agent row in the sidebar — the head of the session tree — gets the tree's
  * menu (New session, Expand/Collapse all), New session through switchTo.
@@ -119,12 +119,12 @@ afterEach(() => {
 });
 
 describe('the Agent tile header', () => {
-  test('on the terminal surface: Pop out, Restart terminal, Reset layout, Close Agent pane — no New session', () => {
+  test('on the terminal surface: Open in new window, Restart terminal, Reset layout, Close Agent pane — no New session', () => {
     const anchorEl = document.createElement('div');
     document.body.append(anchorEl);
     expect(policy.openTileContextMenu(TERMINAL_RAIL_ID, { x: 1, y: 1, anchorEl })).toBe(true);
     expect(menuLabels()).toEqual([
-      'Pop out',
+      'Open in new window',
       'Restart terminal',
       'Reset layout',
       'Close Agent pane',
@@ -139,7 +139,7 @@ describe('the Agent tile header', () => {
     /** @type {Item[]} */
     const items = policy.buildTerminalMenuItems();
     expect(items.filter((i) => i.label).map((i) => i.label)).toEqual([
-      'Pop out',
+      'Open in new window',
       'Export conversation',
       'Reset layout',
       'Close Agent pane',
@@ -148,14 +148,44 @@ describe('the Agent tile header', () => {
     expect(chatExport.exportConversation).toHaveBeenCalledTimes(1);
   });
 
-  test('Pop out follows the window seam: disabled with its reason, Reattach while detached', () => {
+  test('the Sessions row with the pane in its window: Reattach and Close Agent pane', () => {
+    paneWindow.isDetached.mockReturnValue(true);
+    policy.openRailContextMenu(TERMINAL_RAIL_ID, 0, 0);
+    expect(menuLabels()).toContain('Reattach');
+    expect(menuLabels()).toContain('Close Agent pane');
+    expect(menuLabels()).not.toContain('Open in new window');
+    expect(menuLabels()).toContain('New session');
+    menuRow('Reattach').click();
+    expect(paneWindow.reattach).toHaveBeenCalledWith(TERMINAL_RAIL_ID, undefined);
+    paneWindow.isDetached.mockReturnValue(false);
+  });
+
+  test('a click on the Sessions row brings its window forward; on the icon it reattaches', () => {
+    paneWindow.isDetached.mockReturnValue(true);
+    const row = rail.querySelector('button');
+    const trail = document.createElement('span');
+    trail.setAttribute('data-detached-trail', '');
+    row?.append(trail);
+    const { onActivate } = policy.railOptions();
+
+    onActivate(TERMINAL_RAIL_ID, { target: row, detail: 1, altKey: false });
+    expect(paneWindow.focusWindow).toHaveBeenCalledExactlyOnceWith(TERMINAL_RAIL_ID);
+    expect(paneWindow.reattach).not.toHaveBeenCalled();
+
+    onActivate(TERMINAL_RAIL_ID, { target: trail, detail: 1, altKey: false });
+    expect(paneWindow.reattach).toHaveBeenCalledExactlyOnceWith(TERMINAL_RAIL_ID);
+    expect(paneWindow.focusWindow).toHaveBeenCalledTimes(1);
+    paneWindow.isDetached.mockReturnValue(false);
+  });
+
+  test('Open in new window follows the window seam: disabled with its reason, Reattach while detached', () => {
     paneWindow.detachBlocker.mockReturnValue('The Agent pane is not ready.');
     /** @type {any[]} */
     let items = policy.buildTerminalMenuItems();
-    expect(items.find((i) => i.label === 'Pop out')?.disabled).toBe(true);
+    expect(items.find((i) => i.label === 'Open in new window')?.disabled).toBe(true);
     paneWindow.detachBlocker.mockReturnValue(null);
     items = policy.buildTerminalMenuItems();
-    const row = items.find((i) => i.label === 'Pop out');
+    const row = items.find((i) => i.label === 'Open in new window');
     expect(row?.disabled).toBe(false);
     row?.run?.();
     expect(paneWindow.detach).toHaveBeenCalledExactlyOnceWith(TERMINAL_RAIL_ID);
@@ -287,12 +317,12 @@ describe('the Agent bar in its own window', () => {
   test('offers nothing that acts on the dock', () => {
     surface.terminal = true;
     expect(labels(policy.buildTerminalMenuItems({ mode: 'detached' }))).toEqual([
-      'Pop out',
+      'Open in new window',
       'Restart terminal',
     ]);
     surface.terminal = false;
     expect(labels(policy.buildTerminalMenuItems({ mode: 'detached' }))).toEqual([
-      'Pop out',
+      'Open in new window',
       'Export conversation',
     ]);
   });

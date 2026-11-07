@@ -88,10 +88,11 @@ import {
   removeFromRail,
   closeTerminalTile,
 } from './panel-menu-policy.js';
-import { removeEntry, setActive, setEntryPoppedOut } from './panel-rail.js';
+import { removeEntry, setActive } from './panel-rail.js';
 import {
   initPanelLifecycle,
   freshPanelState,
+  markDetachedRow,
   renderRail,
   ensureRailMembership,
   initPanel,
@@ -397,9 +398,7 @@ export async function initPanelManager(panelId) {
     },
     showNotice: (message, doc) => showUndoNotice({ message, doc }),
   });
-  onDetachedChange((id, out) => {
-    if (id !== TERMINAL_RAIL_ID) setEntryPoppedOut(railEl, id, out);
-  });
+  onDetachedChange(markDetachedRow);
 
   // Rail drag-and-drop: a sidebar row dropped on a tile edge or a dock edge
   // opens (or moves) that panel as a new tile there — the drop bridge places
@@ -632,7 +631,7 @@ export async function initPanelManager(panelId) {
  * Rail-member panels that can leave for a window (pane-window.js's
  * detachBlocker), and no
  * window open for them yet — in catalog order. Unlike getVisiblePanels this
- * INCLUDES the active panel: popping out the panel you are looking at is the
+ * INCLUDES the active panel: moving the panel you are looking at is the
  * verb's most common use. The palette's "Open <label> in new window" rows read
  * this; the context menu's row applies the same two gates per panel.
  * @returns {Array<{id: string, label: string}>}

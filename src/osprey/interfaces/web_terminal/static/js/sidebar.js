@@ -51,7 +51,7 @@ import { hideTooltip } from '/design-system/js/tooltip.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
-import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
+import { DETACHED_DETAIL, SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { initSidebarResize } from './sidebar-resize.js';
 import { initSidebarFold } from './sidebar-fold.js';
@@ -260,10 +260,11 @@ function initDisclosures(sidebar) {
 let waiting = 0;
 
 /** Paint the Sessions row from `html[data-agent]` and the waiting count. */
-function paintAgentRow() {
+export function paintAgentRow() {
   const row = document.getElementById(AGENT_ROW_ID);
   if (!row) return;
-  const closed = document.documentElement.getAttribute('data-agent') === 'closed';
+  const pane = document.documentElement.getAttribute('data-agent');
+  const closed = pane === 'closed';
   const badge = /** @type {HTMLElement | null} */ (row.querySelector('[data-agent-badge]'));
   const showBadge = closed && waiting > 0;
   if (badge) {
@@ -271,6 +272,12 @@ function paintAgentRow() {
     badge.textContent = showBadge ? String(waiting) : '';
   }
   const all = `${allSessionsClick()} to expand or collapse every session`;
+  if (pane === 'detached') {
+    row.dataset.tip = `${ROW_LABEL} · Agent pane in its own window — click to bring it to the front`;
+    row.dataset.tipDetail = `${DETACHED_DETAIL} · ${all}`;
+    row.setAttribute('aria-description', DETACHED_DETAIL);
+    return;
+  }
   if (!closed) {
     row.dataset.tip = ROW_LABEL;
     row.dataset.tipDetail = `Click to fold the session list · ${all}`;
