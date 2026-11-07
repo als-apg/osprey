@@ -4048,13 +4048,11 @@ _PYAML_CONFIGURATION_FILE = "configuration.yaml"
 #: The stepped role the view's RF plant stands for; its setpoints are the block's ``rf``.
 _PYAML_RF = "rf"
 
-#: The stepped roles whose setpoints ``correctors`` may name.
-_PYAML_CORRECTOR_ROLES = ("hcor", "vcor")
-
-#: The kinds that take ``by``, and the request values an omitted argument
-#: takes; ``by`` ``group`` steps once from the present setting, so an omitted
-#: modulation is unipolar there.
-_PYAML_BY_KINDS = ("trm", "crm")
+#: The request values an omitted argument takes; ``by`` ``group`` steps once
+#: from the present setting, so an omitted modulation is unipolar there. Which
+#: kinds take ``by`` and whose setpoints ``correctors`` may name are the
+#: measurement block's ``by_kinds`` and ``corrector_roles``, which the build
+#: writes from the model's kind block.
 _PYAML_DEFAULT_MODULATION = "bipolar"
 _PYAML_DEFAULT_BY = "magnet"
 _PYAML_GROUP = "group"
@@ -4118,6 +4116,7 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
         )
 
     groups = block.get("groups") or {}
+    corrector_roles = (block.get("corrector_roles") or {}).get(kind) or []
     correctors = tool_input.get("correctors")
     setpoints: list[str] = []
     for role in sorted(stepped):
@@ -4130,7 +4129,7 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
                     _PYAML_VIEW_AUDIT_REASON,
                 )
             setpoints.extend(rf)
-        elif correctors and role in _PYAML_CORRECTOR_ROLES:
+        elif correctors and role in corrector_roles:
             named = (str(address) for address in correctors)
             setpoints.extend(address for address in named if address not in setpoints)
         else:
@@ -4141,7 +4140,8 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
             "more than an approval prompt lists",
             _PYAML_VIEW_AUDIT_REASON,
         )
-    by = (tool_input.get("by") or _PYAML_DEFAULT_BY) if kind in _PYAML_BY_KINDS else None
+    by_kinds = block.get("by_kinds") or []
+    by = (tool_input.get("by") or _PYAML_DEFAULT_BY) if kind in by_kinds else None
     modulation = tool_input.get("modulation") or (
         _PYAML_GROUP_MODULATION if by == _PYAML_GROUP else _PYAML_DEFAULT_MODULATION
     )
