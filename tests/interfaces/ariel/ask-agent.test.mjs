@@ -7,7 +7,7 @@
  * a citation block (entry id, author, date, then the reader's selected text,
  * else the subject) to the host as `osprey-paste-to-terminal`, addressed to
  * this page's own origin. It never sends and raises no ARIEL toast; the host
- * owns the feedback. Standalone, nothing is registered.
+ * owns the feedback.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -122,13 +122,7 @@ describe('citation', () => {
 });
 
 describe('registerAskAgent', () => {
-  test('standalone ARIEL registers nothing', () => {
-    setSearch('');
-    registerAskAgent();
-    expect(seam.actions).toHaveLength(0);
-  });
-
-  test('embedded, it registers the action on the a key', () => {
+  test('registers the action on the a key', () => {
     setSearch('?embedded=true');
     registerAskAgent();
     expect(seam.actions).toEqual([askAgentAction]);
@@ -140,7 +134,7 @@ describe('registerAskAgent', () => {
 describe('Ask agent action', () => {
   beforeEach(() => setSearch('?embedded=true'));
 
-  test('the header shows its button when embedded', async () => {
+  test('the header shows its button', async () => {
     registerAskAgent();
     const reader = await shownReader();
     expect(reader.querySelector('[data-reader-action="ask-agent"]')).not.toBeNull();
@@ -196,18 +190,5 @@ describe('Ask agent action', () => {
     const reader = await shownReader();
     runReaderKey(reader, 'a');
     expect(document.querySelector('.toast, .osprey-toast, [role="status"]')).toBeNull();
-  });
-
-  test('run never posts when not embedded', () => {
-    setSearch('');
-    const container = document.createElement('div');
-    askAgentAction.run({
-      container,
-      entry: ENTRY,
-      entryId: ENTRY.entry_id,
-      callbacks: {},
-      isCurrent: () => true,
-    });
-    expect(post).not.toHaveBeenCalled();
   });
 });

@@ -76,7 +76,8 @@ def test_the_entry_opens_the_terminal_and_back_to_chat_returns(tmp_path, chromiu
         open_terminal(page)
         _on_terminal(page)
         expect(page.locator("#terminal-container .xterm")).to_be_visible(timeout=10_000)
-        page.wait_for_function("() => document.querySelector('#session-led.active') !== null")
+        # The terminal body glows while its socket is open (terminal.js).
+        page.wait_for_function("() => document.querySelector('.terminal-body.active') !== null")
         # The chat's key has no transcript yet, so the terminal may start its own
         # session after asking for that one; either way it opened only on the click.
         assert sockets, sockets

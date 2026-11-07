@@ -35,8 +35,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # A digest moves whenever its preset's resolved content does, and the commit
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
-    "demo": ("sha256:16ab8b870a5ac08054be2cdb0a8fa1856af345b03b499140974f424588b190ef"),
-    "hello-world": ("sha256:64e800d50fa5250991e06c374a10282f0728f3daa77dfb6db748bf8306dc576f"),
+    "demo": ("sha256:1b2c403a0194f58349912818f50faead5da58cb18a9e5f957f4eb1a591a2ec8f"),
+    "hello-world": ("sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"),
     "tiers/admin": ("sha256:197ef2a65251887b0af8a2a03dac1494b366d2bb3fdabe42c5f8227fdc729736"),
     "tiers/readonly": ("sha256:8d24dbff3b01876824e3fc10ac61595d9e841feddf632064894ceef7e5031a81"),
     "tiers/readwrite": ("sha256:b9d4b4bbc15d569649062636055ae0a9997948679b7ec84228991e287b7df2a3"),

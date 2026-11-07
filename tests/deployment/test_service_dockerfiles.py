@@ -44,11 +44,15 @@ from tests.deployment._cache_mounts import assert_build_caches_mounted
 from tests.deployment._pip_probe import (
     APT_NOOP,
     UV_TO_PIP,
+    deps_pip_calls,
     deps_sandbox,
+    lock_path_install_calls,
+    must_be_held_to_the_lock,
     primer_pip_argv,
     probe_wheel_body,
     run_body,
     stubbed_env,
+    wheel_pip_calls,
 )
 from tests.deployment._proxy_idiom import (
     assert_apt_runs_carry_proxy_idiom,
@@ -136,11 +140,18 @@ PRIMER_SPEC = {
 }
 SERVICES = sorted(PRIMER_SPEC)
 
-# The dev-staged local-dependency manifest: COPYed next to .osprey-layer-anchor
-# (the guaranteed sibling keeps the glob matching when absent) and installed
-# inside the deps RUN while the C toolchain is still available.
-MANIFEST_COPY = "COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/"
+# The dev-staged local-dependency manifest and lock constraints: COPYed next to
+# .osprey-layer-anchor (the guaranteed sibling keeps the glob matching when
+# absent) and installed inside the deps RUN while the C toolchain is still
+# available.
+MANIFEST_COPY = (
+    "COPY .osprey-layer-anchor osprey-local-requirements.tx[t] "
+    "osprey-lock-constraints.tx[t] /tmp/deps-ctx/"
+)
 MANIFEST_INSTALL = "pip install -r /tmp/deps-ctx/osprey-local-requirements.txt"
+
+#: Where the lock-driven deps layer keeps the lock for the layers after it.
+LOCK_IN_IMAGE = "/opt/osprey/lock-constraints.txt"
 
 
 def _dockerfile(service: str) -> str:
@@ -201,9 +212,9 @@ class TestLayerSplit:
         if service == "virtual_accelerator":
             # VA's first (deps-resolving) install carries the extra so a dev
             # wheel that changes the extra's deps picks them up.
-            assert 'pip install "${whl}[virtual-accelerator]"' in wheel
+            assert 'pip install $lock "${whl}[virtual-accelerator]"' in wheel
         else:
-            assert "pip install /tmp/ctx/*.whl" in wheel
+            assert "pip install $lock /tmp/ctx/*.whl" in wheel
         assert "pip install --no-deps --force-reinstall /tmp/ctx/*.whl" in wheel
         assert "pip check" in wheel
         # Always clean up the staged context regardless of whether a wheel was
@@ -301,10 +312,12 @@ class TestLayerSplit:
             f"{service}: manifest install missing or not &&-chained in the deps RUN"
         )
         assert MANIFEST_INSTALL in deps, f"{service}: deps RUN does not install the manifest"
-        assert deps.index(MANIFEST_INSTALL) > deps.index("WARNING: pin unreleased"), (
+        # Twice: once alone on the lock-driven path, once after the primer on
+        # the release path.
+        assert deps.rindex(MANIFEST_INSTALL) > deps.index("WARNING: pin unreleased"), (
             f"{service}: manifest install must follow the primer's dev-fallback construct"
         )
-        assert deps.index(MANIFEST_INSTALL) < deps.index("apt-get purge -y build-essential"), (
+        assert deps.rindex(MANIFEST_INSTALL) < deps.index("apt-get purge -y build-essential"), (
             f"{service}: manifest install must precede the toolchain purge"
         )
         assert "rm -rf /tmp/deps-ctx" in deps, f"{service}: deps RUN must clean up /tmp/deps-ctx"
@@ -328,6 +341,37 @@ class TestLayerSplit:
             f"{service}: no-manifest deps RUN must exit 0:\n{result.stdout}\n{result.stderr}"
         )
         assert not ctx.exists(), f"{service}: staged context not cleaned up on the no-manifest path"
+
+    def test_lock_path_primes_no_framework(self, service, tmp_path):
+        """With the lock constraints staged the deps layer installs the staged
+        manifest alone — nothing named osprey-framework reaches the index — and
+        keeps the lock for the layers after it, appended to the setuptools
+        constraint every installer here reads."""
+        lock = "fwdep==1.0 ; python_version >= '3.11'\n"
+        calls = deps_pip_calls(
+            _deps_body(service),
+            tmp_path,
+            {"OSPREY_VERSION": "0.0.0", "OSPREY_DEV": "1"},
+            staged={
+                "osprey-local-requirements.txt": "fwdep\n",
+                "osprey-lock-constraints.txt": lock,
+            },
+        )
+        installs = [c for c in calls if c[:1] == ["install"]]
+        assert not [c for c in installs if any("osprey-framework" in a for a in c)], calls
+        assert ["install", "-r", str(tmp_path / "deps-ctx/osprey-local-requirements.txt")] in (
+            installs
+        ), calls
+        assert (tmp_path / "opt-osprey/lock-constraints.txt").read_text() == lock
+
+    def test_lock_path_constrains_the_wheel_install(self, service, tmp_path):
+        calls = wheel_pip_calls(_wheel_body(service), tmp_path, lock=True)
+        first = calls[0]
+        assert first[:3] == ["install", "-c", str(tmp_path / "opt-osprey/lock-constraints.txt")]
+
+    def test_release_path_wheel_install_is_unconstrained(self, service, tmp_path):
+        calls = wheel_pip_calls(_wheel_body(service), tmp_path, lock=False)
+        assert "-c" not in calls[0]
 
 
 # ── Pre-release pins ─────────────────────────────────────────────────────────
@@ -513,7 +557,7 @@ def test_virtual_accelerator_wheel_extra_placement():
     assert joined.index(deps) < joined.index(extra) < joined.index(wheel), (
         "the layers must run deps, then the extra, then the wheel overlay"
     )
-    assert 'pip install "${whl}[virtual-accelerator]"' in wheel
+    assert 'pip install $lock "${whl}[virtual-accelerator]"' in wheel
     first_install, _, after_force_reinstall = wheel.partition("--force-reinstall")
     assert "[virtual-accelerator]" in first_install
     assert "[virtual-accelerator]" not in after_force_reinstall
@@ -983,3 +1027,112 @@ def test_cli_pin_regex_reads_both_spellings():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ── Source builds are held to the lock in every layer ───────────────────────
+#
+# A `--dev` build stages osprey-lock-constraints.txt, the checkout's uv.lock
+# exported as constraints, and every layer that installs a Python package must
+# then install it at the lock's version: the deps layer, the extras layers, the
+# queueserver layer, every wheel layer. Each RUN that installs anything is run
+# here, under stubs, as a source build would run it, and every installer call
+# that resolves packages has to have read the lock. Nothing may name an osprey
+# distribution as a requirement either: on that path the only osprey code is
+# the staged wheels, and a name would be resolved from the index.
+
+_LOCK_PATH_ENV = {
+    "OSPREY_VERSION": "0.0.0",
+    "OSPREY_DEV": "1",
+    "OSPREY_PIP_PRE": "",
+    "BLUESKY_QUEUESERVER_VERSION": "0.0.25",
+    "OPTIMIZER_TORCH_INDEX_URL": "https://download.pytorch.org/whl/cpu",
+    "PIP_NO_PROXY": "",
+    "PIP_INDEX_URL": "",
+    "PIP_EXTRA_INDEX_URL": "",
+}
+
+#: Recipes whose RUNs install Python packages (qmd installs with npm alone).
+_PIP_RECIPES = [p for p in SHIPPED_DOCKERFILES if "pip install" in p.read_text(encoding="utf-8")]
+
+
+def _installing_bodies(dockerfile: pathlib.Path) -> list[str]:
+    """Each RUN that installs a Python package, minus the arm64 native-wheels
+    builder stage, which compiles pcaspy at its hash-pinned version and ships
+    nothing but that wheel."""
+    return [
+        instruction.removeprefix("RUN ")
+        for instruction in run_instructions(dockerfile.read_text(encoding="utf-8"))
+        if "pip install" in instruction and "pip wheel" not in instruction
+    ]
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    _PIP_RECIPES,
+    ids=[str(p.parent.relative_to(TEMPLATES_DIR)) for p in _PIP_RECIPES],
+)
+def test_every_install_on_a_source_build_is_held_to_the_lock(dockerfile, tmp_path):
+    bodies = _installing_bodies(dockerfile)
+    assert bodies, f"{dockerfile}: no installing RUN found"
+    for i, body in enumerate(bodies):
+        sandbox = tmp_path / str(i)
+        sandbox.mkdir()
+        calls = lock_path_install_calls(body, sandbox, _LOCK_PATH_ENV)
+        for held, argv in calls:
+            if must_be_held_to_the_lock(argv):
+                assert held, f"{dockerfile}: an install not held to the lock: {argv}\n{body}"
+            named = [a for a in argv if re.match(r"osprey[-_](framework|optimizer)\b", a)]
+            assert not named, f"{dockerfile}: names an osprey distribution on the index: {argv}"
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    _PIP_RECIPES,
+    ids=[str(p.parent.relative_to(TEMPLATES_DIR)) for p in _PIP_RECIPES],
+)
+def test_a_release_build_reads_no_lock(dockerfile, tmp_path):
+    """The other side of the switch: with nothing staged no layer reads a lock,
+    so a release build installs exactly what it did before the lock existed."""
+    for i, body in enumerate(_installing_bodies(dockerfile)):
+        sandbox = tmp_path / str(i)
+        sandbox.mkdir()
+        calls = lock_path_install_calls(
+            body, sandbox, {**_LOCK_PATH_ENV, "OSPREY_DEV": ""}, source_build=False
+        )
+        assert not [argv for held, argv in calls if held], f"{dockerfile}: {calls}"
+
+
+def test_the_extras_manifest_mapping_matches_the_recipes():
+    """``_DEV_WHEEL_EXTRAS`` and the recipes that COPY the extras manifest name
+    the same contexts, and each mapped extra is the one that recipe installs."""
+    from osprey.deployment.compose_generator import _DEV_WHEEL_EXTRAS
+
+    copying = {
+        p.parent.name
+        for p in SHIPPED_DOCKERFILES
+        if "osprey-extra-requirements.tx[t]" in p.read_text(encoding="utf-8")
+    }
+    assert copying == set(_DEV_WHEEL_EXTRAS)
+    for context, extras in _DEV_WHEEL_EXTRAS.items():
+        text = (SERVICES_DIR / context / "Dockerfile").read_text(encoding="utf-8")
+        for extra in extras:
+            assert f"[{extra}]" in text, f"{context}: does not install the {extra!r} extra"
+
+
+def test_the_arm64_pcaspy_wheel_is_the_version_the_lock_holds():
+    """The VA's native-wheels stage builds pcaspy at PCASPY_VERSION and the
+    virtual-accelerator layer takes it from find-links. On a source build that
+    resolve is held to uv.lock, so a pin the lock moved and this ARG did not
+    would leave the constrained install no candidate on arm64."""
+    import tomllib
+
+    va = _dockerfile("virtual_accelerator")
+    pinned = re.search(r"^ARG PCASPY_VERSION=(\S+)$", va, flags=re.MULTILINE)
+    assert pinned, "the VA recipe no longer pins PCASPY_VERSION"
+    lock = tomllib.loads(
+        (pathlib.Path(__file__).resolve().parents[2] / "uv.lock").read_text(encoding="utf-8")
+    )
+    locked = {p["version"] for p in lock["package"] if p["name"] == "pcaspy"}
+    assert locked == {pinned.group(1)}, (
+        f"PCASPY_VERSION={pinned.group(1)} but uv.lock resolves pcaspy {locked}"
+    )

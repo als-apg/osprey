@@ -571,6 +571,27 @@ def generate_manifest(
     return manifest_data
 
 
+def restamp_file_checksums(project_dir: Path) -> None:
+    """Re-take ``file_checksums`` in an existing manifest from the finished render.
+
+    The build writes the manifest before it re-renders the Claude Code
+    artifacts (the re-render reads the manifest's artifact selection), so the
+    checksums taken then describe a ``.claude/`` and ``.mcp.json`` that the
+    re-render replaces. Calling this once the render is final makes the
+    recorded checksums the ones a drift check compares against. A missing
+    manifest is left missing.
+
+    :param project_dir: Root directory of the built project.
+    """
+    manifest_path = project_dir / MANIFEST_FILENAME
+    if not manifest_path.exists():
+        return
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["file_checksums"] = calculate_file_checksums(project_dir)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=False)
+
+
 def note_retired_creation_keys(creation: Any) -> None:
     """Debug-log any :data:`_RETIRED_CREATION_KEYS` a manifest still carries.
 

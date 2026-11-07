@@ -10,11 +10,9 @@ then on.
 
 The exchange lives in the **gate**, not in a route, and the first module
 section is what pins that: it runs the exchange against *every* app that
-installs the gate. Six entry points print a login URL (``osprey web``, ``osprey
-artifacts web``, ``osprey channel-finder web``, ``osprey theme-lab``, ARIEL's
-``run_web``, the artifact gallery's ``run_server``) and only one of them used to
-own an exchange handler, so on the other five the page rendered, no cookie was
-minted, and every later ``/api/*`` call was 401 — with the secret left in the
+installs the gate. Several entry points print a login URL, and only one of them
+used to own an exchange handler, so on the others the page rendered, no cookie
+was minted, and every later ``/api/*`` call was 401 — with the secret left in the
 address bar to leak through ``Referer`` in the meantime. A per-app handler is
 something an interface has to remember; a gate is something it cannot avoid.
 

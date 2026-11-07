@@ -14,7 +14,8 @@
  *     width (sidebar-resize.js). The rows' tips come from the page's one
  *     tooltip layer (`data-tip`, `data-tip-detail`, tooltip.js; started in
  *     app.js).
- *   - DISCLOSURE. The Agent row wraps the session tree (sidebar-artifacts.js
+ *   - DISCLOSURE. The Sessions row (the `terminal` entry, `#sidebar-agent-row`;
+ *     the Agent pane's row, named for what it lists) wraps the session tree (sidebar-artifacts.js
  *     draws it) and opens and closes it (`aria-expanded` on the row, `hidden`
  *     on the tree). Whether it is open is kept per user under
  *     `scopedStorageKey('osprey-sidebar-open')`, a JSON array of row ids,
@@ -25,7 +26,7 @@
  *     open and close the tree from the keyboard. While
  *     the sidebar is collapsed the Agent row opens the same tree as a flyout
  *     beside the sidebar (`#sidebar-sessions-flyout`) instead.
- *   - THE AGENT ROW. Its open/closed look comes from `html[data-agent]`
+ *   - THE SESSIONS ROW. Its open/closed look comes from `html[data-agent]`
  *     (dock-workspace.js); this module keeps its tooltip and description in
  *     step and shows how many cards wait on the operator (the chat bus's
  *     `attention` count) on its badge while the pane is closed — the one time
@@ -50,7 +51,8 @@ import { hideTooltip } from '/design-system/js/tooltip.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
-import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
+import { DETACHED_DETAIL, SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
+import { TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { initSidebarResize } from './sidebar-resize.js';
 import { initSidebarFold } from './sidebar-fold.js';
 import { initSidebarDivider } from './sidebar-divider.js';
@@ -76,8 +78,11 @@ const DISCLOSURES = Object.freeze({
 /** The collapsed sidebar's sessions flyout. */
 const FLYOUT_ID = 'sidebar-sessions-flyout';
 
-/** The Agent row (panel-rail.js's `terminal` entry, shipped by index.html). */
+/** The Sessions row (panel-rail.js's `terminal` entry, shipped by index.html). */
 const AGENT_ROW_ID = 'sidebar-agent-row';
+
+/** The Sessions row's name, as the sidebar shows it (panel-catalog.js). */
+const ROW_LABEL = TERMINAL_RAIL_LABEL;
 
 /**
  * Fill every empty `svg[data-icon]` placeholder under `root` with its icons.js
@@ -249,16 +254,17 @@ function initDisclosures(sidebar) {
   });
 }
 
-// ---- The Agent row ----
+// ---- The Sessions row ----
 
 /** Cards waiting on the operator, as the chat bus last reported. */
 let waiting = 0;
 
-/** Paint the Agent row from `html[data-agent]` and the waiting count. */
-function paintAgentRow() {
+/** Paint the Sessions row from `html[data-agent]` and the waiting count. */
+export function paintAgentRow() {
   const row = document.getElementById(AGENT_ROW_ID);
   if (!row) return;
-  const closed = document.documentElement.getAttribute('data-agent') === 'closed';
+  const pane = document.documentElement.getAttribute('data-agent');
+  const closed = pane === 'closed';
   const badge = /** @type {HTMLElement | null} */ (row.querySelector('[data-agent-badge]'));
   const showBadge = closed && waiting > 0;
   if (badge) {
@@ -266,14 +272,20 @@ function paintAgentRow() {
     badge.textContent = showBadge ? String(waiting) : '';
   }
   const all = `${allSessionsClick()} to expand or collapse every session`;
+  if (pane === 'detached') {
+    row.dataset.tip = `${ROW_LABEL} · Agent pane in its own window — click to bring it to the front`;
+    row.dataset.tipDetail = `${DETACHED_DETAIL} · ${all}`;
+    row.setAttribute('aria-description', DETACHED_DETAIL);
+    return;
+  }
   if (!closed) {
-    row.dataset.tip = 'Agent';
+    row.dataset.tip = ROW_LABEL;
     row.dataset.tipDetail = `Click to fold the session list · ${all}`;
     row.removeAttribute('aria-description');
     return;
   }
-  const state = showBadge ? `${waiting} waiting` : 'closed';
-  row.dataset.tip = `Agent · ${state} — click to open`;
+  const state = showBadge ? `${waiting} waiting` : 'Agent pane closed';
+  row.dataset.tip = `${ROW_LABEL} · ${state} — click to open`;
   row.dataset.tipDetail = `Click to open the Agent pane · ${all}`;
   row.setAttribute(
     'aria-description',

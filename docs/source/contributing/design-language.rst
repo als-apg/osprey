@@ -119,7 +119,7 @@ The web terminal uses one shell:
   ``data-sidebar`` on ``<html>``. ``sidebar-boot.js`` sets it, and the
   stored width, before the first paint.
 - From top to bottom, the sidebar holds the OSPREY mark and the collapse
-  toggle, the control-system block, search, the ``Workspace`` and ``Tools``
+  toggle, the control-system block, search, the ``Workspace`` and ``Apps``
   sections, and a footer with Docs, Feedback and More. Only the
   ``Workspace`` section gives up height.
 - The panes are cards in the dock. Each pane has one header row,
@@ -131,7 +131,7 @@ Primitives
 ----------
 
 The shared primitives are in ``design_system/static/css/primitives.css``.
-Load it after ``base.css``. Their behaviour is in five modules in
+Load it after ``base.css``. Their behaviour is in the modules in
 ``design_system/static/js/``:
 
 .. list-table::
@@ -164,6 +164,16 @@ Load it after ``base.css``. Their behaviour is in five modules in
    * - ``.osprey-dot``, ``.osprey-kbd``, ``.osprey-count``, ``.osprey-switch``,
        ``.osprey-search``
      - Status dot, keyboard hint, count pill, switch and search field.
+   * - ``.osprey-panel-toolbar``, ``.osprey-seg``, ``.osprey-search-field``,
+       ``.osprey-chip``
+     - The panel toolbar, the text segmented control, the search field and the
+       status chip of a panel.
+   * - ``.osprey-panel-sidebar``, ``panel-sidebar.js``
+     - The panel sidebar. It is 260 px wide, it resizes, and it is stored for
+       each user. In a narrow panel it opens over the content.
+   * - ``.osprey-state``, ``panel-state.js``, ``info-popover.js``,
+       ``.osprey-content-strip``, ``content-strip.js``
+     - The centred state, the info popover and the content strip.
 
 ``DESIGN.md`` section 9 lists every class and the API of each module. The
 reference page, ``/design-system/reference.html``, shows each primitive in all

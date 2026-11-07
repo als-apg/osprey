@@ -1,8 +1,8 @@
 // @ts-check
 /**
- * OSPREY Artifact Gallery — the embedded viewer's channel to its host.
+ * OSPREY Artifact Gallery — the viewer's channel to its host.
  *
- * Embedded in the Web Terminal hub, the gallery is a viewer of ONE artifact:
+ * In the Web Terminal hub, the gallery is a viewer of ONE artifact:
  * the hub's sidebar owns the artifact list and the hub renders the pane
  * header, so the hub tells this page which artifact to show, which action to
  * run on it and when it changed, with three postMessage types:
@@ -17,7 +17,7 @@
  *     — the shown artifact changed on the server. `change: 'updated'` carries
  *     the server's copy in `artifact` (without it, or with a copy of another
  *     id, the server's copy is fetched); `change: 'deleted'` drops it. The
- *     embedded page opens no event stream of its own, because each stream
+ *     page opens no event stream of its own, because each stream
  *     holds one of the browser's few connections to the hub's origin; the hub
  *     forwards these from its own stream, for the shown artifact only.
  *
@@ -46,9 +46,9 @@
  * ignored.
  * @type {ReadonlyArray<ViewerAction>}
  */
-export const VIEWER_ACTIONS = ['pin', 'unpin', 'print', 'logbook', 'delete'];
+export const VIEWER_ACTIONS = ['print', 'logbook', 'delete'];
 
-/** @typedef {'pin'|'unpin'|'print'|'logbook'|'delete'} ViewerAction */
+/** @typedef {'print'|'logbook'|'delete'} ViewerAction */
 
 /**
  * @typedef {object} ViewerDeps

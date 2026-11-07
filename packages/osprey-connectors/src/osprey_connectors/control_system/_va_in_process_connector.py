@@ -71,6 +71,7 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.view import (
+    SETPOINT,
     VARIABLES_FILE,
     VIEW_RELPATH,
     NoSimulatorView,
@@ -472,7 +473,7 @@ class VAInProcessConnector(ControlSystemConnector):
             record = self._records.get(address)
             if record is None or address not in self._channels:
                 return address, NOT_A_CHANNEL
-            if record.get("role") != "setpoint":
+            if record.get("role") != SETPOINT:
                 return address, "not a setpoint"
             if record.get("writable") is not True:
                 return address, NOT_WRITABLE

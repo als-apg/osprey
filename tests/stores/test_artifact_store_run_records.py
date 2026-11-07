@@ -129,11 +129,10 @@ class TestListEntriesRunRecord:
         assert {e.id for e in store.list_entries()} == runs | others
 
     def test_it_stacks_with_the_other_filters(self, store):
-        _save(store, "Pinned run", metadata={RUN_RECORD_KEY: True})
-        pinned = _save(store, "Pinned run two", metadata={RUN_RECORD_KEY: True})
-        store.set_pinned(pinned.id, True)
-        _save(store, "Result")
-        assert [e.id for e in store.list_entries(run_record=True, pinned=True)] == [pinned.id]
+        _save(store, "Run one", metadata={RUN_RECORD_KEY: True})
+        two = _save(store, "Run two", metadata={RUN_RECORD_KEY: True})
+        _save(store, "Result two")
+        assert [e.id for e in store.list_entries(run_record=True, search="two")] == [two.id]
 
     def test_it_is_not_the_dispatch_run_filter(self, store):
         """``run_filter`` names a dispatch run by id; a run record carries none."""

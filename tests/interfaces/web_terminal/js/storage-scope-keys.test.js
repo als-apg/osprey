@@ -224,6 +224,7 @@ describe('sidebar-artifacts.js tree mode', () => {
       resetSessionModel: () => {},
       subscribe: () => () => {},
       rows: () => [],
+      pinnedRows: () => [],
       activeRow: () => null,
       pick: () => null,
       setPick: () => {},

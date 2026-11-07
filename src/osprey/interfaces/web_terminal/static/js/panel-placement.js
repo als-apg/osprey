@@ -35,7 +35,7 @@
  */
 
 import { dockPanelBesideActive } from './dock-sync.js';
-import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
+import { getLayoutHolder, isDetached, TERMINAL_KEY } from './dock-apply.js';
 import {
   arrange,
   focusKey,
@@ -47,7 +47,6 @@ import {
 import { ONE_PANEL_PER_TILE } from './dock-policy.js';
 import { closeTab, findTile, keysOf, planDrop, tileOf } from '/static/vendor/dock-engine.mjs';
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
-import { isPoppedOut } from './popout.js';
 
 /**
  * The panel-manager state and actions this module places panels through. Every
@@ -253,7 +252,7 @@ function planOp(frame, layout, isHealthy) {
       const member = args.member;
       if (member === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
       if (typeof member !== 'string') return { refusal: INVALID_SOURCE };
-      if (isPoppedOut(member)) {
+      if (isDetached(member)) {
         return { run: (l) => ({ layout: l, changed: false }), popout: member };
       }
       if (tileOf(layout, member)) return { run: (l) => focusKey(l, member) };
@@ -264,7 +263,7 @@ function planOp(frame, layout, isHealthy) {
     case 'open_arrangement': {
       const members = Array.isArray(args.members) ? args.members : [];
       if (members.includes(TERMINAL_KEY)) return { refusal: TERMINAL_IN_LAYOUT };
-      if (members.some((/** @type {string} */ key) => isPoppedOut(key))) {
+      if (members.some((/** @type {string} */ key) => isDetached(key))) {
         return { refusal: POPPED_OUT };
       }
       const given = args.layout === undefined ? undefined : byMember(args.layout, members);
@@ -287,12 +286,12 @@ function planOp(frame, layout, isHealthy) {
       if (source.new && typeof source.new.panel === 'string') {
         const key = source.new.panel;
         if (key === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
-        if (isPoppedOut(key)) return { refusal: POPPED_OUT };
+        if (isDetached(key)) return { refusal: POPPED_OUT };
         if (tileOf(layout, key) === null && !isHealthy(key)) return { refusal: PANEL_UNHEALTHY };
         engineSource = tileOf(layout, key) ? { tab: key } : { new: key };
       } else if (typeof source.tab === 'string') {
         if (source.tab === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
-        if (isPoppedOut(source.tab)) return { refusal: POPPED_OUT };
+        if (isDetached(source.tab)) return { refusal: POPPED_OUT };
         if (tileOf(layout, source.tab) === null) return { refusal: UNKNOWN_KEY };
         engineSource = { tab: source.tab };
       } else if (typeof source.tile === 'string') {
@@ -322,7 +321,7 @@ function planOp(frame, layout, isHealthy) {
     }
     case 'close': {
       if (args.key === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
-      if (typeof args.key === 'string' && isPoppedOut(args.key)) return { refusal: POPPED_OUT };
+      if (typeof args.key === 'string' && isDetached(args.key)) return { refusal: POPPED_OUT };
       if (tileOf(layout, args.key) === null) return { refusal: UNKNOWN_KEY };
       return { run: (l) => closeTab(l, args.key) };
     }

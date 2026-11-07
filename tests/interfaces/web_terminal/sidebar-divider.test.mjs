@@ -31,7 +31,7 @@ const HTML = `
     </div>
     <div class="sidebar-group" data-group="tools">
       <div class="osprey-section-label sidebar-group-head">
-        <span class="sidebar-group-name" id="n2">Tools</span>
+        <span class="sidebar-group-name" id="n2">Apps</span>
       </div>
     </div>
   </div>`;
@@ -64,7 +64,7 @@ const ptr = (type, y) =>
 /**
  * Draw the rail, with a 600 px rail and a 200 px group, and wire the divider;
  * `withFold` also wires the fold module the interaction cases need, and
- * `toolsHeight` is the Tools group's height.
+ * `toolsHeight` is the Apps group's height.
  * @param {{ withFold?: boolean, toolsHeight?: number }} [opts]
  */
 async function boot({ withFold = false, toolsHeight = 0 } = {}) {
@@ -142,15 +142,15 @@ describe('the Workspace divider', () => {
     expect(divider().getAttribute('aria-valuetext')).toBe('Automatic');
   });
 
-  test('the cap stays between 240 and 480 px', async () => {
-    await boot({ toolsHeight: 500 });
-    expect(cap()).toBe('240px');
+  test('the cap is the room the other groups leave, at most 480 px', async () => {
+    await boot({ toolsHeight: 400 });
+    expect(cap()).toBe('200px');
     await boot();
     expect(cap()).toBe('480px');
   });
 
   test('the cap never passes the maximum', async () => {
-    await boot();
+    await boot({ toolsHeight: 56 });
     Object.defineProperty(rail(), 'clientHeight', { value: 300, configurable: true });
     window.dispatchEvent(new Event('resize'));
     expect(cap()).toBe('244px');
@@ -176,6 +176,17 @@ describe('the Workspace divider', () => {
     window.dispatchEvent(new Event('resize'));
     expect(height()).toBe('400px');
     expect(localStorage.getItem(HEIGHT)).toBe('0.5');
+  });
+
+  test('a stored fraction too tall for a shorter rail is clamped and kept', async () => {
+    localStorage.setItem(HEIGHT, '0.9');
+    await boot({ toolsHeight: 56 });
+    expect(height()).toBe('540px');
+    Object.defineProperty(rail(), 'clientHeight', { value: 400, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    expect(height()).toBe('344px');
+    expect(divider().getAttribute('aria-valuemax')).toBe('344');
+    expect(localStorage.getItem(HEIGHT)).toBe('0.9');
   });
 
   test("an earlier build's whole pixels are read once and rewritten as a fraction", async () => {
@@ -216,8 +227,8 @@ describe('the Workspace divider', () => {
     expect(localStorage.getItem(HEIGHT)).toBeNull();
   });
 
-  test('a drag clamps to the minimum and to what leaves the next group a row', async () => {
-    await boot();
+  test('a drag clamps to the minimum and to what leaves the other groups whole', async () => {
+    await boot({ toolsHeight: 56 });
     ptr('pointerdown', 100);
     ptr('pointermove', -500);
     expect(height()).toBe('120px');
@@ -240,7 +251,7 @@ describe('the Workspace divider', () => {
     Object.defineProperty(side, 'clientHeight', { value: 800, configurable: true });
     Object.defineProperty(headEl, 'offsetHeight', { value: 36, configurable: true });
     Object.defineProperty(foot, 'offsetHeight', { value: 125, configurable: true });
-    // The rail is content-sized: shorter while Tools is folded.
+    // The rail is content-sized: shorter while Apps is folded.
     Object.defineProperty(rail(), 'clientHeight', {
       configurable: true,
       get: () => (group('tools').hasAttribute('data-folded') ? 444 : 531),

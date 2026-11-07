@@ -14,10 +14,9 @@
  * highlight (sidebar-artifacts.js: the artifact the Artifacts panel shows).
  */
 
-import { getLayoutHolder } from './dock-apply.js';
+import { getLayoutHolder, isDetached } from './dock-apply.js';
 import { serviceTileTarget } from './dock-open.js';
 import { getDockApi } from './dock-workspace.js';
-import { isPoppedOut, onPopoutChange } from './popout.js';
 
 /** Dispatched on `document` each time the surfaced panel was derived again. */
 export const DOCK_VIEW_EVENT = 'osprey-dock-view-changed';
@@ -35,7 +34,7 @@ export function surfacedPanel(isKnown) {
   const holder = getLayoutHolder();
   if (!holder) return undefined;
   const key = serviceTileTarget(holder.layout, holder.context())?.showing ?? null;
-  return key && isKnown(key) && !isPoppedOut(key) ? key : null;
+  return key && isKnown(key) && !isDetached(key) ? key : null;
 }
 
 /**
@@ -71,5 +70,5 @@ export function followDock(onChange) {
   };
   api.onDidLayoutChange(follow);
   api.onDidActivePanelChange(follow);
-  onPopoutChange(follow);
+  getLayoutHolder()?.onDetachedChange(follow);
 }

@@ -32,7 +32,6 @@ afterEach(() => {
   for (const listener of hashListeners) window.removeEventListener('hashchange', listener);
   hashListeners = [];
   for (const [file] of Object.values(VIEW_MODULES)) vi.doUnmock(`${JS}/${file}`);
-  vi.doUnmock('/design-system/js/header-contrib.js');
   vi.doUnmock('/design-system/js/frame-params.js');
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -68,14 +67,6 @@ async function boot(
       [unmountName]: views[view].unmount,
     }));
   }
-  /** @type {{ handler: ((id: string, value: string | undefined) => void) | null }} */
-  const header = { handler: null };
-  vi.doMock('/design-system/js/header-contrib.js', () => ({
-    contributeHeader: vi.fn(),
-    onHeaderAction: (/** @type {any} */ handler) => {
-      header.handler = handler;
-    },
-  }));
 
   let answer = info;
   vi.stubGlobal(
@@ -103,7 +94,7 @@ async function boot(
   beforeApp(state, views);
   const app = await import(APP_MODULE);
   await vi.waitFor(() => expect(hashListeners).toHaveLength(1));
-  return { state, app, views, header };
+  return { state, app, views };
 }
 
 /**
@@ -254,22 +245,6 @@ describe('routing', () => {
       expect(views.pv.mount).not.toHaveBeenCalled();
       expect(views.explore.mount).toHaveBeenCalledTimes(1);
     });
-
-    test('the header ignores the three names, as it does an unknown one', async () => {
-      const { header } = await boot('#feedback', noDirectory);
-      for (const name of ['allpvs', 'pv', 'ioc', 'constructor']) {
-        header.handler?.('view', name);
-        expect(location.hash).toBe('#feedback');
-      }
-      header.handler?.('view', 'explore');
-      expect(location.hash).toBe('#explore');
-    });
-  });
-
-  test('with a descriptor, the header reaches All PVs', async () => {
-    const { header } = await boot('#feedback');
-    header.handler?.('view', 'allpvs');
-    expect(location.hash).toBe('#allpvs');
   });
 
   test('state.directory is set from /api/info before the first route', async () => {

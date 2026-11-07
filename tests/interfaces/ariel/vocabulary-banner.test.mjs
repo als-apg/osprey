@@ -4,10 +4,10 @@
  * pane (list.js):
  *
  *   - the degraded-configuration banners `initList(root, {capabilities})`
- *     renders above the list: blocking `#config-invalid-banner` (search box and
- *     mode chip disabled) on `configuration_invalid`, non-blocking
+ *     renders above the list: blocking `#config-invalid-banner` (mode chip
+ *     disabled) on `configuration_invalid`, non-blocking
  *     `#config-warning-banner` on `configuration_warning`, nothing at all
- *     otherwise — embedded too, where the search box belongs to the host;
+ *     otherwise;
  *   - the query-expansion strip: ONE `.expansion-pair` per
  *     `expanded_terms` group, with a group's several canonicals comma-joined
  *     inside that single pair (`ts → troubleshoot, timing system`) — never one
@@ -67,7 +67,7 @@ async function initList(capabilities) {
 }
 
 /**
- * Run a query the way the search box's Enter does, and let it paint.
+ * Run a query the way a hash navigation does, and let it paint.
  * @param {string} query
  */
 async function performSearch(query) {
@@ -89,11 +89,6 @@ function results() {
 /** @returns {HTMLButtonElement} */
 function modeChip() {
   return /** @type {HTMLButtonElement} */ (document.getElementById('ariel-mode-chip'));
-}
-
-/** @returns {HTMLInputElement} */
-function searchInput() {
-  return /** @type {HTMLInputElement} */ (document.getElementById('ariel-search-input'));
 }
 
 /**
@@ -167,7 +162,6 @@ describe('degraded-configuration banner (initList)', () => {
     );
     expect(modeChip(), 'mode chip still in the DOM').not.toBeNull();
     expect(modeChip().disabled, 'mode chip disabled').toBe(true);
-    expect(searchInput().disabled, 'search input disabled').toBe(true);
   });
 
   test('configuration_warning is non-blocking: banner rendered, controls live', async () => {
@@ -193,7 +187,6 @@ describe('degraded-configuration banner (initList)', () => {
     expect(text(el)).toContain('fix the named key in config.yml and restart');
 
     expect(modeChip().disabled, 'mode chip stays enabled').toBe(false);
-    expect(searchInput().disabled, 'search input stays enabled').toBe(false);
   });
 
   test('a healthy payload renders no banner', async () => {
@@ -207,33 +200,16 @@ describe('degraded-configuration banner (initList)', () => {
     );
 
     expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
-    expect(searchInput().disabled).toBe(false);
   });
 
   test('a failed capabilities fetch (null) renders no banner and does not throw', async () => {
     await expect(initList(null)).resolves.toBeUndefined();
     expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
-    expect(searchInput().disabled).toBe(false);
   });
 
   test('no capabilities at all keeps the call site working', async () => {
     await expect(initList()).resolves.toBeUndefined();
     expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
-  });
-
-  test('embedded, with no search box of its own, the list still shows the banner', async () => {
-    history.replaceState(null, '', '/?embedded=true');
-    await initList(
-      /** @type {any} */ ({
-        status: 'configuration_invalid',
-        config_errors: ['boom'],
-        remedy: null,
-      })
-    );
-    expect(searchInput(), 'the search box belongs to the host').toBeNull();
-    const banner = document.getElementById('config-invalid-banner');
-    expect(banner, 'banner rendered in the list pane').not.toBeNull();
-    expect(banner?.textContent ?? '').toContain('boom');
   });
 });
 

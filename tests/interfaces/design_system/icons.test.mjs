@@ -43,6 +43,7 @@ const CONTRACT_NAMES = [
   'bash',
   'maximize',
   'popout',
+  'reattach',
   'save',
   'x',
   'pen',
@@ -66,6 +67,23 @@ const CONTRACT_NAMES = [
   'database',
   'refresh',
   'layers',
+  // The panel-chrome standard (2026-11): toolbar, content strip and info popover.
+  'download',
+  'copy',
+  'trash',
+  'filter',
+  'zoom-in',
+  'zoom-out',
+  'move',
+  'box-zoom',
+  'autoscale',
+  'reset-axes',
+  'image-down',
+  'list-tree',
+  'text-search',
+  'clock',
+  'triangle-alert',
+  'pin',
 ];
 
 describe('icons.js', () => {

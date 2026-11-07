@@ -181,3 +181,85 @@ describe('keyboard opener', () => {
     expect(isContextMenuKey(new KeyboardEvent('keydown', { key: 'Enter' }))).toBe(false);
   });
 });
+
+describe('trigger button (a ⋯)', () => {
+  /** A button with a known rect, and a menu with a known size. */
+  function setup() {
+    document.body.innerHTML = '<button id="more">⋯</button>';
+    const btn = /** @type {HTMLElement} */ (document.getElementById('more'));
+    vi.spyOn(btn, 'getBoundingClientRect').mockReturnValue(
+      /** @type {DOMRect} */ ({ left: 500, right: 528, top: 10, bottom: 38, width: 28, height: 28 })
+    );
+    const menuRect = /** @type {DOMRect} */ ({ width: 200, height: 150, right: 200, bottom: 150 });
+    const proto = vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect');
+    proto.mockReturnValue(menuRect);
+    return { btn, menuRect };
+  }
+
+  /** @param {HTMLElement} btn */
+  const open = (btn) =>
+    openContextMenu({
+      x: 0,
+      y: 0,
+      triggerEl: btn,
+      ariaLabel: 'Panel menu',
+      items: [{ label: 'Go' }],
+    });
+
+  test('hangs under the button, right edges aligned, and marks it expanded', () => {
+    const { btn } = setup();
+    open(btn);
+    expect(menu()?.style.left).toBe('328px'); // 528 - 200
+    expect(menu()?.style.top).toBe('42px'); // 38 + 4
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('flips above the button when the viewport is short, never off the top', () => {
+    const { btn, menuRect } = setup();
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(100);
+    open(btn);
+    expect(menu()?.style.top).toBe('0px'); // 10 - 150 - 4 clamps at 0
+    menuRect.height = 5;
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    open(btn);
+    expect(menu()?.style.top).toBe('42px'); // 42 + 5 fits in 100
+  });
+
+  test('a press on the button is not an outside press; the next open from it toggles the menu closed', () => {
+    const { btn } = setup();
+    open(btn);
+    btn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(menu()).not.toBeNull();
+
+    open(btn);
+    expect(menu()).toBeNull();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+
+    // A third open is an open again.
+    open(btn);
+    expect(menu()).not.toBeNull();
+  });
+
+  test('every other dismissal clears aria-expanded; another trigger replaces the menu', () => {
+    const { btn } = setup();
+    open(btn);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(menu()).toBeNull();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+
+    open(btn);
+    const other = document.createElement('button');
+    document.body.appendChild(other);
+    openContextMenu({ x: 0, y: 0, triggerEl: other, ariaLabel: 'b', items: [{ label: 'B' }] });
+    expect(document.querySelectorAll('.osprey-context-menu').length).toBe(1);
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(other.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('without a trigger the cursor placement and clamping are as before', () => {
+    setup();
+    openContextMenu({ x: 30, y: 40, ariaLabel: 'a', items: [{ label: 'A' }] });
+    expect(menu()?.style.left).toBe('30px');
+    expect(menu()?.style.top).toBe('40px');
+  });
+});

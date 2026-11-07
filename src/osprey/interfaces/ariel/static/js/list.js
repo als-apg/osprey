@@ -3,10 +3,9 @@
  * ARIEL List Pane
  *
  * One list for browsing and searching, rendered into the container it is
- * given (`#ariel-list`). The pane head holds the standalone search box, the
- * mode chip with its Filters & Options popover, and the standalone compose
- * button; embedded, the search box and compose button belong to the host's
- * tile bar, so only the mode chip stays.
+ * given (`#ariel-list`). The pane head holds the mode chip with its Filters &
+ * Options popover; the search box and compose button belong to the host's tile
+ * bar.
  *
  * What the list shows follows the store: it subscribes to `query`, `mode`,
  * `filters`, `filter`, `mailbox` (and `mineAuthor` under Mine) and either
@@ -48,7 +47,6 @@ import {
   totalText,
 } from './paging.js';
 import { joinFilters, mergeFilter, requestFilter, splitFilters, TIME } from './filter-state.js';
-import { liftSearch } from './query-ops.js';
 import {
   allModes,
   defaultMode,
@@ -76,7 +74,6 @@ const LIST_KEYS = ['query', 'mode', 'filters', 'filter', 'mailbox'];
  * @typedef {Object} ListView
  * @property {HTMLElement} body - Where rows, banners and states are painted
  * @property {HTMLElement} notice - The store notice's line in the banners
- * @property {HTMLInputElement|null} input - The standalone search box
  * @property {HTMLButtonElement} chip - The mode chip
  * @property {HTMLElement} popover - The Filters & Options popover (body level)
  * @property {Capabilities|null} capabilities
@@ -441,7 +438,7 @@ let ownFiltersWrite = false;
  */
 function buildView(root, capabilities) {
   root.innerHTML = '';
-  const { head, input, chip } = buildHead();
+  const { head, chip } = buildHead();
 
   const banners = document.createElement('div');
   banners.className = 'ariel-list-banners';
@@ -473,25 +470,18 @@ function buildView(root, capabilities) {
   // After the config banner, which stays the first child.
   banners.append(notice);
   if (blocked) {
-    if (input) input.disabled = true;
     chip.disabled = true;
   }
 
-  return { body, notice, input, chip, popover, capabilities, blocked };
+  return { body, notice, chip, popover, capabilities, blocked };
 }
 
 /**
- * Bind the pane's own listeners: search-box Enter, the chip, row clicks and
+ * Bind the pane's own listeners: the chip, row clicks and
  * Load more (delegated on the stable body, whose content is replaced).
  * @param {ListView} v
  */
 function bindView(v) {
-  v.input?.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-    e.preventDefault();
-    setState(liftSearch(v.input?.value, getState(), v.capabilities, 'now'), { force: true });
-  });
-
   v.chip.addEventListener('click', () => {
     if (v.popover.hidden) paintPopover();
     togglePopover(v.chip, v.popover, { place: 'below-end' });
@@ -544,9 +534,6 @@ function paintNotice(notice) {
  */
 function onStoreChange(state, _prev, changed) {
   if (!view) return;
-  if (changed.has('query') && view.input && view.input.value !== state.query) {
-    view.input.value = state.query ?? '';
-  }
   if (changed.has('mode')) paintChip();
   if (!view.popover.hidden) {
     const relevant =
@@ -587,15 +574,4 @@ export function initList(root, { capabilities = null } = {}) {
   paintNotice(getState().notice);
   unsubscribe = [subscribe(onStoreChange), onStripPrefChange(() => refresh())];
   refresh();
-}
-
-/**
- * Focus the standalone search box (the `/` shortcut). A no-op embedded, where
- * the box belongs to the host, and while search is blocked.
- */
-export function focusSearch() {
-  const input = view?.input;
-  if (!input || input.disabled) return;
-  input.focus();
-  input.select();
 }

@@ -47,7 +47,6 @@ names another one explicitly.
    osprey archive            # Copy artifacts and plan-queue history into var/archive
    osprey history            # Serve the history page (the history service's entry)
    osprey agent-record       # The agent record: serve it, check its health, run its export
-   osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
    osprey scaffold           # CI files, boot unit, build artifact overrides
@@ -1081,11 +1080,6 @@ Options: ``--project PATH``, ``-v, --verbose``
    LiteLLM-form model id (e.g. ``anthropic/claude-haiku-4-5``). Saves per-run
    JSON results for accuracy/cost analysis.
 
-``osprey channel-finder web [--host ADDR] [--port N]``
-   Launch the Channel Finder web interface on the host and port
-   ``channel_finder.web`` names (default ``127.0.0.1`` and the layout's Channel
-   Finder port); ``--host`` and ``--port`` override them.
-
 A graph-mode project has no channel database file: ``validate`` and ``preview``
 say so and point at ``osprey build && osprey up`` and the ``read_cypher`` tool,
 and ``--pipeline`` does not offer ``graph`` for the same reason.
@@ -1095,7 +1089,6 @@ and ``--pipeline`` does not offer ``graph`` for the same reason.
    osprey channel-finder validate
    osprey channel-finder preview
    osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
-   osprey channel-finder web
 
 .. _cli-osprey-knowledge:
 
@@ -1391,11 +1384,6 @@ repo: the commands read its ``build/config.yml``.
    when the table predates the key column (``schema behind code: run osprey
    ariel migrate``).
 
-``osprey ariel web [--port N] [--host ADDR] [--reload]``
-   Launch the web interface on the host and port ``ariel.web`` names (default
-   ``127.0.0.1`` and the layout's ARIEL port); ``--host`` and ``--port`` override
-   them.
-
 ``osprey ariel purge [--yes] [--embeddings-only]``
    Delete all ARIEL data. ``--embeddings-only`` keeps the entries and clears
    the embedding tables.
@@ -1416,34 +1404,6 @@ repo: the commands read its ``build/config.yml``.
    osprey ariel quickstart
    osprey ariel search "RF cavity fault"
    osprey ariel vocab-check data/facility/ariel/vocabulary.yml
-   osprey ariel web --port 8080
-
-osprey artifacts
-================
-
-Manage the OSPREY Artifact Gallery -- a local web gallery that displays
-interactive plots, tables, and other outputs produced by the OSPREY agent during
-analysis sessions. Artifacts are written by the OSPREY agent via ``save_artifact()`` in
-code run by the ``python_executor`` MCP server's ``execute`` tool, or by the
-``artifact_register`` MCP tool.
-
-``osprey artifacts web [OPTIONS]``
-   Launch the Artifact Gallery web interface. Starts a FastAPI server on
-   ``http://127.0.0.1:10200`` by default.
-
-   ``-p, --port INTEGER`` — Port (default: from ``config.yml``, else the port layout's ``10200``).
-
-   ``-h, --host TEXT`` — Host to bind to (default: from ``config.yml`` or
-   ``127.0.0.1``).
-
-   ``--reload`` — Enable auto-reload for development.
-
-.. code-block:: bash
-
-   osprey artifacts web                    # Start on localhost:10200
-   osprey artifacts web --port 9000        # Custom port
-   osprey artifacts web --host 0.0.0.0     # Bind to all interfaces
-   osprey artifacts web --reload           # Development mode
 
 osprey web
 ==========
@@ -1683,7 +1643,7 @@ All subcommands accept a common flag:
    osprey scaffold systemd                        # Write the boot unit
    osprey scaffold tiers                          # Write the tier files
    osprey scaffold apps                           # Write the app files
-   osprey scaffold pull demo --list  # Show what a preset offers
+   osprey scaffold pull demo --list               # Show what a preset offers
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold claim services/postgresql      # Freeze a service template
