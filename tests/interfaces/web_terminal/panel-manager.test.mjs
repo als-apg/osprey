@@ -1314,8 +1314,14 @@ const menuRow = (label) =>
     )
   );
 
+/** Every menu section caption, in order. */
+const menuHeadings = () =>
+  [...document.querySelectorAll('.rail-context-heading')].map((el) => el.textContent);
+
 const MENU_POLICY_PATH =
   '../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js';
+
+const CHAT_EXPORT_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/chat-export.js';
 
 /**
  * Open the Agent tile header's menu, where the pane verbs (Restart terminal,
@@ -3382,18 +3388,29 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('in chat the Agent tile menu offers Open in new window, Export and the layout rows', async () => {
+  test('in chat the Agent tile menu offers Export under This panel, then Open in new window and the layout rows', async () => {
     await bootWorkspace();
+    // The chat console registers its Export row at start (initChatFeatures →
+    // initChatExport → agent-menu.js); this boot has no console, so arm it
+    // the same way, against the same module instances the menu reads.
+    const { initChatExport } = await import(CHAT_EXPORT_PATH);
+    initChatExport({ messages: document.createElement('div'), getKey: () => 'k' });
 
     // The tile hosts the operator console there, so the PTY verb would
     // act on a surface the operator cannot see and is withheld.
     expect(await agentTileMenu()).toBe(true);
+    expect(menuHeadings()).toEqual(['This panel', 'Tile']);
     expect(menuLabels()).toEqual([
-      'Open in new window',
       'Export conversation',
+      'Open in new window',
       'Reset layout',
       'Close Agent pane',
     ]);
+    // Export is a This-panel row, ahead of the Tile heading.
+    const order = [...document.querySelectorAll('.rail-context-heading, .rail-context-label')].map(
+      (el) => el.textContent
+    );
+    expect(order.slice(0, 3)).toEqual(['This panel', 'Export conversation', 'Tile']);
     /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
     await agentTileMenu();
