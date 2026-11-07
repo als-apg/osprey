@@ -352,7 +352,7 @@ class BuiltTree:
             if self.kind(binding) != kind:
                 continue
             address = binding.address
-            if binding.role == MONITOR:
+            if binding.engine_role == MONITOR:
                 devices.append(Device(kind=MONITOR, setpoint=address, readback=address))
             elif binding.direction == "write":
                 pair = self.channel(address).pair or address

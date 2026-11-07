@@ -743,7 +743,7 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
 def _description(
     role: str, plane: str | None, kind: str | None, refresh: str = "pass"
 ) -> Mapping[str, Any]:
-    return {"role": role, "plane": plane, "refresh": refresh, "kind": kind}
+    return {"engine_role": role, "plane": plane, "refresh": refresh, "kind": kind}
 
 
 def _setting_kind(record: Any) -> str:

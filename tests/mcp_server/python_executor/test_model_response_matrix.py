@@ -38,6 +38,7 @@ from osprey.mcp_server.python_executor.tools import (  # noqa: E402
 )
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.response import RESULT_TAG, solve_and_print  # noqa: E402
+from osprey_connectors.simulation.view import VARIABLES_SCHEMA  # noqa: E402
 from tests._simulator_view import view_channel  # noqa: E402
 from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
 
@@ -118,7 +119,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
             "direction": "read",
             "element": f"BPM_{cell}",
             "engine": {"axis": axis},
-            "role": "monitor",
+            "engine_role": "monitor",
             "plane": axis,
             "refresh": "pass",
         }
@@ -133,7 +134,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
             "element": "COR_1",
             "engine": {"attribute": "KickAngle", "index": 0},
             "default": 0.0,
-            "role": "setpoint",
+            "engine_role": "setpoint",
             "plane": "x",
             "refresh": "pass",
         }
@@ -156,7 +157,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
         },
         "served_models.json": {"schema": "osprey.facility.served_models/1", "models": [LINE]},
         "variables.json": {
-            "schema": "osprey.facility.simulator/2",
+            "schema": VARIABLES_SCHEMA,
             "code": "TEST",
             "models": [
                 {

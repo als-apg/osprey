@@ -19,9 +19,9 @@ import pytest
 from osprey.facility import TEXTURE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
+    ENGINE_ROLES,
     PLANES,
     REFRESH,
-    ROLES,
     SCENARIOS_DIR,
     VARIABLES_FILE,
     VIEW_RELPATH,
@@ -91,7 +91,7 @@ def test_every_accessor_answers(demo_view: Path) -> None:
 
     bindings = view.bindings()
     assert bindings == tuple(b for model in view.physics_models() for b in model.bindings)
-    assert {binding.role for binding in bindings} == set(ROLES)
+    assert {binding.engine_role for binding in bindings} == set(ENGINE_ROLES)
     assert {binding.plane for binding in bindings} <= {*PLANES, None}
     assert {binding.refresh for binding in bindings} <= set(REFRESH)
     first = bindings[0]
@@ -145,10 +145,10 @@ def test_monitor_bindings_of_a_plane_are_the_element_reads_on_that_axis(demo_vie
         record["address"]
         for model in models
         for record in model["wiring"]
-        if record["role"] == "monitor" and record["plane"] == "x"
+        if record["engine_role"] == "monitor" and record["plane"] == "x"
     ]
 
-    found = [binding.address for binding in view.bindings(role="monitor", plane="x")]
+    found = [binding.address for binding in view.bindings(engine_role="monitor", plane="x")]
 
     assert found == expected
     assert found
