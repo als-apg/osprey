@@ -52,7 +52,7 @@ describe('headerItems', () => {
     expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual([
       'crumb:crumb',
       'button:prev',
-      'text:pager',
+      'count:pager',
       'button:next',
       'sep:sep',
       'button:open',
@@ -136,25 +136,16 @@ describe('Open full size and Save', () => {
 });
 
 describe('the tile menu verbs', () => {
-  test('pin, print, logbook and delete, each sending its action', () => {
+  test('print, logbook and delete, each sending its action', () => {
     const send = vi.fn();
     const items = header.menuItems(report, send);
     expect(items.map((item) => item.label)).toEqual([
-      'Pin artifact',
       'Print artifact',
       'Compose logbook entry',
       'Delete artifact',
     ]);
-    expect(items[3].danger).toBe(true);
+    expect(items[2].danger).toBe(true);
     for (const item of items) item.run();
-    expect(send.mock.calls.map((call) => call[0])).toEqual(['pin', 'print', 'logbook', 'delete']);
-  });
-
-  test('a pinned artifact offers Unpin', () => {
-    const send = vi.fn();
-    const [first] = header.menuItems({ ...report, pinned: true }, send);
-    expect(first.label).toBe('Unpin artifact');
-    first.run();
-    expect(send).toHaveBeenCalledWith('unpin');
+    expect(send.mock.calls.map((call) => call[0])).toEqual(['print', 'logbook', 'delete']);
   });
 });

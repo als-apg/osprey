@@ -51,16 +51,16 @@ Where the panels live
 ---------------------
 
 Panels have a row in the sidebar on the left of the window.
-**Agent** is the first row and has no heading. **Artifacts** has no row: its
-artifacts are in the Agent row's session tree, and the palette opens the panel.
+**Sessions** is the first row and has no heading. **Artifacts** has no row: its
+artifacts are in the session tree, and the palette opens the panel.
 **Events** (when the deployment enables it) and **Health** are in the
-**System** section. All other panels are in the **Tools** section, which ends
+**System** section. All other panels are in the **Apps** section, which ends
 with **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
 Dragging sidebar rows
 ---------------------
 
-Drag a Tools row up or down to change the order. The order is the same for
+Drag a Apps row up or down to change the order. The order is the same for
 everyone on the same terminal, and it stays after a reload. Drag a row onto
 the work pane instead to open the panel as a new tile where you drop it: on a
 tile's edge, or along an edge of the work pane; a drop on a tile's header or

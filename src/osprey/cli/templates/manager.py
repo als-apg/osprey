@@ -632,7 +632,8 @@ class TemplateManager:
                 answer; see :func:`osprey.cli.templates.claude_code.build_claude_code_context`.
 
         Returns:
-            Dict with 'changed' and 'unchanged' keys
+            Dict with 'changed' and 'unchanged' keys. Unless *dry_run*, the
+            render's manifest ``file_checksums`` are re-taken afterwards.
 
         Note:
             The directory holding ``config.yml`` is not the project root. A
@@ -673,7 +674,7 @@ class TemplateManager:
             )
             if runtime_venv_dir is None:
                 runtime_venv_dir = project_dir
-        return claude_code.regenerate_claude_code(
+        result = claude_code.regenerate_claude_code(
             self.template_root,
             self.jinja_env,
             project_dir,
@@ -682,6 +683,12 @@ class TemplateManager:
             runtime_venv_dir=runtime_venv_dir,
             runtime_interpreter=runtime_interpreter,
         )
+        if not dry_run:
+            # Every regen rewrites `.claude/` and `.mcp.json`; the manifest's
+            # checksums must describe what it wrote, whoever called it (the
+            # build, or a launch-time regen_if_drift).
+            manifest.restamp_file_checksums(Path(project_dir))
+        return result
 
     def regen_if_drift(self, project_dir: Path) -> list[str]:
         """Regenerate Claude Code artifacts only if they have drifted from config.

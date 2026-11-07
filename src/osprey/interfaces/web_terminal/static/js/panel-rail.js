@@ -2,12 +2,12 @@
 /* OSPREY Web Terminal — the sidebar's panel rows (DOM renderer)
  *
  * The labelled sidebar lists the panels inside `#panel-rail`, sorted into the
- * operator's groups (sidebar-groups.js): the headless `Sessions` and `Tools` to begin
+ * operator's groups (sidebar-groups.js): the headless `Sessions` and `Apps` to begin
  * with, then renamed, reordered or joined by groups of the operator's own.
  * The Agent row is always the first row of the first group. Every other row
  * sits in the group the model places it in, and within a group the rows keep
  * the server's rail order, so a group filters the rail and never reorders
- * it. `+ Add panel` is always the last row of Tools (the last group when Tools is
+ * it. `+ Add panel` is always the last row of Apps (the last group when Apps is
  * not shown). This module
  * builds and places those rows and exposes small imperative mutators — set
  * active, enable, attention, append, remove — so `panel-manager.js`'s state
@@ -197,7 +197,7 @@ const PAGE_ROWS = /** @type {Readonly<Record<string, string>>} */ ({
 /** The panel that never gets a rail entry (its artifacts are in the session tree). */
 export const OFF_RAIL_IDS = Object.freeze(['artifacts']);
 
-/** The `+ Add panel` row: page-owned, the last row of the Tools group, or of the last group when Tools is not shown. */
+/** The `+ Add panel` row: page-owned, the last row of the Apps group, or of the last group when Apps is not shown. */
 const ADD_BUTTON_ID = 'panel-add-btn';
 
 /** Marks a group's empty line. */
@@ -358,8 +358,8 @@ function reconcile(parent, kids) {
 /**
  * Put every group and row where the model and the rail order say. Each group
  * holds its heading and its empty line, then its rows in rail order: the
- * Agent row first in the first group. `+ Add panel` closes Tools (the last
- * group if Tools is not shown). Nodes are moved, never rebuilt, and only where they are out of
+ * Agent row first in the first group. `+ Add panel` closes Apps (the last
+ * group if Apps is not shown). Nodes are moved, never rebuilt, and only where they are out of
  * place, so every row keeps its live state and a node that stays put keeps
  * its focus.
  * @param {HTMLElement} railEl

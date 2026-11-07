@@ -1626,6 +1626,7 @@ jobs:
           tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
           tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
           tests/interfaces/web_terminal/test_sidebar_group_headings_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_sessions_browser.py \
           tests/interfaces/web_terminal/test_attached_popout_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
@@ -1635,6 +1636,7 @@ jobs:
           tests/interfaces/ariel/test_vocabulary_banner.py \
           tests/interfaces/ariel/test_shell.py \
           tests/interfaces/history/test_history_page_browser.py \
+          tests/interfaces/test_events_notice_browser.py \
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 

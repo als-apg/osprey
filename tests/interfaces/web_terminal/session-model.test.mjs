@@ -137,6 +137,8 @@ beforeEach(async () => {
         body = pages[parsed.searchParams.get('cursor') ?? 'first'];
       } else if (parsed.pathname.endsWith('/enter')) {
         body = { session_key: MINTED };
+      } else if (parsed.pathname.endsWith('/pin')) {
+        body = { pinned: JSON.parse(init.body).pinned ? '2026-11-06T11:00:00+00:00' : null };
       }
       return new Response(JSON.stringify(body), { status: 200 });
     })
@@ -441,5 +443,157 @@ describe('listing and refresh', () => {
     expect(model.sessionOfArtifact({ owner: T2 })?.transcript_id).toBe(T2);
     expect(model.sessionOfArtifact({ owner: null })).toBeNull();
     expect(model.sessionOfArtifact({ owner: 'gone' })).toBeNull();
+  });
+});
+
+describe('pins', () => {
+  const PINS = () => model.pinnedRows().map((r) => r.transcript_id);
+  const pinPuts = () => calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/pin'));
+
+  test('the first page names every pinned session, a later page included, in pin order', async () => {
+    pages.first.sessions[1] = row(T2, { pinned: '2026-11-06T10:00:00+00:00' });
+    pages.first.pinned_sessions = [
+      row(T3, { session_key: K2, current_for_key: true, pinned: '2026-11-06T09:00:00+00:00' }),
+      pages.first.sessions[1],
+    ];
+    await boot();
+    expect(PINS()).toEqual([T3, T2]);
+    // A pinned session from a later page is the row a tab on its key is on.
+    pointer.setPointer(K2);
+    expect(model.activeRow()?.transcript_id).toBe(T3);
+    expect(model.activeRow()?.synthesized).toBeUndefined();
+  });
+
+  test('setPinned flips the row at once, PUTs, and keeps the hub time', async () => {
+    await boot();
+    const done = model.setPinned(T2, true);
+    expect(PINS()).toEqual([T2]);
+    expect(await done).toBe(true);
+    expect(pinPuts().map((c) => [c.url, c.body])).toEqual([
+      [`/api/sessions/${T2}/pin`, { pinned: true }],
+    ]);
+    expect(model.pinnedRows()[0].pinned).toBe('2026-11-06T11:00:00+00:00');
+    expect(await model.setPinned(T2, false)).toBe(true);
+    expect(PINS()).toEqual([]);
+  });
+
+  test('a refused PUT puts the pin back', async () => {
+    await boot();
+    vi.mocked(fetch).mockImplementationOnce(
+      async () => new Response(JSON.stringify({ detail: 'No such session.' }), { status: 404 })
+    );
+    expect(await model.setPinned(T2, true)).toBe(false);
+    expect(PINS()).toEqual([]);
+  });
+
+  /** Hold the next pin PUT until the returned function answers it. */
+  function holdPinPut() {
+    const real = vi.mocked(fetch).getMockImplementation();
+    /** @type {() => void} */
+    let answer = () => {};
+    const gate = new Promise((resolve) => (answer = () => resolve(undefined)));
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/pin')) {
+        await gate;
+        return new Response(JSON.stringify({ pinned: '2026-11-06T11:00:00+00:00' }));
+      }
+      return /** @type {any} */ (real)(url, init);
+    });
+    return answer;
+  }
+
+  /** Run one refresh to its end. */
+  async function refreshed() {
+    model.refresh();
+    await vi.advanceTimersByTimeAsync(1100);
+  }
+
+  test('a refresh decides the pins of loaded rows from later pages', async () => {
+    await boot();
+    await model.loadMore();
+    expect(PINS()).toEqual([]);
+
+    // Pinned from another tab: page 1 does not hold T3, the list names it.
+    const stamp = '2026-11-06T10:00:00+00:00';
+    pages.first.pinned_sessions = [row(T3, { pinned: stamp })];
+    await refreshed();
+    expect(model.rows().find((r) => r.transcript_id === T3)?.pinned).toBe(stamp);
+    expect(PINS()).toEqual([T3]);
+
+    // Unpinned from another tab: the list no longer names it.
+    pages.first.pinned_sessions = [];
+    await refreshed();
+    expect(model.rows().find((r) => r.transcript_id === T3)?.pinned).toBeNull();
+    expect(PINS()).toEqual([]);
+  });
+
+  test('a listing answered while the PUT is in flight does not undo the pin', async () => {
+    pages.first.pinned_sessions = [];
+    await boot();
+    const answer = holdPinPut();
+    const done = model.setPinned(T2, true);
+    expect(model.pinPending(T2)).toBe(true);
+    await refreshed();
+    expect(PINS()).toEqual([T2]);
+    answer();
+    expect(await done).toBe(true);
+    expect(model.pinPending(T2)).toBe(false);
+    expect(PINS()).toEqual([T2]);
+  });
+
+  test('a listing read before the PUT settled and answered after does not undo the pin', async () => {
+    pages.first.pinned_sessions = [];
+    await boot();
+    const real = vi.mocked(fetch).getMockImplementation();
+    /** @type {() => void} */
+    let release = () => {};
+    const gate = new Promise((resolve) => (release = () => resolve(undefined)));
+    vi.mocked(fetch).mockImplementationOnce(async (url, init) => {
+      const stale = await /** @type {any} */ (real)(url, init);
+      await gate;
+      return stale;
+    });
+    model.refresh();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(await model.setPinned(T2, true)).toBe(true);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(PINS()).toEqual([T2]);
+
+    // The next listing was read after the pin, so it decides again.
+    pages.first.pinned_sessions = [];
+    await refreshed();
+    expect(PINS()).toEqual([]);
+  });
+
+  test('a session_pinned frame from another tab flips the rows at once', async () => {
+    await boot();
+    const stamp = '2026-11-06T10:00:00+00:00';
+    const frame = (/** @type {string|null} */ pinned) => {
+      for (const fn of mocks.hubHandlers) fn({ type: 'session_pinned', transcript_id: T2, pinned });
+    };
+    frame(stamp);
+    expect(PINS()).toEqual([T2]);
+    expect(model.pinnedRows()[0].pinned).toBe(stamp);
+    frame(null);
+    expect(PINS()).toEqual([]);
+  });
+
+  test('a pin frame for a session not loaded here asks for a listing', async () => {
+    await boot();
+    pages.first.pinned_sessions = [row(T3, { pinned: '2026-11-06T10:00:00+00:00' })];
+    for (const fn of mocks.hubHandlers)
+      fn({ type: 'session_pinned', transcript_id: T3, pinned: '2026-11-06T10:00:00+00:00' });
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(listings()).toHaveLength(1);
+    expect(PINS()).toEqual([T3]);
+  });
+
+  test('a deleted session leaves the pins', async () => {
+    pages.first.sessions[1] = row(T2, { pinned: '2026-11-06T10:00:00+00:00' });
+    pages.first.pinned_sessions = [pages.first.sessions[1]];
+    await boot();
+    model.forgetSession(T2);
+    expect(PINS()).toEqual([]);
   });
 });

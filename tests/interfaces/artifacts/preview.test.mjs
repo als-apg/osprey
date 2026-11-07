@@ -1,9 +1,9 @@
 /**
  * Unit tests for the Artifact Gallery preview pane shell (preview.js, task
- * 5.4 extraction: renderPreview's per-type viewport dispatch, pin toggling,
- * fullscreen enter/exit + its "N new" badge, and agent focus), plus the
- * header-less render the embedded viewer asks for and the `setPinned` /
- * `deleteArtifact` actions the viewer runs in place of the header's buttons.
+ * 5.4 extraction: renderPreview's per-type viewport dispatch, fullscreen
+ * enter/exit + its "N new" badge, and agent focus), plus the header-less
+ * render the embedded viewer asks for and the `deleteArtifact` action the
+ * viewer runs in place of the header's button.
  *
  * The markdown+KaTeX render pipeline and the JSON viewer moved to the
  * sibling preview-content.js module (split purely to stay under the
@@ -75,7 +75,6 @@ function makeArtifact(overrides = {}) {
     category: 'visualization',
     form: 'plots',
     form_label: 'Plots',
-    pinned: false,
     timestamp: '2026-07-01T10:00:00Z',
     size_bytes: 2048,
     ...overrides,
@@ -85,7 +84,6 @@ function makeArtifact(overrides = {}) {
 function makeCallbacks() {
   return {
     onArtifactDeleted: vi.fn(),
-    onPinToggled: vi.fn(),
     onFullscreenExit: vi.fn(),
     onTimeseriesNeeded: vi.fn(),
   };
@@ -367,13 +365,12 @@ describe('renderPreview: header/meta content', () => {
     ).not.toContain('Source');
   });
 
-  test("pin button reflects the artifact's pinned state", () => {
+  test('the header has no pin button, even for a legacy pinned artifact', () => {
     setSelectedArtifact(makeArtifact({ pinned: true }));
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
-    const pinBtn = byId('preview-toggle-pin');
-    expect(pinBtn.classList.contains('btn-action-pinned')).toBe(true);
-    expect(pinBtn.title).toBe('Unpin');
+    expect(document.getElementById('preview-toggle-pin')).toBeNull();
+    expect(document.querySelector('.btn-action-pinned')).toBeNull();
   });
 
   test('calls injectLogbookButtons/injectPrintButton directly (real imports, no window bridge)', () => {
@@ -406,7 +403,6 @@ describe('renderPreview without a header (the embedded viewer)', () => {
 
     expect(document.getElementById('fullscreen-back')).toBeNull();
     expect(document.getElementById('fullscreen-new-badge')).toBeNull();
-    expect(document.getElementById('preview-toggle-pin')).toBeNull();
     expect(document.getElementById('preview-delete')).toBeNull();
     expect(document.querySelector('a[data-theme-link]')).toBeNull();
     expect(injectLogbookButtons).not.toHaveBeenCalled();
@@ -582,94 +578,6 @@ describe('renderPreview: copy path', () => {
   });
 });
 
-describe('pin toggling', () => {
-  test('on success: flips artifact.pinned, fires onPinToggled, and re-renders', async () => {
-    const artifact = makeArtifact({ pinned: false });
-    setSelectedArtifact(artifact);
-    const callbacks = makeCallbacks();
-    createPreviewRenderer(callbacks).renderPreview();
-
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
-    byId('preview-toggle-pin').click();
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(artifact.pinned).toBe(true);
-    expect(callbacks.onPinToggled).toHaveBeenCalledTimes(1);
-    // renderPreview() ran again -> pin button now reflects the flipped state.
-    expect(byId('preview-toggle-pin').classList.contains('btn-action-pinned')).toBe(true);
-  });
-
-  test('on a non-OK response: leaves pinned unchanged and does not fire the callback', async () => {
-    const artifact = makeArtifact({ pinned: false });
-    setSelectedArtifact(artifact);
-    const callbacks = makeCallbacks();
-    createPreviewRenderer(callbacks).renderPreview();
-
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
-    byId('preview-toggle-pin').click();
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(artifact.pinned).toBe(false);
-    expect(callbacks.onPinToggled).not.toHaveBeenCalled();
-  });
-
-  test('on a network failure: does not throw', async () => {
-    setSelectedArtifact(makeArtifact());
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
-
-    expect(() => byId('preview-toggle-pin').click()).not.toThrow();
-    await new Promise((r) => setTimeout(r, 0));
-  });
-});
-
-describe('setPinned', () => {
-  test.each([true, false])(
-    'pinned=%s: POSTs that state, sets it, fires onPinToggled, and re-renders',
-    async (pinned) => {
-      const artifact = makeArtifact({ pinned: !pinned });
-      setSelectedArtifact(artifact);
-      const callbacks = makeCallbacks();
-      const renderer = createPreviewRenderer(callbacks);
-      renderer.renderPreview();
-      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-      vi.stubGlobal('fetch', fetchMock);
-
-      await renderer.setPinned(artifact, pinned);
-
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/artifacts/a1/pin',
-        expect.objectContaining({ method: 'POST', body: JSON.stringify({ pinned }) })
-      );
-      expect(artifact.pinned).toBe(pinned);
-      expect(callbacks.onPinToggled).toHaveBeenCalledTimes(1);
-      expect(byId('preview-toggle-pin').classList.contains('btn-action-pinned')).toBe(pinned);
-    }
-  );
-
-  test('sets the state it is given rather than flipping it', async () => {
-    const artifact = makeArtifact({ pinned: true });
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await createPreviewRenderer(makeCallbacks(), { header: false }).setPinned(artifact, true);
-
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ pinned: true });
-    expect(artifact.pinned).toBe(true);
-  });
-
-  test('on a non-OK response: leaves pinned unchanged and does not fire the callback', async () => {
-    const artifact = makeArtifact({ pinned: false });
-    const callbacks = makeCallbacks();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
-
-    await createPreviewRenderer(callbacks, { header: false }).setPinned(artifact, true);
-
-    expect(artifact.pinned).toBe(false);
-    expect(callbacks.onPinToggled).not.toHaveBeenCalled();
-  });
-});
-
 describe('fullscreen mode', () => {
   test('enterFullscreen sets isFullscreen, adds body classes, and renders the preview', () => {
     const artifact = makeArtifact();
@@ -810,21 +718,11 @@ describe('setAsFocus', () => {
   });
 });
 
-describe('pin and focus say which session they were set in', () => {
+describe('a focus says which session it was set in', () => {
   /** @param {any} fetchMock */
   function sentBody(fetchMock) {
     return JSON.parse(fetchMock.mock.calls[0][1].body);
   }
-
-  test('a pin in the session view carries the gallery key', async () => {
-    setCurrentSessionId('key-a');
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await createPreviewRenderer(makeCallbacks(), { header: false }).setPinned(makeArtifact(), true);
-
-    expect(sentBody(fetchMock)).toEqual({ pinned: true, session_key: 'key-a' });
-  });
 
   test('a focus in the session view carries the gallery key', async () => {
     setCurrentSessionId('key-a');
@@ -836,29 +734,25 @@ describe('pin and focus say which session they were set in', () => {
     expect(sentBody(fetchMock)).toEqual({ artifact_id: 'a1', session_key: 'key-a' });
   });
 
-  test('a pin and a focus in the all-sessions view carry no session field', async () => {
+  test('a focus in the all-sessions view carries no session field', async () => {
     setCurrentSessionId('key-a');
     setShowAllSessions(true);
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal('fetch', fetchMock);
     const renderer = createPreviewRenderer(makeCallbacks(), { header: false });
 
-    await renderer.setPinned(makeArtifact(), false);
     await renderer.setAsFocus(makeArtifact());
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ pinned: false });
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ artifact_id: 'a1' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ artifact_id: 'a1' });
   });
 
-  test('with no session id, a pin and a focus carry no session field', async () => {
+  test('with no session id, a focus carries no session field', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal('fetch', fetchMock);
     const renderer = createPreviewRenderer(makeCallbacks(), { header: false });
 
-    await renderer.setPinned(makeArtifact(), true);
     await renderer.setAsFocus(makeArtifact());
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ pinned: true });
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ artifact_id: 'a1' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ artifact_id: 'a1' });
   });
 });

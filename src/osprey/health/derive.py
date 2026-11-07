@@ -38,7 +38,7 @@ from .models import Status
 _CATEGORY_NAME = "mcp_servers"
 
 
-def _in_container() -> bool:
+def in_container() -> bool:
     """Best-effort detection of whether this process runs inside a container.
 
     The signal is the runtime's own marker file: ``/.dockerenv`` under Docker,
@@ -73,7 +73,7 @@ def _resolve_url_key(settings: HealthSettings) -> str:
     """
     if settings.auto.url_key_explicit:
         return settings.auto.url_key
-    return "docker_url" if _in_container() else "host_url"
+    return "docker_url" if in_container() else "host_url"
 
 
 def _expect_tools(entry: Mapping[str, Any]) -> list[str]:

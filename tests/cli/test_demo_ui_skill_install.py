@@ -99,7 +99,6 @@ class TestDemoUiSkillStructure:
             "create_interactive_plot",
             "artifact_register",
             "artifact_focus",
-            "artifact_pin",
         ):
             assert tool in skill_text, f"Missing artifact tool: {tool}"
 

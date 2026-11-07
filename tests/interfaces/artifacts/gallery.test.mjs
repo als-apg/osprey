@@ -46,7 +46,6 @@ vi.mock('../../../src/osprey/interfaces/artifacts/static/js/preview.js', () => (
       exitFullscreen: vi.fn(),
       noteNewArtifactArrival: vi.fn(),
       updateNewArtifactBadge: vi.fn(),
-      setPinned: vi.fn(),
       deleteArtifact: vi.fn(),
       setAsFocus: vi.fn(),
     };
@@ -95,7 +94,6 @@ const art = (id, extra = {}) => ({
   artifact_type: 'markdown',
   title: `Artifact ${id}`,
   filename: `${id}.md`,
-  pinned: false,
   ...extra,
 });
 
@@ -226,9 +224,9 @@ describe('the event stream', () => {
     state.setSelectedArtifact(state.getArtifacts()[0]);
     mocks.preview.renderPreview.mockClear();
 
-    events.emit({ type: 'artifact_updated', ...art('a1', { pinned: true }) });
+    events.emit({ type: 'artifact_updated', ...art('a1', { title: 'Renamed' }) });
 
-    expect(state.getSelectedArtifact()).toEqual(art('a1', { pinned: true }));
+    expect(state.getSelectedArtifact()).toEqual(art('a1', { title: 'Renamed' }));
     expect(mocks.preview.renderPreview).toHaveBeenCalledTimes(1);
   });
 });
@@ -249,11 +247,11 @@ describe('embedded: the hub says when the shown artifact changed', () => {
       type: 'osprey-artifact-changed',
       artifact_id: 'a1',
       change: 'updated',
-      artifact: art('a1', { pinned: true }),
+      artifact: art('a1', { title: 'Renamed' }),
     });
 
-    expect(state.getSelectedArtifact()).toEqual(art('a1', { pinned: true }));
-    expect(state.getArtifacts().find((a) => a.id === 'a1')?.pinned).toBe(true);
+    expect(state.getSelectedArtifact()).toEqual(art('a1', { title: 'Renamed' }));
+    expect(state.getArtifacts().find((a) => a.id === 'a1')?.title).toBe('Renamed');
     expect(mocks.preview.renderPreview).toHaveBeenCalledTimes(1);
   });
 
@@ -264,7 +262,7 @@ describe('embedded: the hub says when the shown artifact changed', () => {
       type: 'osprey-artifact-changed',
       artifact_id: 'a2',
       change: 'updated',
-      artifact: art('a2', { pinned: true }),
+      artifact: art('a2', { title: 'Renamed' }),
     });
 
     expect(state.getSelectedArtifact()?.id).toBe('a1');
@@ -405,7 +403,7 @@ describe('standalone: the session view is the sidebar row', () => {
 
     events.emit({
       type: 'artifact_updated',
-      ...art('other', { owner: 'T2', session_id: 'k1', exec_id: 'run-1', pinned: true }),
+      ...art('other', { owner: 'T2', session_id: 'k1', exec_id: 'run-1' }),
     });
     await settle();
 

@@ -959,15 +959,6 @@ html[data-browse-orient="column"] .sidebar-body {
   border-left-color: var(--color-accent);
 }
 
-/* Pinned tree item — accent left border always visible */
-.tree-item.pinned {
-  border-left-color: var(--color-accent);
-}
-
-.tree-item.pinned.selected {
-  border-left-color: var(--color-accent-light);
-}
-
 /* Picked for a bulk action — the selected accent at a weaker weight, so a
    pick reads apart from the previewed row. */
 .tree-item.picked {
@@ -1041,20 +1032,6 @@ html[data-browse-orient="column"] .sidebar-body {
   color: var(--text-muted);
   flex-shrink: 0;
   opacity: 0.6;
-}
-
-/* ---- Pin / Highlight Indicators ---- */
-
-.pin-indicator {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-  color: var(--color-accent);
-  opacity: 0.7;
-}
-
-.tree-item.pinned .pin-indicator {
-  opacity: 1;
 }
 
 /* Registry-driven type/tool colors (set via JS --type-color custom property) */
@@ -2921,18 +2898,6 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   background: var(--bg-elevated);
   border-color: var(--neutral-tint-35);
   color: var(--text-primary);
-}
-
-/* Pin active state — teal accent */
-.btn-action-icon.btn-action-pinned {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent-dark);
-  background: var(--accent-tint-08);
-}
-
-.btn-action-icon.btn-action-pinned:hover:not(:disabled) {
-  background: var(--accent-tint-12);
-  border-color: var(--color-accent);
 }
 
 /* Danger (Delete) — red tint */

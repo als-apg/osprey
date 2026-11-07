@@ -18,8 +18,9 @@ import {
   panelIdOf,
   sameShape,
 } from './dock-apply.js';
+import { panelRecordOf } from './dock-detached.js';
 import { initDockDrop } from './dock-drop.js';
-import { closeKey, defaultLayout, reopenTerminal } from './dock-open.js';
+import { closeKey, defaultLayout, detachPlacement, reopenTerminal } from './dock-open.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { onPopoutChange } from './popout.js';
 import { focusAttached, isAttached, onAttachedChange } from './attached-window.js';
@@ -302,12 +303,19 @@ export function initDockWorkspace() {
 
   // The holder applies every layout inside dock-sync's echo guard, so the
   // rebuild's own focus changes are never reported as a person's click. A
-  // restored panel is built with the record its store carried.
+  // restored panel is built with the record its store carried, and a detached
+  // pane comes back by OSPREY's placement rules (dock-open.js).
   layoutHolder = initLayoutHolder({
     api: dockApi,
     guard: withEchoSuppressed,
     newPanel: (key) => restoredPanels[key],
+    placement: detachPlacement,
   });
+  // A pane leaving for its window, coming back, or closing with it changes
+  // the stored form at once: written now, not debounced, so a reload right
+  // after still brings it back. (session-layout.js and dock-sync.js listen
+  // on the holder for the session save and the dock report.)
+  layoutHolder.onDetachedChange(persistNow);
 
   // Bind dockview's light/dark base theme (root classes + the api's own theme
   // option) to the active OSPREY theme and keep both in sync on every live
@@ -544,7 +552,8 @@ export function closeDockPanel(serviceId) {
  * The per-panel record reopening a stored layout in a new session needs, by
  * bare key: the title and params each service panel carries (the terminal is
  * the page's own and needs none). Read off the live dock, falling back to the
- * record a restore brought in for a panel dockview has not built yet.
+ * record a restore brought in for a panel dockview has not built yet; a
+ * detached pane's is the one it left the dock with.
  * @param {Layout|null} layout
  * @returns {Record<string, PanelRecord>}
  */
@@ -561,26 +570,23 @@ function panelRecords(layout) {
   if (layout === null) return out;
   for (const key of keysOf(layout)) {
     if (key === PANEL_TERMINAL) continue;
-    const entry = live[panelIdOf(key)];
-    /** @type {PanelRecord|undefined} */
-    const record = entry
-      ? {
-          ...(typeof entry.title === 'string' ? { title: entry.title } : {}),
-          ...(entry.params != null ? { params: entry.params } : {}),
-        }
-      : restoredPanels[key];
+    const away = layoutHolder?.detachedEntry(key);
+    const record = away
+      ? away.panelRecord
+      : (panelRecordOf(live[panelIdOf(key)]) ?? restoredPanels[key]);
     if (record) out[key] = record;
   }
   return out;
 }
 
 /**
- * The value persisted: the holder's layout and its panel records.
+ * The value persisted: the holder's persisted form — its layout with every
+ * detached pane docked where it was (R7) — and its panel records.
  * @returns {StoredDock|null}  null before the holder exists
  */
 function storedValue() {
   if (!layoutHolder) return null;
-  const layout = layoutHolder.layout;
+  const layout = layoutHolder.persisted();
   return { version: STORE_VERSION, layout, panels: panelRecords(layout) };
 }
 
@@ -616,11 +622,7 @@ function readStored() {
       if (panelKey === null || panelKey === PANEL_TERMINAL || !entry || typeof entry !== 'object') {
         continue;
       }
-      const e = /** @type {any} */ (entry);
-      panels[panelKey] = {
-        ...(typeof e.title === 'string' ? { title: e.title } : {}),
-        ...(e.params != null ? { params: e.params } : {}),
-      };
+      panels[panelKey] = /** @type {PanelRecord} */ (panelRecordOf(entry));
     }
     return { layout: value, panels };
   }
@@ -728,7 +730,8 @@ let sessionApply = false;
 
 /**
  * The arrangement on screen in the stored form — what a session keeps as its
- * layout (session-layout.js). Null before the dock exists.
+ * layout (session-layout.js), detached panes docked where they were. Null
+ * before the dock exists.
  * @returns {StoredDock|null}
  */
 export function currentDock() {
@@ -806,16 +809,24 @@ function schedulePersist() {
 }
 
 /**
+ * Write the stored value now, cancelling any write still waiting in its
+ * debounce window: a change of the detached set, which moves no tile dockview
+ * would report, and must survive a reload that comes right after it.
+ */
+function persistNow() {
+  if (persistHandle != null) clearTimeout(persistHandle);
+  persistHandle = null;
+  persistCurrentLayout();
+}
+
+/**
  * Write a persist still waiting in its debounce window now. Bound to
  * `pagehide` (a reload, a closed tab, a navigation away) and to the page going
  * out of sight, the last event a tab the browser discards is sure to get: a
  * change made in the window before either would otherwise never be stored.
  */
 function flushPersist() {
-  if (persistHandle == null) return;
-  clearTimeout(persistHandle);
-  persistHandle = null;
-  persistCurrentLayout();
+  if (persistHandle != null) persistNow();
 }
 
 /**

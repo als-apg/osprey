@@ -23,8 +23,9 @@ const MOD = `${JS}/dock-tab.js`;
 // size, and dockview observes its grid. The harness installs an inert one.
 loadDockview();
 
-const { closeTerminalPanel, closeDockPanel } = vi.hoisted(() => ({
+const { closeTerminalPanel, closeTerminalTile, closeDockPanel } = vi.hoisted(() => ({
   closeTerminalPanel: vi.fn(() => true),
+  closeTerminalTile: vi.fn(),
   closeDockPanel: vi.fn(() => true),
 }));
 const { popOutAttached, attachBlocker } = vi.hoisted(() => ({
@@ -45,6 +46,11 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/attached-popout.j
 // dock-tab closes every tile through dock-workspace (the layout holder); the
 // rest of that module (dockview itself) is out of scope here. The doubles
 // cover what the modules dock-tab imports read from it.
+// The Agent close goes through the Undo-offering path the Delete key uses.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => ({
+  closeTerminalTile,
+}));
+
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   closeTerminalPanel,
   closeDockPanel,
@@ -120,6 +126,7 @@ describe('tile-tab renderer', () => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
     closeTerminalPanel.mockClear();
+    closeTerminalTile.mockClear();
     closeDockPanel.mockClear();
     popOutAttached.mockClear();
     attachBlocker.mockReset().mockReturnValue(null);
@@ -151,7 +158,7 @@ describe('tile-tab renderer', () => {
     expect(closeTerminalPanel).not.toHaveBeenCalled();
   });
 
-  test('the Agent close runs closeTerminalPanel, never the bare api.close()', async () => {
+  test('the Agent close runs closeTerminalTile (the Undo path), never the bare api.close()', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const api = fakeApi();
@@ -160,7 +167,8 @@ describe('tile-tab renderer', () => {
     const close = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'));
     expect(close.getAttribute('aria-label')).toBe('Close Agent pane');
     close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(closeTerminalPanel).toHaveBeenCalledTimes(1);
+    expect(closeTerminalTile).toHaveBeenCalledTimes(1);
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
     expect(closeDockPanel).not.toHaveBeenCalled();
     expect(api.close).not.toHaveBeenCalled();
   });

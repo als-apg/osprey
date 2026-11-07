@@ -334,15 +334,13 @@ describe('sanitization of the extended vocabulary', () => {
 
     deliverContribution(
       [
-        { kind: 'text', id: 'dup', text: 'first' },
-        { kind: 'text', id: 'dup', text: 'second' },
+        { kind: 'button', id: 'dup', label: 'first' },
+        { kind: 'button', id: 'dup', label: 'second' },
       ],
       contentWindow
     );
 
-    expect([...host.querySelectorAll('.contrib-text')].map((n) => n.textContent)).toEqual([
-      'first',
-    ]);
+    expect([...host.querySelectorAll('.contrib-btn')].map((n) => n.textContent)).toEqual(['first']);
   });
 
   test('drops a menu with no valid entries, and an unknown kind entirely', () => {
@@ -445,7 +443,7 @@ describe('hub-side kinds', () => {
     deliverContribution([{ kind: 'crumb', id: 'crumb', root: 'Artifacts' }], contentWindow);
     expect(host.classList.contains('has-crumb')).toBe(true);
 
-    deliverContribution([{ kind: 'text', id: 'name', text: 'x' }], contentWindow);
+    deliverContribution([{ kind: 'button', id: 'name', label: 'x' }], contentWindow);
     expect(host.classList.contains('has-crumb')).toBe(false);
   });
 
