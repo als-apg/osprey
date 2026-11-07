@@ -61,27 +61,6 @@ body {
 }
 @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
-/* ---- Header ----
-   Standalone identity only. Sticky: now that <body> scrolls, the title would
-   otherwise scroll away on a report several screens tall. Opaque background
-   (not the body's gradient) so rows cannot show through as they pass
-   underneath. */
-.hdr {
-  position: sticky; top: 0; z-index: 50;
-  display: flex; align-items: center;
-  padding: 16px 20px 10px; border-bottom: 1px solid var(--border-default);
-  background: var(--bg-primary);
-}
-.hdr-t { display: flex; align-items: baseline; gap: 10px; }
-.hdr-t h1 { font-family: var(--font-display); font-size: var(--text-3xl); font-weight: var(--weight-bold); letter-spacing: 1px; }
-.hdr-sub { font-size: var(--text-sm); letter-spacing: 3px; text-transform: uppercase; color: var(--text-muted); }
-
-/* Embedded in the web-terminal hub the host tile bar is this panel's only
- * header: it names the panel (SYSTEM), and the footer already carries the
- * freshness signal ("Next scan in Ns"), so the whole standalone header goes
- * and the panel contributes nothing of its own. */
-body.embedded .hdr { display: none; }
-
 /* ---- Hero: gauge + summary ---- */
 .hero { display: flex; flex-direction: column; align-items: center; padding: 24px 16px 16px; gap: 16px; }
 .gauge-w { position: relative; width: 180px; height: 180px; }
@@ -254,14 +233,11 @@ body.embedded .hdr { display: none; }
    The score keeps --text-4xl on a narrow frame: the 150px gauge still leaves
    a ~110px hole inside the gauge, room for the score and its total. */
 @media (max-width: 640px) {
-  .hdr-t h1 { font-size: var(--text-2xl); }
-  .hdr-sub { font-size: var(--text-xs); letter-spacing: 2px; }
   .gauge-w { width: 150px; height: 150px; }
   .gauge-sc .tot { font-size: var(--text-2xl); }
   .grid { grid-template-columns: 1fr; gap: 10px; padding: 10px 12px 80px; }
 }
 @media (max-width: 380px) {
   .gauge-w { width: 130px; height: 130px; }
-  .hdr { padding: 12px 12px 6px; }
   .hero { padding: 16px 12px 12px; }
 }

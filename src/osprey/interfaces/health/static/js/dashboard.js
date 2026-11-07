@@ -395,9 +395,7 @@ function renderError(message) {
 /** @param {Envelope} d */
 function applyEnvelope(d) {
   data = d;
-  const title = d.title || 'System Health';
-  must('ttl').textContent = title;
-  document.title = title;
+  document.title = d.title || 'System Health';
 
   if (d.warming) {
     renderWarming();
