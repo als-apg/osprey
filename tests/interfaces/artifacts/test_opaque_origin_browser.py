@@ -536,8 +536,26 @@ def _stub_print(page: Page) -> None:
     )
 
 
+# Lifts print.js's ready budget for the press below. A Plotly page inlines 5 MB
+# of library, so on a loaded runner its load event can come after those 3 s: the
+# gallery then gives up on the handshake, alerts, and ignores the late ready, and
+# the popup renders but is never asked to print. What the fallback does when the
+# budget runs out is pinned in print.test.mjs; these tests are about the handshake.
+_LIFT_READY_BUDGET_JS = """
+async (budgetMs) => {
+  const entry = performance.getEntriesByType('resource')
+    .map((e) => e.name).find((n) => n.endsWith('/js/print.js'));
+  const { READY_TIMEOUT_MS } = await import(entry);
+  const realSetTimeout = window.setTimeout;
+  window.setTimeout = (fn, ms, ...rest) =>
+    realSetTimeout(fn, ms === READY_TIMEOUT_MS ? budgetMs : ms, ...rest);
+}
+"""
+
+
 def _print_popup(page: PanelHost) -> Page:
     """Send the hub's Print action; return the window it opened."""
+    page.evaluate(_LIFT_READY_BUDGET_JS, 4 * TIMEOUT)
     with page.expect_popup(timeout=TIMEOUT) as popup:
         _request_print(page)
     return popup.value
@@ -726,6 +744,7 @@ _PLOT_PROBE = """() => {
 def _plot_follows(frame: Frame | Page, theme: str) -> None:
     frame.wait_for_function(
         """(theme) => {
+          if (!document.documentElement) return false;  // a popup before its document
           const a = document.getElementById('plot-a');
           const css = getComputedStyle(document.documentElement);
           return document.documentElement.getAttribute('data-theme') === theme
