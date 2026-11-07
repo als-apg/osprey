@@ -57,3 +57,29 @@ def test_a_request_outside_the_main_span_is_clipped():
 def test_no_timestamps_measure_nothing():
     assert model_wait([]) is None
     assert model_wait([[{"type": "user"}]]) is None
+
+
+def test_a_gateway_that_sends_no_request_id_is_grouped_by_message_id():
+    """Measured on the als-apg gateway: no requestId, one message id per request."""
+
+    def said(second: float, message_id: str) -> dict:
+        return {"type": "assistant", "timestamp": _at(second), "message": {"id": message_id}}
+
+    transcript = [
+        _entry("user", 0),
+        said(2, "m1"),
+        said(3, "m1"),
+        _entry("user", 8),
+        said(10, "m2"),
+    ]
+    assert model_wait([transcript]) == (5_000, 10_000)
+
+
+def test_the_clis_own_error_message_is_not_a_model_request():
+    """A refused call (403, a dead gateway) leaves a ``<synthetic>`` entry."""
+    refused = {
+        "type": "assistant",
+        "timestamp": _at(5),
+        "message": {"id": "uuid", "model": "<synthetic>"},
+    }
+    assert model_wait([[_entry("user", 0), refused, _entry("system", 6)]]) == (0, 6_000)

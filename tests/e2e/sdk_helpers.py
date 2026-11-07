@@ -1281,7 +1281,8 @@ def model_wait(transcripts: list[list[dict[str, Any]]]) -> tuple[int, int] | Non
 
     ``transcripts`` is the main session's transcript entries first, then each
     subagent's, each in file order. One model request is the run of
-    ``assistant`` entries sharing a ``requestId``: it starts at the timestamp of
+    ``assistant`` entries sharing a ``requestId`` or, behind a gateway that sends
+    none, a message id: it starts at the timestamp of
     the entry written just before its first assistant entry (the prompt, a tool
     result, or the CLI's own record of the request) and ends at its last one.
     The wait is the UNION of those intervals across every transcript, clipped
@@ -1304,8 +1305,15 @@ def model_wait(transcripts: list[list[dict[str, Any]]]) -> tuple[int, int] | Non
             stamp = _transcript_time(entry.get("timestamp"))
             if stamp is None:
                 continue
-            request = entry.get("requestId")
-            if entry.get("type") == "assistant" and request:
+            message = entry.get("message")
+            message = message if isinstance(message, dict) else {}
+            request = entry.get("requestId") or message.get("id")
+            # ``<synthetic>`` is the CLI writing its own error: no model was asked.
+            if (
+                entry.get("type") == "assistant"
+                and request
+                and message.get("model") != "<synthetic>"
+            ):
                 if request not in open_requests:
                     open_requests[request] = [previous if previous is not None else stamp, stamp]
                 open_requests[request][1] = stamp
