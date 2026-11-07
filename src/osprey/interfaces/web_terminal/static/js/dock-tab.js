@@ -7,11 +7,13 @@
  * (dock-policy.js), so the bar is that panel's and there is no tab strip:
  * the sidebar is where the operator switches panels.
  *
- *   service tiles — the identity is the panel's name (`.tile-tab-title`); its
- *     contributed controls, Open in new window and × sit beside it. The × closes the
- *     tile LOCALLY (the panel keeps its sidebar row; dock-sync routes the
- *     click to a vacate handler).
- *   the Agent tile — an adopted live bar, Open in new window and close. In chat it adopts
+ *   service tiles — the identity is the panel's name (`.tile-tab-title`);
+ *     then the panel's icons (at most three, tile-header-contrib.js) and the
+ *     fixed ⋯ / Open in new window / × cluster. The ⋯ opens the tile's one menu
+ *     (panel-menu-policy.js), the same menu a right-click on the bar opens.
+ *     The × closes the tile LOCALLY (the panel keeps its sidebar row;
+ *     dock-sync routes the click to a vacate handler).
+ *   the Agent tile — an adopted live bar, ⋯, Open in new window and close. In chat it adopts
  *     the console's `.op-session-bar` (status dot, `Agent`, New conversation,
  *     notifications); on the terminal surface it adopts the `.terminal-header`
  *     (session label, session selector, "+ New"). The bar is chosen when the
@@ -24,8 +26,8 @@
  *
  * A pane in its own window keeps this same bar, built in `mode: 'detached'` and
  * moved into the window (pane-window.js): the name, the contributed controls or
- * the adopted Agent bar as above, with Reattach alone in the far-right slot and
- * none of the tile's layout verbs. dockview plays no part there: the caller runs
+ * the adopted Agent bar as above, the ⋯, and Reattach in the far-right slot; its
+ * menu carries none of the tile's layout verbs. dockview plays no part there: the caller runs
  * `init` with the title, moves `element` into the window, then calls `attached`,
  * which registers what belongs to the window's document.
  *
@@ -40,9 +42,9 @@
  * tab drag — is `{tile}` (dock-drop maps it); a sidebar row is `{new}` or
  * `{tab}` (rail-drag.js).
  *
- * Both bar kinds are also a right-click surface: the tile header opens the
- * same verb menu as the panel's sidebar row (panel-context-menu.js), routed
- * through the setTileContextMenuHandler registration seam below.
+ * Both bar kinds are also a right-click surface: a right-click on the bar opens
+ * the same menu as its ⋯ button (panel-context-menu.js), routed through the
+ * setTileContextMenuHandler registration seam below.
  */
 
 import { TERMINAL_RAIL_ID, titleCase } from './panel-catalog.js';
@@ -198,9 +200,10 @@ function sendAgentBarsHome(root) {
 const INTERACTIVE = 'button, select, input, a, [role="button"]';
 
 /**
- * Handler a tile-header right-click is routed to, registered by
- * panel-manager.js at init — it owns the whole menu policy (which verbs, and
- * whether the surface has a menu at all), exactly as it does for the rail.
+ * Handler a tile-bar menu request (the ⋯ button, a right-click) is routed to,
+ * registered by panel-manager.js at init — it owns the whole menu policy
+ * (which verbs, and whether the surface has a menu at all), exactly as it does
+ * for the rail.
  *
  * A registration seam rather than an import, mirroring dock-sync's
  * setTileCloseHandler: panel-manager imports dock-workspace, which imports
@@ -214,8 +217,11 @@ let tileContextMenuHandler = null;
  * header bar: the menu scopes its scroll dismissal to it, so a panel
  * scrolling its own content underneath leaves the menu standing. `mode` says
  * whether the bar is on a tile or in the pane's own window, read when the menu is
- * asked for: the Agent bar is wired once and travels between the two.
- * @typedef {{ x: number, y: number, anchorEl: HTMLElement, mode: TileMode }} TileMenuRequest
+ * asked for: the Agent bar is wired once and travels between the two. With
+ * `triggerEl` (the bar's ⋯ button) the menu hangs under that button instead of
+ * opening at x/y, and a second press closes it.
+ * @typedef {{ x: number, y: number, anchorEl: HTMLElement, mode: TileMode,
+ *   triggerEl?: HTMLElement }} TileMenuRequest
  */
 
 /**
@@ -256,6 +262,40 @@ function wireTileContextMenu(el, idOf) {
     });
     if (opened) e.preventDefault();
   });
+}
+
+/**
+ * The bar's ⋯: the tile's one menu button. A click asks the registered handler
+ * for the same menu a right-click on the bar opens, hung under the button.
+ * Shared with the fallback bar (dock-fallback-bar.js).
+ * @param {() => string | null} idOf  the panel id the menu's verbs act on
+ * @param {HTMLElement} anchorEl  the header surface, for the menu's scroll scoping
+ * @returns {HTMLButtonElement}
+ */
+export function buildTileMenuButton(idOf, anchorEl) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tile-tab-more osprey-icon-btn';
+  btn.appendChild(icon('more'));
+  btn.title = 'Panel menu';
+  btn.setAttribute('aria-label', 'Panel menu');
+  btn.setAttribute('aria-haspopup', 'menu');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.addEventListener('click', (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    const id = idOf();
+    if (id === null) return;
+    const r = btn.getBoundingClientRect();
+    tileContextMenuHandler?.(id, {
+      x: r.left,
+      y: r.bottom,
+      anchorEl,
+      triggerEl: btn,
+      mode: isDetached(id) ? 'detached' : 'tile',
+    });
+  });
+  return btn;
 }
 
 // --- drag sources -----------------------------------------------------------------
@@ -510,6 +550,11 @@ class TileTab {
     });
     root.appendChild(actions);
     this._element = root;
+    // Fixed at the right edge, never folded: ⋯ on every bar, then Open in new
+    // window and × on a tile, Reattach in the pane's own window.
+    actions.appendChild(
+      buildTileMenuButton(() => (terminal ? TERMINAL_RAIL_ID : this._servicePanelId), root)
+    );
 
     if (mode === 'detached') {
       this._reattachEl = buildReattachButton(onReattach);

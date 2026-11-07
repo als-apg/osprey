@@ -431,6 +431,16 @@ def _context_menu(page: Page):
     return page.locator(_RAIL_MENU)
 
 
+def _pick_tile_menu_row(page: Page, tab, label: str) -> None:
+    """Open the tile's ⋯ and run the row labelled ``label``; the menu closes."""
+    tab.locator(".tile-tab-more").click()
+    menu = _context_menu(page)
+    expect(menu).to_be_visible(timeout=5_000)
+    # The first match: "This panel" lists the panel's rows above the Tile verbs.
+    menu.locator(_RAIL_MENU_ITEM, has_text=label).first.click()
+    expect(menu).to_have_count(0, timeout=5_000)
+
+
 def _menu_labels(page: Page) -> list[str]:
     return page.evaluate(_MENU_LABELS_JS)
 
@@ -2405,7 +2415,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             tab = _service_tab(page, "CONTRIB")
             expect(tab.locator(".contrib-nav-link")).to_have_count(2, timeout=10_000)
             expect(tab.locator(".contrib-nav-link").first).to_be_visible()
-            expect(tab.locator(".contrib-overflow-btn")).to_have_count(0)
+            expect(tab.locator(".contrib-hidden")).to_have_count(0)
             expect(tab.locator(".contrib-nav-link.active")).to_have_text("Browse")
             expect(tab.locator(".contrib-btn")).to_have_text("Refresh")
             expect(tab.locator(".tile-tab-contrib.has-items")).to_have_count(1)
@@ -2610,14 +2620,15 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
             focused = page.evaluate("() => document.activeElement?.className ?? ''")
             assert "contrib-search-input" in focused, focused
 
-            # Overflow menu: opens body-level, and an entry click round-trips.
-            tab.locator(".contrib-menu-btn").click()
-            popover = page.locator(".contrib-menu-popover")
-            expect(popover).to_be_visible(timeout=5_000)
-            expect(popover.locator(".contrib-menu-item")).to_have_count(2)
-
-            popover.locator(".contrib-menu-item", has_text="Refresh").click()
-            expect(page.locator(".contrib-menu-popover")).to_have_count(0)
+            # The contributed menu is the tile ⋯'s "This panel" section, and an
+            # entry click round-trips.
+            tab.locator(".tile-tab-more").click()
+            menu = _context_menu(page)
+            expect(menu).to_be_visible(timeout=5_000)
+            headings = menu.locator(".rail-context-heading")
+            expect(headings).to_have_text(["This panel", "Tile"])
+            menu.locator(_RAIL_MENU_ITEM, has_text="Refresh").click()
+            expect(menu).to_have_count(0)
 
             actions = _poll_actions(page, frame, 2)
             assert actions and actions[-1] == ["more", "refresh"], actions
@@ -2815,19 +2826,15 @@ _CANOPY_IFRAME = '.dock-iframe-overlay iframe[data-panel-id="canopy"]'
 def _canopy_activate(page: Page, tab, label: str) -> None:
     """Click the control labelled ``label`` wherever the bar put it.
 
-    On a wide tile it is a button in the bar or an entry of the contributed ⋯;
-    on a narrow one the ladder may have folded it into the bar's own ⋯. Either
-    way it dispatches the same action, so the round-trip is width-independent.
+    On a wide tile it is a button in the bar; a menu entry, or a button the
+    ladder folded on a narrow tile, is a row of the tile ⋯. Either way it
+    dispatches the same action, so the round-trip is width-independent.
     """
     button = tab.locator(".contrib-btn:visible", has_text=label)
     if button.count():
         button.click()
         return
-    tab.locator(".contrib-menu-btn:visible").click()
-    popover = page.locator(".contrib-menu-popover")
-    expect(popover).to_be_visible(timeout=5_000)
-    popover.locator(".contrib-menu-item", has_text=label).click()
-    expect(page.locator(".contrib-menu-popover")).to_have_count(0, timeout=5_000)
+    _pick_tile_menu_row(page, tab, label)
 
 
 @pytest.mark.parametrize("page_name", ["screen", "workspace"])
@@ -2839,30 +2846,29 @@ def test_canopy_header_contribution_renders_exactly_and_round_trips(
     The sidecar is replaced by a stub published at ``app.state.canopy_server_url``
     (what a started sidecar publishes), so the iframe is CANOPY's real mount,
     ``/panel/canopy/embed/…`` through the panel proxy. The hub must render one
-    element per contributed item — counted by ``[data-contrib-key]``, folded
-    ones included, so the count does not depend on the tile's width — with
-    exactly one ⋯ visible, and every button and every ⋯ entry must reach the
+    element per contributed item but the retired ``text`` — counted by
+    ``[data-contrib-key]``, folded ones included, so the count does not depend
+    on the tile's width — with the tile's one ⋯, and every button and every ⋯
+    entry must reach the
     frame as ``canopy-host-header-action`` carrying CANOPY's ids: a button sends
     ``{id}``, a menu entry ``{id: "more", value: <entry id>}``.
     """
     spec = _CANOPY_PAGES[page_name]
-    items = spec["items"]
+    # The bar shows no subtitle: a `text` item is dropped like an unknown kind.
+    items = [it for it in spec["items"] if it["kind"] != "text"]
     expected_keys = sorted(f"{it['kind']}:{it['id']}" for it in items)
 
     with _canopy_hub(tmp_path, chromium_browser, page_name) as (page, base_url):
         tab = _service_tab(page, "CANOPY")
-        (text_item,) = [it for it in items if it["kind"] == "text"]
-        expect(tab.locator(".contrib-text")).to_have_text(text_item["text"], timeout=10_000)
-
-        # Exactly the contributed set: no item dropped, none duplicated, nothing
-        # added under a contribution key (the bar's own ⋯ carries none).
         keyed = tab.locator("[data-contrib-key]")
-        expect(keyed).to_have_count(len(items))
+        expect(keyed).to_have_count(len(items), timeout=10_000)
+
+        # Exactly the contributed set: no item dropped, none duplicated.
         keys = keyed.evaluate_all("(els) => els.map((el) => el.dataset.contribKey)")
         assert sorted(keys) == expected_keys, keys
-        # One ⋯ only: either the contributed menu, or — when it has folded on a
-        # narrow tile — the bar's own overflow, never both.
-        expect(tab.locator(".contrib-menu-btn:visible")).to_have_count(1)
+        # One ⋯ only, the tile's: a contributed menu renders no button.
+        expect(tab.locator(".tile-tab-more")).to_have_count(1)
+        expect(tab.locator("[data-contrib-key^='menu:']:visible")).to_have_count(0)
 
         # The frame sits at this page's path under CANOPY's mount, same origin.
         frame_url = page.locator(_CANOPY_IFRAME).evaluate("(el) => el.contentWindow.location.href")
@@ -2936,7 +2942,7 @@ _GHOST_ICON_PROBE = """
     const r = el.getBoundingClientRect();
     return { w: Math.round(r.width), h: Math.round(r.height) };
   };
-  const icons = [...ghost.querySelectorAll('.bar-icon')].map((el) => ({
+  const icons = [...ghost.querySelectorAll('.bar-icon, svg.osprey-ic')].map((el) => ({
     cls: el.getAttribute('class'),
     ...box(el),
     parent: el.parentElement.getAttribute('class') || el.parentElement.tagName,
@@ -2999,8 +3005,8 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
             assert probe["live"] == {"w": 12, "h": 12}, probe["live"]
 
             icons = probe["icons"]
-            # The bar always renders a close ×, and this panel adds a search
-            # magnifier — a ghost with no icons would be a vacuous pass.
+            # The bar always renders its ⋯ and close ×, and this panel adds a
+            # search magnifier — a ghost with no icons would be a vacuous pass.
             assert len(icons) >= 2, icons
             assert any("search" in i["cls"] for i in icons), icons
 
@@ -3444,20 +3450,23 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             page.wait_for_timeout(500)
             expect(_context_menu(page)).to_have_count(0)
 
-            # The bar itself is a menu surface, with the same verbs the rail
-            # entry offers.
+            # The bar itself is a menu surface: the same menu as its ⋯, the
+            # panel's own rows over the tile verbs.
             tab.locator(".tile-tab-title").click(button="right")
             menu = _context_menu(page)
             expect(menu).to_have_count(1, timeout=5_000)
             expect(menu).to_have_attribute("aria-label", "Searchy actions")
             assert _menu_labels(page) == [
-                "Focus Searchy",
+                "All sessions",
+                "Refresh",
                 "Open in a new tile",
-                "Open in new window",
                 "Move to Sessions",
                 "Move to System",
                 "Move to new group…",
+                "Open in new window",
+                "Reload",
                 "Remove from rail",
+                "Reset layout",
             ], _menu_labels(page)
 
             page.close()

@@ -72,6 +72,7 @@ export function openContents(button, note) {
     x: rect.left,
     y: rect.bottom,
     anchorEl: button,
+    triggerEl: button,
     items: headings.length
       ? headings.map((heading) => ({
           label: (heading.textContent ?? '').trim(),

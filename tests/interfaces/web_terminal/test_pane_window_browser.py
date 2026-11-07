@@ -625,25 +625,44 @@ def test_a_detached_panel_shows_its_search_and_the_ladder_follows_the_window(
         expect(search).not_to_have_class(re.compile(r"contrib-search-collapsed"), timeout=5_000)
 
 
-def test_a_contributed_menu_opens_in_the_window_and_closes_on_a_click_into_the_panel(
+def test_the_window_bars_menu_opens_there_and_closes_on_a_click_into_the_panel(
     tmp_path, chromium_browser
 ):
     with _panel_with_controls_in_a_window(tmp_path, chromium_browser) as (page, popup):
-        popover = popup.locator(".contrib-menu-popover")
-        popup.locator(f"{_BAR} .contrib-menu-btn").click()
-        expect(popover).to_be_visible()
-        expect(popover.locator(".contrib-menu-item")).to_have_count(2)
-        expect(page.locator(".contrib-menu-popover")).to_have_count(0)
+        menu = popup.locator(_MENU)
+        popup.locator(f"{_BAR} .tile-tab-more").click()
+        expect(menu).to_be_visible()
+        # The panel's two contributed rows, then Reattach and Reload: nothing
+        # that acts on the dock.
+        labels = menu.locator(".rail-context-label").all_inner_texts()
+        assert labels == ["All sessions", "Refresh", "Reattach", "Reload", "Remove from rail"], (
+            labels
+        )
+        expect(page.locator(_MENU)).to_have_count(0)
 
         frame = popup.locator('iframe.panel-iframe[data-panel-id="search-demo"]').bounding_box()
         popup.mouse.click(frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2)
-        expect(popover).to_have_count(0, timeout=5_000)
+        expect(menu).to_have_count(0, timeout=5_000)
 
         # A press on the bar itself: the window's own node, of the window's realm.
-        popup.locator(f"{_BAR} .contrib-menu-btn").click()
-        expect(popover).to_be_visible()
+        popup.locator(f"{_BAR} .tile-tab-more").click()
+        expect(menu).to_be_visible()
         popup.locator(f"{_BAR} .tile-tab-title").click()
-        expect(popover).to_have_count(0, timeout=5_000)
+        expect(menu).to_have_count(0, timeout=5_000)
+
+
+def test_the_window_bar_renders_the_panels_icons_and_its_menu_runs_there(hub, page):
+    _boot_with_artifacts(page, hub)
+    popup = _detach_artifacts(page)
+    icons = popup.locator(f"{_BAR} .contrib-icon")
+    expect(icons).to_have_count(2, timeout=_TIMEOUT_MS)
+    expect(icons.first).to_have_attribute("aria-label", "Artifact details")
+    popup.locator(f"{_BAR} .tile-tab-more").click()
+    menu = popup.locator(_MENU)
+    expect(menu).to_be_visible(timeout=5_000)
+    labels = menu.locator(".rail-context-label").all_inner_texts()
+    assert "Reattach" in labels and "Reload" in labels, labels
+    assert "Reset layout" not in labels, labels
 
 
 def test_a_right_click_on_the_window_bar_opens_there_without_the_docks_verbs(
@@ -722,8 +741,8 @@ def test_reloading_a_service_panels_window_keeps_it_detached_on_its_page_with_it
         assert not any("search-demo" in tile for tile in _tiles(page))
 
         # What was bound to the old document is bound to this one.
-        popup.locator(f"{_BAR} .contrib-menu-btn").click()
-        expect(popup.locator(".contrib-menu-popover")).to_be_visible()
+        popup.locator(f"{_BAR} .tile-tab-more").click()
+        expect(popup.locator(_MENU)).to_be_visible(timeout=5_000)
         popup.keyboard.press("Escape")
         popup.locator(f"{_BAR} .tile-tab-title").click(button="right")
         expect(popup.locator(_MENU)).to_be_visible(timeout=5_000)

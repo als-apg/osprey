@@ -54,6 +54,11 @@ vi.mock(
   })
 );
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => term);
+const frames = vi.hoisted(() => ({ reloadPanel: vi.fn(() => true) }));
+vi.mock(
+  '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js',
+  async (original) => ({ .../** @type {object} */ (await original()), ...frames })
+);
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-export.js', () => chatExport);
 vi.mock(
   '../../../src/osprey/interfaces/web_terminal/static/js/session-model.js',
@@ -331,5 +336,77 @@ describe('the Agent bar in its own window', () => {
     surface.terminal = false;
     expect(labels(policy.buildTerminalMenuItems())).toContain('Reset layout');
     expect(labels(policy.buildTerminalMenuItems({ mode: 'tile' }))).toContain('Close Agent pane');
+  });
+});
+
+describe('a service tile ⋯', () => {
+  /** @param {any[]} items */
+  const rows = (items) =>
+    items.map((i) => i.heading ?? i.label).filter((l) => l && !String(l).startsWith('Move to'));
+
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-docs-url');
+    policy.setServiceMenuExtras('jupyter', null);
+    paneWindow.isDetached.mockReturnValue(false);
+  });
+
+  test('docked: the Tile verbs alone, with no heading, and Reload reaches the frame', () => {
+    const items = policy.buildTileMenuItems('ariel');
+    expect(rows(items)).toEqual([
+      'Open in a new tile',
+      'Open in new window',
+      'Reload',
+      'Remove from rail',
+      'Reset layout',
+    ]);
+    items.find((/** @type {any} */ i) => i.label === 'Reload').run();
+    expect(frames.reloadPanel).toHaveBeenCalledExactlyOnceWith('ariel');
+  });
+
+  test("the panel's own rows head the menu as This panel, and Help shows with a docs page", () => {
+    document.documentElement.dataset.docsUrl = 'https://docs.example/';
+    policy.setServiceMenuExtras('jupyter', () => [{ label: 'Show server log', run: () => {} }]);
+    expect(rows(policy.buildTileMenuItems('jupyter'))).toEqual([
+      'This panel',
+      'Show server log',
+      'Tile',
+      'Open in a new tile',
+      'Open in new window',
+      'Reload',
+      'Help',
+      'Remove from rail',
+      'Reset layout',
+    ]);
+    // No docs page for the panel, no Help.
+    expect(rows(policy.buildTileMenuItems('tuning'))).not.toContain('Help');
+  });
+
+  test('in the pane’s own window: Reattach, Reload, Help and the rail row, nothing that acts on the dock', () => {
+    document.documentElement.dataset.docsUrl = 'https://docs.example/';
+    paneWindow.isDetached.mockReturnValue(true);
+    policy.setServiceMenuExtras('jupyter', () => [{ label: 'Show server log', run: () => {} }]);
+    expect(rows(policy.buildTileMenuItems('jupyter', { mode: 'detached' }))).toEqual([
+      'This panel',
+      'Show server log',
+      'Tile',
+      'Reattach',
+      'Reload',
+      'Help',
+      'Remove from rail',
+    ]);
+  });
+
+  test('the ⋯ button hangs the menu under itself; a second press closes it', () => {
+    const anchorEl = document.createElement('div');
+    const triggerEl = document.createElement('button');
+    anchorEl.append(triggerEl);
+    document.body.append(anchorEl);
+    const opts = { x: 0, y: 0, anchorEl, triggerEl, mode: /** @type {const} */ ('tile') };
+    expect(policy.openTileContextMenu('ariel', opts)).toBe(true);
+    expect(triggerEl.getAttribute('aria-expanded')).toBe('true');
+    expect(menuLabels()).toContain('Reload');
+    policy.openTileContextMenu('ariel', opts);
+    expect(document.querySelector('.rail-context-menu')).toBeNull();
+    expect(triggerEl.getAttribute('aria-expanded')).toBe('false');
   });
 });

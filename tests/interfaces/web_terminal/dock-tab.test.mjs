@@ -173,7 +173,7 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('a service tile has an Open in new window button before its close, an icon button with the popout icon', async () => {
+  test('a service tile has ⋯, then an Open in new window button before its close, an icon button with the popout icon', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
@@ -181,6 +181,7 @@ describe('tile-tab renderer', () => {
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
     const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-window'));
     expect([...actions.children].map((el) => el.className)).toEqual([
+      'tile-tab-more osprey-icon-btn',
       'tile-tab-window osprey-icon-btn',
       'tile-tab-close osprey-icon-btn',
     ]);
@@ -212,6 +213,7 @@ describe('tile-tab renderer', () => {
 
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Panel menu',
       'Open in new window',
       'Close Agent pane',
     ]);
@@ -391,6 +393,7 @@ describe('tile-tab renderer', () => {
         'Switch session',
         'New conversation',
         'Desktop notifications',
+        'Panel menu',
         'Open in new window',
         'Close Agent pane',
       ]);
@@ -767,7 +770,7 @@ describe('the bars on a real dock', () => {
     return { mod, api, root, holder, barOf };
   }
 
-  test('a service bar: its title, contribution region, Open in new window and Close tile — no strip', async () => {
+  test('a service bar: its title, contribution region, ⋯, Open in new window and Close tile — no strip', async () => {
     const { root, barOf } = await mountBars();
     expect(root.querySelectorAll('.tile-tab')).toHaveLength(2);
     const bar = barOf('t1');
@@ -781,6 +784,7 @@ describe('the bars on a real dock', () => {
     expect(bar.querySelector('.tile-tab-title')?.textContent).toBe('Ariel');
     const actions = /** @type {HTMLElement} */ (bar.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Panel menu',
       'Open in new window',
       'Close tile',
     ]);
@@ -859,14 +863,17 @@ describe('the bar of a pane in its own window', () => {
     document.body.innerHTML = '';
   });
 
-  test('Reattach is the far-right slot, alone: no open-in-window button and no ×', async () => {
+  test('Reattach is the far-right slot, after the ⋯: no open-in-window button and no ×', async () => {
     const { createTileTab } = await import(MOD);
     const onReattach = vi.fn();
     const tab = createTileTab('ariel', { mode: 'detached', onReattach });
     tab.init({ title: 'ARIEL' });
     const actions = tab.element.querySelector('.tile-tab-actions');
     expect(tab.element.lastElementChild).toBe(actions);
-    expect(actions.children).toHaveLength(1);
+    expect([...actions.children].map((el) => el.className)).toEqual([
+      'tile-tab-more osprey-icon-btn',
+      'tile-tab-reattach osprey-btn',
+    ]);
     const reattach = actions.lastElementChild;
     expect(reattach.classList.contains('tile-tab-reattach')).toBe(true);
     expect(reattach.textContent).toBe('Reattach');
@@ -875,6 +882,43 @@ describe('the bar of a pane in its own window', () => {
     expect(tab.element.querySelector('.tile-tab-close')).toBeNull();
     reattach.click();
     expect(onReattach).toHaveBeenCalledTimes(1);
+  });
+
+  test('its ⋯ asks for the tile menu hung under it, in detached mode; docked, in tile mode', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const { initLayoutHolder } = await import(`${JS}/dock-apply.js`);
+    const holder = initLayoutHolder({ dockPx: { width: 1200, height: 800 } });
+    holder.restore({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['ariel'], showing: 'ariel', size: 0.5 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.5 },
+      ],
+    });
+    /** @type {any} */
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const docked = createTileTab('iframe:ariel');
+    docked.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    const dockedMore = /** @type {HTMLElement} */ (docked.element.querySelector('.tile-tab-more'));
+    dockedMore.click();
+    expect(handler.mock.lastCall?.[0]).toBe('ariel');
+    expect(handler.mock.lastCall?.[1]).toMatchObject({
+      anchorEl: docked.element,
+      triggerEl: dockedMore,
+      mode: 'tile',
+    });
+
+    holder.detach('ariel', null);
+    docked.dispose();
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    const more = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more'));
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    more.click();
+    expect(handler.mock.lastCall?.[0]).toBe('ariel');
+    expect(handler.mock.lastCall?.[1]).toMatchObject({ triggerEl: more, mode: 'detached' });
+    setTileContextMenuHandler(null);
   });
 
   test('it has the pane’s name, and no tile', async () => {
@@ -899,7 +943,7 @@ describe('the bar of a pane in its own window', () => {
     const { createTileTab } = await import(MOD);
     const contrib = await import(`${JS}/tile-header-contrib.js`);
     const dispatch = vi.fn();
-    contrib.contributeLocal('ariel', [{ kind: 'text', id: 'a', text: 'hello' }], dispatch);
+    contrib.contributeLocal('ariel', [{ kind: 'button', id: 'a', label: 'hello' }], dispatch);
     const tab = createTileTab('ariel', REATTACH);
     tab.init({ title: 'ARIEL' });
     const host = tab.element.querySelector('.tile-tab-contrib');

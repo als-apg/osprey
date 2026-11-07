@@ -18,7 +18,7 @@ const m = vi.hoisted(() => ({
   onPanelStart: vi.fn(),
   restartPanelServer: vi.fn(() => Promise.resolve()),
   retryPanelStart: vi.fn(() => Promise.resolve()),
-  managedIframe: vi.fn(),
+  reloadPanel: vi.fn(),
   fetchJSON: vi.fn(),
 }));
 
@@ -32,7 +32,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy
   setServiceMenuExtras: m.setServiceMenuExtras,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
-  managedIframe: m.managedIframe,
+  reloadPanel: m.reloadPanel,
   setPanelBodyState: m.setPanelBodyState,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js', () => ({
@@ -113,45 +113,10 @@ describe('tile bar', () => {
     ]);
   });
 
-  test('Reload reloads the notebook frame', () => {
-    const reload = vi.fn();
-    m.managedIframe.mockReturnValue({
-      iframe: { contentWindow: { location: { reload } } },
-      title: 'Jupyter',
-    });
+  test('Reload reloads the notebook frame through the shared reloadPanel', () => {
     const [, , dispatch] = lastBar();
     dispatch('reload');
-    expect(m.managedIframe).toHaveBeenCalledWith('jupyter');
-    expect(reload).toHaveBeenCalledOnce();
-  });
-
-  test('a frame this page may not read reloads by being pointed at itself', () => {
-    const iframe = {
-      src: '/lab',
-      getAttribute: () => '/lab',
-      get contentWindow() {
-        throw new Error('cross-origin');
-      },
-    };
-    const writes = vi.fn();
-    m.managedIframe.mockReturnValue({
-      iframe: new Proxy(iframe, {
-        set(target, key, value) {
-          writes(key, value);
-          return Reflect.set(target, key, value);
-        },
-      }),
-      title: 'Jupyter',
-    });
-    const [, , dispatch] = lastBar();
-    dispatch('reload');
-    expect(writes).toHaveBeenCalledWith('src', '/lab');
-  });
-
-  test('Reload with no frame yet does nothing', () => {
-    m.managedIframe.mockReturnValue(null);
-    const [, , dispatch] = lastBar();
-    expect(() => dispatch('reload')).not.toThrow();
+    expect(m.reloadPanel).toHaveBeenCalledWith('jupyter');
   });
 
   test('Reload is disabled while the server starts or after it failed, and back once it runs', () => {

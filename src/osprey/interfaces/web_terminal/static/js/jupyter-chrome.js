@@ -18,7 +18,7 @@
  */
 
 import { fetchJSON } from './api.js';
-import { managedIframe, setPanelBodyState } from './dock-iframe.js';
+import { reloadPanel, setPanelBodyState } from './dock-iframe.js';
 import { PANELS } from './panel-catalog.js';
 import { onPanelStart, restartPanelServer, retryPanelStart } from './panel-lifecycle.js';
 import { setServiceMenuExtras } from './panel-menu-policy.js';
@@ -70,20 +70,8 @@ function drawBar() {
 
 /** @param {string} id */
 function onBarAction(id) {
-  if (id === 'reload') reloadLab();
-}
-
-/** Load the Lab frame again. The sidecar and its kernels keep running. */
-function reloadLab() {
-  const iframe = managedIframe(JUPYTER_PANEL_ID)?.iframe;
-  if (!iframe) return;
-  try {
-    /** @type {Window} */ (iframe.contentWindow).location.reload();
-  } catch {
-    // A frame this page may not read reloads by being pointed at itself.
-    const src = iframe.getAttribute('src');
-    if (src !== null) iframe.src = src;
-  }
+  // The sidecar and its kernels keep running.
+  if (id === 'reload') reloadPanel(JUPYTER_PANEL_ID);
 }
 
 /**

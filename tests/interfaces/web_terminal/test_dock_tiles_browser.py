@@ -1388,39 +1388,30 @@ def test_removing_a_panel_from_the_rail_leaves_the_other_tiles_alone(tmp_path, c
 #: labelled buttons. Every action it dispatches is recorded.
 _ARTIFACTS_HEADER_JS = """async (title) => {
   const { contributeLocal } = await import('/static/js/tile-header-contrib.js');
+  const { headerItems } = await import('/static/js/artifacts-pane-header.js');
+  const shown = { id: 'x', filename: 'plot.png', title };
   window.__picked = [];
-  contributeLocal('artifacts', [
-    { kind: 'crumb', id: 'crumb', root: 'Artifacts', leaf: title },
-    { kind: 'button', id: 'prev', icon: 'chevron-left', title: 'Previous artifact', priority: 9 },
-    { kind: 'text', id: 'pager', text: '4 of 12', priority: 9 },
-    { kind: 'button', id: 'next', icon: 'chevron-right', title: 'Next artifact', priority: 9 },
-    { kind: 'sep', id: 'sep' },
-    { kind: 'button', id: 'open', icon: 'maximize', label: 'Open full size',
-      title: 'Open full size', tone: 'accent', priority: 5 },
-    { kind: 'button', id: 'save', icon: 'save', label: 'Save', title: 'Save', priority: 5 },
-  ], (id) => { window.__picked.push(id); });
+  contributeLocal('artifacts', headerItems(shown), (id) => { window.__picked.push(id); });
 }"""
 
-#: The overflow menu's row for each control the artifacts header can fold.
+#: The tile ⋯ row for each panel icon the artifacts header can fold (an icon's
+#: row is named by its title).
 _ARTIFACT_FOLD_LABELS = {
-    "button:open": "Open full size",
-    "button:save": "Save",
-    "button:prev": "Previous artifact",
-    "button:next": "Next artifact",
+    "icon:info": "Artifact details",
+    "icon:download": "Download",
 }
 
 
-def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_overflow_menu(
-    tmp_path, chromium_browser
-):
-    """In a quarter-width tile the artifacts bar spans its tile and its ⋯ menu stays open.
+def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_tile_menu(tmp_path, chromium_browser):
+    """In a narrow tile the artifacts bar spans its tile and the tile ⋯ holds what folded.
 
-    The tab release's defect: a hub-drawn header (a crumb, a pager, two labelled
-    buttons) collapsed the header of a tile holding several panels
-    to nothing and folded every control into ⋯, whose menu then closed itself
-    as the clipped region scrolled to the focused button. With one panel per
-    tile the bar is the tile's whole header, the folded controls are named in
-    the menu, a real click keeps it open, and a row runs the control it
+    The tab release's defect: the artifacts header collapsed the header of a
+    tile holding several panels to nothing and folded every control away, and
+    the menu that held them closed itself as the clipped region scrolled to
+    the focused button. With one panel per tile the bar is the tile's whole
+    header. The panel icons the width cannot hold (Info, Download) take class
+    `contrib-hidden` and are rows under the tile menu's "This panel" heading,
+    a real click on ⋯ keeps the menu open, and a row runs the control it
     stands for.
     """
     with _hub(tmp_path) as hub:
@@ -1432,39 +1423,44 @@ def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_overflow_menu(
             page,
             _split(
                 "row",
-                _tile("t1", "artifacts", size=0.25),
-                _tile("t2", "a", size=0.45),
+                _tile("t1", "artifacts", size=0.12),
+                _tile("t2", "a", size=0.58),
                 _tile("t3", TERMINAL, size=0.3),
             ),
         )
         # The sidebar's own artifacts header has landed before this one replaces it.
         page.wait_for_timeout(500)
-        title = "A fairly long artifact name for the crumb"
+        title = "A fairly long artifact name"
         page.evaluate(_ARTIFACTS_HEADER_JS, title)
         bar = _bar(page, "artifacts")
-        expect(bar.locator(".osprey-crumb-leaf")).to_have_text(title, timeout=5_000)
+        expect(bar.locator("[data-contrib-key='icon:info']")).to_be_attached(timeout=5_000)
 
         state = _settle(page)
         tile = state["tiles"][_tile_of(state, "artifacts")]
         assert abs(tile["bar"]["width"] - tile["row"]["width"]) <= PX, tile
 
-        overflow = bar.locator(".contrib-overflow-btn")
-        expect(overflow).to_be_visible(timeout=5_000)
-        folded = (overflow.get_attribute("data-folded-keys") or "").split("\n")
-        assert folded and all(key in _ARTIFACT_FOLD_LABELS for key in folded), folded
+        folded = bar.locator("[data-contrib-key].contrib-hidden")
+        expect(folded.first).to_be_attached(timeout=5_000)
+        keys = folded.evaluate_all("els => els.map(e => e.dataset.contribKey)")
+        assert keys and all(key in _ARTIFACT_FOLD_LABELS for key in keys), keys
 
-        overflow.click()
+        bar.locator(".tile-tab-more").click()
         page.wait_for_timeout(300)
-        popover = page.locator(".contrib-menu-popover")
-        expect(popover).to_have_count(1)
-        rows = popover.locator(".contrib-menu-item")
-        labels = [text.strip() for text in rows.all_inner_texts()]
-        assert labels == [_ARTIFACT_FOLD_LABELS[key] for key in folded], (labels, folded)
+        menu = page.locator(".rail-context-menu")
+        expect(menu).to_have_count(1)
+        expect(menu.locator(".rail-context-heading", has_text="This panel")).to_have_count(1)
+        rows = menu.locator(".rail-context-item")
+        labels = [text.strip() for text in menu.locator(".rail-context-label").all_inner_texts()]
+        for key in keys:
+            assert _ARTIFACT_FOLD_LABELS[key] in labels, (labels, keys)
 
-        enabled = [n for n in range(rows.count()) if rows.nth(n).is_enabled()]
-        assert enabled, labels
-        rows.nth(enabled[0]).click()
-        expect(popover).to_have_count(0, timeout=5_000)
-        picked = folded[enabled[0]].split(":", 1)[1]
-        assert page.evaluate("() => window.__picked") == [picked]
+        key = keys[0]
+        row = rows.filter(
+            has=page.locator(".rail-context-label", has_text=_ARTIFACT_FOLD_LABELS[key])
+        )
+        expect(row).to_have_count(1)
+        expect(row).not_to_have_attribute("aria-disabled", "true")
+        row.click()
+        expect(menu).to_have_count(0, timeout=5_000)
+        assert page.evaluate("() => window.__picked") == [key.split(":", 1)[1]]
         assert hub.errors == []

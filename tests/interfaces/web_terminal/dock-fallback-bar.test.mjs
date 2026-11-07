@@ -1,7 +1,7 @@
 /**
- * Unit tests for the no-dockview fallback's tile bar (initFallbackTileBar in
- * dock-workspace.js), happy-dom environment:
- *   npx vitest run tests/interfaces/web_terminal/js/dock-workspace-fallback.test.js
+ * Unit tests for the no-dockview fallback's tile bar (dock-fallback-bar.js,
+ * mounted by dock-workspace.js), happy-dom environment:
+ *   npx vitest run tests/interfaces/web_terminal/dock-fallback-bar.test.mjs
  *
  * Embed contract v2 gives an embedded panel exactly one header, the hub's tile
  * bar, and panels hide their in-body copies of what they contribute. When the
@@ -26,19 +26,19 @@ beforeAll(() => {
   }
 });
 
-vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
   fitTerminal: () => {},
   getCurrentSessionId: () => null,
 }));
-vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/api.js', () => ({
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/api.js', () => ({
   fetchJSON: async () => ({}),
 }));
 
 import {
   initDockWorkspace,
   isTerminalPanelOpen,
-} from '../../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js';
-import { initHeaderContrib } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
+} from '../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js';
+import { initHeaderContrib } from '../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
 
 /** Let MutationObserver callbacks run. */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -149,6 +149,34 @@ describe('hub with no dockview', () => {
       { type: 'canopy-host-header-action', id: 'session-open' },
       window.location.origin
     );
+  });
+
+  test('the bar carries the tile ⋯ after the region — no Open in new window, no ×', async () => {
+    const { setTileContextMenuHandler } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/dock-tab.js');
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    initDockWorkspace();
+    const host = /** @type {HTMLElement} */ (document.getElementById('right-panel'));
+    host.dataset.activePanel = 'tuning';
+    await flush();
+
+    expect([...bar().children].map((el) => el.classList[0])).toEqual([
+      'tile-tab-title',
+      'tile-tab-contrib',
+      'tile-tab-actions',
+    ]);
+    expect([...bar().querySelectorAll('.tile-tab-actions > *')].map((el) => el.className)).toEqual([
+      'tile-tab-more osprey-icon-btn',
+    ]);
+
+    // The ⋯ asks the policy for the ACTIVE panel's menu.
+    /** @type {HTMLButtonElement} */ (bar().querySelector('.tile-tab-more')).click();
+    expect(handler).toHaveBeenCalledTimes(1);
+    const [id, opts] = /** @type {any[]} */ (handler.mock.calls[0]);
+    expect(id).toBe('tuning');
+    expect(opts.anchorEl).toBe(bar());
+    setTileContextMenuHandler(null);
   });
 
   test('a contribution that arrives before activation renders once the panel is active', async () => {

@@ -246,6 +246,25 @@ document order relative to the panel's tile — after ``backward``, that is the
 tile's header. It acts only on a message from its own origin and from the
 frame of a panel it shows.
 
+Controls in the tile bar
+------------------------
+
+An embedded panel draws no header of its own. It sends its tile-bar items with
+``contributeHeader(items)`` from the design system's ``header-contrib.js``
+and hears clicks with ``onHeaderAction(callback)``. Each send replaces the
+last. A panel sends two kinds:
+
+- ``{kind: 'icon', id, icon, title}``: an icon button in the bar. ``icon`` is
+  a name from ``icons.js``, and ``title`` is its tooltip. The bar shows at
+  most three. The rest, lowest ``priority`` first, become rows of the tile's
+  **⋯** menu.
+- ``{kind: 'menu', id, items: [{id, label}]}``: rows in the **This panel**
+  section of the tile's **⋯** menu. An entry can set ``checked``,
+  ``disabled``, ``danger`` (listed last) and ``separator`` (a line
+  above it).
+
+Everything else a panel needs goes in its own toolbar, inside the panel.
+
 The Bluesky panel
 -----------------
 

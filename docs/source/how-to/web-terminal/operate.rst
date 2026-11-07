@@ -85,7 +85,13 @@ Tiles
 -----
 
 The work pane is tiles, and a tile shows one panel. Its header shows the
-panel's name, the panel's controls, **Pop out** and **×**.
+panel's name, up to three of the panel's icons, **⋯**, **Open in new window**
+and **×**.
+
+**⋯**, or a right-click on the header, opens the tile's menu. **This panel**
+lists the panel's own actions and any icons a narrow tile has no room for.
+**Tile** lists the tile's actions, among them **Reload** and, when the panel
+has a documentation page, **Help**.
 
 A panel you open — from its sidebar row, from a link, from the **+** menu,
 from a pop-out window coming back, or one the agent opens for you — takes the

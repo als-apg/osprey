@@ -7,8 +7,10 @@
  * Covers the receive pipeline (origin check, source→panel-id resolution
  * against live iframes, vocabulary sanitization), the per-panel contribution
  * cache vs. host-registration ordering, rendering (textContent only — no
- * markup injection), the action round-trip back to the iframe, and the
- * hub's own contributions (contributeLocal), whose actions stay in the hub.
+ * markup injection), the action round-trip back to the iframe, the hub's own
+ * contributions (contributeLocal), whose actions stay in the hub, and the
+ * fold ladder, whose fold target is the tile ⋯ ("This panel" rows from
+ * panelMenuRows) rather than a button of the bar's own.
  *
  * The module keeps page-lifetime state (wired listener, contribution cache),
  * matching production where it lives as long as the shell does — tests use
@@ -32,10 +34,10 @@ beforeAll(() => {
 import {
   contributeLocal,
   initHeaderContrib,
+  panelMenuRows,
   registerContribHost,
   unregisterContribHost,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
-import { closeMenu } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-items.js';
 
 /** Monotonic id source so each test gets an isolated panel id. */
 let seq = 0;
@@ -81,7 +83,6 @@ initHeaderContrib();
 initHeaderContrib(); // idempotent — a second call must not double-listen
 
 afterEach(() => {
-  closeMenu();
   document.body.replaceChildren();
 });
 
@@ -92,7 +93,6 @@ afterEach(() => {
 const ARTIFACT_HEADER = [
   { kind: 'crumb', id: 'crumb', root: 'Artifacts', leaf: 'SR lattice betatron tunes' },
   { kind: 'button', id: 'prev', icon: 'chevron-left', title: 'Previous artifact', priority: 9 },
-  { kind: 'text', id: 'pager', text: '3 of 12', priority: 9 },
   { kind: 'button', id: 'next', icon: 'chevron-right', title: 'Next artifact', priority: 9 },
   { kind: 'sep', id: 'sep' },
   {
@@ -114,9 +114,9 @@ describe('receive pipeline', () => {
     const host = document.createElement('div');
     registerContribHost(panelId, host);
 
-    deliverContribution([{ kind: 'text', id: 'name', text: 'bl4c_v2' }], contentWindow);
+    deliverContribution([{ kind: 'button', id: 'name', label: 'bl4c_v2' }], contentWindow);
 
-    expect(host.querySelector('.contrib-text')?.textContent).toBe('bl4c_v2');
+    expect(host.querySelector('.contrib-btn')?.textContent).toBe('bl4c_v2');
     expect(host.classList.contains('has-items')).toBe(true);
   });
 
@@ -131,25 +131,25 @@ describe('receive pipeline', () => {
         data: {
           type: 'osprey-header-contribution',
           version: 1,
-          items: [{ kind: 'text', id: 'name', text: 'old' }],
+          items: [{ kind: 'button', id: 'name', label: 'old' }],
         },
         origin: window.location.origin,
         source: /** @type {any} */ (contentWindow),
       })
     );
 
-    expect(host.querySelector('.contrib-text')?.textContent).toBe('old');
+    expect(host.querySelector('.contrib-btn')?.textContent).toBe('old');
   });
 
   test('caches a contribution that arrives before the host registers', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
 
-    deliverContribution([{ kind: 'text', id: 'name', text: 'early' }], contentWindow);
+    deliverContribution([{ kind: 'button', id: 'name', label: 'early' }], contentWindow);
     const host = document.createElement('div');
     registerContribHost(panelId, host);
 
-    expect(host.querySelector('.contrib-text')?.textContent).toBe('early');
+    expect(host.querySelector('.contrib-btn')?.textContent).toBe('early');
   });
 
   test('a later contribution replaces the earlier one wholesale', () => {
@@ -177,7 +177,7 @@ describe('receive pipeline', () => {
     const host = document.createElement('div');
     registerContribHost(panelId, host);
 
-    deliverContribution([{ kind: 'text', id: 'name', text: 'x' }], contentWindow);
+    deliverContribution([{ kind: 'button', id: 'name', label: 'x' }], contentWindow);
     deliverContribution([], contentWindow);
 
     expect(host.children.length).toBe(0);
@@ -191,7 +191,7 @@ describe('receive pipeline', () => {
     registerContribHost(panelId, host);
 
     deliverContribution(
-      [{ kind: 'text', id: 'name', text: 'evil' }],
+      [{ kind: 'button', id: 'name', label: 'evil' }],
       contentWindow,
       'https://evil.example'
     );
@@ -205,7 +205,7 @@ describe('receive pipeline', () => {
     const host = document.createElement('div');
     registerContribHost(panelId, host);
 
-    deliverContribution([{ kind: 'text', id: 'name', text: 'spoof' }], { postMessage() {} });
+    deliverContribution([{ kind: 'button', id: 'name', label: 'spoof' }], { postMessage() {} });
 
     expect(host.children.length).toBe(0);
   });
@@ -220,10 +220,10 @@ describe('receive pipeline', () => {
     registerContribHost(panelA, hostA);
     registerContribHost(panelB, hostB);
 
-    deliverContribution([{ kind: 'text', id: 'name', text: 'from B' }], windowB);
+    deliverContribution([{ kind: 'button', id: 'name', label: 'from B' }], windowB);
 
     expect(hostA.children.length).toBe(0);
-    expect(hostB.querySelector('.contrib-text')?.textContent).toBe('from B');
+    expect(hostB.querySelector('.contrib-btn')?.textContent).toBe('from B');
   });
 });
 
@@ -256,12 +256,12 @@ describe('sanitization', () => {
     registerContribHost(panelId, host);
 
     deliverContribution(
-      [{ kind: 'text', id: 't', text: '<img src=x onerror=alert(1)>' }],
+      [{ kind: 'button', id: 't', label: '<img src=x onerror=alert(1)>' }],
       contentWindow
     );
 
     expect(host.querySelector('img')).toBeNull();
-    expect(host.querySelector('.contrib-text')?.textContent).toBe('<img src=x onerror=alert(1)>');
+    expect(host.querySelector('.contrib-btn')?.textContent).toBe('<img src=x onerror=alert(1)>');
   });
 
   test('clips oversized text and caps item count', () => {
@@ -271,14 +271,14 @@ describe('sanitization', () => {
     registerContribHost(panelId, host);
 
     const flood = Array.from({ length: 40 }, (_, i) => ({
-      kind: 'text',
+      kind: 'button',
       id: `t${i}`,
-      text: 'x'.repeat(500),
+      label: 'x'.repeat(500),
     }));
     deliverContribution(flood, contentWindow);
 
     expect(host.children.length).toBe(12);
-    expect(host.querySelector('.contrib-text')?.textContent?.length).toBe(120);
+    expect(host.querySelector('.contrib-btn')?.textContent?.length).toBe(120);
   });
 
   test('nav entries missing id or label are dropped; empty navs vanish', () => {
@@ -372,19 +372,19 @@ describe('local contribution (the hub owns the header)', () => {
       'B',
     ]);
 
-    contributeLocal(panelId, [{ kind: 'text', id: 'name', text: 'only' }], vi.fn());
+    contributeLocal(panelId, [{ kind: 'button', id: 'name', label: 'only' }], vi.fn());
     expect(host.children.length).toBe(1);
-    expect(host.querySelector('.contrib-text')?.textContent).toBe('only');
+    expect(host.querySelector('.contrib-btn')?.textContent).toBe('only');
   });
 
   test('waits for a host that registers later', () => {
     const panelId = freshPanelId();
-    contributeLocal(panelId, [{ kind: 'text', id: 'name', text: 'early' }], vi.fn());
+    contributeLocal(panelId, [{ kind: 'button', id: 'name', label: 'early' }], vi.fn());
 
     const host = document.createElement('div');
     registerContribHost(panelId, host);
 
-    expect(host.querySelector('.contrib-text')?.textContent).toBe('early');
+    expect(host.querySelector('.contrib-btn')?.textContent).toBe('early');
   });
 
   test('runs the same sanitizer as the message path', () => {
@@ -396,7 +396,7 @@ describe('local contribution (the hub owns the header)', () => {
       panelId,
       [
         { kind: 'chip', id: 'x', text: 'unknown kind' },
-        { kind: 'text', id: 't', text: '<img src=x onerror=alert(1)>' },
+        { kind: 'button', id: 't', label: '<img src=x onerror=alert(1)>' },
       ],
       vi.fn()
     );
@@ -409,7 +409,6 @@ describe('local contribution (the hub owns the header)', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
-    document.body.appendChild(host); // the menu popover positions off a real button
     registerContribHost(panelId, host);
     const dispatch = vi.fn();
 
@@ -429,10 +428,11 @@ describe('local contribution (the hub owns the header)', () => {
     /** @type {HTMLButtonElement} */ (host.querySelector('.contrib-nav-link')).click();
     expect(dispatch).toHaveBeenLastCalledWith('view', 'browse');
 
-    const menuBtn = /** @type {HTMLElement} */ (host.querySelector('.contrib-menu-btn'));
-    menuBtn.dispatchEvent(new Event('click', { bubbles: true }));
-    const row = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-item'));
-    row.dispatchEvent(new Event('click', { bubbles: true }));
+    // The menu renders no button; its entry is a tile-⋯ row.
+    expect(host.querySelector('button[data-contrib-key="menu:more"]')).toBeNull();
+    const [row] = panelMenuRows(panelId);
+    expect(row.label).toBe('Print');
+    row.run?.();
     expect(dispatch).toHaveBeenLastCalledWith('more', 'print');
 
     expect(dispatch).toHaveBeenCalledTimes(3);
@@ -449,16 +449,16 @@ describe('local contribution (the hub owns the header)', () => {
     registerContribHost(localPanel, localHost);
     registerContribHost(otherPanel, otherHost);
 
-    contributeLocal(localPanel, [{ kind: 'text', id: 'name', text: 'from the hub' }], vi.fn());
-    deliverContribution([{ kind: 'text', id: 'name', text: 'from the panel' }], localWindow);
-    deliverContribution([{ kind: 'text', id: 'name', text: 'other panel' }], otherWindow);
+    contributeLocal(localPanel, [{ kind: 'button', id: 'name', label: 'from the hub' }], vi.fn());
+    deliverContribution([{ kind: 'button', id: 'name', label: 'from the panel' }], localWindow);
+    deliverContribution([{ kind: 'button', id: 'name', label: 'other panel' }], otherWindow);
 
-    expect(localHost.querySelector('.contrib-text')?.textContent).toBe('from the hub');
-    expect(otherHost.querySelector('.contrib-text')?.textContent).toBe('other panel');
+    expect(localHost.querySelector('.contrib-btn')?.textContent).toBe('from the hub');
+    expect(otherHost.querySelector('.contrib-btn')?.textContent).toBe('other panel');
   });
 });
 
-describe('overflow ladder', () => {
+describe('fold ladder', () => {
   /**
    * happy-dom does no layout, so crowding is mocked: clientWidth is fixed and
    * scrollWidth derives from the currently-VISIBLE children at deterministic
@@ -468,17 +468,17 @@ describe('overflow ladder', () => {
    * @param {number} clientWidth
    */
   function mockCrowding(host, clientWidth) {
-    Object.defineProperty(host, 'clientWidth', { value: clientWidth, configurable: true });
+    Object.defineProperty(host, 'clientWidth', { configurable: true, get: () => clientWidth });
     Object.defineProperty(host, 'scrollWidth', {
       configurable: true,
       get() {
         let w = 0;
         for (const el of host.children) {
-          if (el.classList.contains('contrib-hidden')) continue;
-          else if (el.classList.contains('contrib-search-collapsed')) w += 24;
+          if (el.classList.contains('contrib-hidden') || /** @type {HTMLElement} */ (el).hidden) {
+            continue;
+          } else if (el.classList.contains('contrib-search-collapsed')) w += 24;
           else if (el.classList.contains('contrib-search')) w += 92;
-          else if (el.classList.contains('contrib-overflow-btn')) w += 24;
-          else if (el.classList.contains('contrib-text')) w += 40;
+          else if (el.classList.contains('contrib-icon')) w += 36;
           else if (el.classList.contains('osprey-crumb')) w += 60;
           else if (el.classList.contains('osprey-head-sep')) w += 10;
           else w += 80;
@@ -488,7 +488,22 @@ describe('overflow ladder', () => {
     });
   }
 
-  test('a crowded bar collapses search to its magnifier before folding anything', () => {
+  /** @param {string} id @param {number} [priority] */
+  const iconItem = (id, priority = 0) => ({
+    kind: 'icon',
+    id,
+    icon: 'refresh',
+    title: id,
+    priority,
+  });
+
+  /** @param {HTMLElement} host */
+  const hiddenKeys = (host) =>
+    [...host.querySelectorAll('.contrib-hidden')].map(
+      (el) => /** @type {HTMLElement} */ (el).dataset.contribKey
+    );
+
+  test('a crowded bar collapses search to its magnifier before folding a legacy control', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
@@ -507,16 +522,15 @@ describe('overflow ladder', () => {
     expect(search?.classList.contains('contrib-search-collapsed')).toBe(true);
     expect(search?.getAttribute('role')).toBe('button');
     expect(host.querySelector('.contrib-hidden')).toBeNull();
-    expect(host.querySelector('.contrib-overflow-btn')).toBeNull();
+    expect(panelMenuRows(panelId)).toEqual([]);
   });
 
-  test('still-crowded controls fold lowest-priority-first into a bar ⋯ menu that round-trips', () => {
+  test('still-crowded legacy controls fold lowest-priority-first into ⋯ rows that round-trip', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
-    document.body.appendChild(host); // popover positions off a real element
     registerContribHost(panelId, host);
-    mockCrowding(host, 120); // nav(80) + button(80) = 160 > 120; fold nav: 80+24 fits
+    mockCrowding(host, 120); // nav(80) + button(80) = 160 > 120; fold nav: 80 fits
 
     deliverContribution(
       [
@@ -534,33 +548,32 @@ describe('overflow ladder', () => {
       contentWindow
     );
 
-    // The lower-priority nav folded; the button stayed; the ⋯ appeared.
+    // The lower-priority nav folded; the button stayed; no button of the bar's own appeared.
     expect(host.querySelector('.contrib-nav')?.classList.contains('contrib-hidden')).toBe(true);
     expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(false);
-    const more = /** @type {HTMLElement} */ (host.querySelector('.contrib-overflow-btn'));
-    expect(more).toBeTruthy();
+    expect(host.querySelectorAll(':scope > button').length).toBe(1);
 
-    // Open it: the folded nav appears as one row per view, active = checked.
-    more.dispatchEvent(new Event('click', { bubbles: true }));
-    const rows = [...document.querySelectorAll('.contrib-menu-item')];
-    expect(rows.map((r) => r.textContent)).toEqual(['✓Browse', 'Edit']);
-    expect(rows[0].getAttribute('aria-checked')).toBe('true');
+    // The folded nav is one ⋯ row per view, active = checked.
+    const rows = panelMenuRows(panelId);
+    expect(rows.map((r) => [r.label, r.checked])).toEqual([
+      ['Browse', true],
+      ['Edit', false],
+    ]);
 
     // A row dispatches exactly what the unfolded control would have.
-    rows[1].dispatchEvent(new Event('click', { bubbles: true }));
+    rows[1].run?.();
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
       { type: 'canopy-host-header-action', id: 'view', value: 'edit' },
       window.location.origin
     );
-    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
   });
 
-  test('subtitle text never folds — controls give way around it', () => {
+  test('a retired text item takes no room in the bar: the controls beside it stay', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
     registerContribHost(panelId, host);
-    mockCrowding(host, 60); // text(40) + button(80) = 120 > 60
+    mockCrowding(host, 80); // one button(80) fits
 
     deliverContribution(
       [
@@ -570,9 +583,9 @@ describe('overflow ladder', () => {
       contentWindow
     );
 
-    expect(host.querySelector('.contrib-text')?.classList.contains('contrib-hidden')).toBe(false);
-    expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(true);
-    expect(host.querySelector('.contrib-overflow-btn')).toBeTruthy();
+    expect(host.children.length).toBe(1);
+    expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(false);
+    expect(panelMenuRows(panelId)).toEqual([]);
   });
 
   test('a widened tile gets everything back', () => {
@@ -594,8 +607,8 @@ describe('overflow ladder', () => {
     deliverContribution(items, contentWindow);
 
     expect(host.querySelectorAll('.contrib-hidden').length).toBe(0);
-    expect(host.querySelector('.contrib-overflow-btn')).toBeNull();
     expect(host.querySelector('.contrib-search-collapsed')).toBeNull();
+    expect(panelMenuRows(panelId)).toEqual([]);
   });
 
   test('a collapsed search expands for typing on click and re-collapses on blur', () => {
@@ -636,61 +649,140 @@ describe('overflow ladder', () => {
     expect(wrap.classList.contains('contrib-search-collapsed')).toBe(true);
   });
 
-  test('crumb, sep and text never fold; buttons fold lowest priority first', () => {
+  test('crumb and sep never fold; buttons fold lowest priority first', () => {
     const panelId = freshPanelId();
     addPanelIframe(panelId);
     const host = document.createElement('div');
     registerContribHost(panelId, host);
-    // crumb(60) + pager(40) + sep(10) + 4 buttons(320) = 430; with the ⋯(24),
-    // folding open and save (priority 5) leaves 294, which fits in 300.
-    mockCrowding(host, 300);
+    // crumb(60) + sep(10) + 4 buttons(320) = 390; folding open and
+    // save (priority 5) leaves 230, which fits in 260.
+    mockCrowding(host, 260);
 
     contributeLocal(panelId, ARTIFACT_HEADER, vi.fn());
-
-    const hiddenKeys = () =>
-      [...host.querySelectorAll('.contrib-hidden')].map(
-        (el) => /** @type {HTMLElement} */ (el).dataset.contribKey
-      );
-    expect(hiddenKeys()).toEqual(['button:open', 'button:save']);
+    expect(hiddenKeys(host)).toEqual(['button:open', 'button:save']);
 
     // Narrower still, every button folds and the rest holds its ground.
     mockCrowding(host, 50);
     contributeLocal(panelId, ARTIFACT_HEADER, vi.fn());
 
-    expect(hiddenKeys()).toEqual(['button:prev', 'button:next', 'button:open', 'button:save']);
+    expect(hiddenKeys(host)).toEqual(['button:prev', 'button:next', 'button:open', 'button:save']);
     expect(host.querySelector('.osprey-crumb')?.classList.contains('contrib-hidden')).toBe(false);
     expect(host.querySelector('.osprey-head-sep')?.classList.contains('contrib-hidden')).toBe(
       false
     );
-    expect(host.querySelector('.contrib-text')?.classList.contains('contrib-hidden')).toBe(false);
   });
 
-  test('a folded hub-contributed button dispatches locally from the ⋯ menu', () => {
+  test('a folded hub-contributed button dispatches locally from its ⋯ row', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
-    document.body.appendChild(host); // popover positions off a real element
     registerContribHost(panelId, host);
     mockCrowding(host, 50);
     const dispatch = vi.fn();
 
     contributeLocal(panelId, ARTIFACT_HEADER, dispatch);
 
-    const more = /** @type {HTMLElement} */ (host.querySelector('.contrib-overflow-btn'));
-    more.dispatchEvent(new Event('click', { bubbles: true }));
-    const rows = [...document.querySelectorAll('.contrib-menu-item')];
-    // Rows in fold order; an icon-only button's row reads its title.
-    expect(rows.map((r) => r.textContent)).toEqual([
-      'Open full size',
-      'Save',
+    // Rows in contribution order; an icon-only button's row reads its title.
+    const rows = panelMenuRows(panelId);
+    expect(rows.map((r) => r.label)).toEqual([
       'Previous artifact',
       'Next artifact',
+      'Open full size',
+      'Save',
     ]);
 
-    rows[2].dispatchEvent(new Event('click', { bubbles: true }));
+    rows[0].run?.();
     expect(dispatch).toHaveBeenCalledWith('prev');
     expect(contentWindow.postMessage).not.toHaveBeenCalled();
-    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
+  });
+
+  test('the slot holds three panel icons; the rest fold whatever the width', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    mockCrowding(host, 10_000);
+
+    deliverContribution(
+      [iconItem('a', 2), iconItem('b', 0), iconItem('c', 2), iconItem('d', 1), iconItem('e', 2)],
+      contentWindow
+    );
+
+    // Lowest priority first (b, then d) until three show.
+    expect(hiddenKeys(host)).toEqual(['icon:b', 'icon:d']);
+    expect(host.querySelectorAll('.contrib-icon:not(.contrib-hidden)').length).toBe(3);
+    expect(panelMenuRows(panelId).map((r) => r.label)).toEqual(['b', 'd']);
+  });
+
+  test('crowded, panel icons fold before the legacy controls', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    // Two icons (72) + a legacy button (80) = 152: fits in 160.
+    mockCrowding(host, 160);
+    const items = [iconItem('x', 1), iconItem('y', 0), { kind: 'button', id: 'go', label: 'Go' }];
+    deliverContribution(items, contentWindow);
+    expect(hiddenKeys(host)).toEqual([]);
+
+    // 152 > 100: fold y (priority 0), then x — the legacy button stays. (The
+    // helper lists folded keys in DOM order.)
+    mockCrowding(host, 100);
+    deliverContribution(items, contentWindow);
+    expect(hiddenKeys(host)).toEqual(['icon:x', 'icon:y']);
+    expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(false);
+
+    // Narrower still: only then the legacy button.
+    mockCrowding(host, 50);
+    deliverContribution(items, contentWindow);
+    expect(hiddenKeys(host)).toEqual(['icon:x', 'icon:y', 'button:go']);
+    // Folded icons are rows after the panel's menu entries, in contribution order.
+    expect(panelMenuRows(panelId).map((r) => r.label)).toEqual(['x', 'y', 'Go']);
+  });
+
+  test('menu entries are ⋯ rows always, folded or not, with their v3 fields', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    mockCrowding(host, 10_000);
+
+    deliverContribution(
+      [
+        {
+          kind: 'menu',
+          id: 'more',
+          items: [
+            { id: 'compact', label: 'Compact rows', checked: true },
+            { id: 'export', label: 'Export CSV', disabled: true },
+            { id: 'clear', label: 'Clear all', danger: true, separator: true },
+          ],
+        },
+        iconItem('refresh'),
+      ],
+      contentWindow
+    );
+
+    // The menu holds no visible element: an empty hidden holder keeps its key.
+    const holder = /** @type {HTMLElement} */ (
+      host.querySelector('[data-contrib-key="menu:more"]')
+    );
+    expect(holder.hidden).toBe(true);
+    expect(holder.childNodes.length).toBe(0);
+    expect(host.querySelectorAll('[data-contrib-key]').length).toBe(2);
+
+    const rows = panelMenuRows(panelId);
+    expect(rows.every((r) => typeof r.run === 'function')).toBe(true);
+    expect(rows.map((r) => ({ ...r, run: undefined }))).toEqual([
+      { label: 'Compact rows', checked: true, disabled: false, danger: false, separator: false },
+      { label: 'Export CSV', disabled: true, danger: false, separator: false },
+      { label: 'Clear all', disabled: false, danger: true, separator: true },
+    ]);
+    rows[2].run?.();
+    expect(contentWindow.postMessage).toHaveBeenCalledWith(
+      { type: 'canopy-host-header-action', id: 'more', value: 'clear' },
+      window.location.origin
+    );
   });
 });
 
@@ -700,18 +792,18 @@ describe('host lifecycle', () => {
     const { contentWindow } = addPanelIframe(panelId);
     const oldHost = document.createElement('div');
     registerContribHost(panelId, oldHost);
-    deliverContribution([{ kind: 'text', id: 'name', text: 'persist' }], contentWindow);
+    deliverContribution([{ kind: 'button', id: 'name', label: 'persist' }], contentWindow);
 
     // Tab rebuild: the replacement registers first, then the old tab disposes.
     const newHost = document.createElement('div');
     registerContribHost(panelId, newHost);
     unregisterContribHost(panelId, oldHost);
 
-    expect(newHost.querySelector('.contrib-text')?.textContent).toBe('persist');
+    expect(newHost.querySelector('.contrib-btn')?.textContent).toBe('persist');
 
     // A later contribution reaches only the live host.
-    deliverContribution([{ kind: 'text', id: 'name', text: 'updated' }], contentWindow);
-    expect(newHost.querySelector('.contrib-text')?.textContent).toBe('updated');
-    expect(oldHost.querySelector('.contrib-text')?.textContent).toBe('persist');
+    deliverContribution([{ kind: 'button', id: 'name', label: 'updated' }], contentWindow);
+    expect(newHost.querySelector('.contrib-btn')?.textContent).toBe('updated');
+    expect(oldHost.querySelector('.contrib-btn')?.textContent).toBe('persist');
   });
 });

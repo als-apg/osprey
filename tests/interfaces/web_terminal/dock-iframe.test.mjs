@@ -658,3 +658,43 @@ describe('setPanelBodyState — a centred state over a tile body', () => {
     expect(el.style.display).toBe('none');
   });
 });
+
+describe('reloadPanel — the tile ⋯ Reload row', () => {
+  test("reloads the panel's frame in place", async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const iframe = makeIframe();
+    mod.adoptIframe('ariel', iframe, { title: 'ARIEL', dock: false });
+    const reload = vi.fn();
+    Object.defineProperty(iframe, 'contentWindow', { value: { location: { reload } } });
+    expect(mod.reloadPanel('ariel')).toBe(true);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  test('a frame this page may not read is pointed at its own src', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const iframe = makeIframe();
+    iframe.setAttribute('src', '/lab');
+    mod.adoptIframe('jupyter', iframe, { title: 'Jupyter', dock: false });
+    const blocked = {
+      get location() {
+        throw new Error('cross-origin');
+      },
+    };
+    Object.defineProperty(iframe, 'contentWindow', { value: blocked });
+    /** @type {string[]} */
+    const writes = [];
+    Object.defineProperty(iframe, 'src', {
+      set: (v) => {
+        writes.push(v);
+      },
+      get: () => '/lab',
+    });
+    expect(mod.reloadPanel('jupyter')).toBe(true);
+    expect(writes).toEqual(['/lab']);
+  });
+
+  test('a panel with no frame reports false', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    expect(mod.reloadPanel('ghost')).toBe(false);
+  });
+});

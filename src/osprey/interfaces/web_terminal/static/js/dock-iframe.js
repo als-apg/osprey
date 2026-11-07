@@ -507,6 +507,26 @@ export function managedIframe(panelId) {
 }
 
 /**
+ * Load a panel's frame again: the tile ⋯ Reload row, and any panel chrome with
+ * a Reload of its own. A frame this page may not read reloads by being pointed
+ * at its own `src`. The panel's server, if any, keeps running.
+ * @param {string} panelId
+ * @returns {boolean} false when the panel has no frame
+ */
+export function reloadPanel(panelId) {
+  const iframe = managed.get(panelId)?.iframe;
+  if (!iframe) return false;
+  try {
+    /** @type {Window} */ (iframe.contentWindow).location.reload();
+  } catch {
+    const src = iframe.getAttribute('src');
+    if (src === null) return false;
+    iframe.src = src;
+  }
+  return true;
+}
+
+/**
  * A panel's frame is back in the overlay from a window of its own, with the
  * style it left with: draw it. The size it last heard is stale once it was
  * elsewhere.

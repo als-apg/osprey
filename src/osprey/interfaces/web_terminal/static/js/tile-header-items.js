@@ -3,27 +3,27 @@
  *
  * Creates and patches the DOM for one contributed item. Split out of
  * tile-header-contrib.js, which keeps the message plumbing, the per-panel
- * store and the reconcile pass; this module knows only how a single item of
- * each kind looks and behaves, plus the shared body-level popover both menu
- * kinds ride (a contributed ⋯ menu and the overflow ladder's fold target —
- * see toggleOverflowMenu). The panel vocabulary itself is documented once,
- * on the panel side: design_system/static/js/header-contrib.js.
+ * store, the reconcile pass and the fold ladder; this module knows only how a
+ * single item of each kind looks and behaves. The panel vocabulary itself is
+ * documented once, on the panel side: design_system/static/js/header-contrib.js.
  *
- * The hub adds to that vocabulary for headers it builds itself (the
- * Artifacts tile, through contributeLocal in tile-header-contrib.js); the
- * sanitizer accepts the additions on the message path too:
+ * Protocol v3 kinds:
  *
- *   - `crumb` {root, leaf?}: the `root › leaf` breadcrumb of primitives.css
- *     (`.osprey-crumb`). It stands in for the tile's own name, so an empty
- *     leaf shows the root alone, and the leaf's full text is its tooltip
- *     because a long one ellipsizes.
- *   - `sep`: a `.osprey-head-sep` hairline between control groups.
- *   - `icon` on a button: a name from ICON_NAMES in
- *     /design-system/js/icons.js. Icon-only, the button is an
- *     `.osprey-icon-btn` named by its `title`; with a label it is an
- *     `.osprey-btn` holding the icon and an `.osprey-btn-label`, which a
- *     narrow tile hides. A button without an icon keeps the `.contrib-btn`
- *     look.
+ *   - `icon`: one icon-only button in the panel-icon slot — an
+ *     `.osprey-icon-btn.contrib-icon` named by its `title` (tooltip and
+ *     accessible name), `aria-pressed` when the item says `pressed`.
+ *   - `menu`: renders NO control. The entries live in the tile's one ⋯ menu
+ *     (panel-menu-policy.js reads them from the contribution store), so the
+ *     bar holds only an empty, hidden holder for the item. The holder keeps
+ *     the item's `data-contrib-key` like every other item, which is what the
+ *     keyed reconcile and the per-item accounting (one element per item)
+ *     rely on.
+ *
+ * Legacy kinds, rendered exactly as before for CANOPY screens and panels not
+ * yet migrated: `button` (text, icon-only or icon + label), `nav` (segmented
+ * switcher), `search` (magnifier pill), plus the hub's own `crumb`
+ * (`root › leaf` breadcrumb standing in for the tile's name) and `sep`
+ * (hairline between control groups).
  *
  * Create vs. patch matters more than it looks. A contribution is a whole
  * replace, and a panel re-sends on every state change — including while an
@@ -38,6 +38,7 @@
  */
 
 import { icon } from '/design-system/js/icons.js';
+import { writeTitle } from '/design-system/js/tooltip.js';
 import { svgIcon } from './svg-icons.js';
 
 /** Debounce before a search item reports its text back to the panel. */
@@ -47,25 +48,19 @@ const SEARCH_DEBOUNCE_MS = 200;
  * @typedef {import('/design-system/js/header-contrib.js').HeaderItem} PanelHeaderItem
  * @typedef {Omit<PanelHeaderItem, 'kind'> & {
  *   kind: PanelHeaderItem['kind'] | 'crumb' | 'sep',
- *   icon?: string,
  *   root?: string,
  *   leaf?: string,
  * }} HeaderItem  the panel vocabulary plus the hub-side kinds and fields
  * @typedef {(id: string, value?: string) => void} Dispatch
  */
 
-/** The item a live element currently represents (menus read it on open). */
-const itemState = new WeakMap();
-
 /**
  * The child layout a live button was last built for: `''` for a plain
- * `.contrib-btn`, else the icon name and whether a label sits beside it.
+ * `.contrib-btn`, else the icon name and whether a label sits beside it. An
+ * icon item's entry is its icon name alone.
  * @type {WeakMap<HTMLButtonElement, string>}
  */
 const buttonShape = new WeakMap();
-
-/** The one open menu popover, if any. @type {null | {btn: HTMLElement, pop: HTMLElement, off: () => void}} */
-let openMenu = null;
 
 /**
  * Build the element for an item the bar has not rendered before.
@@ -74,73 +69,19 @@ let openMenu = null;
  * @returns {HTMLElement}
  */
 export function createItem(item, dispatch) {
-  const el = build(item, dispatch);
-  itemState.set(el, item);
-  return el;
-}
-
-/**
- * Update a live element to a new contribution of the same kind and id.
- * @param {HeaderItem} item
- * @param {HTMLElement} el
- * @returns {HTMLElement}
- */
-export function patchItem(item, el) {
-  itemState.set(el, item);
-  if (item.kind === 'text') {
-    setText(el, item.text ?? '');
-  } else if (item.kind === 'button') {
-    patchButton(item, /** @type {HTMLButtonElement} */ (el));
-  } else if (item.kind === 'crumb') {
-    patchCrumb(item, el);
-  } else if (item.kind === 'nav') {
-    patchNav(item, el);
-  } else if (item.kind === 'search') {
-    // Placeholder only. The value belongs to whoever is typing.
-    const input = el.querySelector('input');
-    if (input) input.placeholder = item.placeholder ?? '';
-  } else if (item.kind === 'menu') {
-    const label = item.label || 'More options';
-    el.title = label;
-    el.setAttribute('aria-label', label);
-    // A menu open right now is showing entries this contribution may have
-    // changed; rebuild its rows against the new item rather than let it lie.
-    if (openMenu && openMenu.btn === el) renderMenuRows(el);
+  if (item.kind === 'icon') {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'osprey-icon-btn contrib-icon';
+    btn.addEventListener('click', () => dispatch(item.id));
+    patchIcon(item, btn);
+    return btn;
   }
-  return el;
-}
-
-/**
- * Release anything an element owns outside its own subtree. Called before the
- * reconcile pass drops an element the latest contribution no longer names.
- * @param {HTMLElement} el
- */
-export function disposeItem(el) {
-  if (openMenu && openMenu.btn === el) closeMenu();
-}
-
-/** Close any open contribution menu (host teardown, panel switch). */
-export function closeMenu() {
-  if (!openMenu) return;
-  openMenu.off();
-  openMenu.pop.remove();
-  openMenu.btn.setAttribute('aria-expanded', 'false');
-  openMenu = null;
-}
-
-/* ---- construction ---- */
-
-/**
- * @param {HeaderItem} item
- * @param {Dispatch} dispatch
- * @returns {HTMLElement}
- */
-function build(item, dispatch) {
-  if (item.kind === 'text') {
-    const span = document.createElement('span');
-    span.className = 'contrib-text';
-    span.textContent = item.text ?? '';
-    return span;
+  if (item.kind === 'menu') {
+    // The entries render in the tile ⋯, never here (module doc).
+    const holder = document.createElement('span');
+    holder.hidden = true;
+    return holder;
   }
   if (item.kind === 'button') {
     const btn = document.createElement('button');
@@ -157,9 +98,34 @@ function build(item, dispatch) {
     return sep;
   }
   if (item.kind === 'search') return buildSearch(item, dispatch);
-  if (item.kind === 'menu') return buildMenu(item, dispatch);
   return buildNav(item, dispatch);
 }
+
+/**
+ * Update a live element to a new contribution of the same kind and id.
+ * @param {HeaderItem} item
+ * @param {HTMLElement} el
+ * @returns {HTMLElement}
+ */
+export function patchItem(item, el) {
+  if (item.kind === 'icon') {
+    patchIcon(item, /** @type {HTMLButtonElement} */ (el));
+  } else if (item.kind === 'button') {
+    patchButton(item, /** @type {HTMLButtonElement} */ (el));
+  } else if (item.kind === 'crumb') {
+    patchCrumb(item, el);
+  } else if (item.kind === 'nav') {
+    patchNav(item, el);
+  } else if (item.kind === 'search') {
+    // Placeholder only. The value belongs to whoever is typing.
+    const input = el.querySelector('input');
+    if (input) input.placeholder = item.placeholder ?? '';
+  }
+  // A menu holder carries nothing to patch: the store has the new entries.
+  return el;
+}
+
+/* ---- construction ---- */
 
 /**
  * The `root › leaf` breadcrumb. All three parts always exist, so a leaf
@@ -229,12 +195,12 @@ function buildSearch(item, dispatch) {
   /** @type {ReturnType<typeof setTimeout> | null} */
   let timer = null;
   const report = () => {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer ?? undefined);
     timer = null;
     dispatch(item.id, input.value);
   };
   input.addEventListener('input', () => {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer ?? undefined);
     timer = setTimeout(report, SEARCH_DEBOUNCE_MS);
   });
   input.addEventListener('keydown', (e) => {
@@ -253,28 +219,6 @@ function buildSearch(item, dispatch) {
   return wrap;
 }
 
-/**
- * @param {HeaderItem} item
- * @param {Dispatch} dispatch
- * @returns {HTMLElement}
- */
-function buildMenu(item, dispatch) {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'contrib-menu-btn';
-  btn.appendChild(svgIcon('ellipsis'));
-  btn.setAttribute('aria-haspopup', 'menu');
-  btn.setAttribute('aria-expanded', 'false');
-  const label = item.label || 'More options';
-  btn.title = label;
-  btn.setAttribute('aria-label', label);
-  btn.addEventListener('click', () => {
-    if (openMenu && openMenu.btn === btn) closeMenu();
-    else openMenuFor(btn, dispatch);
-  });
-  return btn;
-}
-
 /* ---- patching ---- */
 
 /** @param {HTMLElement} el @param {string} text */
@@ -283,9 +227,33 @@ function setText(el, text) {
 }
 
 /**
- * Patch a button in place. Its children are rebuilt only when its layout
- * changes (another icon, or a label that appears or goes); a new label or
- * disabled state on the same layout is a text or property patch, so the
+ * Patch a v3 icon button in place: the pictogram is swapped only when the
+ * icon name changes; title, disabled and pressed states are property patches,
+ * so the button under the pointer is never replaced.
+ * @param {HeaderItem} item
+ * @param {HTMLButtonElement} btn
+ */
+function patchIcon(item, btn) {
+  const name = item.icon ?? '';
+  if (buttonShape.get(btn) !== name) {
+    buttonShape.set(btn, name);
+    btn.replaceChildren(icon(name));
+  }
+  const title = item.title ?? '';
+  writeTitle(btn, title);
+  btn.setAttribute('aria-label', title);
+  btn.disabled = item.disabled === true;
+  if (typeof item.pressed === 'boolean') {
+    btn.setAttribute('aria-pressed', item.pressed ? 'true' : 'false');
+  } else {
+    btn.removeAttribute('aria-pressed');
+  }
+}
+
+/**
+ * Patch a legacy button in place. Its children are rebuilt only when its
+ * layout changes (another icon, or a label that appears or goes); a new label
+ * or disabled state on the same layout is a text or property patch, so the
  * button under the pointer is never replaced and its icon never wiped.
  * @param {HeaderItem} item
  * @param {HTMLButtonElement} btn
@@ -374,198 +342,4 @@ function patchNav(item, nav) {
     live[i].classList.toggle('active', entry.active === true);
     live[i].setAttribute('aria-current', entry.active === true ? 'true' : 'false');
   });
-}
-
-/* ---- menu popover ----
- * Appended to its button's document's body rather than inside the bar: the
- * contribution region is overflow:clip and only 36px tall, so an in-place popover
- * would be clipped to nothing. That document may be a pane's own window, so every
- * listener sits on it and its window, and a target may be of that window's realm.
- * It closes on a capture-phase outside pointerdown, on Escape, on the window losing
- * focus (a click into a panel's iframe never reaches this document), and on a resize
- * or a scroll that moves its button, rather than running a reposition loop. */
-
-/**
- * @param {unknown} target
- * @returns {target is Node} whichever realm the node belongs to
- */
-function isNode(target) {
-  return typeof (/** @type {any} */ (target)?.nodeType) === 'number';
-}
-
-/**
- * Open an empty popover anchored to btn and register it as THE open menu
- * (there is at most one, shared by contributed menus and the bar's own
- * overflow menu). The caller fills in rows and click handling.
- * @param {HTMLElement} btn
- * @returns {HTMLElement} the popover element
- */
-function openPopover(btn) {
-  closeMenu();
-  const doc = btn.ownerDocument;
-  const view = doc.defaultView ?? window;
-  const pop = document.createElement('div');
-  pop.className = 'contrib-menu-popover';
-  pop.setAttribute('role', 'menu');
-  doc.body.appendChild(pop);
-
-  const onDocDown = (/** @type {Event} */ e) => {
-    const t = e.target;
-    if (isNode(t) && (pop.contains(t) || btn.contains(t))) return;
-    closeMenu();
-  };
-  const onKey = (/** @type {KeyboardEvent} */ e) => {
-    if (e.key === 'Escape') closeMenu();
-  };
-  // Capture-phase scroll sees every scroll on the page -- the popover's own
-  // rows, the chat pane following new output -- so only one that moves the
-  // button closes it.
-  const onReflow = (/** @type {Event} */ e) => {
-    const t = e.target;
-    if (isNode(t) && !t.contains(btn)) return;
-    closeMenu();
-  };
-  doc.addEventListener('pointerdown', onDocDown, true);
-  doc.addEventListener('keydown', onKey, true);
-  view.addEventListener('resize', onReflow);
-  view.addEventListener('scroll', onReflow, true);
-  view.addEventListener('blur', closeMenu);
-
-  openMenu = {
-    btn,
-    pop,
-    off: () => {
-      doc.removeEventListener('pointerdown', onDocDown, true);
-      doc.removeEventListener('keydown', onKey, true);
-      view.removeEventListener('resize', onReflow);
-      view.removeEventListener('scroll', onReflow, true);
-      view.removeEventListener('blur', closeMenu);
-    },
-  };
-  btn.setAttribute('aria-expanded', 'true');
-  return pop;
-}
-
-/**
- * @param {HTMLElement} btn
- * @param {Dispatch} dispatch
- */
-function openMenuFor(btn, dispatch) {
-  const pop = openPopover(btn);
-  pop.addEventListener('click', (e) => {
-    const row = e.target instanceof Element ? e.target.closest('.contrib-menu-item') : null;
-    if (!(row instanceof HTMLElement) || !row.dataset.entryId) return;
-    const id = /** @type {HeaderItem} */ (itemState.get(btn))?.id;
-    closeMenu();
-    if (id) dispatch(id, row.dataset.entryId);
-  });
-  renderMenuRows(btn);
-  place(pop, btn);
-}
-
-/**
- * One row of the bar's overflow menu — a control the overflow ladder folded
- * out of a narrow bar, carrying its own pick action.
- * @typedef {object} OverflowRow
- * @property {string} label
- * @property {boolean} [checked]
- * @property {boolean} [disabled]
- * @property {() => void} pick
- */
-
-/**
- * Toggle the bar-owned overflow menu (tile-header-contrib.js's fold target).
- * One-shot rows: a re-render of the bar rebuilds the fold set, so the open
- * popover is simply closed by disposeItem/closeMenu rather than re-rendered
- * the way a contributed menu is.
- * @param {HTMLElement} btn
- * @param {OverflowRow[]} rows
- */
-export function toggleOverflowMenu(btn, rows) {
-  if (openMenu && openMenu.btn === btn) {
-    closeMenu();
-    return;
-  }
-  const pop = openPopover(btn);
-  pop.replaceChildren(
-    ...rows.map((row) => {
-      const el = rowElement(row.label, row.checked, row.disabled === true);
-      el.addEventListener('click', () => {
-        closeMenu();
-        row.pick();
-      });
-      return el;
-    })
-  );
-  place(pop, btn);
-}
-
-/**
- * (Re)build the open popover's rows from the button's current item.
- * @param {HTMLElement} btn
- */
-function renderMenuRows(btn) {
-  if (!openMenu || openMenu.btn !== btn) return;
-  const item = /** @type {HeaderItem} */ (itemState.get(btn));
-  const entries =
-    /** @type {{id: string, label: string, checked?: boolean, disabled?: boolean}[]} */ (
-      item?.items ?? []
-    );
-  openMenu.pop.replaceChildren(
-    ...entries.map((entry) => {
-      const row = rowElement(entry.label, entry.checked, entry.disabled === true);
-      row.dataset.entryId = entry.id;
-      return row;
-    })
-  );
-}
-
-/**
- * Build one popover row: tick gutter + label, with the checkbox role only
- * when the entry is actually checkable — a plain action must not claim one.
- * @param {string} label
- * @param {boolean | undefined} checked
- * @param {boolean} disabled
- * @returns {HTMLButtonElement}
- */
-function rowElement(label, checked, disabled) {
-  const row = document.createElement('button');
-  row.type = 'button';
-  row.className = 'contrib-menu-item';
-  row.disabled = disabled;
-  if (checked === undefined) {
-    row.setAttribute('role', 'menuitem');
-  } else {
-    row.setAttribute('role', 'menuitemcheckbox');
-    row.setAttribute('aria-checked', checked ? 'true' : 'false');
-    row.classList.toggle('checked', checked);
-  }
-  const tick = document.createElement('span');
-  tick.className = 'contrib-menu-tick';
-  tick.setAttribute('aria-hidden', 'true');
-  tick.textContent = checked ? '✓' : '';
-  const text = document.createElement('span');
-  text.textContent = label;
-  row.append(tick, text);
-  return row;
-}
-
-/**
- * Pin the popover under the button, right edges aligned, clamped to the
- * viewport so a tile near the right or bottom edge still shows a full menu.
- * @param {HTMLElement} pop
- * @param {HTMLElement} btn
- */
-function place(pop, btn) {
-  const r = btn.getBoundingClientRect();
-  const w = pop.offsetWidth;
-  const h = pop.offsetHeight;
-  const margin = 4;
-  const view = btn.ownerDocument.defaultView ?? window;
-  let left = r.right - w;
-  let top = r.bottom + margin;
-  left = Math.max(margin, Math.min(left, view.innerWidth - w - margin));
-  if (top + h > view.innerHeight - margin) top = Math.max(margin, r.top - h - margin);
-  pop.style.left = `${Math.round(left)}px`;
-  pop.style.top = `${Math.round(top)}px`;
 }

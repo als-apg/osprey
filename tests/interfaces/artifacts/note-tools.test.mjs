@@ -99,6 +99,14 @@ describe('Contents', () => {
     expect(rows.map((row) => row.textContent)).toEqual(['No headings']);
     expect(rows[0].getAttribute('aria-disabled')).toBe('true');
   });
+
+  test('hangs under its button, and a second press closes it', () => {
+    openContents(button, note);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    openContents(button, note);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
 });
 
 describe('Find in note', () => {
