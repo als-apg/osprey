@@ -48,6 +48,22 @@ def _print_failure_now(report) -> None:
     sys.stdout.flush()
 
 
+def _live_outcome(report) -> str:
+    """A report's outcome on the live stream, as the JUnit summary would name it.
+
+    A setup failure is an ``error`` whatever its text says: no agent ran, so it
+    says nothing about the model, even when a fixture reports its own wait timing
+    out. A call that failed is a ``timeout`` only on pytest-timeout's signature; a
+    test's source echoed into the traceback can hold the bare word.
+    """
+    if report.outcome != "failed":
+        return report.outcome
+    if report.when == "setup":
+        return "error"
+    text = str(getattr(report, "longrepr", "")).lower()
+    return "timeout" if "from pytest-timeout" in text else "failed"
+
+
 def pytest_runtest_logreport(report):
     """Stream each test outcome to OSPREY_E2E_LIVE (one JSON line per test) so the
     model-matrix dashboard fills in test-by-test AS the run progresses, instead of
@@ -62,14 +78,7 @@ def pytest_runtest_logreport(report):
     if report.when == "call" or (
         report.when == "setup" and report.outcome in ("skipped", "failed")
     ):
-        outcome = report.outcome
-        if outcome == "failed":
-            text = str(getattr(report, "longrepr", "")).lower()
-            outcome = (
-                "timeout"
-                if "timeout" in text
-                else ("error" if report.when == "setup" else "failed")
-            )
+        outcome = _live_outcome(report)
         record = {
             "name": report.nodeid,
             "outcome": outcome,

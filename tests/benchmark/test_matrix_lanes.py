@@ -240,7 +240,9 @@ class TestBoardImagesGate:
         stamp = tmp_path / "stamp.json"
         gate.record_board_images(_REPO, self.ENTRIES, stamp)
         gate.test_ids["va:latest"] = "sha:other"
-        assert "va:latest is not the one" in gate.check_board_images(_REPO, self.ENTRIES, stamp)[0]
+        problem = gate.check_board_images(_REPO, self.ENTRIES, stamp)[0]
+        assert "va:latest was not built at this checkout's revision" in problem
+        assert gate.BUILD_IMAGES_COMMAND in problem
 
     def test_images_from_another_revision_are_refused(self, gate, tmp_path, monkeypatch):
         stamp = tmp_path / "stamp.json"
@@ -256,10 +258,35 @@ class TestBoardImagesGate:
         gate.record_board_images(_REPO, self.ENTRIES, stamp)
         assert "side:build" in json.loads(stamp.read_text())["images"]
 
-    def test_a_cell_runs_the_gate_unless_it_is_a_smoke_selection(self):
+    def test_a_cell_hands_the_gate_its_selection(self):
         runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
-        assert '[ -z "${OSPREY_BENCH_SELECT:-}" ]' in runner
-        assert "--check-board-images" in runner
+        assert '--check-board-images --select "${OSPREY_BENCH_SELECT:-}"' in runner
+
+    @pytest.mark.parametrize(
+        ("collected", "code", "needed"),
+        [
+            ("tests/e2e/test_switch.py::test_a\ntests/e2e/test_b.py::test_b\n", 0, True),
+            ("tests/e2e/test_b.py::test_b\n", 0, False),
+            ("", 5, False),
+            ("", 4, True),
+        ],
+        ids=["reaches-a-test-that-needs-them", "reaches-none", "matches-nothing", "collector-died"],
+    )
+    def test_a_smoke_selection_meets_the_gate_only_when_it_needs_the_images(
+        self, monkeypatch, collected, code, needed
+    ):
+        gate = _load("check_e2e_coverage")
+
+        def _run(cmd, **_kwargs):
+            assert cmd[-2:] == ["-k", "chosen"]
+            return subprocess.CompletedProcess(cmd, code, collected, "")
+
+        monkeypatch.setattr(gate, "subprocess", SimpleNamespace(run=_run))
+        cfg = {
+            "excluded_files": [],
+            "board_images": [{"needed_by": ["tests/e2e/test_switch.py"]}],
+        }
+        assert gate.selection_needs_images(_REPO, cfg, "chosen") is needed
 
 
 def test_the_config_names_the_images_the_fixtures_require():
@@ -383,3 +410,48 @@ def test_load_tiers_ignores_manifests_from_before_the_tiers(tmp_path):
     (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: "agentic"}))
     assert dash.load_tiers(str(tmp_path)) == {}
     assert dash.load_tiers(str(tmp_path / "missing")) == {}
+
+
+# ---------------------------------------------------------------------------
+# 4. A test that died in setup is not the model's
+# ---------------------------------------------------------------------------
+
+
+def test_the_summary_keeps_a_setup_error_an_error_whatever_its_text_says(tmp_path):
+    """The worker's JUnit parser, run as the worker runs it, on a report whose
+    setup error names a timeout."""
+    runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+    script = runner.split("<<'PYEOF'\n", 1)[1].split("\nPYEOF", 1)[0]
+    (tmp_path / "summ.py").write_text(script)
+    (tmp_path / "r.xml").write_text(
+        '<testsuites><testsuite><testcase classname="tests.e2e.test_x" name="test_y" time="180">'
+        '<error message="VA never answered: Timeout (&gt;180s) from pytest-timeout">x</error>'
+        "</testcase></testsuite></testsuites>"
+    )
+    out = tmp_path / "s.json"
+    subprocess.run(
+        [sys.executable, str(tmp_path / "summ.py")],
+        env={
+            **os.environ,
+            "MODEL": "m",
+            "SEED": "1",
+            "ROUTE": "r",
+            "XML": str(tmp_path / "r.xml"),
+            "JSON": str(out),
+            "WALL": "1",
+            "PYTEST_RC": "1",
+        },
+        check=True,
+        capture_output=True,
+    )
+    summary = json.loads(out.read_text())
+    assert (summary["errors"], summary["timeout"], summary["failed"]) == (1, 0, 0)
+    assert summary["tests"][0]["outcome"] == "error"
+
+
+def test_a_setup_error_scores_neither_a_pass_nor_a_failure():
+    keep = {dash.canon_name(_NODEID)}.__contains__
+    cell = {"tests": [{"name": _NODEID, "outcome": "error"}]}
+    assert dash.conclusive_where(cell, keep) == (0, 0)
+    passed = {"tests": [*cell["tests"], {"name": _JUNIT, "outcome": "passed"}]}
+    assert dash.conclusive_where(passed, keep) == (1, 1)

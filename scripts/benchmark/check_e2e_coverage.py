@@ -23,7 +23,10 @@ the test's call, not a fixture's stack build or a queue for a host-wide lock.
 
 With ``--check-board-images`` it is a gate on the images the in-scope tests need
 and never build (``board_images`` in the config): each must exist, and must be
-the one ``build_board_images.sh`` built at this checkout's revision.
+the one ``build_board_images.sh`` built at this checkout's revision. A stale image
+is the point: its simulator view format can differ from this checkout's render,
+and the tests would die in setup. ``--select EXPR`` limits the gate to a smoke run
+whose ``-k`` selection reaches a test that needs them.
 ``--record-board-images`` is that script's last step.
 
 With ``--check-lanes`` it additionally collects the in-scope suite (subprocess
@@ -113,13 +116,33 @@ def check_board_images(root: Path, entries: list[dict], stamp: Path) -> list[str
         if found is None:
             problems.append(f"image {image} is not on this host")
         elif recorded.get("images", {}).get(image) != found:
-            problems.append(f"image {image} is not the one {BUILD_IMAGES_COMMAND} recorded")
+            problems.append(f"image {image} was not built at this checkout's revision")
     revision = _revision(root)
     if not problems and (revision is None or recorded.get("revision") != revision):
         problems.append(
             f"the images were built at {recorded.get('revision')}, and this checkout is {revision}"
         )
     return [f"{p}; build them with {BUILD_IMAGES_COMMAND}" for p in problems]
+
+
+def selection_needs_images(root: Path, cfg: dict, select: str) -> bool:
+    """Whether a smoke run's ``-k`` selection reaches a test the images serve.
+
+    Anything short of a clean answer counts as yes: the gate is the cheap failure.
+    """
+    excluded = {e["path"]: e["reason"] for e in cfg["excluded_files"]}
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/e2e/", "--collect-only", "-q"]
+        + ["-p", "no:cacheprovider", "-o", "addopts=", "--assert=plain"]
+        + [*run_args(excluded), "-k", select],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode not in (0, 5):  # 5: the selection matched nothing
+        return True
+    needed_by = {path for e in cfg.get("board_images", []) for path in e["needed_by"]}
+    return any(line.split("::", 1)[0] in needed_by for line in proc.stdout.splitlines())
 
 
 def record_board_images(root: Path, entries: list[dict], stamp: Path) -> list[str]:
@@ -227,6 +250,12 @@ def main() -> int:
         action="store_true",
         help="record the images just built, with this checkout's revision",
     )
+    ap.add_argument(
+        "--select",
+        default="",
+        help="with --check-board-images: the smoke run's -k expression; the gate applies "
+        "only when it selects a test that needs the images",
+    )
     args = ap.parse_args()
 
     root = Path(args.repo_root).resolve()
@@ -280,7 +309,9 @@ def main() -> int:
             print(f"IMAGE-GATE: image {image} was not built", file=sys.stderr)
         return 1 if missing else 0
 
-    if args.check_board_images:
+    if args.check_board_images and (
+        not args.select or selection_needs_images(root, cfg, args.select)
+    ):
         problems = check_board_images(root, cfg.get("board_images", []), BOARD_IMAGES_STAMP)
         for problem in problems:
             print(f"IMAGE-GATE: {problem}", file=sys.stderr)

@@ -98,13 +98,16 @@ first attempt. The dashboard groups them by tier:
 Before a full run, run `scripts/benchmark/build_board_images.sh` on the host, once
 per revision. The machine-switch tests need `osprey-va-full` and `bench-ioc` and
 never build them, so a full cell stops at startup (`IMAGE-GATE`) unless both exist
-at the checkout's revision. A smoke run with `--select` skips this gate. The VA image
+at the checkout's revision. A smoke run with `--select` meets this gate only if it
+selects one of those tests. The VA image
 is linux/amd64, so on Apple Silicon each cell boots it under emulation: leave memory
 for `--parallel` of them in the container VM.
 
 The plan-stack and chart-reading tests deploy a stack with a fixed project name and
 ports, so parallel cells take turns on a host-wide lock. A test's timeout and its
-reported time cover its call, not that wait or the stack build.
+reported time cover its call, not that wait or the stack build. A test that dies in
+setup never reached the model: it shows as an error, and scores neither a pass nor a
+failure.
 
 The other in-scope tests carry `harness_benchmark` (the assertion is OSPREY's,
 not the model's); they run in CI, not on the board. Each cell writes a

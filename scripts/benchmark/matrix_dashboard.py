@@ -325,7 +325,7 @@ def latency_stats(model: str, runs: dict, queries: dict[str, list[dict]], keep=_
         if m != model:
             continue
         for t in d.get("tests", []):
-            if t.get("outcome") == "skipped" or not keep(canon_name(t["name"])):
+            if t.get("outcome") in ("skipped", "error") or not keep(canon_name(t["name"])):
                 continue
             durations.append(float(t.get("duration_s", 0) or 0))
     wait_ms = span_ms = api_ms = out_tok = 0
@@ -381,8 +381,10 @@ def tier_of(test: dict, tiers: dict[tuple, dict]) -> int | None:
 
 
 def conclusive_where(d: dict, keep) -> tuple[int, int]:
-    """conclusive() over the cell's tests ``keep`` accepts by canonical name:
-    (passed, denominator), a timeout counting as a failure, skips excluded."""
+    """The cell's score over the tests ``keep`` accepts by canonical name:
+    (passed, denominator), a timeout counting as a failure. Skips and errors are
+    excluded: an error is a test that died in setup or teardown, which says nothing
+    about the model."""
     p = den = 0
     for t in d.get("tests", []):
         if not keep(canon_name(t["name"])):
@@ -391,7 +393,7 @@ def conclusive_where(d: dict, keep) -> tuple[int, int]:
         if o == "passed":
             p += 1
             den += 1
-        elif o in ("failed", "timeout", "error"):
+        elif o in ("failed", "timeout"):
             den += 1
     return p, den
 
@@ -546,18 +548,6 @@ def run_counts(d: dict) -> dict:
         "skipped": d.get("skipped", 0),
         "error": d.get("errors", 0),
     }
-
-
-def conclusive(d: dict):
-    """Pass rate = passed / (passed + failed + timeout + errors). A timeout counts
-    as a failure: the model did not complete the task within the per-test cap, so
-    it is scored against it. Only genuine skips (tests gated off as not-applicable)
-    are excluded from the denominator. Returns (passed, denominator)."""
-    p = d.get("passed", 0)
-    f = d.get("failed", 0)
-    e = d.get("errors", 0)
-    t = d.get("timeout", 0)
-    return p, p + f + e + t
 
 
 def stacked_bar(counts: dict, width: int = 130, height: int = 14) -> str:
@@ -790,7 +780,7 @@ def main() -> int:
                 f"<tr><td class=l>{html.escape(label(m))}"
                 f"<div class=prov>[{html.escape(provider_display(provider_of(m, runs)))}]</div></td>"
             )
-            tot_p = tot_den = 0
+            tot_p = tot_den = tot_err = 0
             m_seeds = seeds_for(m, runs)
             for s in SEEDS:
                 if s not in m_seeds:  # seed not planned for this model (e.g. single-seed)
@@ -809,6 +799,11 @@ def main() -> int:
                     if not d.get("_partial"):
                         tot_p += p_s  # the all-green check is over COMPLETED seeds only
                         tot_den += den_s
+                        tot_err += sum(
+                            1
+                            for t in d["tests"]
+                            if t.get("outcome") == "error" and keep(canon_name(t["name"]))
+                        )
                     c = dict.fromkeys(OUTCOME_ORDER, 0)
                     for t in d["tests"]:
                         if keep(canon_name(t["name"])):
@@ -835,15 +830,18 @@ def main() -> int:
                     H.append("<td style='background:#fff3cd'>●<div class=muted>running</div></td>")
                 else:
                     H.append("<td style='background:#fafbfc'><span class=muted>N/A</span></td>")
-            if not tot_den:
-                green = "<td>·</td>"
-            elif tot_p == tot_den:
-                green = f"<td style='background:{heat(1.0)}'><span class=ok>✓</span></td>"
-            else:
+            if tot_den and tot_p < tot_den:
                 green = (
                     f"<td style='background:{heat(tot_p / tot_den)}'><span class=no>✗</span>"
                     f"<div class=muted>{tot_den - tot_p} failed</div></td>"
                 )
+            elif tot_err:
+                # Nothing the model did went wrong, and not everything was measured.
+                green = f"<td>·<div class=muted>{tot_err} setup error(s)</div></td>"
+            elif not tot_den:
+                green = "<td>·</td>"
+            else:
+                green = f"<td style='background:{heat(1.0)}'><span class=ok>✓</span></td>"
             lat = latency_stats(m, runs, queries, keep)
             share = lat["model_share"]
             tps = lat["tokens_per_s"]
@@ -911,7 +909,7 @@ def main() -> int:
                     for o in test_results[key].get(m, {}).values():
                         if o == "passed":
                             p += 1
-                        if o in ("passed", "failed", "timeout", "error"):
+                        if o in ("passed", "failed", "timeout"):
                             den += 1
                 H.append(f"<td>{p}/{den}</td>" if den else "<td>·</td>")
             H.append("</tr>")
@@ -931,7 +929,7 @@ def main() -> int:
             "model</i> is the share of agent time spent waiting on the model, concurrent "
             "requests counted once, <i>tok/s</i> "
             "output tokens per second of model time. Each cell counts first-attempt passes "
-            "(a timeout counts as a failure; skips are excluded).</p>"
+            "(a timeout counts as a failure; a skip or a setup error scores nothing).</p>"
         )
         summary_table(in_tier(1))
         H.append("<h2 style='font-size:15px'>Tier 1 tests — one square per seed</h2>")
@@ -955,7 +953,7 @@ def main() -> int:
         H.append("<h2>All tests</h2>")
         H.append(
             "<p class=sub>These results predate the agentic tiers, so they render as one "
-            "section (a timeout counts as a failure; skips are excluded).</p>"
+            "section (a timeout counts as a failure; a skip or a setup error scores nothing).</p>"
         )
         summary_table(_keep_all)
         render_test_table(keys_all)
@@ -1011,7 +1009,8 @@ def main() -> int:
         "Anthropic↔OpenAI translation proxy; Anthropic models connect directly. The per-test "
         "timeout is 1800s; a timeout <b>counts as a failure</b> (the model did not complete the "
         "task within the cap) and is shown as a distinct category so it can be told apart from a "
-        "logic failure. Anthropic Claude models, where present, are a reference ceiling: the "
+        "logic failure. A test that dies in setup never reached the model: it shows as an error "
+        "and scores neither way. Anthropic Claude models, where present, are a reference ceiling: the "
         "models the tests were written for. "
         + judged
         + "Latency figures come from the agent SDK's own "

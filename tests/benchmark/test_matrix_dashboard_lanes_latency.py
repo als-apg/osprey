@@ -275,3 +275,26 @@ def test_a_vision_test_on_a_model_without_vision_reads_not_applicable(tmp_path):
     assert dash.not_applicable_label(tests[1]) == "n/a: no vision"
     assert dash.not_applicable_label({**tests[1], "reason": "ARIEL DB not up"}) is None
     assert dash.not_applicable_label(tests[0]) is None
+
+
+def test_a_setup_error_costs_the_model_nothing_and_is_not_called_green(tmp_path):
+    """No agent ran, so the model neither failed nor passed: the check says errors,
+    not a cross, not a tick, and the time of the dead setup is not a task's time."""
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "t__seed1.lanes.json").write_text(json.dumps({_CAP: _meta(1, "Read one channel")}))
+    tests = [{"name": _CAP, "outcome": "error", "duration_s": 180.0}]
+    (results / "t__seed1.json").write_text(json.dumps(_summary("t", 1, tests)))
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [sys.executable, str(_BENCH / "matrix_dashboard.py"), "--results-dir", str(results)]
+        + ["--out", str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    page = out.read_text()
+    assert "1 setup error(s)" in page
+    assert "class=no" not in page.split("<style>")[1].split("</style>")[1]
+    assert "class=ok" not in page.split("<style>")[1].split("</style>")[1]
+    assert dash.latency_stats("t", dash.load(str(results)), {})["median_task_s"] is None

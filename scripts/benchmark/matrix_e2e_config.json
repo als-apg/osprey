@@ -5,11 +5,13 @@
     {
       "image": "osprey-va-full:latest",
       "override_env": "OSPREY_VA_E2E_IMAGE",
-      "build": "scripts/va/build_and_boot_check.sh"
+      "build": "scripts/va/build_and_boot_check.sh",
+      "needed_by": ["tests/e2e/test_target_switch_agentic.py"]
     },
     {
       "image": "bench-ioc:latest",
-      "build": "docker build -f docker/bench-ioc/Containerfile -t bench-ioc:latest docker/bench-ioc"
+      "build": "docker build -f docker/bench-ioc/Containerfile -t bench-ioc:latest docker/bench-ioc",
+      "needed_by": ["tests/e2e/test_target_switch_agentic.py"]
     }
   ],
   "excluded_files": [
