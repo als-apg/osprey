@@ -20,6 +20,12 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.5] - 2026-11-06
+
+### Added
+
+- The simulator view names its record roles (`SETPOINT`, `READBACK`, `MONITOR`, `OUTPUT`) and refresh `PERIODIC`.
+
 ## [2026.11.4] - 2026-11-05
 
 ### Changed
