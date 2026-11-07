@@ -166,6 +166,8 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.simulation.topoff.shape",
         "osprey_connectors.simulation.topoff.shape_version",
         "osprey_connectors.simulation.validate_composition",
+        "osprey_connectors.pv_directory.targets.has_simulator",
+        "osprey_connectors.pv_directory.targets.pv_directory_targets",
         "osprey_connectors.simulation.values.VALUE_TYPES",
         "osprey_connectors.simulation.values.WAVEFORM",
         "osprey_connectors.simulation.view.Binding",
