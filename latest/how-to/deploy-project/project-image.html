@@ -722,7 +722,9 @@ where a proxy re-signs TLS with its own CA — see
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> sets two more ARGs itself, and you normally never set them by
 hand:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code> makes <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> install a locally built wheel.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code> makes <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> install a locally built wheel,
+beside an <code class="docutils literal notranslate"><span class="pre">osprey-lock-constraints.txt</span></code> that holds every third-party
+package to the checkout’s <code class="docutils literal notranslate"><span class="pre">uv.lock</span></code> (<a class="reference internal" href="index.html#development-mode"><span class="std std-ref">Development Mode</span></a>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_PRE</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> when the pinned OSPREY version is a
 pre-release. The <code class="docutils literal notranslate"><span class="pre">pip</span></code> resolve inside the image then admits the
 pre-release of <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> that ships beside it.</p></li>

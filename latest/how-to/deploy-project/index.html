@@ -1079,6 +1079,23 @@ that package as <code class="docutils literal notranslate"><span class="pre">0.0
 and <code class="docutils literal notranslate"><span class="pre">--dev</span></code> stops before staging and says so. Run <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">fetch</span> <span class="pre">--tags</span></code>; a
 fork or an internal mirror must sync the <code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code> tags as well
 as the <code class="docutils literal notranslate"><span class="pre">v*</span></code> ones.</p>
+<p>A dev build installs third-party packages at the versions the checkout’s
+<code class="docutils literal notranslate"><span class="pre">uv.lock</span></code> holds, not the newest the index has that day, so the images run
+your code against the dependency set the repo’s own tests ran with. Each build
+context receives <code class="docutils literal notranslate"><span class="pre">osprey-lock-constraints.txt</span></code>, the lock exported with
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">export</span> <span class="pre">--locked</span></code>, and every install layer in the image is held to it;
+nothing is installed as <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> from the index. The same applies
+to the project venv <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> creates when it installs an editable
+checkout. <code class="docutils literal notranslate"><span class="pre">--dev</span></code> therefore needs <code class="docutils literal notranslate"><span class="pre">uv</span></code> on the host and a current lock: with
+no <code class="docutils literal notranslate"><span class="pre">uv.lock</span></code>, or one out of date with <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, it stops and tells
+you to run <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">lock</span></code>. A release build stages no such file and resolves from
+the index as before.</p>
+<p>The optimizer image takes torch’s CPU build from the PyTorch index
+(<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_TORCH_INDEX_URL</span></code>), and the lock pins exactly that build
+(<code class="docutils literal notranslate"><span class="pre">torch==&lt;version&gt;+cpu</span></code>). A site that empties the variable and serves torch
+from its own mirror must mirror the <code class="docutils literal notranslate"><span class="pre">+cpu</span></code> build; a mirror carrying only
+PyPI’s plain torch has no candidate the lock admits, and the dev build of that
+image fails.</p>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
