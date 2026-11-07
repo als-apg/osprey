@@ -164,7 +164,7 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 # The ten keys every pre-flight answer carries, success or not: the approval
 # gate reads `ok` and never a status code, so the shape cannot vary with the
@@ -812,6 +812,7 @@ def _init_and_build(repo: Path, edits: dict[str, Any]) -> None:
             "--preset",
             "control-assistant",
             "--no-git",
+            *e2e_scenario_pin(),
             *set_pairs(edits),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",

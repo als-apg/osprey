@@ -77,6 +77,7 @@ INVARIANT_TESTS = (
     "tests/scripts/test_changelog_fragments.py",
     "tests/interfaces/test_js_module_tests.py",
     "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",
     "tests/deployment/web_terminals/test_roster_entries.py",
     "tests/infrastructure/test_import_time_audit.py",
@@ -745,24 +746,24 @@ def _select_pytest(
                 chosen.append("tests/scripts")
                 continue
             if name == "conftest.py" or _mirror_root(path) is None:
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
         elif name in ("pyproject.toml", "uv.lock"):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         elif suffix in JS_SUFFIXES or suffix in INERT_SUFFIXES:
             continue
         elif path.startswith("tests/") and len(PurePosixPath(path).parts) > 2:
             directory = "tests/" + PurePosixPath(path).parts[1]
             if not _holds_test_module(directory, files):
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             chosen.append(directory)
             continue
         elif path.startswith(("packages/", "tests/")):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         elif not path.startswith("src/osprey/"):
             continue
         mirror = _mirror(path, files)
         if mirror is None:
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         chosen.append(mirror)
     return _paths(chosen)
 
@@ -774,13 +775,14 @@ def _select_vitest(
     if guard is None:
         # Without the mapping no JavaScript change can be placed, so any one
         # widens Vitest to its whole selection.
-        reaches = any(
-            path.endswith(JS_SUFFIXES)
+        reaching = [
+            path
+            for path in paths
+            if path.endswith(JS_SUFFIXES)
             or path.rsplit("/", 1)[-1] in VITEST_WIDE_NAMES
             or path == VITEST_SETUP
-            for path in paths
-        )
-        return Selection(WHOLE) if reaches else Selection(NOT_TOUCHED)
+        ]
+        return Selection(WHOLE, cause=reaching[0]) if reaching else Selection(NOT_TOUCHED)
     chosen: list[str] = []
     for path in paths:
         name = path.rsplit("/", 1)[-1]
@@ -790,14 +792,14 @@ def _select_vitest(
         elif guard.modules([path]):
             interface = guard.interface_of(path)
             if interface == SHARED_INTERFACE:
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             own = guard.covering_tests(path, files)
             if own:
                 chosen += own
                 continue
             fallback = f"{guard.TESTS_ROOT}{interface}/"
             if not any(f.startswith(fallback) and f.endswith(guard.TEST_SUFFIXES) for f in files):
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             chosen.append(fallback)
         elif (
             name in VITEST_WIDE_NAMES
@@ -805,7 +807,7 @@ def _select_vitest(
             or path.endswith(JS_SUFFIXES)
             and path.startswith(("tests/", "src/"))
         ):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
     return _paths(chosen)
 
 

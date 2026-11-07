@@ -82,7 +82,7 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
     assert len(buf["rows"]) == 10
 
     # Every BPM's reading is a column, alongside the driven corrector's own
-    # (readback == current, per FR10's echo).
+    # (readback == setpoint, per FR10's echo).
     for bpm_name in ("bpm1", "bpm2", "bpm3"):
         assert any(bpm_name in col for col in buf["columns"])
     assert any("hcm1" in col or "hcm2" in col for col in buf["columns"])
@@ -205,7 +205,7 @@ class _OffsetReadbackConnector:
 
 
 def test_orm_plan_rows_carry_the_demand_column_the_setpoint_fit_reads() -> None:
-    """The plan's rows hold each corrector's commanded current under
+    """The plan's rows hold each corrector's commanded setpoint under
     ``<name>_setpoint``, and the default fit resolves that column.
 
     The corrector's readback sits a fixed offset off its demand, so the two

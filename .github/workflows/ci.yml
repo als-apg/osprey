@@ -1287,6 +1287,12 @@ jobs:
       timeout-minutes: 5
       run: uv run python scripts/cli_tool_inventory.py --check
 
+    # Seeded agent history is authored to the pinned build's transcript format;
+    # this step proves the build still resumes such a transcript as its own.
+    - name: Resume an authored transcript under the pinned CLI
+      timeout-minutes: 5
+      run: uv run python scripts/transcript_resume_probe.py
+
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # Identical pin to the two-shape-boot-e2e lane below, for the identical
       # reason: `podman compose` delegates to whichever provider it finds, and
@@ -6615,18 +6621,6 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Cache the bench IOC image layers
-      uses: actions/cache@v6
-      with:
-        path: /tmp/bench-ioc-buildx-cache
-        # Keyed on all four files the context contains — the Containerfile and
-        # the three text files it copies — because here the whole image IS the
-        # cache: nothing in it depends on osprey's source, so an unchanged
-        # record set restores every layer including the two pulled EPICS bases.
-        key: bench-ioc-buildx-${{ runner.os }}-${{ hashFiles('docker/bench-ioc/Containerfile', 'docker/bench-ioc/bench.db', 'docker/bench-ioc/bench.acf', 'docker/bench-ioc/st.cmd') }}
-        restore-keys: |
-          bench-ioc-buildx-${{ runner.os }}-
-
     - name: Build the virtual accelerator image
       # One of this lane's two control targets is a container of this image;
       # `bench-ioc:latest`, built below, is the other, and every assertion in
@@ -6634,37 +6628,9 @@ jobs:
       uses: ./.github/actions/build-virtual-accelerator-image
 
     - name: Build the bench IOC image
-      # `-f` is load-bearing, not stylistic: BuildKit only auto-detects a file
-      # literally named `Dockerfile`, so dropping it fails with "open
-      # Dockerfile: no such file or directory" (podman finds `Containerfile`
-      # unaided, docker does not). The Containerfile's header says this, and
-      # tests/fixtures/bench_ioc.py prints this exact command when the image is
-      # absent — the fixture never builds implicitly, so this step IS the only
-      # thing that produces `bench-ioc:latest`, and that tag is hardcoded there
-      # with no environment override.
-      #
-      # No staging step, unlike the image above: this context is three small
-      # text files and the Containerfile, so the directory holding them is
-      # already the smallest possible context.
-      run: |
-        set -euo pipefail
-        docker buildx build \
-          --tag bench-ioc:latest \
-          --load \
-          --cache-from type=local,src=/tmp/bench-ioc-buildx-cache \
-          --cache-to type=local,dest=/tmp/bench-ioc-buildx-cache-new,mode=max \
-          -f docker/bench-ioc/Containerfile docker/bench-ioc
-
-    - name: Rotate the bench IOC layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to the `-new` sibling and is swapped in
-      # here, under `/tmp/bench-ioc-buildx-cache` — the path actions/cache
-      # saves at the end of the job. A run that skips the swap saves the layers
-      # it restored and throws away the ones it just built.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/bench-ioc-buildx-cache
-        mv /tmp/bench-ioc-buildx-cache-new /tmp/bench-ioc-buildx-cache
+      # After the virtual accelerator image: this action builds on the Buildx
+      # builder that one sets up, and has none of its own.
+      uses: ./.github/actions/build-bench-ioc-image
 
     - name: Run the control-target switch E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -6858,23 +6824,6 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Cache the bench IOC image layers
-      uses: actions/cache@v6
-      with:
-        path: /tmp/bench-ioc-buildx-cache
-        # The same key as target-switch-e2e's bench IOC cache, because it is
-        # the same image from the same inputs: whichever lane runs first saves
-        # it and the other restores it, and a concurrent second save is a
-        # non-fatal "cache already exists" warning.
-        #
-        # Keyed on all four files the context contains — the Containerfile and
-        # the three text files it copies — because here the whole image IS the
-        # cache: nothing in it depends on osprey's source, so an unchanged
-        # record set restores every layer including the two pulled EPICS bases.
-        key: bench-ioc-buildx-${{ runner.os }}-${{ hashFiles('docker/bench-ioc/Containerfile', 'docker/bench-ioc/bench.db', 'docker/bench-ioc/bench.acf', 'docker/bench-ioc/st.cmd') }}
-        restore-keys: |
-          bench-ioc-buildx-${{ runner.os }}-
-
     - name: Build the virtual accelerator image
       # One of this lane's two control targets is a container of this image;
       # `bench-ioc:latest`, built below, is the other, and the agent is
@@ -6882,33 +6831,9 @@ jobs:
       uses: ./.github/actions/build-virtual-accelerator-image
 
     - name: Build the bench IOC image
-      # `-f` is load-bearing, not stylistic: BuildKit only auto-detects a file
-      # literally named `Dockerfile`, so dropping it fails with "open
-      # Dockerfile: no such file or directory" (podman finds `Containerfile`
-      # unaided, docker does not). tests/fixtures/bench_ioc.py prints this
-      # exact command when the image is absent — the fixture never builds
-      # implicitly, so this step IS the only thing that produces
-      # `bench-ioc:latest`, and that tag is hardcoded there with no
-      # environment override.
-      run: |
-        set -euo pipefail
-        docker buildx build \
-          --tag bench-ioc:latest \
-          --load \
-          --cache-from type=local,src=/tmp/bench-ioc-buildx-cache \
-          --cache-to type=local,dest=/tmp/bench-ioc-buildx-cache-new,mode=max \
-          -f docker/bench-ioc/Containerfile docker/bench-ioc
-
-    - name: Rotate the bench IOC layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to the `-new` sibling and is swapped in
-      # here, under `/tmp/bench-ioc-buildx-cache` — the path actions/cache
-      # saves at the end of the job. A run that skips the swap saves the layers
-      # it restored and throws away the ones it just built.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/bench-ioc-buildx-cache
-        mv /tmp/bench-ioc-buildx-cache-new /tmp/bench-ioc-buildx-cache
+      # After the virtual accelerator image: this action builds on the Buildx
+      # builder that one sets up, and has none of its own.
+      uses: ./.github/actions/build-bench-ioc-image
 
     - name: Install the pinned Claude Code CLI
       # One Claude Code runs in this lane: the version OSPREY pins, installed
