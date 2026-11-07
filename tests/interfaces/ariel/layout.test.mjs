@@ -1,9 +1,9 @@
 // @ts-check
 /**
  * Unit tests for the ARIEL screen layout module (layout.js): rail splitter
- * with snap and `railCollapsed` both ways, frame-kind storage keys, the list
- * splitter, `stacked` from a ResizeObserver, Back, both drawers mapped both
- * ways onto `drawer`, and the gear popover.
+ * with snap and `railCollapsed` both ways, storage keys, the list splitter,
+ * `stacked` from a ResizeObserver, Back, and both drawers mapped both ways onto
+ * `drawer`.
  *
  *   npx vitest run tests/interfaces/ariel/layout.test.mjs
  *
@@ -40,13 +40,10 @@ function resizePanel(width) {
   for (const cb of observers) cb([{ contentRect: { width } }]);
 }
 
-/** Fixture mirroring index.html's pane roots, header and drawers. */
+/** Fixture mirroring index.html's pane roots and drawers. */
 function mountFixture({ settings = true } = {}) {
   document.body.innerHTML = `
     <div class="app-container" id="ariel-app">
-      <header class="header"><div class="header-right">
-        <button type="button" class="osprey-icon-btn" id="ariel-gear-btn" aria-expanded="false"></button>
-      </div></header>
       <div class="ariel-shell">
         <nav class="ariel-pane ariel-rail" id="ariel-rail"></nav>
         <div class="osprey-splitter" id="ariel-rail-splitter" role="separator"
@@ -63,7 +60,6 @@ function mountFixture({ settings = true } = {}) {
         </section>
       </div>
     </div>
-    <div class="osprey-popover" id="ariel-gear-menu" role="menu" hidden></div>
     ${settings ? '<div id="settings-drawer"></div>' : ''}
     <div id="status-drawer"><button id="refresh-status"></button><div id="status-content"></div></div>
   `;
@@ -146,32 +142,22 @@ afterEach(() => {
   history.replaceState(null, '', '/');
 });
 
-describe('rail: default collapsed state per frame', () => {
-  test('standalone starts expanded at the default width', async () => {
-    await boot('/');
-    expect(store.getState().railCollapsed).toBe(false);
-    expect(app().hasAttribute('data-rail-collapsed')).toBe(false);
-    expect(rail().style.flexBasis).toBe(`${layout.RAIL_DEFAULT}px`);
-  });
-
-  test('embedded starts collapsed to the icon strip', async () => {
+describe('rail: default state and storage', () => {
+  test('starts collapsed to the icon strip', async () => {
     await boot('/?embedded=true');
     expect(store.getState().railCollapsed).toBe(true);
     expect(app().hasAttribute('data-rail-collapsed')).toBe(true);
     expect(rail().style.flexBasis).toBe(`${layout.RAIL_STRIP}px`);
   });
 
-  test('storage keys carry the frame kind, so the frames never share a record', async () => {
-    seed('/', 'ariel-rail-standalone', { size: 240, collapsed: false });
+  test('storage keys keep their suffix, so a stored size survives', async () => {
     await boot('/?embedded=true');
     expect(layout.railStorageKey()).toBe('ariel-rail-embedded');
     expect(layout.listStorageKey()).toBe('ariel-list-width-embedded');
-    // the standalone record does not leak into the embedded frame
-    expect(store.getState().railCollapsed).toBe(true);
   });
 
-  test('a stored standalone width is restored', async () => {
-    seed('/', 'ariel-rail-standalone', { size: 240, collapsed: false });
+  test('a stored width is restored', async () => {
+    seed('/', 'ariel-rail-embedded', { size: 240, collapsed: false });
     await boot('/');
     expect(rail().style.flexBasis).toBe('240px');
   });
@@ -180,7 +166,7 @@ describe('rail: default collapsed state per frame', () => {
     document.documentElement.dataset.ospreyStorageScope = 'alice';
     try {
       await boot('/');
-      expect(layout.railStorageKey()).toBe('ariel-rail-standalone--alice');
+      expect(layout.railStorageKey()).toBe('ariel-rail-embedded--alice');
     } finally {
       delete document.documentElement.dataset.ospreyStorageScope;
     }
@@ -191,27 +177,28 @@ describe('rail: DOM -> store', () => {
   test('double-click on the handle toggles railCollapsed', async () => {
     await boot('/');
     railHandle().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(store.getState().railCollapsed).toBe(false);
+    expect(app().hasAttribute('data-rail-collapsed')).toBe(false);
+    expect(rail().style.flexBasis).toBe(`${layout.RAIL_DEFAULT}px`);
+    railHandle().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     expect(store.getState().railCollapsed).toBe(true);
     expect(app().hasAttribute('data-rail-collapsed')).toBe(true);
-    railHandle().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-    expect(store.getState().railCollapsed).toBe(false);
-    expect(rail().style.flexBasis).toBe(`${layout.RAIL_DEFAULT}px`);
   });
 
   test('Enter on the handle toggles too', async () => {
     await boot('/');
     press(railHandle(), 'Enter');
-    expect(store.getState().railCollapsed).toBe(true);
+    expect(store.getState().railCollapsed).toBe(false);
   });
 
   test('an expanded release below the snap threshold collapses to the strip and expands to a usable width', async () => {
-    seed('/', 'ariel-rail-standalone', { size: 120, collapsed: false });
+    seed('/', 'ariel-rail-embedded', { size: 120, collapsed: false });
     await boot('/');
     expect(rail().style.flexBasis).toBe('120px');
     press(railHandle(), 'ArrowLeft'); // 120 - 16 = 104 < snap
     expect(store.getState().railCollapsed).toBe(true);
     expect(rail().style.flexBasis).toBe(`${layout.RAIL_STRIP}px`);
-    const stored = JSON.parse(String(localStorage.getItem('ariel-rail-standalone')));
+    const stored = JSON.parse(String(localStorage.getItem('ariel-rail-embedded')));
     expect(stored.collapsed).toBe(true);
     expect(stored.size).toBeGreaterThanOrEqual(layout.RAIL_SNAP);
 
@@ -221,7 +208,7 @@ describe('rail: DOM -> store', () => {
   });
 
   test('a release at or above the threshold stays expanded and becomes the width expand returns to', async () => {
-    seed('/', 'ariel-rail-standalone', { size: 240, collapsed: false });
+    seed('/', 'ariel-rail-embedded', { size: 240, collapsed: false });
     await boot('/');
     press(railHandle(), 'ArrowRight'); // 256
     expect(store.getState().railCollapsed).toBe(false);
@@ -231,7 +218,7 @@ describe('rail: DOM -> store', () => {
   });
 
   test('the snap writes railCollapsed exactly once', async () => {
-    seed('/', 'ariel-rail-standalone', { size: 120, collapsed: false });
+    seed('/', 'ariel-rail-embedded', { size: 120, collapsed: false });
     await boot('/');
     const seen = vi.fn();
     store.subscribe((_s, _p, changed) => {
@@ -245,24 +232,18 @@ describe('rail: DOM -> store', () => {
 describe('rail: store -> DOM', () => {
   test('railCollapsed from elsewhere is applied to the splitter and persisted', async () => {
     await boot('/');
-    store.setState({ railCollapsed: true });
-    expect(rail().style.flexBasis).toBe(`${layout.RAIL_STRIP}px`);
-    expect(JSON.parse(String(localStorage.getItem('ariel-rail-standalone'))).collapsed).toBe(true);
     store.setState({ railCollapsed: false });
     expect(rail().style.flexBasis).toBe(`${layout.RAIL_DEFAULT}px`);
     expect(app().hasAttribute('data-rail-collapsed')).toBe(false);
-  });
-
-  test('expanding the default-collapsed embedded rail returns a usable width', async () => {
-    await boot('/?embedded=true');
-    store.setState({ railCollapsed: false });
-    expect(rail().style.flexBasis).toBe(`${layout.RAIL_DEFAULT}px`);
+    store.setState({ railCollapsed: true });
+    expect(rail().style.flexBasis).toBe(`${layout.RAIL_STRIP}px`);
+    expect(JSON.parse(String(localStorage.getItem('ariel-rail-embedded'))).collapsed).toBe(true);
   });
 });
 
 describe('list splitter', () => {
-  test('restores the stored per-frame list width', async () => {
-    seed('/', 'ariel-list-width-standalone', { size: 420, collapsed: false });
+  test('restores the stored list width', async () => {
+    seed('/', 'ariel-list-width-embedded', { size: 420, collapsed: false });
     await boot('/');
     expect(byId('ariel-list-col').style.flexBasis).toBe('420px');
   });
@@ -274,7 +255,7 @@ describe('list splitter', () => {
   });
 
   test('is inert while stacked', async () => {
-    seed('/', 'ariel-list-width-standalone', { size: 420, collapsed: false });
+    seed('/', 'ariel-list-width-embedded', { size: 420, collapsed: false });
     await boot('/');
     resizePanel(500);
     press(byId('ariel-list-splitter'), 'ArrowRight');
@@ -349,38 +330,5 @@ describe('drawers', () => {
     await boot('/', { settings: false });
     store.setState({ drawer: 'settings' });
     expect(byId('status-drawer').hasAttribute('open')).toBe(false);
-  });
-});
-
-describe('gear popover', () => {
-  test('lists Status and Settings; an item opens its drawer and closes the menu', async () => {
-    await boot('/');
-    const menu = byId('ariel-gear-menu');
-    const items = [...menu.querySelectorAll('.osprey-popover-item')];
-    expect(items.map((b) => b.textContent)).toEqual(['Status', 'Settings']);
-    expect(items.every((b) => b.getAttribute('role') === 'menuitem')).toBe(true);
-
-    byId('ariel-gear-btn').click();
-    expect(menu.hidden).toBe(false);
-    /** @type {HTMLElement} */ (items[0]).click();
-    expect(menu.hidden).toBe(true);
-    expect(store.getState().drawer).toBe('status');
-    expect(byId('status-drawer').hasAttribute('open')).toBe(true);
-  });
-
-  test('omits Settings when the drawer is absent at init', async () => {
-    await boot('/', { settings: false });
-    const labels = [...byId('ariel-gear-menu').querySelectorAll('.osprey-popover-item')].map(
-      (b) => b.textContent
-    );
-    expect(labels).toEqual(['Status']);
-  });
-
-  test('popover open state is never written to the store', async () => {
-    await boot('/');
-    const spy = vi.fn();
-    store.subscribe(spy);
-    byId('ariel-gear-btn').click();
-    expect(spy).not.toHaveBeenCalled();
   });
 });
