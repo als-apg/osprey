@@ -35,6 +35,7 @@ _BUILT_IMAGE_KEYS = {
     "gchat_bridge": "gchat_bridge",
     "nextcloud_bridge": "nextcloud_bridge",
     "qmd": "qmd",
+    "slack_bridge": "slack_bridge",
     "teams_bridge": "teams_bridge",
     "virtual_accelerator": "va",
 }

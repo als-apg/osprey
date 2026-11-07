@@ -169,6 +169,7 @@ _NO_MCP_SERVER = frozenset(
         "gchat_bridge.yml:gchat-bridge",
         "nextcloud_bridge.yml:nextcloud-bridge",
         "teams_bridge.yml:teams-bridge",
+        "slack_bridge.yml:slack-bridge",
     }
 )
 

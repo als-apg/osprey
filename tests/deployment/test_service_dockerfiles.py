@@ -116,6 +116,7 @@ SITE_BUILD_SHAPE = {
     "services/gchat_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/nextcloud_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/teams_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/slack_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/qmd": SiteBuildShape(
         _NODE_TRUST_VARS, ("PIP_NO_PROXY",), "npm install", bootstrap_fetches=1
     ),

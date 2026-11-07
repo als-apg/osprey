@@ -266,6 +266,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "gchat_bridge": {"network": "host"},
             "nextcloud_bridge": {"network": "host"},
             "teams_bridge": {"network": "host"},
+            "slack_bridge": {"network": "host"},
         },
         deployed=(
             "event_dispatcher",
@@ -273,8 +274,9 @@ SCENARIOS: tuple[Scenario, ...] = (
             "gchat_bridge",
             "nextcloud_bridge",
             "teams_bridge",
+            "slack_bridge",
         ),
-        templates=("gchat_bridge", "nextcloud_bridge", "teams_bridge"),
+        templates=("gchat_bridge", "nextcloud_bridge", "teams_bridge", "slack_bridge"),
     ),
     # A repo carrying committed defaults alongside its local secrets. Axes
     # unset: this shape is about the env chain, and the worker is the one
@@ -361,6 +363,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "gchat_bridge",
             "nextcloud_bridge",
             "teams_bridge",
+            "slack_bridge",
             "mongodb",
         ),
         templates=(
@@ -374,6 +377,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "gchat_bridge",
             "nextcloud_bridge",
             "teams_bridge",
+            "slack_bridge",
         ),
         overrides={"images": {"registry": _AXIS_REGISTRY, "tag": _AXIS_TAG}},
     ),
@@ -431,6 +435,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "gchat_bridge",
             "nextcloud_bridge",
             "qmd",
+            "slack_bridge",
             "virtual_accelerator",
         ),
         overrides={"site_image_build_args": dict(_SITE_IMAGE_BUILD_ARGS)},
@@ -694,6 +699,7 @@ def test_bridges_on_host_address_the_pair_at_the_host() -> None:
         ("gchat_bridge", "gchat-bridge"),
         ("nextcloud_bridge", "nextcloud-bridge"),
         ("teams_bridge", "teams-bridge"),
+        ("slack_bridge", "slack-bridge"),
     ):
         environment = _service_env("bridge-on-host", key, compose_name)
         assert environment["DISPATCHER_URL"] == f"http://localhost:{dispatch.dispatcher_port}"
