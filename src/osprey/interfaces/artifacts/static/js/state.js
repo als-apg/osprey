@@ -422,8 +422,7 @@ export async function fetchFocus() {
 
 /**
  * Search/sort the current artifact list for display: applies the
- * (already-normalized) search query, then sorts pinned-first /
- * newest-first. (Type narrowing is the tree's job — its sections group by
+ * (already-normalized) search query, then sorts newest-first. (Type narrowing is the tree's job — its sections group by
  * type — so there is no separate type filter.)
  * @param {string} [searchQuery] - already-trimmed, lowercased search text (the caller reads it from the DOM)
  * @returns {any[]}
@@ -441,11 +440,7 @@ export function getFilteredArtifacts(searchQuery = '') {
     );
   }
 
-  filtered.sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return (b.timestamp || '').localeCompare(a.timestamp || '');
-  });
+  filtered.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 
   return filtered;
 }

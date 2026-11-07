@@ -29,8 +29,8 @@ Covers:
     no browser column and no preview header, the artifact the hub selects
     (an ``osprey-artifact-select`` message) renders through the same
     dispatch for every seeded type, and the hub's
-    ``osprey-artifact-action`` messages run the gallery's own pin, logbook
-    and delete paths
+    ``osprey-artifact-action`` messages run the gallery's own logbook and
+    delete paths
 
 Unlike _launchers.py's `launch_artifacts` (an empty tmp_path -- fine
 there, since it only checks the page loads clean), this suite needs real
@@ -533,8 +533,7 @@ def test_the_embedded_viewer_runs_the_actions_the_hub_sends(
     tmp_path, monkeypatch, chromium_browser
 ):
     """The hub's tile menu reaches the gallery's own code paths through
-    ``osprey-artifact-action``: pin sets the flag on the stored entry, logbook
-    opens the composer, and delete, once confirmed, removes the artifact and
+    ``osprey-artifact-action``: logbook opens the composer, and delete, once confirmed, removes the artifact and
     empties the viewer.
     """
     from osprey.stores.artifact_store import ArtifactStore
@@ -544,14 +543,6 @@ def test_the_embedded_viewer_runs_the_actions_the_hub_sends(
         page.goto(f"{base_url}?embedded=true", wait_until="domcontentloaded")
         artifact_id = _select_in_viewer(page, HTML_TITLE)
         expect(page.locator(".preview-viewport iframe")).to_be_visible(timeout=10_000)
-
-        with page.expect_response(
-            lambda r: r.url.endswith(f"/api/artifacts/{artifact_id}/pin")
-        ) as pinned:
-            _act_in_viewer(page, artifact_id, "pin")
-        assert pinned.value.ok
-        entry = ArtifactStore(workspace_root=tmp_path).get_entry(artifact_id)
-        assert entry is not None and entry.pinned is True
 
         _act_in_viewer(page, artifact_id, "logbook")
         expect(page.locator(".logbook-overlay")).to_be_visible(timeout=5_000)

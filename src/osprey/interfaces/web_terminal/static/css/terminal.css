@@ -91,7 +91,8 @@ html[data-sidebar-resizing] * {
   flex: none;
 }
 
-.sidebar-sections > .sidebar-group:first-child {
+.sidebar-sections > .sidebar-group:first-child,
+.sidebar-sections > .sidebar-pinned[hidden] + .sidebar-group {
   padding-top: var(--space-4);
 }
 

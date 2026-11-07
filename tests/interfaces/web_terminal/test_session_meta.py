@@ -8,6 +8,8 @@ Pinned here:
   overwrites a user title.
 * **A session's layout** round-trips, is checked (version, shape, root-relative
   pages, size cap; unknown fields dropped) and goes with the tombstone.
+* **A pin** is set once (re-pinning keeps its time), cleared, survives a reload,
+  lists in pin order, and goes with the tombstone; a deleted session takes none.
 * **A damaged document loads defaults**; ``naming_since`` is stamped once, at the
   store's first creation, and kept across reloads.
 * **The identity guard** refuses a hub whose terminal user is not the acting
@@ -66,6 +68,7 @@ class TestMetaRoundTrip:
             "naming": None,
             "last_artifact_id": None,
             "layout": None,
+            "pinned": None,
             "deleted": None,
         }
         assert session_meta.get_last_active(app) is None
@@ -89,6 +92,7 @@ class TestMetaRoundTrip:
             "naming": "done",
             "last_artifact_id": "art-1",
             "layout": None,
+            "pinned": None,
             "deleted": None,
         }
         t2 = session_meta.get(fresh, T2)
@@ -241,6 +245,40 @@ class TestLayout:
         session_meta.set_layout(app, T1, LAYOUT)
         session_meta.mark_deleted(app, T1)
         assert session_meta.get(app, T1)["layout"] is None
+
+
+@pytest.mark.usefixtures("shared_root")
+class TestPins:
+    def test_pin_unpin_and_reload(self):
+        app = _app()
+        session_meta.load(app)
+        first = session_meta.set_pinned(app, T1, True)["pinned"]
+        assert first is not None
+        assert session_meta.set_pinned(app, T1, True)["pinned"] == first
+        fresh = _app()
+        session_meta.load(fresh)
+        assert session_meta.get(fresh, T1)["pinned"] == first
+        assert session_meta.set_pinned(fresh, T1, False)["pinned"] is None
+        assert session_meta.pinned_ids(fresh) == []
+
+    def test_pinned_ids_are_in_pin_order(self, monkeypatch):
+        app = _app()
+        session_meta.load(app)
+        stamps = iter(["2026-11-06T10:00:00+00:00", "2026-11-06T09:00:00+00:00"])
+        monkeypatch.setattr(session_meta, "_now", lambda: next(stamps))
+        session_meta.set_pinned(app, T2, True)
+        session_meta.set_pinned(app, T1, True)
+        assert session_meta.pinned_ids(app) == [T1, T2]
+
+    def test_the_pin_goes_with_the_tombstone(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_pinned(app, T1, True)
+        session_meta.mark_deleted(app, T1)
+        assert session_meta.get(app, T1)["pinned"] is None
+        assert session_meta.pinned_ids(app) == []
+        with pytest.raises(KeyError):
+            session_meta.set_pinned(app, T1, True)
 
 
 @pytest.mark.usefixtures("shared_root")

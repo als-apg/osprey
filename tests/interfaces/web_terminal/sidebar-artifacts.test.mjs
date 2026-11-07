@@ -226,6 +226,8 @@ function route(url, init = {}) {
   if (u.pathname === '/api/sessions')
     return reply(server.sessions[u.searchParams.get('cursor') ?? 'first']);
   if (u.pathname.endsWith('/enter')) return reply({ session_key: server.enterKey });
+  if (method === 'PUT' && u.pathname.endsWith('/pin'))
+    return reply({ pinned: body.pinned ? new Date().toISOString() : null });
   if (method === 'PUT') return reply({ ok: true });
   if (u.pathname.endsWith('/api/artifacts/session-summary')) return reply(server.summary);
   if (u.pathname.endsWith('/api/artifacts/session-list')) {
@@ -1196,5 +1198,234 @@ describe('the session rows: accent, breathing, peek and "+"', () => {
     await settle();
     expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
     expect(classesOf(T2)).toContain('active');
+  });
+});
+
+describe('session pins: the pinned group and the pin button', () => {
+  const PINNED_AT = '2026-10-30T08:00:00+00:00';
+  /** Put the pinned group's rail around the Sessions row, as index.html does. */
+  function withRail() {
+    const rail = document.createElement('div');
+    rail.id = 'panel-rail';
+    rail.append(/** @type {HTMLElement} */ (document.getElementById('sidebar-agent-wrap')));
+    document.body.prepend(rail);
+  }
+  const group = () => /** @type {HTMLElement} */ (document.querySelector('.sidebar-pinned'));
+  const head = () => /** @type {HTMLElement} */ (group().querySelector('.sidebar-pinned-head'));
+  const pinnedList = () =>
+    /** @type {HTMLElement} */ (group().querySelector('[data-tree-where="pinned"]'));
+  /** @param {string} id */
+  const pinnedCopy = (id) =>
+    /** @type {HTMLElement} */ (
+      pinnedList().querySelector(`.osprey-tree-session[data-session-id="${id}"]`)
+    );
+  /** @param {HTMLElement} row */
+  const pinButton = (row) => /** @type {HTMLElement} */ (row.querySelector('[data-tree-pin]'));
+  /** Pin T2 on the hub's first page. */
+  function pinT2OnHub() {
+    const first = server.sessions.first;
+    first.sessions[1] = { ...first.sessions[1], pinned: PINNED_AT };
+    first.pinned_sessions = [first.sessions[1]];
+  }
+
+  beforeEach(() => withRail());
+
+  test('no pin, no group; the first pin shows it above Sessions, folded, with its count', async () => {
+    await boot();
+    expect(group().hidden).toBe(true);
+    expect(group().nextElementSibling?.id).toBe('sidebar-agent-wrap');
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-label')).toBe('Pin session');
+
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: true },
+    ]);
+    expect(group().hidden).toBe(false);
+    expect(head().getAttribute('aria-expanded')).toBe('false');
+    expect(head().querySelector('.sidebar-group-name')?.textContent).toBe('Pinned');
+    expect(head().querySelector('.sidebar-pinned-count')?.textContent).toBe('1');
+    expect(pinnedList().hidden).toBe(true);
+    // The row stays in Sessions, with a marker and a pressed button.
+    expect(sessionRowEl(T2).querySelector('.osprey-tree-pin-mark')).not.toBeNull();
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+  });
+
+  test('unpinning the last session takes the group away', async () => {
+    pinT2OnHub();
+    await boot();
+    expect(group().hidden).toBe(false);
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: false },
+    ]);
+    expect(group().hidden).toBe(true);
+    expect(sessionRowEl(T2).querySelector('.osprey-tree-pin-mark')).toBeNull();
+  });
+
+  test('a refused pin puts the row back', async () => {
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) =>
+      String(url).endsWith('/pin') ? reply({ detail: 'No such session.' }, 404) : route(url, init)
+    );
+    await boot();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(group().hidden).toBe(true);
+    expect(sessionRowEl(T2).dataset.pinned).toBeUndefined();
+  });
+
+  test('the second click of a double-click on the pin button does nothing', async () => {
+    await boot();
+    const button = pinButton(sessionRowEl(T2));
+    click(button, 1);
+    click(button, 2);
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT')).toHaveLength(1);
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test("a pin click while that session's PUT is in flight is ignored", async () => {
+    /** @type {() => void} */
+    let answer = () => {};
+    const gate = new Promise((resolve) => (answer = () => resolve(undefined)));
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) => {
+      if (String(url).endsWith('/pin')) await gate;
+      return route(url, init);
+    });
+    await boot();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: true },
+    ]);
+    answer();
+    await settle();
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: true },
+      { pinned: false },
+    ]);
+  });
+
+  test('the focus stays on the pin button through the redraw a pin causes', async () => {
+    await boot();
+    pinButton(sessionRowEl(T2)).focus();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(document.activeElement).toBe(pinButton(sessionRowEl(T2)));
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('the pinned list is a labelled group, not a tree of rows that are no treeitems', async () => {
+    await boot();
+    expect(pinnedList().getAttribute('role')).toBe('group');
+    expect(pinnedList().getAttribute('aria-labelledby')).toBe('sidebar-pinned-label');
+  });
+
+  test('neither copy of a pinned session carries a tooltip; only its pin button is labelled', async () => {
+    pinT2OnHub();
+    await boot();
+    click(head());
+    await settle();
+    for (const row of [sessionRowEl(T2), pinnedCopy(T2)]) {
+      for (const el of [
+        row,
+        /** @type {HTMLElement} */ (row.querySelector('.osprey-tree-title')),
+      ]) {
+        expect(el.hasAttribute('title')).toBe(false);
+        expect(el.hasAttribute('data-tip')).toBe(false);
+        expect(el.hasAttribute('data-tip-detail')).toBe(false);
+      }
+      expect(pinButton(row).getAttribute('aria-label')).toBe('Unpin session');
+    }
+  });
+
+  test('a click on the heading unfolds it: the pinned copies, no marker, in pin order', async () => {
+    pinT2OnHub();
+    server.sessions.first.sessions[0].pinned = '2026-10-30T09:00:00+00:00';
+    server.sessions.first.pinned_sessions.push(server.sessions.first.sessions[0]);
+    await boot();
+    click(head());
+    await settle();
+    expect(head().getAttribute('aria-expanded')).toBe('true');
+    const copies = [...pinnedList().querySelectorAll('.osprey-tree-session')].map(
+      (r) => /** @type {HTMLElement} */ (r).dataset.sessionId
+    );
+    expect(copies).toEqual([T2, T1]);
+    expect(pinnedCopy(T2).dataset.where).toBe('pinned');
+    expect(pinnedCopy(T2).querySelector('.osprey-tree-pin-mark')).toBeNull();
+    expect(sessionRowEl(T2).querySelector('.osprey-tree-pin-mark')).not.toBeNull();
+  });
+
+  test('both copies show the active session; its artifacts open under the copy clicked', async () => {
+    server.sessions.first.sessions[0].pinned = PINNED_AT;
+    server.sessions.first.pinned_sessions = [server.sessions.first.sessions[0]];
+    await boot();
+    click(head());
+    await settle();
+    expect(pinnedCopy(T1).classList.contains('active')).toBe(true);
+    expect(sessionRowEl(T1).classList.contains('active')).toBe(true);
+    const chatEvents = await import(`${JS}/chat-events.js`);
+    chatEvents.emitChat('busy', { busy: true });
+    expect(pinnedCopy(T1).classList.contains('is-busy')).toBe(true);
+    expect(sessionRowEl(T1).classList.contains('is-busy')).toBe(true);
+    chatEvents.emitChat('busy', { busy: false });
+    // Open under Sessions at first; a click on the pinned copy moves them there.
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(pinnedList().querySelector('[data-session-box]')).toBeNull();
+    click(/** @type {Element} */ (pinnedCopy(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(pinnedCopy(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(pinnedList().querySelector(`[data-session-box="${T1}"]`)).not.toBeNull();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    expect(tree().querySelector('[data-session-box]')).toBeNull();
+  });
+
+  test('a pinned session on a later page is in the group, and a click switches to it', async () => {
+    const old = { transcript_id: T3, session_key: K2, current_for_key: true, title: 'Old work' };
+    server.sessions.first.pinned_sessions = [{ ...old, pinned: PINNED_AT }];
+    await boot();
+    expect(sessionTitles()).not.toContain('Old work');
+    click(head());
+    await settle();
+    click(/** @type {Element} */ (pinnedCopy(T3).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(mocks.resumeSession).toHaveBeenCalledWith(K2);
+    // The row the tab is on is the pinned one, not a synthesized "New session".
+    expect(pinnedCopy(T3).classList.contains('active')).toBe(true);
+    expect(pinnedCopy(T3).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('pinning while the group is hidden shows it again; hiding hides no session', async () => {
+    pinT2OnHub();
+    await boot();
+    const pins = await import(`${JS}/sidebar-session-pins.js`);
+    pins.setPinnedHidden(true);
+    expect(group().hidden).toBe(true);
+    expect(sessionTitles()).toEqual(['Orbit study', 'Tune scan']);
+    click(pinButton(sessionRowEl(T1)));
+    await settle();
+    expect(group().hidden).toBe(false);
+    expect(head().querySelector('.sidebar-pinned-count')?.textContent).toBe('2');
+  });
+
+  test('the collapsed sidebar flyout lists the pinned sessions first, under the group name', async () => {
+    pinT2OnHub();
+    const flyout = document.createElement('div');
+    flyout.id = 'sidebar-sessions-flyout';
+    flyout.innerHTML = '<div data-session-tree></div>';
+    document.body.append(flyout);
+    await boot();
+    const kids = [.../** @type {HTMLElement} */ (flyout.firstElementChild).children].map((el) => {
+      const row = /** @type {HTMLElement} */ (el);
+      return row.dataset.sessionId ?? (row.hasAttribute('data-tree-label') ? row.textContent : '');
+    });
+    expect(kids.slice(0, 4)).toEqual(['Pinned', T2, 'Sessions', T1]);
   });
 });

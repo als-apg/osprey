@@ -3245,15 +3245,15 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(opened.defaultPrevented).toBe(true);
   });
 
-  test('on the terminal surface the Agent row offers the session verbs; its tile pairs restart with reconnect', async () => {
+  test('on the terminal surface the Sessions row offers the session verbs; its tile pairs restart with reconnect', async () => {
     await bootWorkspace({ surface: 'terminal' });
 
     // The Agent row heads the session tree: its menu is the tree's.
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Expand all']);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('Agent actions');
+    expect(menuLabels()).toEqual(['New session', 'Expand all', 'Show pinned sessions']);
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Sessions actions');
 
     // The pane verbs live on the Agent tile header.
     expect(await agentTileMenu()).toBe(true);

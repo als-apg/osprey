@@ -3332,7 +3332,11 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_rail_menu(page, "terminal")
-        assert _menu_labels(page) == ["New session", "Collapse all"], _menu_labels(page)
+        assert _menu_labels(page) == [
+            "New session",
+            "Collapse all",
+            "Show pinned sessions",
+        ], _menu_labels(page)
 
         page.close()
 

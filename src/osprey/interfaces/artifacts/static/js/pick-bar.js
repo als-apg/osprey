@@ -4,8 +4,7 @@
  *
  * A slim bar above the sidebar list, shown while two or more rows are picked:
  * "<n> selected · Delete · Clear". Delete removes the picked artifacts in one
- * request after one confirm. Pinned artifacts in a pick are kept, and the
- * confirm says how many stay. The preview pane is not this bar's concern: it
+ * request after one confirm. The preview pane is not this bar's concern: it
  * keeps showing the last clicked artifact.
  *
  * `createPickBar` takes every effect injected — fetch, confirm, the state.js
@@ -53,35 +52,21 @@ import {
  */
 
 /**
- * Split the picks into the ids a delete sends and the count of pinned rows it keeps.
+ * The picked ids a delete sends: every pick the gallery still holds.
  * @param {PickBarDeps} deps
- * @returns {{picked: number, doomed: string[], pinned: number}}
+ * @returns {string[]}
  */
-function splitPicks(deps) {
-  const picked = deps.getPickedIds();
-  /** @type {Map<string, any>} */
-  const byId = new Map(deps.getArtifacts().map((a) => [a.id, a]));
-  /** @type {string[]} */
-  const doomed = [];
-  let pinned = 0;
-  picked.forEach((id) => {
-    const a = byId.get(id);
-    if (!a) return;
-    if (a.pinned) pinned += 1;
-    else doomed.push(id);
-  });
-  return { picked: picked.size, doomed, pinned };
+function doomedIds(deps) {
+  const held = new Set(deps.getArtifacts().map((a) => a.id));
+  return [...deps.getPickedIds()].filter((id) => held.has(id));
 }
 
 /**
  * @param {number} n
- * @param {number} pinned
  * @returns {string}
  */
-function confirmText(n, pinned) {
-  const what = `Delete ${n} artifact${n === 1 ? '' : 's'}?`;
-  const kept = pinned ? ` ${pinned} pinned ${pinned === 1 ? 'stays' : 'stay'}.` : '';
-  return `${what}${kept} This cannot be undone.`;
+function confirmText(n) {
+  return `Delete ${n} artifact${n === 1 ? '' : 's'}? This cannot be undone.`;
 }
 
 /**
@@ -93,18 +78,15 @@ export function createPickBar(els, deps) {
   const log = deps.log ?? ((...args) => console.error(...args));
 
   function render() {
-    const { picked, doomed } = splitPicks(deps);
+    const picked = deps.getPickedIds().size;
     els.bar.hidden = picked < 2;
     els.count.textContent = `${picked} selected`;
-    const allPinned = picked > 0 && doomed.length === 0;
-    els.deleteBtn.disabled = allPinned;
-    els.deleteBtn.title = allPinned ? 'Pinned artifacts are kept' : '';
   }
 
   function deletePicked() {
-    const { doomed, pinned } = splitPicks(deps);
+    const doomed = doomedIds(deps);
     if (doomed.length === 0) return;
-    if (!deps.confirm(confirmText(doomed.length, pinned))) return;
+    if (!deps.confirm(confirmText(doomed.length))) return;
     deps
       .fetch('/api/artifacts/delete', {
         method: 'POST',

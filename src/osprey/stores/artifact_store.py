@@ -180,7 +180,6 @@ class ArtifactEntry:
     timestamp: str
     tool_source: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    pinned: bool = False
     # --- Unified artifact fields (replaces DataContext) ---
     category: str = ""
     summary: dict[str, Any] = field(default_factory=dict)
@@ -234,7 +233,6 @@ class ArtifactEntry:
             "title": self.title,
             "artifact_type": self.artifact_type,
             "size_bytes": self.size_bytes,
-            "pinned": self.pinned,
         }
         if self.kind:
             resp["kind"] = self.kind
@@ -433,15 +431,6 @@ def _stamped_metadata(metadata: Mapping[str, Any] | None, now: str) -> dict[str,
     if call_id is not None:
         stamped.setdefault("call_id", call_id)
     return stamped
-
-
-def _is_channel_reading(entry: ArtifactEntry) -> bool:
-    """Whether *entry* is a channel reading retention may prune.
-
-    New readings are told by their writer (``tool_source="channel_read"``);
-    readings saved before category retired still carry ``channel_values``.
-    """
-    return entry.tool_source == "channel_read" or entry.category == "channel_values"
 
 
 # ---- run groups ------------------------------------------------------------
@@ -759,7 +748,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     def _entry_from_dict(self, d: dict) -> ArtifactEntry:
         # Gracefully handle old index files missing fields
         d.pop("highlighted", None)  # Removed concept; strip from old indexes
-        d.setdefault("pinned", False)
+        d.pop("pinned", None)  # Removed concept; strip from old indexes
+        if isinstance(d.get("metadata"), dict):
+            d["metadata"].pop("pinned_in", None)
         d.setdefault("category", "")
         d.setdefault("summary", {})
         d.setdefault("access_details", {})
@@ -1144,7 +1135,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             category: Deprecated and ignored.
             metadata: Free-form index metadata. ``metadata["channel"]`` is
                 REQUIRED — the channel address is the only queryable key that
-                selects an address's readings, so retention pruning needs it.
+                selects an address's readings.
             description: Optional longer description.
             tool_source: Tool that produced the reading.
             source_agent: Subagent that produced the reading, when applicable.
@@ -1161,7 +1152,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if not channel:
             raise ValueError(
                 "save_channel_reading requires metadata['channel']: the channel "
-                "address is the queryable key retention pruning selects on, and "
+                "address is the queryable key that selects its readings, and "
                 "ArtifactEntry has no other field that records it."
             )
 
@@ -1231,7 +1222,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         self,
         type_filter: str | None = None,
         search: str | None = None,
-        pinned: bool | None = None,
         tool_filter: str | None = None,
         run_filter: str | None = None,
         run_record: bool | None = None,
@@ -1287,8 +1277,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             entries = [e for e in entries if e.run_id == run_filter]
         if run_record is not None:
             entries = [e for e in entries if is_run_record(e) == run_record]
-        if pinned is not None:
-            entries = [e for e in entries if e.pinned == pinned]
         if search:
             # These are the four fields the gallery's filter box offers; the box
             # and this clause must admit the same artifacts, or a paged listing
@@ -1311,7 +1299,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         cursor: str | None = None,
         type_filter: str | None = None,
         search: str | None = None,
-        pinned: bool | None = None,
         tool_filter: str | None = None,
         run_filter: str | None = None,
         run_record: bool | None = None,
@@ -1332,7 +1319,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         entries = self.list_entries(
             type_filter=type_filter,
             search=search,
-            pinned=pinned,
             tool_filter=tool_filter,
             run_filter=run_filter,
             run_record=run_record,
@@ -1343,28 +1329,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             registry=registry,
         )
         return page_of(entries, limit, cursor)
-
-    def set_pinned(
-        self, artifact_id: str, pinned: bool = True, *, set_in: str | None = None
-    ) -> ArtifactEntry | None:
-        """Toggle the pinned flag on an artifact. Returns the updated entry or None.
-
-        A pin records the transcript it was set in as ``metadata["pinned_in"]``;
-        re-pinning moves that record, and a pin with ``set_in=None`` leaves none.
-        Unpinning clears both the flag and the record. The record lives in
-        ``metadata`` so an older reader of the index still loads the entry.
-        """
-        with self._with_index_lock():
-            for e in self._entries:
-                if e.id == artifact_id:
-                    e.pinned = pinned
-                    metadata = {k: v for k, v in e.metadata.items() if k != "pinned_in"}
-                    if pinned and set_in is not None:
-                        metadata["pinned_in"] = set_in
-                    e.metadata = metadata
-                    self._save_index()
-                    return e
-        return None
 
     def replace_file(
         self,
@@ -1476,14 +1440,11 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             # here, so a removed example stays removed whichever one ran.
             self._mark_example_removed()
 
-    def _delete_entry_locked(
-        self, artifact_id: str, *, persist: bool = True
-    ) -> ArtifactEntry | None:
+    def _delete_entry_locked(self, artifact_id: str) -> ArtifactEntry | None:
         """Delete one entry from *inside* an already-held index lock.
 
         The lock-free half of :meth:`delete_entry`, for callers that are
-        already in a ``_with_index_lock()`` critical section (a save that
-        prunes its own retention window, for instance). Calling the public
+        already in a ``_with_index_lock()`` critical section. Calling the public
         method from there would self-deadlock: ``_with_index_lock`` takes an
         ``flock`` on a freshly opened descriptor, and ``flock`` is per
         open-file-description — the in-process ``RLock`` is reentrant, the file
@@ -1493,9 +1454,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         them after leaving the lock, exactly as :meth:`delete_entry` does.
 
         Args:
-            artifact_id: Id of the entry to remove.
-            persist: Whether to rewrite the index. Pass ``False`` when the
-                caller saves the index once for a batch of mutations.
+            artifact_id: Id of the entry to remove; the index is rewritten.
 
         Returns:
             The removed entry, or ``None`` when no entry matched.
@@ -1504,8 +1463,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             if e.id == artifact_id:
                 self._unlink_entry_files(e)
                 del self._entries[i]
-                if persist:
-                    self._save_index()
+                self._save_index()
                 return e
         return None
 
@@ -1523,108 +1481,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
 
         self._notify_delete_listeners(deleted)
         return True
-
-    def _prune_channel_readings_locked(
-        self, address: str, keep: int, *, persist: bool = True
-    ) -> list[ArtifactEntry]:
-        """Trim *address*'s reading window from inside an already-held index lock.
-
-        The lock-free half of :meth:`prune_channel_readings`, so a save that
-        wants to prune its own window can do it without releasing the lock it
-        already holds (``_with_index_lock`` is not reentrant across processes —
-        see :meth:`_delete_entry_locked`).
-
-        Each removal goes through ``_delete_entry_locked(persist=False)`` and
-        the index is rewritten once at the end, so a sweep that drops ten
-        entries costs one index write, not ten.
-
-        Delete listeners are deliberately *not* fired here: the caller fires
-        them after leaving the lock, so a listener that calls back into the
-        store cannot deadlock.
-
-        Args:
-            address: Channel address to match against ``metadata["channel"]``.
-            keep: Window size. ``0`` or negative keeps everything.
-            persist: Whether to rewrite the index when anything was pruned.
-                Pass ``False`` only if the caller persists afterwards anyway.
-
-        Returns:
-            The removed entries, oldest first (empty when nothing was pruned).
-        """
-        if keep <= 0 or not address:
-            return []
-
-        # Pinned entries are skipped on both counts: they are never pruned, and
-        # they never occupy a slot in the window either. Counting them would
-        # let ``keep`` pinned frames permanently starve the rolling window.
-        #
-        # Order is the index's insertion order, which is the store's house
-        # convention for chronology: entries are only ever appended, so the
-        # oldest reading for an address is the earliest surviving match.
-        candidates = [
-            e
-            for e in self._entries
-            if _is_channel_reading(e) and not e.pinned and e.metadata.get("channel") == address
-        ]
-        excess = len(candidates) - keep
-        if excess <= 0:
-            return []
-
-        pruned: list[ArtifactEntry] = []
-        for entry in candidates[:excess]:
-            removed = self._delete_entry_locked(entry.id, persist=False)
-            if removed is not None:
-                pruned.append(removed)
-
-        if pruned and persist:
-            self._save_index()
-        return pruned
-
-    def prune_channel_readings(self, address: str, keep: int) -> list[ArtifactEntry]:
-        """Keep only the newest *keep* unpinned readings of one channel.
-
-        The retention half of the channel-read artifact path: an
-        approval-free read in a polling loop would otherwise grow the gallery
-        without bound. Entries qualify when they are channel readings
-        (``tool_source == "channel_read"``, or the legacy ``channel_values``
-        category) and their ``metadata["channel"]`` equals *address*,
-        which covers both shapes a reading is stored in — the JSON series from
-        :meth:`save_data` and the PNG-plus-``.npy`` pair from
-        :meth:`save_channel_reading`.
-
-        The store stays config-agnostic: the window size is the caller's to
-        supply, read from configuration by the tool that saves the reading.
-        Call this right after a successful save.
-
-        Pinned entries are exempt in both directions — never pruned, and never
-        counted against the window, so pinning a frame cannot shrink the
-        rolling window to nothing.
-
-        The whole sweep is attributed to the ``"system"`` actor
-        (:func:`artifact_mutation_actor`), so activity feeds never show a
-        retention prune as something the agent did.
-
-        Args:
-            address: Channel address, matched exactly against
-                ``metadata["channel"]``.
-            keep: How many unpinned readings of this channel to keep. ``0``
-                or negative means keep everything (the sweep is a no-op).
-
-        Returns:
-            The removed entries, oldest first (empty when nothing was pruned).
-        """
-        if keep <= 0 or not address:
-            return []
-
-        with artifact_mutation_actor("system"):
-            with self._with_index_lock():
-                pruned = self._prune_channel_readings_locked(address, keep)
-
-            # Outside the lock: a listener is free to call back into the store.
-            for entry in pruned:
-                self._notify_delete_listeners(entry)
-
-        return pruned
 
     def _delete_where(self, predicate: Callable[[ArtifactEntry], bool]) -> list[ArtifactEntry]:
         """Delete every entry matching *predicate* in one atomic operation.

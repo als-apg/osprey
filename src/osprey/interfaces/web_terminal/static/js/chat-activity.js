@@ -70,7 +70,6 @@ export const TOOL_PHRASES = Object.freeze({
   artifact_list: 'listing saved artifacts',
   artifact_read: 'reading a saved artifact',
   artifact_focus: 'showing an artifact',
-  artifact_pin: 'pinning an artifact',
   artifact_export: 'exporting an artifact',
   artifact_delete: 'deleting an artifact',
   artifact_delete_all: 'deleting artifacts',

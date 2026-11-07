@@ -40,7 +40,6 @@ export const SESSION_SUMMARY_PATH = `${ARTIFACTS_BASE}/api/artifacts/session-sum
  * @property {string} [timestamp]
  * @property {string} [session_id]
  * @property {string} [origin]
- * @property {boolean} [pinned]
  * @property {boolean} [run_record]
  * @property {string|null} [owner]
  * @property {boolean} [operator_visible]
