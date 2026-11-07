@@ -63,11 +63,27 @@ describe('leave', () => {
     });
   });
 
-  test('stores nothing for a key the layout does not hold', () => {
+  test('a pane with no tile leaves as it is, with no record to come back by', () => {
     const panes = createDetachedPanes(nowhere());
+    const layout = stacked();
 
-    expect(panes.leave(stacked(), 'gamma', undefined, null)).toBeNull();
-    expect(panes.queries.detachedKeys()).toEqual([]);
+    expect(panes.leave(layout, 'gamma', undefined, '/panel/gamma/')).toEqual({
+      layout,
+      changed: false,
+    });
+    expect(panes.queries.detachedEntry('gamma')).toMatchObject({
+      record: null,
+      neighbourKey: null,
+      page: '/panel/gamma/',
+    });
+  });
+
+  test('stores nothing for a pane already detached', () => {
+    const panes = createDetachedPanes(nowhere());
+    panes.leave(stacked(), 'beta', undefined, null);
+
+    expect(panes.leave(stacked(), 'beta', undefined, null)).toBeNull();
+    expect(panes.queries.detachedKeys()).toEqual(['beta']);
   });
 });
 
