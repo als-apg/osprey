@@ -660,9 +660,9 @@ one of the entry’s and is viewable. It returns <code class="docutils literal n
 <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code>, <code class="docutils literal notranslate"><span class="pre">opened</span></code> (<code class="docutils literal notranslate"><span class="pre">entry</span></code> or <code class="docutils literal notranslate"><span class="pre">entry_and_picture</span></code>), the panel
 <code class="docutils literal notranslate"><span class="pre">url</span></code> and a <code class="docutils literal notranslate"><span class="pre">message</span></code>; without a web terminal the <code class="docutils literal notranslate"><span class="pre">url</span></code> is the link to
 follow. An unknown entry, or an attachment that is not the entry’s, is
-<code class="docutils literal notranslate"><span class="pre">not_found</span></code>. The panel route also works in a browser on the standalone ARIEL
-web page. The web terminal relays each ARIEL tool call to the panel’s iframe
-and pop-out as <code class="docutils literal notranslate"><span class="pre">osprey-agent-activity</span></code> <code class="docutils literal notranslate"><span class="pre">{tool,</span> <span class="pre">detail,</span> <span class="pre">ts}</span></code>; on
+<code class="docutils literal notranslate"><span class="pre">not_found</span></code>. Followed in a browser, the <code class="docutils literal notranslate"><span class="pre">url</span></code> opens the web terminal with
+ARIEL on that route. The web terminal relays each ARIEL tool call to the
+panel’s iframe as <code class="docutils literal notranslate"><span class="pre">osprey-agent-activity</span></code> <code class="docutils literal notranslate"><span class="pre">{tool,</span> <span class="pre">detail,</span> <span class="pre">ts}</span></code>; on
 <code class="docutils literal notranslate"><span class="pre">entry_create</span></code> and <code class="docutils literal notranslate"><span class="pre">entry_publish</span></code> the list refreshes or counts the new row.</p>
 <p><code class="docutils literal notranslate"><span class="pre">attachment_to_artifact</span></code> takes the <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> of a viewable attachment
 and saves its display rendition, never the original upload, to the artifact
@@ -1319,15 +1319,9 @@ a 422 response names</p></td>
 </div>
 <p class="sd-card-text">Side-drawer behavior (the Status and Settings drawers) comes
 from the shared <code class="docutils literal notranslate"><span class="pre">&lt;osprey-drawer&gt;</span></code> design-system component rather than
-a page-local module. The header’s display-preferences popover is the
-shared <code class="docutils literal notranslate"><span class="pre">&lt;osprey-display-menu&gt;</span></code> component in the same way: ARIEL
-mounts the element and passes it the settings drawer’s id, and the
-component supplies the trigger, the card, the Appearance/View/Theme
-rows, and the hiding-when-embedded rule.</p>
-<p class="sd-card-text">Theming role: standalone, ARIEL is the <em>hub</em> — the display menu is
-the operator’s control and its pick is the one that gets remembered.
-Embedded, it is a <em>follower</em>: the web terminal owns the pick and
-broadcasts it, and ARIEL applies what it is sent.</p>
+a page-local module.</p>
+<p class="sd-card-text">Theming role: ARIEL is a <em>follower</em>: the web terminal owns the theme
+pick and broadcasts it, and ARIEL applies what it is sent.</p>
 <p class="sd-card-text"><strong>CSS architecture:</strong></p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>

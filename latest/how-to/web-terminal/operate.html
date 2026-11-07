@@ -589,8 +589,9 @@ machine this deployment writes to, and whether it may), search, the
 deployments only) and <strong>☰ More</strong>. See
 <a class="reference internal" href="#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p></li>
 <li><p><strong>Agent</strong> (right) — the operator chat, or a real terminal running the OSPREY
-agent when you open one from the pane’s <strong>⋯</strong> menu. It survives reconnects,
-and you can keep a few background conversations alive and hop between them.
+agent when you open one from the pane’s session switcher (the session title
+at the left of the Agent bar). It survives reconnects, and you can keep a
+few background conversations alive and hop between them.
 Close the pane with its <strong>×</strong>; the <strong>Sessions</strong> row in the sidebar opens it again.</p></li>
 <li><p><strong>Work pane</strong> (middle) — the artifacts and panels you open from the sidebar,
 in tiles you arrange by dragging (<a class="reference internal" href="#tiles">Tiles</a>). New artifacts,
@@ -619,10 +620,15 @@ back to an older browser mechanism that Safari may refuse.</p>
 <section id="tiles">
 <span id="web-terminal-tiles"></span><h2>Tiles<a class="headerlink" href="#tiles" title="Link to this heading">#</a></h2>
 <p>The work pane is tiles, and a tile shows one panel. Its header shows the
-panel’s name, the panel’s controls, <strong>Pop out</strong> and <strong>×</strong>.</p>
+panel’s name, up to three of the panel’s icons, <strong>⋯</strong>, <strong>Open in new window</strong>
+and <strong>×</strong>.</p>
+<p><strong>⋯</strong>, or a right-click on the header, opens the tile’s menu. <strong>This panel</strong>
+lists the panel’s own actions and any icons a narrow tile has no room for.
+<strong>Tile</strong> lists the tile’s actions, among them <strong>Reload</strong> and, when the panel
+has a documentation page, <strong>Help</strong>.</p>
 <p>A panel you open — from its sidebar row, from a link, from the <strong>+</strong> menu,
-from a pop-out window coming back, or one the agent opens for you — takes the
-service tile you used last and replaces the panel it showed. Nothing resizes,
+or one the agent opens for you — takes the service tile you used last and
+replaces the panel it showed. Nothing resizes,
 and the panel it replaced stays in the sidebar, one click away. A panel
 already open is brought forward where it is. To open a panel in a tile of
 its own, pick <strong>Open in a new tile</strong> from its row’s menu, or drag the row
@@ -646,8 +652,9 @@ showing the panel that was in front; the others are in the sidebar.</p>
 </section>
 <section id="the-chat-and-the-terminal">
 <span id="web-terminal-one-session"></span><h2>The chat and the terminal<a class="headerlink" href="#the-chat-and-the-terminal" title="Link to this heading">#</a></h2>
-<p>The Agent pane is the operator chat. To reach the agent’s terminal, open the
-Agent bar’s <strong>⋯</strong> menu and pick <strong>Open terminal</strong>; <strong>Back to chat</strong> returns.
+<p>The Agent pane is the operator chat. To reach the agent’s terminal, click the
+session title at the left of the Agent bar and pick <strong>Open terminal</strong>, the last
+row; <strong>Back to chat</strong> returns.
 The choice belongs to the browser tab, and a new tab opens on the chat. The
 chat and the terminal are two windows onto one conversation: they share one
 session, one write state and one transcript, and only the one you are looking
@@ -1129,46 +1136,29 @@ to the sidebar. In the terminal, Ctrl+\ sends SIGQUIT to the running
 program. To hide or show the labels in this state, click the toggle.</p>
 </div>
 </section>
-<section id="pop-a-pane-out">
-<span id="web-terminal-pop-out"></span><h3>Pop a pane out<a class="headerlink" href="#pop-a-pane-out" title="Link to this heading">#</a></h3>
-<p>Click <strong>Pop out</strong> in a tile’s header, left of the close button, to move the
-tile’s content into a window of its own. This works for the agent pane and for
-each service panel. The window stays attached to the terminal: the content
-keeps running there, and the window follows its theme. The tile keeps its
-place and shows <strong>Reattach</strong>. A service panel loads again when it moves into
-the window and when it comes back.</p>
-<p>To bring the content back, click <strong>Reattach</strong> in the window’s bar or in the
-tile; closing the window does the same. When you reload or close the terminal,
-the window closes and the content is back in its tile.</p>
-<p>To open a service panel as a page of its own instead, do one of these:</p>
-<ul class="simple">
-<li><p>Right-click its row in the sidebar or its tile header and pick
-<strong>Open in new window</strong>.</p></li>
-<li><p>Open the command palette and run <strong>Open &lt;panel&gt; in new window</strong>.</p></li>
-</ul>
-<p>The panel opens in a new window the size of its tile. Its tile leaves the
-workspace, and its sidebar row shows a window glyph. The window follows the
-theme, the view and the session of the terminal. The agent can still show you
-the panel: a focus from the agent brings the window to the front.</p>
-<p>While the panel is in that window:</p>
-<ul class="simple">
-<li><p>A click on its sidebar row brings the window to the front.</p></li>
-<li><p>Its row menu offers <strong>Bring back</strong> in place of <strong>Open in new window</strong>.</p></li>
-<li><p>A layout change in the workspace does not open a tile for it.</p></li>
-</ul>
-<p>To bring the panel back, close the window, or pick <strong>Bring back</strong> from its
-row menu. The tile returns next to the active tile.</p>
-<p>When you reload the terminal, these windows stay open and connect to the
-reloaded page again. When you close the terminal tab, they stay open as normal
-pages, and they no longer follow the terminal.</p>
+<section id="open-a-pane-in-a-new-window">
+<span id="web-terminal-pop-out"></span><h3>Open a pane in a new window<a class="headerlink" href="#open-a-pane-in-a-new-window" title="Link to this heading">#</a></h3>
+<p>To move a pane into a window of its own, click <strong>Open in new window</strong> in its
+tile’s header, or pick it from the <strong>Tile</strong> section of its <strong>⋯</strong> menu or from
+a right-click on its sidebar row. The command palette has
+<strong>Open &lt;panel&gt; in new window</strong>. This works for the Agent pane and for each
+service panel. The tile leaves the workspace.</p>
+<p>The window’s bar is the tile’s own bar, with <strong>Reattach</strong> at the top right.
+The pane’s sidebar row shows the reattach icon: a click on the row brings the
+window to the front, a click on the icon reattaches the pane. Reattach puts
+the pane back where it was. With no room for it, the pane stays in its window
+and the terminal shows <em>No room to reattach &lt;panel&gt;.</em></p>
+<p>Closing the window closes the pane. Reloading the window (Cmd+R) keeps the
+pane in it. After you reload the terminal, the windows are closed and their
+panes are back in place. The terminal’s keyboard shortcuts do not work in the
+window.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>If the browser blocks pop-ups for this site, the terminal shows
 <em>Pop-ups are blocked for this site.</em> and the tile stays. Allow pop-ups for
 the site in the browser, then try again.</p>
-<p>A panel that runs at an opaque origin (a page the agent wrote) cannot be
-popped out. Its <strong>Pop out</strong> button and its <strong>Open in new window</strong> row are
-disabled.</p>
+<p>A panel that runs at an opaque origin (a page the agent wrote) cannot open
+in a new window. Its <strong>Open in new window</strong> button and row are disabled.</p>
 </div>
 </section>
 <section id="the-more-menu">
@@ -1362,7 +1352,7 @@ verbs that read the results back.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sessions-and-artifacts">Sessions and artifacts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#arrange-the-groups">Arrange the groups</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hide-the-labels">Hide the labels</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pop-a-pane-out">Pop a pane out</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#open-a-pane-in-a-new-window">Open a pane in a new window</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-more-menu">The More menu</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sign-out">Sign out</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-your-preferences-live">Where your preferences live</a></li>

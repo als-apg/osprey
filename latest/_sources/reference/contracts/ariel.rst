@@ -142,9 +142,9 @@ one of the entry's and is viewable. It returns ``entry_id``,
 ``attachment_id``, ``opened`` (``entry`` or ``entry_and_picture``), the panel
 ``url`` and a ``message``; without a web terminal the ``url`` is the link to
 follow. An unknown entry, or an attachment that is not the entry's, is
-``not_found``. The panel route also works in a browser on the standalone ARIEL
-web page. The web terminal relays each ARIEL tool call to the panel's iframe
-and pop-out as ``osprey-agent-activity`` ``{tool, detail, ts}``; on
+``not_found``. Followed in a browser, the ``url`` opens the web terminal with
+ARIEL on that route. The web terminal relays each ARIEL tool call to the
+panel's iframe as ``osprey-agent-activity`` ``{tool, detail, ts}``; on
 ``entry_create`` and ``entry_publish`` the list refreshes or counts the new row.
 
 ``attachment_to_artifact`` takes the ``attachment_id`` of a viewable attachment
@@ -743,16 +743,10 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
          Side-drawer behavior (the Status and Settings drawers) comes
          from the shared ``<osprey-drawer>`` design-system component rather than
-         a page-local module. The header's display-preferences popover is the
-         shared ``<osprey-display-menu>`` component in the same way: ARIEL
-         mounts the element and passes it the settings drawer's id, and the
-         component supplies the trigger, the card, the Appearance/View/Theme
-         rows, and the hiding-when-embedded rule.
+         a page-local module.
 
-         Theming role: standalone, ARIEL is the *hub* --- the display menu is
-         the operator's control and its pick is the one that gets remembered.
-         Embedded, it is a *follower*: the web terminal owns the pick and
-         broadcasts it, and ARIEL applies what it is sent.
+         Theming role: ARIEL is a *follower*: the web terminal owns the theme
+         pick and broadcasts it, and ARIEL applies what it is sent.
 
          **CSS architecture:**
 

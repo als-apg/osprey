@@ -600,14 +600,14 @@ work in.</p>
 <label class="sd-tab-label" for="sd-tab-item-0">
 Panels</label><div class="sd-tab-content docutils">
 <p>The <strong>PLAN</strong> tab composes; the <strong>BLUESKY</strong> tab runs and watches. A
-badge in BLUESKY’s status strip names the queue’s state on every tab —
-<em>ready</em>, <em>running</em>, <em>stopped</em>, <em>stopping after current</em> — and a <strong>?</strong>
-beside it explains the buttons.</p>
+status chip in BLUESKY’s toolbar names the queue’s state on every view —
+<em>ready</em>, <em>running</em>, <em>stopped</em>, <em>stopping after current</em>. Click the chip
+to read what each button does.</p>
 <ul class="simple">
 <li><p><strong>Run</strong> (PLAN) — on an armed queue, queues exactly the draft on your
 screen after a confirming click, and it runs now. On a stopped queue
 the same button reads <strong>Add to queue</strong>: the plan waits.</p></li>
-<li><p><strong>Start</strong> (BLUESKY, Queue tab) — arms a stopped queue: it runs
+<li><p><strong>Start</strong> (BLUESKY, Queue view) — arms a stopped queue: it runs
 everything waiting, in order, and whatever is added later. It starts
 the queue you are looking at. If the list moved between your glance and
 your click the start is refused with the bridge’s own sentence, and
@@ -617,16 +617,18 @@ that follows the refusal immediately can meet it a second time.</p></li>
 <li><p><strong>Stop</strong> and <strong>Abort</strong> (BLUESKY) — never disabled. Stop lets the
 current plan finish; Abort stops it right now, after a second,
 confirming click. Both leave the queue stopped. They sit on the Queue
-tab always, quiet while nothing moves, and appear on the other tabs
+view always, quiet while nothing moves, and appear on the other views
 whenever a plan is moving or the state is in doubt.</p></li>
-<li><p><strong>Clear</strong> (BLUESKY, Queue tab) — drops every waiting plan, after a
-confirming click. The running plan is Abort’s.</p></li>
+<li><p><strong>Clear waiting plans</strong> (BLUESKY, tile <strong>⋯</strong> menu) — drops every
+waiting plan. You confirm it at the top of the Queued card. The running
+plan is Abort’s.</p></li>
 <li><p>Every queued row has reorder (↑ ↓) and remove (✕) buttons — the queue
 is editable right up until it runs.</p></li>
 <li><p><strong>History</strong> lists finished runs. Each row’s ✕ removes that run from
-the list, and the card’s <strong>Clear</strong> removes them all after a
-confirming click; the Results view offers <strong>Remove from history</strong> for
-the run on screen. Run data is kept — see <em>Where the data lives</em>.</p></li>
+the list. <strong>Clear history</strong> in the tile <strong>⋯</strong> menu removes them all,
+after you confirm at the top of the History card. The Results view
+offers <strong>Remove from history</strong> for the run on screen. Run data is kept
+— see <em>Where the data lives</em>.</p></li>
 <li><p>Under those runs, History also lists <strong>what was taken off the queue</strong>
 — one quiet row for every plan removed, whether one at a time or by
 clearing the queue, and one for every plan aborted. Each gives the time
@@ -634,7 +636,7 @@ and the name of whoever asked. It is the only place a withdrawn plan is
 still named: the queue server keeps no record of one. A row with no name
 means the request authorised without naming anybody, which some do. The
 rows are a record of what happened, and nothing on the queue is allowed
-or refused because of them. The card’s <strong>Clear</strong> empties both halves.</p></li>
+or refused because of them. <strong>Clear history</strong> empties both halves.</p></li>
 </ul>
 <p>See <a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a> for where these tabs live.</p>
 </div>
@@ -805,7 +807,7 @@ at what the deployment armed for the lane. A lane whose plans run on the
 facility’s own worker sits outside all of
 this, and a name shown on one of its items is a label rather than a gate.</p>
 <p class="sd-card-text">On a two-lane deployment the BLUESKY panel carries a <strong>lane picker</strong> in its
-status strip, labelled by the machine each lane drives. The panel is bound
+toolbar, labelled by the machine each lane drives. The panel is bound
 to one lane at a time — plans, shared draft, queue and results all follow
 the picked lane, and its Start button arms with that lane’s own token —
 so what you see and what a click starts can never belong to two different

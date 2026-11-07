@@ -764,21 +764,42 @@ document order relative to the panel’s tile — after <code class="docutils li
 tile’s header. It acts only on a message from its own origin and from the
 frame of a panel it shows.</p>
 </section>
+<section id="controls-in-the-tile-bar">
+<h2>Controls in the tile bar<a class="headerlink" href="#controls-in-the-tile-bar" title="Link to this heading">#</a></h2>
+<p>An embedded panel draws no header of its own. It sends its tile-bar items with
+<code class="docutils literal notranslate"><span class="pre">contributeHeader(items)</span></code> from the design system’s <code class="docutils literal notranslate"><span class="pre">header-contrib.js</span></code>
+and hears clicks with <code class="docutils literal notranslate"><span class="pre">onHeaderAction(callback)</span></code>. Each send replaces the
+last. A panel sends two kinds:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">{kind:</span> <span class="pre">'icon',</span> <span class="pre">id,</span> <span class="pre">icon,</span> <span class="pre">title}</span></code>: an icon button in the bar. <code class="docutils literal notranslate"><span class="pre">icon</span></code> is
+a name from <code class="docutils literal notranslate"><span class="pre">icons.js</span></code>, and <code class="docutils literal notranslate"><span class="pre">title</span></code> is its tooltip. The bar shows at
+most three. The rest, lowest <code class="docutils literal notranslate"><span class="pre">priority</span></code> first, become rows of the tile’s
+<strong>⋯</strong> menu.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">{kind:</span> <span class="pre">'menu',</span> <span class="pre">id,</span> <span class="pre">items:</span> <span class="pre">[{id,</span> <span class="pre">label}]}</span></code>: rows in the <strong>This panel</strong>
+section of the tile’s <strong>⋯</strong> menu. An entry can set <code class="docutils literal notranslate"><span class="pre">checked</span></code>,
+<code class="docutils literal notranslate"><span class="pre">disabled</span></code>, <code class="docutils literal notranslate"><span class="pre">danger</span></code> (listed last) and <code class="docutils literal notranslate"><span class="pre">separator</span></code> (a line
+above it).</p></li>
+</ul>
+<p>Everything else a panel needs goes in its own toolbar, inside the panel.</p>
+</section>
 <section id="the-bluesky-panel">
 <h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
 <p>One tab covers a plan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-web</span></code> sidecar.
-<strong>BLUESKY</strong> (<code class="docutils literal notranslate"><span class="pre">/bluesky/</span></code>) has three views, and the queue’s state stays on
-screen across all three as a badge in the status strip — with <strong>Stop</strong> and
-<strong>Abort</strong> beside it whenever a plan is moving or the state is in doubt:</p>
+<strong>BLUESKY</strong> (<code class="docutils literal notranslate"><span class="pre">/bluesky/</span></code>) has three views behind the <strong>Plans</strong> | <strong>Queue</strong> |
+<strong>Results</strong> switch in its toolbar. The queue’s state stays on screen in all
+three as a status chip in that toolbar, with <strong>Stop</strong> and <strong>Abort</strong> beside it
+whenever a plan is moving or the state is in doubt:</p>
 <p><strong>Plans</strong> is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
 and a field you change by hand flows back to the agent. <strong>Run</strong> puts the
 exact revision on screen into the plan queue, and on an armed queue that runs
 it at once; on a stopped queue the button reads <strong>Add to queue</strong>.</p>
-<p><strong>Queue</strong> is the control panel: <strong>Start</strong>, <strong>Stop</strong>, <strong>Abort</strong> and <strong>Clear</strong>
-in the strip, the waiting plans with their reorder/remove controls, and the
-runs that have finished, each removable. Picking any run opens it under
-Results. <a class="reference internal" href="../bluesky/queue.html"><span class="doc">Plans and the Queue</span></a> covers what those controls do.</p>
+<p><strong>Queue</strong> is the control panel: <strong>Start</strong>, <strong>Stop</strong> and <strong>Abort</strong> in the
+toolbar, the waiting plans with their reorder/remove controls, and the runs
+that have finished, each removable. <strong>Clear waiting plans</strong> and <strong>Clear
+history</strong> are in the tile <strong>⋯</strong> menu; each asks you to confirm at the top of
+its card. Picking any run opens it under Results. <a class="reference internal" href="../bluesky/queue.html"><span class="doc">Plans and the Queue</span></a>
+covers what those controls do.</p>
 <p><strong>Results</strong> shows the selected run’s record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.</p>
 </section>
@@ -942,8 +963,8 @@ sidebar row, which ask the operator first.</p>
 <p>What is on screen:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> — the panels this deployment has, the dock’s tiles with
-the panel each shows (the terminal included), the panels in pop-out
-windows, and the configured layouts.</p></li>
+the panel each shows (the terminal included), the panes in windows of
+their own (the Agent pane included), and the configured layouts.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> — put a panel on screen by the opening rule: it replaces the
 panel in the service tile used last, which keeps its sidebar row. A panel
 already open is brought forward where it is. It gets a sidebar row if it
@@ -1077,6 +1098,7 @@ shape of it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#handing-keyboard-focus-back">Handing keyboard focus back</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#controls-in-the-tile-bar">Controls in the tile bar</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-suggestions-in-plan-forms">Channel suggestions in plan forms</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a><ul class="visible nav section-nav flex-column">

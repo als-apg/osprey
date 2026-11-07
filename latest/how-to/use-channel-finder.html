@@ -792,29 +792,30 @@ See <a class="reference internal" href="#web-interface">Web Interface</a> below.
 </section>
 <section id="web-interface">
 <h2>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h2>
-<p>Launch the browser-based channel explorer:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
-osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span>
-</pre></div>
-</div>
+<p>The browser-based channel explorer is the Channel Finder panel of the web
+terminal (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>).</p>
 <p>The explorer is read-only. To correct a channel, edit
 <code class="docutils literal notranslate"><span class="pre">data/facility/fixes.yaml</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 <p>The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into
-the search box (<code class="docutils literal notranslate"><span class="pre">/</span></code> focuses it) and it keeps the channels that match all of
-them — against the address, the description, the device or signal name, and the
-name or synonyms of the device’s class or any class above it. When the panel
-runs inside the terminal, the search box and the view’s ⋯ menu sit in the
-panel’s tile bar.</p>
-<p>A facet rail narrows further: Section, System and Signal count matching
+the search box in the panel toolbar (<code class="docutils literal notranslate"><span class="pre">/</span></code> focuses it) and it keeps the
+channels that match all of them — against the address, the description, the
+device or signal name, and the name or synonyms of the device’s class or any
+class above it. Explore and Feedback are at the toolbar’s left, and the result
+count and the search box are at its right.</p>
+<p>The sidebar narrows further: Section, System and Signal count matching
 channels, Device class counts devices and rolls each class up over its
 subclasses, and Direction splits them into read, write, read/write and
 undirected. A class that groups devices without being a kind of device itself
 is shown in muted italic. Every facet is counted with its own filter lifted, so
 a number says what a second pick in that facet would add. Each facet folds from
 its heading and clears with its ✕. Active filters show as chips you can click
-to remove, and when a facet list is capped the panel says so. The ⋯ menu hides
-the rail, switches row density and clears filters or the selection.</p>
+to remove, and when a facet list is capped the panel says so. The sidebar
+button at the left end of the toolbar shows and hides the sidebar. In a narrow
+panel the sidebar opens over the results. The ⋯ button at the right end of the
+toolbar switches the row density, chooses and resets the columns, and clears
+the filters or the selection. Inside the terminal, these entries are in the ⋯
+menu of the tile, under This panel.</p>
 <p>Results come fifty to a page: device, section, address, direction, signal and
 description. Click a header to sort on it, drag it to move the column, drag its
 right edge to resize it, and double-click that edge to fit it to its content.
@@ -833,7 +834,7 @@ or signal. Shift+F10 or the menu key opens the same menu from the keyboard. The
 table is one Tab stop: arrows, Home and End move between rows, Space selects,
 Enter opens the device and ⌘C/Ctrl+C copies the address. A focused header sorts
 on Enter and moves with Alt+←/→.</p>
-<p>The strip above the results names the corpus file and the store it was loaded
+<p>The strip below the results names the corpus file and the store it was loaded
 into, the tools the OSPREY agent queries that same store with, and the counts
 of devices, channels, classes, signals and sections read live from the store.
 If the store is unreachable the view says so and offers a Retry, and if it is

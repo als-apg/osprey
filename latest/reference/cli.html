@@ -516,7 +516,6 @@ osprey<span class="w"> </span>ariel<span class="w">              </span><span cl
 osprey<span class="w"> </span>archive<span class="w">            </span><span class="c1"># Copy artifacts and plan-queue history into var/archive</span>
 osprey<span class="w"> </span><span class="nb">history</span><span class="w">            </span><span class="c1"># Serve the history page (the history service&#39;s entry)</span>
 osprey<span class="w"> </span>agent-record<span class="w">       </span><span class="c1"># The agent record: serve it, check its health, run its export</span>
-osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
 osprey<span class="w"> </span>web<span class="w">                </span><span class="c1"># Launch web terminal</span>
 osprey<span class="w"> </span>theme-lab<span class="w">          </span><span class="c1"># Design and preview a theme in the browser</span>
 osprey<span class="w"> </span>scaffold<span class="w">           </span><span class="c1"># CI files, boot unit, build artifact overrides</span>
@@ -1424,10 +1423,6 @@ auto-detected from the project’s config.</p>
 LiteLLM-form model id (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-haiku-4-5</span></code>). Saves per-run
 JSON results for accuracy/cost analysis.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">web</span> <span class="pre">[--host</span> <span class="pre">ADDR]</span> <span class="pre">[--port</span> <span class="pre">N]</span></code></dt><dd><p>Launch the Channel Finder web interface on the host and port
-<code class="docutils literal notranslate"><span class="pre">channel_finder.web</span></code> names (default <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> and the layout’s Channel
-Finder port); <code class="docutils literal notranslate"><span class="pre">--host</span></code> and <code class="docutils literal notranslate"><span class="pre">--port</span></code> override them.</p>
-</dd>
 </dl>
 <p>A graph-mode project has no channel database file: <code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code>
 say so and point at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> and the <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> tool,
@@ -1435,7 +1430,6 @@ and <code class="docutils literal notranslate"><span class="pre">--pipeline</spa
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-haiku-4-5
-osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
 </pre></div>
 </div>
 </section>
@@ -1703,10 +1697,6 @@ does not load; that refusal names the loader error and the remedy <code class="d
 when the table predates the key column (<code class="docutils literal notranslate"><span class="pre">schema</span> <span class="pre">behind</span> <span class="pre">code:</span> <span class="pre">run</span> <span class="pre">osprey</span>
 <span class="pre">ariel</span> <span class="pre">migrate</span></code>).</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">web</span> <span class="pre">[--port</span> <span class="pre">N]</span> <span class="pre">[--host</span> <span class="pre">ADDR]</span> <span class="pre">[--reload]</span></code></dt><dd><p>Launch the web interface on the host and port <code class="docutils literal notranslate"><span class="pre">ariel.web</span></code> names (default
-<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> and the layout’s ARIEL port); <code class="docutils literal notranslate"><span class="pre">--host</span></code> and <code class="docutils literal notranslate"><span class="pre">--port</span></code> override
-them.</p>
-</dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">purge</span> <span class="pre">[--yes]</span> <span class="pre">[--embeddings-only]</span></code></dt><dd><p>Delete all ARIEL data. <code class="docutils literal notranslate"><span class="pre">--embeddings-only</span></code> keeps the entries and clears
 the embedding tables.</p>
 </dd>
@@ -1723,30 +1713,6 @@ read.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span>
 osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/facility/ariel/vocabulary.yml
-osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span>
-</pre></div>
-</div>
-</section>
-<section id="osprey-artifacts">
-<h2>osprey artifacts<a class="headerlink" href="#osprey-artifacts" title="Link to this heading">#</a></h2>
-<p>Manage the OSPREY Artifact Gallery – a local web gallery that displays
-interactive plots, tables, and other outputs produced by the OSPREY agent during
-analysis sessions. Artifacts are written by the OSPREY agent via <code class="docutils literal notranslate"><span class="pre">save_artifact()</span></code> in
-code run by the <code class="docutils literal notranslate"><span class="pre">python_executor</span></code> MCP server’s <code class="docutils literal notranslate"><span class="pre">execute</span></code> tool, or by the
-<code class="docutils literal notranslate"><span class="pre">artifact_register</span></code> MCP tool.</p>
-<dl>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">artifacts</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Launch the Artifact Gallery web interface. Starts a FastAPI server on
-<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10200</span></code> by default.</p>
-<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, else the port layout’s <code class="docutils literal notranslate"><span class="pre">10200</span></code>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">-h,</span> <span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or
-<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">--reload</span></code> — Enable auto-reload for development.</p>
-</dd>
-</dl>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w">                    </span><span class="c1"># Start on localhost:10200</span>
-osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span><span class="w">        </span><span class="c1"># Custom port</span>
-osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w">     </span><span class="c1"># Bind to all interfaces</span>
-osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--reload<span class="w">           </span><span class="c1"># Development mode</span>
 </pre></div>
 </div>
 </section>
@@ -2090,7 +2056,6 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-facility">osprey facility</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-sim">osprey sim</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-ariel">osprey ariel</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-artifacts">osprey artifacts</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-web">osprey web</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-theme-lab">osprey theme-lab</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-audit">osprey audit</a></li>

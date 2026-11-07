@@ -704,9 +704,8 @@ wins:</p>
 <li><p><strong>The environment variable</strong>, for the panels that have one. It is meant for
 a single run – the container the build renders sets it from the config, and
 setting it by hand overrides that container’s port for as long as it lives.</p></li>
-<li><p><strong>The</strong> <code class="docutils literal notranslate"><span class="pre">--port</span></code> <strong>flag</strong>, on the commands that take one (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>,
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">web</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">artifacts</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span></code>). It
-moves that one run and nothing else.</p></li>
+<li><p><strong>The</strong> <code class="docutils literal notranslate"><span class="pre">--port</span></code> <strong>flag</strong> of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>. It moves that one run and
+nothing else.</p></li>
 <li><p><strong>The service’s own key</strong> in the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> – the <strong>Override
 key</strong> column. The value is an absolute port, not an offset, so a service
 pinned this way stays where it is put when <code class="docutils literal notranslate"><span class="pre">port_base</span></code> moves. Set it in
