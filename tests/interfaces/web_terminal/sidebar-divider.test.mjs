@@ -31,7 +31,7 @@ const HTML = `
     </div>
     <div class="sidebar-group" data-group="tools">
       <div class="osprey-section-label sidebar-group-head">
-        <span class="sidebar-group-name" id="n2">Tools</span>
+        <span class="sidebar-group-name" id="n2">Apps</span>
       </div>
     </div>
   </div>`;
@@ -64,7 +64,7 @@ const ptr = (type, y) =>
 /**
  * Draw the rail, with a 600 px rail and a 200 px group, and wire the divider;
  * `withFold` also wires the fold module the interaction cases need, and
- * `toolsHeight` is the Tools group's height.
+ * `toolsHeight` is the Apps group's height.
  * @param {{ withFold?: boolean, toolsHeight?: number }} [opts]
  */
 async function boot({ withFold = false, toolsHeight = 0 } = {}) {
@@ -251,7 +251,7 @@ describe('the Workspace divider', () => {
     Object.defineProperty(side, 'clientHeight', { value: 800, configurable: true });
     Object.defineProperty(headEl, 'offsetHeight', { value: 36, configurable: true });
     Object.defineProperty(foot, 'offsetHeight', { value: 125, configurable: true });
-    // The rail is content-sized: shorter while Tools is folded.
+    // The rail is content-sized: shorter while Apps is folded.
     Object.defineProperty(rail(), 'clientHeight', {
       configurable: true,
       get: () => (group('tools').hasAttribute('data-folded') ? 444 : 531),

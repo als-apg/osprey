@@ -4,7 +4,7 @@
  *   npx vitest run tests/interfaces/web_terminal/panel-rail.test.mjs
  *
  * panel-rail.js is a pure DOM module: it places the sidebar's panel rows in
- * the operator's groups (sidebar-groups.js: Workspace and Tools until the
+ * the operator's groups (sidebar-groups.js: Workspace and Apps until the
  * operator changes them) and exposes imperative mutators (active / enabled /
  * attention / popped out / non-destructive append, place & remove) that
  * panel-manager's state machine drives. These tests pin that DOM contract —
@@ -155,8 +155,8 @@ function countRenders() {
 }
 
 // The groups live in this browser's storage. Most tests exercise rows in
-// Workspace and Tools, so they start from that arrangement (Events in
-// Workspace, the empty System group after Tools); a test of the
+// Workspace and Apps, so they start from that arrangement (Events in
+// Workspace, the empty System group after Apps); a test of the
 // default calls useDefaultGroups().
 beforeEach(() => {
   localStorage.clear();
@@ -166,7 +166,7 @@ beforeEach(() => {
       version: 3,
       groups: [
         { id: 'workspace', label: 'Sessions' },
-        { id: 'tools', label: 'Tools' },
+        { id: 'tools', label: 'Apps' },
         { id: 'system', label: 'System' },
       ],
       // Stored on the current version, so Events in Workspace is the operator's
@@ -214,16 +214,16 @@ describe('createRail', () => {
     }
     expect(groups.map((g) => g.querySelector('.sidebar-group-name')?.textContent)).toEqual([
       'Sessions',
-      'Tools',
+      'Apps',
       'System',
     ]);
   });
 
-  test('Events and Health sit under System, every other panel under Tools, until moved', () => {
+  test('Events and Health sit under System, every other panel under Apps, until moved', () => {
     useDefaultGroups();
     createRail(rail, [...PANELS, { id: 'system-health', label: 'Health' }]);
     expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Sessions', 'empty']);
-    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'channel-finder']);
+    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Apps', 'ariel', 'channel-finder']);
     expect(childKeys(group(rail, 'system'))).toEqual(['label:System', 'events', 'system-health']);
   });
 
@@ -402,7 +402,7 @@ describe('page-owned rows', () => {
       'events',
     ]);
     expect(childKeys(group(rail, 'tools'))).toEqual([
-      'label:Tools',
+      'label:Apps',
       'ariel',
       'lattice',
       'panel-add-btn',
@@ -419,7 +419,7 @@ describe('page-owned rows', () => {
     expect(rail.querySelector('[data-panel-id="artifacts"]')).toBeNull();
   });
 
-  test('+ Add panel closes Tools, wherever Tools sits and whatever it is called', () => {
+  test('+ Add panel closes Apps, wherever Apps sits and whatever it is called', () => {
     createRail(rail, ALL);
     const id = addGroup('Beamline');
     expect(childKeys(group(rail, id))).toEqual(['label:Beamline', 'empty']);
@@ -441,7 +441,7 @@ describe('page-owned rows', () => {
       'sidebar-agent-wrap',
     ]);
     expect(agentWrap.hidden).toBe(true);
-    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'panel-add-btn']);
+    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Apps', 'ariel', 'panel-add-btn']);
   });
 
   test('the page-owned nodes are adopted, never rebuilt, across renders', () => {
@@ -501,7 +501,7 @@ describe('page-owned rows', () => {
     createRail(rail, ALL);
     addEntry(rail, { id: 'okf', label: 'Knowledge' });
     expect(childKeys(group(rail, 'tools'))).toEqual([
-      'label:Tools',
+      'label:Apps',
       'ariel',
       'lattice',
       'okf',
@@ -629,7 +629,7 @@ describe('groups', () => {
     expect(entryIds(rail)[0]).toBe('terminal');
   });
 
-  test('a deleted group gives its rows back to Tools and leaves the rail', () => {
+  test('a deleted group gives its rows back to Apps and leaves the rail', () => {
     const id = addGroup('Beamline');
     createRail(rail, ROWS);
     moveToGroup('events', id);
@@ -639,7 +639,7 @@ describe('groups', () => {
 
     expect(groupOrder(rail)).toEqual(['workspace', 'tools', 'system']);
     expect(childKeys(group(rail, 'tools'))).toEqual([
-      'label:Tools',
+      'label:Apps',
       'ariel',
       'events',
       'lattice',
@@ -933,7 +933,7 @@ describe('reorder and move by drag (onReorder)', () => {
    * view (40 px) top to bottom, in DOM order. Every row shares one column,
    * so x never decides anything. A hidden heading (the headless Sessions
    * group's) reads as a browser reads it: all zeros. With the default groups
-   * that puts the Agent row at 0, Events at 40, the Tools heading at 80, then
+   * that puts the Agent row at 0, Events at 40, the Apps heading at 80, then
    * ariel 104, channel-finder 144, lattice 184 and okf 224.
    */
   function layOut() {
@@ -1122,7 +1122,7 @@ describe('addEntry (non-destructive)', () => {
     rail = freshRail();
   });
 
-  test('appends a new Tools row, preserving existing ones', () => {
+  test('appends a new Apps row, preserving existing ones', () => {
     createRail(rail, PANELS);
     addEntry(rail, { id: 'lattice', label: 'Lattice' });
     expect(entryIds(rail)).toEqual(['events', 'ariel', 'channel-finder', 'lattice']);
@@ -1196,7 +1196,7 @@ describe('removeEntry', () => {
 /**
  * placeEntry is the client half of the server's rail-order move: the row
  * moves in the rail order, so it moves within its own group. The Agent row
- * stays first, and `+ Add panel` stays the last row of Tools.
+ * stays first, and `+ Add panel` stays the last row of Apps.
  */
 describe('placeEntry', () => {
   /** @type {HTMLElement} */
@@ -1217,22 +1217,22 @@ describe('placeEntry', () => {
 
   test('moves a row directly above another of its group', () => {
     placeEntry(rail, 'lattice', 'ariel');
-    expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
+    expect(tools()).toEqual(['label:Apps', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
   });
 
   test('a null beforeId puts the row at the foot of its group, above + Add panel', () => {
     placeEntry(rail, 'ariel', null);
-    expect(tools()).toEqual(['label:Tools', 'channel-finder', 'lattice', 'ariel', 'panel-add-btn']);
+    expect(tools()).toEqual(['label:Apps', 'channel-finder', 'lattice', 'ariel', 'panel-add-btn']);
   });
 
   test('a beforeId with no row is the foot too', () => {
     placeEntry(rail, 'ariel', 'nope');
-    expect(tools()).toEqual(['label:Tools', 'channel-finder', 'lattice', 'ariel', 'panel-add-btn']);
+    expect(tools()).toEqual(['label:Apps', 'channel-finder', 'lattice', 'ariel', 'panel-add-btn']);
   });
 
   test('a beforeId in an earlier group puts the row at the head of its own group', () => {
     placeEntry(rail, 'lattice', 'events');
-    expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
+    expect(tools()).toEqual(['label:Apps', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
   });
 
   test('the Agent row never moves, and no row leaves its group', () => {

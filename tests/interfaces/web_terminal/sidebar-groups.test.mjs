@@ -80,14 +80,14 @@ describe('the default model', () => {
       version: 3,
       groups: [
         { id: 'workspace', label: 'Sessions' },
-        { id: 'tools', label: 'Tools' },
+        { id: 'tools', label: 'Apps' },
         { id: 'system', label: 'System' },
       ],
       placement: {},
     });
   });
 
-  test('Artifacts sit in Workspace, Events and Health in System, every other panel in Tools', () => {
+  test('Artifacts sit in Workspace, Events and Health in System, every other panel in Apps', () => {
     const model = defaultModel([
       'terminal',
       'artifacts',
@@ -179,14 +179,14 @@ describe('a value of an older version', () => {
     }
   );
 
-  test("the owner's layout: Events in Tools, a custom group holding Bluesky", () => {
+  test("the owner's layout: Events in Apps, a custom group holding Bluesky", () => {
     localStorage.setItem(
       GROUPS_STORAGE_KEY,
       JSON.stringify({
         version: 2,
         groups: [
           { id: 'workspace', label: 'Sessions' },
-          { id: 'tools', label: 'Tools' },
+          { id: 'tools', label: 'Apps' },
           custom,
           { id: 'system', label: 'System' },
         ],
@@ -253,7 +253,7 @@ describe('rename', () => {
   test('an empty name keeps the old one', () => {
     for (const blank of ['', '   ']) {
       expect(renameGroup('tools', blank)).toBe(false);
-      expect(labelOf('tools')).toBe('Tools');
+      expect(labelOf('tools')).toBe('Apps');
     }
   });
 
@@ -267,10 +267,27 @@ describe('rename', () => {
     expect(Array.from(labelOf('tools') ?? '')).toEqual(Array(40).fill('🛰'));
   });
 
+  test('a saved layout holding the old default name reads as Apps, and keeps a chosen name', () => {
+    const saved = (label) =>
+      JSON.stringify({
+        version: 3,
+        groups: [
+          { id: 'workspace', label: 'Sessions' },
+          { id: 'tools', label },
+          { id: 'system', label: 'System' },
+        ],
+        placement: { lattice: 'tools' },
+      });
+    localStorage.setItem(GROUPS_STORAGE_KEY, saved('Tools'));
+    expect(labelOf('tools')).toBe('Apps');
+    localStorage.setItem(GROUPS_STORAGE_KEY, saved('Instruments'));
+    expect(labelOf('tools')).toBe('Instruments');
+  });
+
   test('the same name, or an unknown group, changes nothing', () => {
     const seen = vi.fn();
     const stop = onGroupsChange(seen);
-    expect(renameGroup('tools', 'Tools')).toBe(false);
+    expect(renameGroup('tools', 'Apps')).toBe(false);
     expect(renameGroup('nope', 'Anything')).toBe(false);
     stop();
     expect(seen).not.toHaveBeenCalled();
@@ -358,7 +375,7 @@ describe('add, delete and reorder', () => {
     expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
   });
 
-  test('deleting a group sends its panels back to Tools, Artifacts included', () => {
+  test('deleting a group sends its panels back to Apps, Artifacts included', () => {
     const id = addGroup('Beamline');
     moveToGroup('ariel', id);
     moveToGroup('artifacts', id);
@@ -440,7 +457,7 @@ describe('persistence', () => {
     expect(localStorage.getItem(GROUPS_STORAGE_KEY)).toBeNull();
 
     document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
-    expect(labelOf('tools')).toBe('Tools');
+    expect(labelOf('tools')).toBe('Apps');
   });
 
   test('a value another tab stored is the base of the next change here', () => {
@@ -477,7 +494,7 @@ describe('persistence', () => {
     ],
     [
       'an untrimmed name',
-      JSON.stringify({ ...valid, groups: [valid.groups[0], { id: 'tools', label: ' Tools' }] }),
+      JSON.stringify({ ...valid, groups: [valid.groups[0], { id: 'tools', label: ' Apps' }] }),
     ],
     [
       'a name over 40 characters',
@@ -547,7 +564,7 @@ describe('onGroupsChange', () => {
     renameGroup('tools', 'Instruments');
     addGroup('Beamline');
     stop();
-    renameGroup('tools', 'Tools');
+    renameGroup('tools', 'Apps');
 
     expect(seen).toEqual([
       ['Sessions', 'Instruments', 'System'],
@@ -650,7 +667,7 @@ describe('group headings', () => {
     const rail = mountRail();
     for (const [id, label] of [
       ['workspace', 'Sessions'],
-      ['tools', 'Tools'],
+      ['tools', 'Apps'],
       ['system', 'System'],
     ]) {
       const group = groupEl(rail, id);
@@ -706,7 +723,7 @@ describe('the group menu', () => {
   test('the whole heading answers, not only its name: a right-click on the name opens it too', () => {
     const rail = mountRail();
     rightClick(rail, 'tools', nameOf(rail, 'tools'));
-    expect(menu()?.getAttribute('aria-label')).toBe('Tools group');
+    expect(menu()?.getAttribute('aria-label')).toBe('Apps group');
   });
 
   test('the last group cannot move down, and a group the operator added can be deleted', () => {
@@ -727,7 +744,7 @@ describe('the group menu', () => {
     rightClick(rail, 'system');
     rightClick(rail, 'tools');
     expect(document.querySelectorAll('.rail-context-menu')).toHaveLength(1);
-    expect(menu()?.getAttribute('aria-label')).toBe('Tools group');
+    expect(menu()?.getAttribute('aria-label')).toBe('Apps group');
   });
 
   for (const [what, init] of /** @type {const} */ ([
@@ -740,7 +757,7 @@ describe('the group menu', () => {
       const event = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });
       name.dispatchEvent(event);
       expect(event.defaultPrevented).toBe(true);
-      expect(menu()?.getAttribute('aria-label')).toBe('Tools group');
+      expect(menu()?.getAttribute('aria-label')).toBe('Apps group');
       expect(menuRows()).toEqual(['Rename', 'New group below', 'Move up (disabled)', 'Move down']);
     });
   }
@@ -770,7 +787,7 @@ describe('the group menu', () => {
     expect(document.activeElement).toBe(nameOf(rail, 'tools'));
   });
 
-  test('Delete group removes it, and its rows go back to Tools', () => {
+  test('Delete group removes it, and its rows go back to Apps', () => {
     const rail = mountRail();
     const id = addGroup('Beamline');
     moveToGroup('ariel', id);
@@ -808,7 +825,7 @@ describe('rename in place', () => {
 
     const field = renameField(rail, 'tools');
     const name = qs(groupEl(rail, 'tools'), '.sidebar-group-name');
-    expect(field?.value).toBe('Tools');
+    expect(field?.value).toBe('Apps');
     expect(field?.maxLength).toBe(40);
     expect(field?.getAttribute('aria-label')).toBe('Group name');
     expect(name.hidden).toBe(true);
@@ -837,7 +854,7 @@ describe('rename in place', () => {
     field.value = 'Instruments';
     press(field, 'Escape');
 
-    expect(labelOf('tools')).toBe('Tools');
+    expect(labelOf('tools')).toBe('Apps');
     expect(renameField(rail, 'tools')).toBeNull();
     expect(document.activeElement).toBe(nameOf(rail, 'tools'));
   });
@@ -860,8 +877,8 @@ describe('rename in place', () => {
     field.value = '   ';
     press(field, 'Enter');
 
-    expect(labelOf('tools')).toBe('Tools');
-    expect(qs(groupEl(rail, 'tools'), '.sidebar-group-name').textContent).toBe('Tools');
+    expect(labelOf('tools')).toBe('Apps');
+    expect(qs(groupEl(rail, 'tools'), '.sidebar-group-name').textContent).toBe('Apps');
   });
 
   test('one field at a time per group, and none for an unknown group', () => {
