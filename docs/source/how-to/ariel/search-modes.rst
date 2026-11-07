@@ -161,7 +161,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
       2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes; and
       3. the same configured embedding model and populated pgvector table used by ``semantic`` search.
 
-      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own. It reaches the hosting deployment's sidecar through ``services.qmd.port`` instead. The build copies that key from the hosting deployment's render into every tier and app, so nothing pins it by hand. ``osprey build`` refuses a render that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
+      The sidecar and the export need each other: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own. It reaches the hosting deployment's sidecar through ``services.qmd.port`` instead. The build copies that key from the hosting deployment's render into every tier and app, so nothing pins it by hand. ``osprey build`` refuses a render that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
 
       ``hybrid`` also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as *search is down*, deliberately, so that the agent cannot read an outage as "nothing matched".
 
@@ -253,15 +253,15 @@ Modules may also export ``get_parameter_descriptors()`` to declare tunable param
 
 * ``diagnostics`` holds the notices the caller should see (a truncated query, a skipped step).
 * ``expansion`` holds the :ref:`vocabulary groups <vocabulary-expansion>` that actually reached the query it ran.
-* ``total``, ``total_exact``, ``has_more``, ``tier`` and ``filter_applied`` are optional and carry paging and counts.
+* ``total``, ``total_exact`` and ``has_more`` report counts and paging; ``tier`` names the step that answered; ``filter_applied`` says the module applied the entry filter itself. All are optional.
 
 A bare list stays valid and needs no change.
 
-**Opting into the shared query work.** Five descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called as before, except that ``max_results`` is widened to ``min(offset + page_size * 2, 200)``.
+**Opting into the shared query work.** Descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called as before, except for paging (see ``accepts_offset``).
 
 * ``accepts_expansion`` --- set it to ``True`` and the service passes ``query_expansion=`` when, and only when, expansion was resolved for that request. The module never sees the ``expand_query`` request argument itself: whether to expand is settled once, in the service.
 * ``accepts_entry_filter`` --- set it to ``True`` and the service passes ``entry_filter=`` (an ``EntryFilter``, possibly empty) for the module to apply. The service post-filters every result with ``EntryFilter.matches`` either way.
-* ``accepts_offset`` --- set it to ``True`` and the service passes ``offset=``, with ``max_results`` as the page size; otherwise the service slices the page out of the module's results.
+* ``accepts_offset`` --- set it to ``True`` and the service passes ``offset=``, with ``max_results`` as the page size. Otherwise the module gets no ``offset`` and is asked for ``min(offset + max_results * 2, 200)`` results. The service then cuts the page out of them.
 * ``needs_search_calls`` --- set it to ``True`` and the service passes its search-call pool as ``search_calls=``. A module that calls a provider at search time runs that call on the pool it receives, with ``await search_calls.run(fn, *args, timeout_s=...)``, and never builds a pool of its own. The service closes the pool when it stops.
 * ``query_parser`` --- an optional callable that takes the raw query string and returns a ``ParsedKeywordQuery`` (search text, field filters, phrases, pattern spans, diagnostics). The service calls it once and hands the result to the module as ``parsed=``. Keyword search declares its own ``parse_keyword_query`` here; a module that wants a different query language supplies its own parser, and one that wants none is never given ARIEL's.
 
@@ -803,8 +803,8 @@ tables and sets default privileges for the owner. The ``enhanced_entries``
 table the migrations create and the per-model ``text_embeddings_*`` tables an
 enhancement module adds are therefore readable without a second grant.
 
-A deployment that points ARIEL at a database it does not run, with the ``uri``
-key, gets no derived role. Name a SELECT-only login on that database in
+A deployment that names its own database with the ``uri`` key gets no
+``<username>_ro`` role. Name a SELECT-only login on that database in
 ``ariel.database.readonly_uri``; without it the SQL tool is not offered (see
 :ref:`config-ariel-database-readonly-uri`).
 
