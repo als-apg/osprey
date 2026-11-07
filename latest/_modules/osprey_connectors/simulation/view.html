@@ -464,8 +464,12 @@
     <span class="s2">&quot;ADDRESSES_FILE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ADDRESSES_SCHEMA&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DECKS_DIR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;MONITOR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;NO_VIEW_MESSAGE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;OUTPUT&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;PERIODIC&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PLANES&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;READBACK&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REFRESH&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ROLES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SCENARIOS_DIR&quot;</span><span class="p">,</span>
@@ -476,6 +480,7 @@
     <span class="s2">&quot;SEEDS_SCHEMA&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SERVED_MODELS_FILE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SERVED_MODELS_SCHEMA&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SETPOINT&quot;</span><span class="p">,</span>
     <span class="s2">&quot;VARIABLES_FILE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;VARIABLES_SCHEMA&quot;</span><span class="p">,</span>
     <span class="s2">&quot;VIEW_RELPATH&quot;</span><span class="p">,</span>
@@ -520,13 +525,18 @@
 <span class="c1">#: The engine of the model that serves every channel no physics model wires.</span>
 <span class="n">_TEXTURE</span> <span class="o">=</span> <span class="s2">&quot;texture&quot;</span>
 
+<span class="n">SETPOINT</span> <span class="o">=</span> <span class="s2">&quot;setpoint&quot;</span>
+<span class="n">READBACK</span> <span class="o">=</span> <span class="s2">&quot;readback&quot;</span>
+<span class="n">MONITOR</span> <span class="o">=</span> <span class="s2">&quot;monitor&quot;</span>
+<span class="n">OUTPUT</span> <span class="o">=</span> <span class="s2">&quot;output&quot;</span>
 <span class="c1">#: The roles a wiring record&#39;s description names.</span>
-<span class="n">ROLES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;setpoint&quot;</span><span class="p">,</span> <span class="s2">&quot;readback&quot;</span><span class="p">,</span> <span class="s2">&quot;monitor&quot;</span><span class="p">,</span> <span class="s2">&quot;output&quot;</span><span class="p">)</span>
+<span class="n">ROLES</span> <span class="o">=</span> <span class="p">(</span><span class="n">SETPOINT</span><span class="p">,</span> <span class="n">READBACK</span><span class="p">,</span> <span class="n">MONITOR</span><span class="p">,</span> <span class="n">OUTPUT</span><span class="p">)</span>
 <span class="c1">#: The planes a wiring record&#39;s description names; ``None`` is no plane.</span>
 <span class="n">PLANES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">)</span>
+<span class="n">PERIODIC</span> <span class="o">=</span> <span class="s2">&quot;periodic&quot;</span>
 <span class="c1">#: The refresh a wiring record&#39;s description names: ``pass`` with each</span>
 <span class="c1">#: write&#39;s solve, ``periodic`` with the periodic solve alone.</span>
-<span class="n">REFRESH</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;pass&quot;</span><span class="p">,</span> <span class="s2">&quot;periodic&quot;</span><span class="p">)</span>
+<span class="n">REFRESH</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;pass&quot;</span><span class="p">,</span> <span class="n">PERIODIC</span><span class="p">)</span>
 
 <span class="c1">#: The text a missing view reports.</span>
 <span class="n">NO_VIEW_MESSAGE</span> <span class="o">=</span> <span class="s2">&quot;no simulator view at </span><span class="si">{path}</span><span class="s2">: run osprey build&quot;</span>

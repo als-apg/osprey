@@ -465,6 +465,8 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">types</span><span class="w"> </span><span class="kn">import</span> <span class="n">MappingProxyType</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.view</span><span class="w"> </span><span class="kn">import</span> <span class="n">READBACK</span><span class="p">,</span> <span class="n">SETPOINT</span>
+
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;CHANNEL_FAULTS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DISCONNECTED&quot;</span><span class="p">,</span>
@@ -482,8 +484,6 @@
 <span class="c1">#: Reads not-a-number, or the activation value, with the ``udf`` condition.</span>
 <span class="n">DISCONNECTED</span> <span class="o">=</span> <span class="s2">&quot;disconnected&quot;</span>
 
-<span class="n">_SETPOINT</span> <span class="o">=</span> <span class="s2">&quot;setpoint&quot;</span>
-<span class="n">_READBACK</span> <span class="o">=</span> <span class="s2">&quot;readback&quot;</span>
 <span class="n">_NONE</span> <span class="o">=</span> <span class="s2">&quot;none&quot;</span>
 <span class="n">_FLOAT</span> <span class="o">=</span> <span class="s2">&quot;float&quot;</span>
 <span class="n">_UNDEFINED</span> <span class="o">=</span> <span class="s2">&quot;udf&quot;</span>
@@ -524,12 +524,12 @@
 <span class="c1">#: Every channel fault, by its word.</span>
 <span class="n">CHANNEL_FAULTS</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelFault</span><span class="p">]</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
     <span class="p">{</span>
-        <span class="n">STUCK</span><span class="p">:</span> <span class="n">ChannelFault</span><span class="p">(</span><span class="n">roles</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">({</span><span class="n">_SETPOINT</span><span class="p">}),</span> <span class="n">write</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">read</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>
+        <span class="n">STUCK</span><span class="p">:</span> <span class="n">ChannelFault</span><span class="p">(</span><span class="n">roles</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">({</span><span class="n">SETPOINT</span><span class="p">}),</span> <span class="n">write</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">read</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>
         <span class="n">FROZEN</span><span class="p">:</span> <span class="n">ChannelFault</span><span class="p">(</span>
-            <span class="n">roles</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">({</span><span class="n">_READBACK</span><span class="p">,</span> <span class="n">_NONE</span><span class="p">}),</span> <span class="n">write</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">read</span><span class="o">=</span><span class="n">_snapshot</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="kc">None</span>
+            <span class="n">roles</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">({</span><span class="n">READBACK</span><span class="p">,</span> <span class="n">_NONE</span><span class="p">}),</span> <span class="n">write</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">read</span><span class="o">=</span><span class="n">_snapshot</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="kc">None</span>
         <span class="p">),</span>
         <span class="n">DISCONNECTED</span><span class="p">:</span> <span class="n">ChannelFault</span><span class="p">(</span>
-            <span class="n">roles</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">({</span><span class="n">_SETPOINT</span><span class="p">,</span> <span class="n">_READBACK</span><span class="p">,</span> <span class="n">_NONE</span><span class="p">}),</span>
+            <span class="n">roles</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">({</span><span class="n">SETPOINT</span><span class="p">,</span> <span class="n">READBACK</span><span class="p">,</span> <span class="n">_NONE</span><span class="p">}),</span>
             <span class="n">write</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
             <span class="n">read</span><span class="o">=</span><span class="n">_not_a_number</span><span class="p">,</span>
             <span class="n">severity</span><span class="o">=</span><span class="n">_UNDEFINED</span><span class="p">,</span>
