@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import click
 
+from osprey.cli.output import fail
+
 
 def retired_web_command(verb: str, panel: str) -> click.Command:
     """Build the hidden ``web`` stub of a panel whose server left the CLI.
@@ -21,9 +23,8 @@ def retired_web_command(verb: str, panel: str) -> click.Command:
 
     @click.pass_context
     def stub(ctx: click.Context) -> None:
-        click.echo(
-            f"`osprey {verb} web` is retired: {panel} runs inside the web terminal (`osprey web`).",
-            err=True,
+        fail(
+            f"`osprey {verb} web` is retired: {panel} runs inside the web terminal (`osprey web`)."
         )
         ctx.exit(2)
 

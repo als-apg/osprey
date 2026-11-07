@@ -1,17 +1,16 @@
-"""CLI commands for the OSPREY Artifact Gallery."""
+"""The retired ``osprey artifacts`` group: the gallery runs inside the web terminal."""
 
 import click
 
 from .retired import retired_web_command
 
 
-@click.group("artifacts")
+@click.group("artifacts", hidden=True)
 def artifacts():
-    """Artifact Gallery commands.
+    """Retired: the Artifact Gallery runs inside the web terminal.
 
-    Manage the OSPREY Artifact Gallery — a local web gallery that displays
-    interactive plots, tables, and other outputs produced by Claude during
-    analysis sessions.
+    The group holds only the retired ``web`` stub, which points an old habit
+    at ``osprey web``. It is hidden from ``osprey --help``.
     """
 
 
