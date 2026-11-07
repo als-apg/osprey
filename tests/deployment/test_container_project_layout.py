@@ -752,8 +752,8 @@ def test_a_produced_context_reports_neither_drift_nor_staleness(
 
     Two independent things read a build's provenance inside a container and an
     operator meets both: :func:`check_drift`, the gate every lifecycle verb goes
-    through, and :func:`staleness_reasons`, the advisory behind ``osprey status``
-    and the warning ``osprey up`` prints. They must agree, and on a freshly built
+    through, and :func:`staleness_reasons`, the advisory behind the warning
+    ``osprey up`` prints. They must agree, and on a freshly built
     image the agreement they owe is "nothing has changed".
 
     They agree only if they hash the SAME file. The gate reads ``profile.yml``

@@ -18,10 +18,6 @@ repo on one host are told apart rather than merged. The label has an honest
 limit that the display states rather than hides: it is applied when a container
 is CREATED, so a stack whose containers were created by an OSPREY that did not
 stamp it carries none, and this module can only match it by project name.
-
-:func:`show_status` is the legacy project-scoped display behind
-``osprey status``. It shares the query and table helpers below with the
-repo-scoped verb, and goes away with the ``deploy`` group.
 """
 
 import json
@@ -54,7 +50,7 @@ from osprey.deployment.deployment_record import (
 )
 from osprey.deployment.errors import DeploymentError, DeploymentRecordError, NoComposeFilesError
 from osprey.deployment.runtime_helper import get_ps_command
-from osprey.deployment.staleness import BUILD_DIRNAME, staleness_reasons
+from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
@@ -555,84 +551,6 @@ def _show_web_terminal_users(config, all_containers, repo_root, record: Deployme
             _format_volume_status(agent_data_volume),
         )
     output.table(table)
-
-
-def show_status(
-    config_path,
-    *,
-    console=None,  # noqa: ARG001 - accepted and ignored; output goes through the CLI renderer, which resolves its own console per call
-    styles=None,  # noqa: ARG001 - accepted and ignored; output goes through the CLI renderer, which resolves its own console per call
-):
-    """Show detailed status of services with formatted output.
-
-    Uses direct container runtime ps to show actual container state, independent of compose files.
-    Displays containers for this project separately from other running containers.
-
-    The legacy project-scoped display, reached through ``osprey status``.
-    :func:`show_repo_status` is the repo-scoped verb that replaces it, and the
-    two share every helper above.
-
-    :param config_path: Path to the configuration file
-    :type config_path: str
-    :param console: Accepted and ignored. Output goes through the CLI renderer,
-        which resolves its own console per call.
-    :param styles: Accepted and ignored, for the same reason.
-    """
-    config = load_project_config(config_path, wrap_errors=True)
-
-    # Advisory render-provenance note: a stale project deploys an out-of-date
-    # service set that looks perfectly healthy here, so status is the other
-    # place (besides osprey up) the drift must be visible.
-    for reason in staleness_reasons(Path(config_path).resolve().parent):
-        output.warn(f"The build is out of date: {reason}", "Re-run `osprey build`.")
-
-    deployed_services = config.get("deployed_services", [])
-    deployed_service_names = (
-        [str(service) for service in deployed_services] if deployed_services else []
-    )
-
-    # This legacy verb is handed the project's own config.yml; the repo root,
-    # the record and the state zone all hang off the directory holding it.
-    repo_root = Path(config_path).resolve().parent
-    record = _recorded_deployment(repo_root)
-    if record is None:
-        return
-
-    # The project the last start pinned as COMPOSE_PROJECT_NAME and stamped into
-    # container labels. Status compares that label against this value, so a
-    # project a later rebuild renamed still finds its own containers instead of
-    # listing them under "other Osprey containers".
-    current_project = record.compose_project
-
-    all_containers = _query_containers(config, record.runtime)
-    if all_containers is None:
-        return
-
-    owned = deployment_containers(
-        all_containers, project_name=current_project, services=deployed_service_names
-    )
-    project_containers = [c.row for c in owned.ours]
-    other_containers = list(owned.other_projects)
-
-    output.report("")
-    output.section("Service Status:", ())
-
-    if project_containers:
-        output.table(_container_table(project_containers))
-    else:
-        output.note(f"No services running for project '{current_project}'")
-        if deployed_service_names:
-            output.note(f"Configured services: {', '.join(deployed_service_names)}")
-        output.note("Start them with `osprey up`.")
-
-    if other_containers:
-        output.report("")
-        output.section("Other Osprey Containers:", ())
-        output.table(_container_table(other_containers))
-
-    _show_web_terminal_users(config, all_containers, repo_root, record)
-
-    output.report("")
 
 
 # ---------------------------------------------------------------------------
