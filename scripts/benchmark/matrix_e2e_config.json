@@ -187,6 +187,14 @@
       "reason": "Boot smoke for the Microsoft Teams bridge's own test fixtures (the loopback token and Bot Connector servers and the in-process queue receiver) — it asserts that the fixtures answer, never runs an agent, and contacts no model."
     },
     {
+      "path": "tests/e2e/test_slack_bridge_e2e.py",
+      "reason": "Needs no container and no provider key, and declares none: its substance is the two-party wire contract with Slack's Web API and Socket Mode (conversation-type rules, mention filter, envelope acknowledgement, exactly-once claim), asserted through the dispatch engine's persisted run_id and the package's own notice constants rather than through anything the model says. It carries no agentic tier, so on the bench box every cell would re-run the same model-independent proof for no model signal."
+    },
+    {
+      "path": "tests/e2e/fixtures/test_slack_fixture_smoke.py",
+      "reason": "Boot smoke for the Slack bridge's own test fixtures (the loopback Web API, file host and Socket Mode servers) — it asserts that the fixtures answer, never runs an agent, and contacts no model."
+    },
+    {
       "path": "tests/e2e/web_terminals/test_auth_perimeter.py",
       "reason": "Builds the real auth-sidecar image and drives one `osprey up`, then asserts over plain HTTP that the login perimeter refuses and admits; no LLM anywhere, and the image build would cost every matrix cell minutes for no model signal."
     },

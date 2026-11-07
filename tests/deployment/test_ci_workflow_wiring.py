@@ -178,6 +178,10 @@ TEAMS_TEST_FILE = "tests/e2e/test_teams_bridge_e2e.py"
 TEAMS_SMOKE_FILE = "tests/e2e/fixtures/test_teams_fixture_smoke.py"
 TEAMS_EXTRA = "teams"
 TEAMS_SKIP_GATE_STEP = "Fail the lane on any skipped test"
+SLACK_JOB = "slack-bridge-e2e"
+SLACK_TEST_FILE = "tests/e2e/test_slack_bridge_e2e.py"
+SLACK_SMOKE_FILE = "tests/e2e/fixtures/test_slack_fixture_smoke.py"
+SLACK_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 
 NO_MODEL_JOB = "e2e-no-model"
 NO_MODEL_RUN_STEP = "Run the model-free E2E files"
@@ -3490,6 +3494,148 @@ def test_teams_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate()
     _jobs(mutated)[TEAMS_JOB]["if"] = FULL_CI_LABEL_CLAUSE
     with pytest.raises(AssertionError, match="declares an `if:` gate"):
         test_teams_bridge_job_runs_on_every_pull_request(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (k2) slack-bridge-e2e lane
+# ---------------------------------------------------------------------------
+#
+# The Teams lane's shape minus its extra: the Slack adapter's one third-party
+# need is a core dependency, so there is no install to pin. What is pinned is
+# the rest — both files leave the shared lane and arrive here, every skip
+# fails the job, no `if:` gate, and the merge gate reads the result.
+
+
+def test_shared_lane_ignores_both_slack_files(workflow: dict[str, Any]) -> None:
+    """Both Slack files are model-free and run on every pull request in their
+    own lane, so the shared ``e2e-tests`` lane must ignore them: left there they
+    would run twice, once behind a label they do not need. Named rather than
+    discovered, as for Teams, so dropping one names the file it dropped."""
+    missing = _run_step_ignores_all(workflow, [SLACK_SMOKE_FILE, SLACK_TEST_FILE])
+    assert missing == [], (
+        f"Slack e2e file(s) not --ignored in the '{E2E_TESTS_JOB}' lane: {missing}"
+    )
+
+
+def test_shared_lane_ignores_both_slack_files__mutation_drops_module_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], SLACK_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [SLACK_SMOKE_FILE]) == []  # the other survives
+    with pytest.raises(AssertionError):
+        test_shared_lane_ignores_both_slack_files(mutated)
+
+
+def test_shared_lane_ignores_both_slack_files__mutation_drops_smoke_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], SLACK_SMOKE_FILE)
+    assert _run_step_ignores_all(mutated, [SLACK_TEST_FILE]) == []  # the other survives
+    with pytest.raises(AssertionError):
+        test_shared_lane_ignores_both_slack_files(mutated)
+
+
+def _slack_pytest_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
+    """The Slack job's pytest invocations, in the order Actions will run them."""
+    return [s for s in _jobs(wf)[SLACK_JOB]["steps"] if _UV_PYTEST_RE.search(s.get("run", ""))]
+
+
+def test_slack_job_runs_both_slack_files(workflow: dict[str, Any]) -> None:
+    """The lane the two files moved INTO must name both; dropping either leaves
+    a file that runs nowhere while every check stays green."""
+    selected = " ".join(step["run"] for step in _slack_pytest_steps(workflow))
+    missing = [f for f in (SLACK_SMOKE_FILE, SLACK_TEST_FILE) if f not in selected]
+    assert missing == [], f"'{SLACK_JOB}' runs no pytest step naming: {missing}"
+
+
+def test_slack_job_runs_both_slack_files__mutation_drops_the_module() -> None:
+    """Fixtures still prove the fakes answer while the bridge cells stop running."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _slack_pytest_steps(mutated)[0]
+    kept = [line for line in step["run"].splitlines(keepends=True) if SLACK_TEST_FILE not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert SLACK_SMOKE_FILE in step["run"]  # the fixture half survives
+    with pytest.raises(AssertionError):
+        test_slack_job_runs_both_slack_files(mutated)
+
+
+def _slack_junit_reports(wf: dict[str, Any]) -> list[str]:
+    return [r for step in _slack_pytest_steps(wf) for r in _JUNIT_RE.findall(step["run"])]
+
+
+def test_slack_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    """Neither file declares a skip, so a skip here is a misconfiguration that
+    pytest reports as success. Every pytest step writes a junit report, and the
+    gate step reads each one, counts skips and fails the job."""
+    reports = _slack_junit_reports(workflow)
+    assert len(reports) == len(_slack_pytest_steps(workflow)), (
+        f"every pytest step in '{SLACK_JOB}' must write a --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, SLACK_JOB, SLACK_SKIP_GATE_STEP)["run"]
+    unread = [r for r in reports if r not in gate]
+    assert unread == [], f"'{SLACK_SKIP_GATE_STEP}' never reads: {unread}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_slack_job_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _slack_pytest_steps(mutated)[0]
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="must write a --junitxml report"):
+        test_slack_job_fails_on_any_skipped_test(mutated)
+
+
+def test_slack_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, SLACK_JOB, SLACK_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_slack_job_fails_on_any_skipped_test(mutated)
+
+
+def test_slack_bridge_job_runs_on_every_pull_request(workflow: dict[str, Any]) -> None:
+    """No container, image, secret or model call, so no ``if:`` gate: an added
+    one would fail nothing and quietly stop the lane on most pull requests."""
+    assert "if" not in _jobs(workflow)[SLACK_JOB], (
+        f"'{SLACK_JOB}' declares an `if:` gate: {_jobs(workflow)[SLACK_JOB].get('if')!r} — "
+        f"it spends no model tokens and pulls no image, so it runs unconditionally"
+    )
+
+
+def test_slack_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[SLACK_JOB]["if"] = FULL_CI_LABEL_CLAUSE
+    with pytest.raises(AssertionError, match="declares an `if:` gate"):
+        test_slack_bridge_job_runs_on_every_pull_request(mutated)
+
+
+def test_slack_bridge_job_gates_the_merge(workflow: dict[str, Any]) -> None:
+    """A lane whose result nothing reads is a lane that can red forever: the
+    gate job needs it, and the gate script's roll-up examines its result."""
+    assert SLACK_JOB in _jobs(workflow)[GATE_JOB]["needs"], (
+        f"'{GATE_JOB}' does not need '{SLACK_JOB}'"
+    )
+    assert _gate_checks_lane(workflow, SLACK_JOB), (
+        f"the gate script has no check_pr_lane line reading needs.{SLACK_JOB}.result"
+    )
+
+
+def test_slack_bridge_job_gates_the_merge__mutation_drops_the_check_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = next(
+        s
+        for s in _jobs(mutated)[GATE_JOB]["steps"]
+        if f"needs.{SLACK_JOB}.result" in s.get("run", "")
+    )
+    step["run"] = "".join(
+        line
+        for line in step["run"].splitlines(keepends=True)
+        if f"needs.{SLACK_JOB}.result" not in line
+    )
+    with pytest.raises(AssertionError, match="no check_pr_lane line"):
+        test_slack_bridge_job_gates_the_merge(mutated)
 
 
 # ---------------------------------------------------------------------------
