@@ -716,7 +716,7 @@ service, and the agent containers have no route to the control system.</p>
 </section>
 <section id="step-1-create-the-facility-repository">
 <h2>Step 1 — Create the facility repository<a class="headerlink" href="#step-1-create-the-facility-repository" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>demo-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>demo-facility<span class="w"> </span>--preset<span class="w"> </span>demo
 <span class="nb">cd</span><span class="w"> </span>demo-facility
 </pre></div>
 </div>
@@ -740,7 +740,7 @@ it.</p>
 </section>
 <section id="step-2-trim-the-profile-to-this-facility-s-stack">
 <h2>Step 2 — Trim the profile to this facility’s stack<a class="headerlink" href="#step-2-trim-the-profile-to-this-facility-s-stack" title="Link to this heading">#</a></h2>
-<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships a fuller
+<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships a fuller
 stack than Demo Facility runs, so the first edit is subtraction. Delete:</p>
 <ul class="simple">
 <li><p>the top-level <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky_web:</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> blocks. Each

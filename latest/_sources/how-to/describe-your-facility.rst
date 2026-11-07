@@ -10,7 +10,7 @@ A deployment describes its facility once, as source files under
 channel finder's index, the limits database, the simulator's channel list, the
 knowledge graph. Nothing else in the deployment lists a channel.
 
-This page walks the tree a fresh ``osprey init --preset control-assistant``
+This page walks the tree a fresh ``osprey init --preset demo``
 writes, file by file, then the three ways records get into it: by hand, from
 an importer, and through a fix. What the build writes from the result is in
 :doc:`/architecture/facility-file`.
@@ -40,7 +40,7 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-control-assistant preset ships all of them except ``fixes.yaml`` and
+demo preset ships all of them except ``fixes.yaml`` and
 ``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
 ``seeds.yaml``.
@@ -344,7 +344,7 @@ channel with no record is the deployment's choice,
 ``control_system.limits_checking.mode``: under ``exclusive`` the limits file
 is the complete list of writable channels and a channel without a record is
 refused; under ``optional`` a channel without a record is written with no
-limits. The hello-world and control-assistant presets ship ``optional``.
+limits. The hello-world and demo presets ship ``optional``.
 
 Seeds
 =====

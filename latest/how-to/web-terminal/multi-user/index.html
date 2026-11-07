@@ -564,7 +564,7 @@ logins plus the logbook, knowledge and channel-finder apps</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> The concepts need none. To stand the stack up you’ll
 want Docker (or Podman) and your model-provider credentials — the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships the whole block pre-wired.</p>
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships the whole block pre-wired.</p>
 </div>
 </details><p>Two subjects have pages of their own:</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
@@ -611,7 +611,7 @@ only by the lifecycle verbs (and validated by
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>).
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> reads exactly one key from it — <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>, which
 sets how long its own login cookie lasts — and nothing else, so a project that
-carries the block (the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships one) still runs
+carries the block (the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships one) still runs
 single-user like one that does not. Reach for the multi-user stack when several
 people need their own terminal on a shared machine, and stay with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>
 for everything else.</p>
@@ -695,7 +695,7 @@ configuration volume automatically — no per-user setup steps.</p>
 assigned a tier, and each tier is its own rendered OSPREY project with its own
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, permissions, skills and tool servers, built from one small file
 in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> laid over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. A tier only adds; it never removes
-anything from the profile. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships three: a
+anything from the profile. The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships three: a
 <em>read-only</em> and a <em>read-write</em> tier, separated by whether the session may move
 the simulator, and an <em>admin</em> tier, separated by whether it may change the
 deployment it runs in. <a class="reference internal" href="tiers.html"><span class="doc">Privilege Tiers</span></a> lays out what each one
@@ -729,7 +729,7 @@ see <a class="reference internal" href="login.html"><span class="doc">Require a 
 <label class="sd-tab-label" for="sd-tab-item-0">
 Switching it on</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">The whole feature is one config block. This is what a project built from
-the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset carries in its <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset carries in its <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -899,11 +899,11 @@ do for any other OSPREY service stack.</p>
 <h2>Run the multi-user stack<a class="headerlink" href="#run-the-multi-user-stack" title="Link to this heading">#</a></h2>
 <p>From a fresh checkout, create a deployment repository from the bundled preset,
 then build and bring the stack up from inside it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Create the deployment repo from the control-assistant preset</span>
-osprey<span class="w"> </span>init<span class="w"> </span>control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Create the deployment repo from the demo preset</span>
+osprey<span class="w"> </span>init<span class="w"> </span>demo<span class="w"> </span>--preset<span class="w"> </span>demo
 
 <span class="c1"># 2. From inside the repo, render it and bring the whole stack up</span>
-<span class="nb">cd</span><span class="w"> </span>control-assistant
+<span class="nb">cd</span><span class="w"> </span>demo
 osprey<span class="w"> </span>build
 osprey<span class="w"> </span>up
 </pre></div>
@@ -911,7 +911,7 @@ osprey<span class="w"> </span>up
 <p>That is the entire setup for the preset’s roster: the preset ships the
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block above, so no extra flags or configuration are
 needed. Alongside the web tier,
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the demo tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL and agent-record containers — so the control-room terminals open onto a
 working machine, the logbook app onto a live logbook and the knowledge
@@ -946,10 +946,10 @@ instead.</p>
 <ol class="arabic">
 <li><p><strong>The build renders every tier and app.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one
 project per file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> and <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, into the build zone beside the
-main render (<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readonly</span></code>,
-<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readwrite</span></code>, <code class="docutils literal notranslate"><span class="pre">build/control-assistant-admin</span></code>,
-<code class="docutils literal notranslate"><span class="pre">build/control-assistant-logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">build/control-assistant-knowledge</span></code>
-and <code class="docutils literal notranslate"><span class="pre">build/control-assistant-channel-finder</span></code>). Every render shares the
+main render (<code class="docutils literal notranslate"><span class="pre">build/demo-readonly</span></code>,
+<code class="docutils literal notranslate"><span class="pre">build/demo-readwrite</span></code>, <code class="docutils literal notranslate"><span class="pre">build/demo-admin</span></code>,
+<code class="docutils literal notranslate"><span class="pre">build/demo-logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">build/demo-knowledge</span></code>
+and <code class="docutils literal notranslate"><span class="pre">build/demo-channel-finder</span></code>). Every render shares the
 profile’s data tree, secrets and artifacts, and inherits the choices
 recorded there (provider, model): edit the profile once and every terminal
 picks the change up. A start renders none of this — <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the
@@ -957,20 +957,20 @@ whole account of what will run — so a render missing at start time is
 reported as a stale or partial build, with a rebuild as the remedy.</p></li>
 <li><p><strong>The start builds each image.</strong> In the preset’s local mode
 (<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds one image per render
-(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>, e.g. <code class="docutils literal notranslate"><span class="pre">control-assistant-readwrite:local</span></code>)
+(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>, e.g. <code class="docutils literal notranslate"><span class="pre">demo-readwrite:local</span></code>)
 from that rendered project — no registry, no CI. Registry mode pulls them
 instead; see <a class="reference internal" href="#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p></li>
 <li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container
-<code class="docutils literal notranslate"><span class="pre">control-assistant-nginx</span></code>) serves the landing page on
+<code class="docutils literal notranslate"><span class="pre">demo-nginx</span></code>) serves the landing page on
 <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>, and one Web Terminal container comes up per
-user — <code class="docutils literal notranslate"><span class="pre">control-assistant-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">10100</span></code>,
-<code class="docutils literal notranslate"><span class="pre">control-assistant-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code> and <code class="docutils literal notranslate"><span class="pre">control-assistant-web-carol</span></code>
-on <code class="docutils literal notranslate"><span class="pre">10102</span></code>, and one per app — <code class="docutils literal notranslate"><span class="pre">control-assistant-web-logbook</span></code> on
-<code class="docutils literal notranslate"><span class="pre">10199</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant-web-knowledge</span></code> on <code class="docutils literal notranslate"><span class="pre">10198</span></code> and
-<code class="docutils literal notranslate"><span class="pre">control-assistant-web-channel-finder</span></code> on <code class="docutils literal notranslate"><span class="pre">10197</span></code> — each reached through the
+user — <code class="docutils literal notranslate"><span class="pre">demo-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">10100</span></code>,
+<code class="docutils literal notranslate"><span class="pre">demo-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code> and <code class="docutils literal notranslate"><span class="pre">demo-web-carol</span></code>
+on <code class="docutils literal notranslate"><span class="pre">10102</span></code>, and one per app — <code class="docutils literal notranslate"><span class="pre">demo-web-logbook</span></code> on
+<code class="docutils literal notranslate"><span class="pre">10199</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-web-knowledge</span></code> on <code class="docutils literal notranslate"><span class="pre">10198</span></code> and
+<code class="docutils literal notranslate"><span class="pre">demo-web-channel-finder</span></code> on <code class="docutils literal notranslate"><span class="pre">10197</span></code> — each reached through the
 landing page. With login on, the auth sidecar runs as
-<code class="docutils literal notranslate"><span class="pre">control-assistant-auth</span></code>, from a locally built
-<code class="docutils literal notranslate"><span class="pre">control-assistant-auth:local</span></code> image. Every one of these names is
+<code class="docutils literal notranslate"><span class="pre">demo-auth</span></code>, from a locally built
+<code class="docutils literal notranslate"><span class="pre">demo-auth:local</span></code> image. Every one of these names is
 <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-…</span></code>, after the profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>, which
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> took from the folder name.</p>
 <div class="admonition note">

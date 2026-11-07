@@ -546,7 +546,7 @@
 <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code>, and writes every file a service reads from it: the
 channel finder’s index, the limits database, the simulator’s channel list, the
 knowledge graph. Nothing else in the deployment lists a channel.</p>
-<p>This page walks the tree a fresh <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code>
+<p>This page walks the tree a fresh <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">demo</span></code>
 writes, file by file, then the three ways records get into it: by hand, from
 an importer, and through a fix. What the build writes from the result is in
 <a class="reference internal" href="../architecture/facility-file.html"><span class="doc">Facility File and Its Views</span></a>.</p>
@@ -573,7 +573,7 @@ an importer, and through a fix. What the build writes from the result is in
 </div>
 <p>Every file is optional. A deployment with no <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> at all builds
 a facility with no channel, and each file added states more. The
-control-assistant preset ships all of them except <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> and
+demo preset ships all of them except <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> and
 <code class="docutils literal notranslate"><span class="pre">imported/</span></code>; the hello-world preset ships
 <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">records/channels.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> and
 <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>.</p>
@@ -864,7 +864,7 @@ channel with no record is the deployment’s choice,
 <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode</span></code>: under <code class="docutils literal notranslate"><span class="pre">exclusive</span></code> the limits file
 is the complete list of writable channels and a channel without a record is
 refused; under <code class="docutils literal notranslate"><span class="pre">optional</span></code> a channel without a record is written with no
-limits. The hello-world and control-assistant presets ship <code class="docutils literal notranslate"><span class="pre">optional</span></code>.</p>
+limits. The hello-world and demo presets ship <code class="docutils literal notranslate"><span class="pre">optional</span></code>.</p>
 </section>
 <section id="seeds">
 <h2>Seeds<a class="headerlink" href="#seeds" title="Link to this heading">#</a></h2>

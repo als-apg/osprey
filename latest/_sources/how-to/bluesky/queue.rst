@@ -10,7 +10,7 @@ it; sending a plan toward the machine is the guarded step, whichever click
 does it. **Stopping is never locked** — no token, no switch, no state can
 take the stop and abort buttons away.
 
-A project built from the ``control-assistant`` preset comes up armed
+A project built from the ``demo`` preset comes up armed
 (``bluesky.queue_autostart``), so the everyday flow is one click: **Run**.
 Stop or Abort leaves the queue stopped until the next **Start**.
 
@@ -160,7 +160,7 @@ quirks worth knowing:
         - Nothing — the item just waits.
       * - Add to an **armed** or **running** queue
         - The launch token — this hands work straight to the machine. On the
-          ``control-assistant`` preset the queue is armed by default, so this
+          ``demo`` preset the queue is armed by default, so this
           is the everyday case.
       * - Start (arm) the queue
         - The launch token.
@@ -327,7 +327,7 @@ quirks worth knowing:
    :color: info
    :icon: server
 
-   A project built from the ``control-assistant`` preset brings the whole
+   A project built from the ``demo`` preset brings the whole
    stack up with ``osprey up``: the **bridge** (the HTTP front door,
    port 10080), the **queue server** with its own storage, the **bluesky-web**
    sidecar serving the BLUESKY panel (port 10071), the **Virtual Accelerator** (the
@@ -340,7 +340,7 @@ quirks worth knowing:
    Tiled store, which plans the catalog carries, and the device file plans may
    drive or record — see :doc:`/reference/configuration/profile`. Whether the
    queue comes up armed is ``bluesky.queue_autostart``: on in the
-   ``control-assistant`` preset, off unless a deployment says so.
+   ``demo`` preset, off unless a deployment says so.
 
    Whether a deployment can execute plans at all is decided by its control
    system. The queue worker builds its devices over Channel Access, so the
@@ -358,7 +358,7 @@ quirks worth knowing:
 
    Run ``osprey build`` and ``osprey up`` afterwards to carry the change into
    the running stack. That switch needs a real archive behind it: a deployment
-   created from the ``control-assistant`` preset has one and the flip just
+   created from the ``demo`` preset has one and the flip just
    works; one still reading the mock archiver is refused at build time, and told
    to point ``archiver.type`` at a store its deployment writes first — see
    :doc:`../control-systems/use-virtual-accelerator`.

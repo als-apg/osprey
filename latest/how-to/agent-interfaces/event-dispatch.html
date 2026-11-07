@@ -557,7 +557,7 @@ an EPICS channel crossing a threshold) into headless OSPREY agent runs.</p>
 <li><p class="sd-card-text">Which trigger sources ship, and what each one’s <code class="docutils literal notranslate"><span class="pre">source_config</span></code> takes</p></li>
 <li><p class="sd-card-text">How the two bearer tokens guard inbound and internal traffic</p></li>
 </ul>
-<p class="sd-card-text"><strong>Prerequisites:</strong> A project built from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
+<p class="sd-card-text"><strong>Prerequisites:</strong> A project built from the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset
 (or any profile with a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block). Docker/Podman only for the
 container path.</p>
 </div>
@@ -617,7 +617,7 @@ a worker. It also serves the monitoring <strong>dashboard</strong>.</p></li>
   <text class="ts" x="400" y="252" text-anchor="middle">monitoring</text>
 </svg>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships this enabled, wired to four
+<p>The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships this enabled, wired to four
 control-system-free <strong>tutorial triggers</strong> so you can exercise the full pipeline
 with a single <code class="docutils literal notranslate"><span class="pre">curl</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, both service
 compose templates, and the <code class="docutils literal notranslate"><span class="pre">services.{event_dispatcher,dispatch_worker}</span></code>
@@ -735,7 +735,7 @@ in the <strong>EVENTS</strong> tab of <code class="docutils literal notranslate"
 </section>
 <section id="the-events-panel">
 <h2>The EVENTS Panel<a class="headerlink" href="#the-events-panel" title="Link to this heading">#</a></h2>
-<p>Projects built from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset surface this dashboard as
+<p>Projects built from the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset surface this dashboard as
 an <strong>EVENTS</strong> tab inside the web terminal, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> exposes it without a
 separate browser window. The tab health-gates itself: while the dispatcher is
 down the tab is disabled with an offline indicator rather than showing a broken

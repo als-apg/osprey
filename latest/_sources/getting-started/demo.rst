@@ -1,13 +1,13 @@
-===================================
-Production Control Systems Tutorial
-===================================
+===================
+The Demo Deployment
+===================
 
 The :doc:`Hello World Tutorial <hello-world-tutorial>` built a single-server agent
 that reads channels by their exact PV name. A production control room needs more:
 operators think in terms of *devices and physics* — "the booster's defocusing
 quadrupole" — not PV strings; they need to search the electronic logbook, pull
 historical trends, and produce shift reports. This tutorial builds the
-**control-assistant** agent, which adds those capabilities on top of the same
+**demo** deployment, which adds those capabilities on top of the same
 simulator, now served from its container, and the same safety model.
 
 By the end you'll have an agent that finds channels from natural-language
@@ -42,12 +42,12 @@ control-room operator skills.
 Step 1: Build the Project and Bring It Up
 ------------------------------------------
 
-Create a project from the ``control-assistant`` preset:
+Create a project from the ``demo`` preset:
 
 .. code-block:: bash
 
-   osprey init my-control-assistant --preset control-assistant
-   cd my-control-assistant
+   osprey init osprey-demo --preset demo
+   cd osprey-demo
    osprey build
 
 As in Hello World, this writes one repository whose ``profile.yml`` is the
@@ -100,7 +100,7 @@ works. The duration at the end of each step is how long that slice took:
 
 .. code-block:: text
 
-   → Starting my-control-assistant
+   → Starting osprey-demo
      · seeding the archive base: 2,908 channels over 30 days (minutes on a first deploy)
      · seeding archive: 8,960 documents written across 2,908 channels (17.4s)
      · seeding archive: 17,920 documents written across 2,908 channels (15.0s)
@@ -122,7 +122,7 @@ already matches.
 Step 2: What's Different from Hello World
 ------------------------------------------
 
-The ``control-assistant`` preset keeps the same ``controls`` MCP server and the
+The ``demo`` preset keeps the same ``controls`` MCP server and the
 same safety hooks, then adds production capabilities. The most visible additions:
 
 .. list-table::
@@ -176,7 +176,7 @@ This is the headline capability. In Hello World you had to know the exact PV:
 
    You: Read channel SR:BEAM:CURRENT
 
-With the control assistant, you describe the channel in plain language and the
+With the demo, you describe the channel in plain language and the
 agent figures out the PV for you:
 
 .. code-block:: text
@@ -225,7 +225,7 @@ strategies, see :doc:`../how-to/use-channel-finder`.
 Step 4: Search the Electronic Logbook
 --------------------------------------
 
-The control-assistant bundle seeds an electronic logbook with realistic
+The demo bundle seeds an electronic logbook with realistic
 operations entries — RF trips, vacuum maintenance, beam-recovery shifts,
 radiation surveys, and more. A fresh deployment starts in the ``rf-thermal``
 and ``demo-history`` scenarios, so the logbook and the archived history also
@@ -414,7 +414,7 @@ difference; the agent, the channel finder, and your prompts stay the same.
 Next Steps
 ==========
 
-You've built a production-shaped control assistant with channel finding, logbook
+You've built the full demo: channel finding, logbook
 search, historical plotting, and operator skills. Where to go next:
 
 - **Run your first plan**: this project can run real measurement plans — ask
@@ -426,8 +426,9 @@ search, historical plotting, and operator skills. Where to go next:
   format.
 - **Web terminal**: :doc:`../how-to/web-terminal/operate` launches the browser UI and
   its panels with ``osprey web``.
-- **Tailor a preset to your facility**: :doc:`../how-to/build-profiles` shows how
-  to turn ``control-assistant`` into a profile you own and edit.
+- **Start your own deployment**: trim ``demo`` down to what your facility
+  needs, or build up from ``hello-world``; :doc:`../how-to/build-profiles`
+  shows how either becomes a profile you own and edit.
 - **Architecture deep dive**: the :doc:`conceptual-tutorial` and the
   :doc:`Architecture <../architecture/index>` section explain the agent + MCP
   design, the connector system, and the safety mechanisms.

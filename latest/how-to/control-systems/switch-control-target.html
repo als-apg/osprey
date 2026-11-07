@@ -679,7 +679,7 @@ about the tools changes; only the machine behind them does.</p>
 (<code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">live_standin</span></code>) starts on <code class="docutils literal notranslate"><span class="pre">standin</span></code>, so
 going to the real machine is one tool call — the same call, and the same
 prompts, as on a deployment that never had a stand-in at all. The
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset starts on the simulator (<code class="docutils literal notranslate"><span class="pre">va</span></code>) instead, so there
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset starts on the simulator (<code class="docutils literal notranslate"><span class="pre">va</span></code>) instead, so there
 the stand-in is a switch of its own before the real machine.</p>
 <p>Read the roster before you ask for it, so you know what will happen:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target are we on, and where else could we go?
@@ -705,7 +705,7 @@ What it cannot do is move a session onto it.</p>
 <p><strong>The gateways</strong> (<code class="docutils literal notranslate"><span class="pre">gateways_missing</span></code>).
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.gateways</span></code> names where the live machine is
 reached. A facility’s gateways cannot be guessed, so nothing usable ships
-here: the control-assistant template leaves the whole block commented out —
+here: the demo template leaves the whole block commented out —
 there this is the first gate, and the live target reads <em>not configured</em>
 until you author it — while the generic project template writes placeholder
 addresses instead, which pass this gate and fail the probe. Either way, the
@@ -1173,7 +1173,7 @@ this page cannot be tried at all. A <strong>live stand-in</strong> gives you som
 rehearse the procedure on: a second soft IOC the deployment runs for itself,
 deployed as a third control target of its own.</p>
 <p>Setting <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">true</span></code> in the build profile deploys
-it, and the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships that line on. What the build
+it, and the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships that line on. What the build
 derives from it is the stand-in’s own <code class="docutils literal notranslate"><span class="pre">control_system.connector.live_standin</span></code>
 block and nothing else — where the stand-in listens, and what proves it
 reachable. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block beside it is untouched, so a facility already

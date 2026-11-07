@@ -749,7 +749,7 @@ setting.</p>
 <span class="w">  </span><span class="nt">approval.default_policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always</span>
 </pre></div>
 </div>
-<p>That is the shape <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code> writes, with the
+<p>That is the shape <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">demo</span></code> writes, with the
 timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (<code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">epics</span></code>) is a larger edit than the one line, because
 the <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block the preset ships records a machine the deployment
@@ -1012,7 +1012,7 @@ nothing.</p>
 what its facility changed, and still names a packaged app template at its top
 level. Such a profile is refused, naming that key and the verb that fixes it:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>--revalidate<span class="w">                            </span><span class="c1"># preset from provenance:</span>
-osprey<span class="w"> </span>init<span class="w"> </span>--revalidate<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="c1"># or name it</span>
+osprey<span class="w"> </span>init<span class="w"> </span>--revalidate<span class="w"> </span>--preset<span class="w"> </span>demo<span class="w">              </span><span class="c1"># or name it</span>
 </pre></div>
 </div>
 <p>It writes every key the preset documents and the profile lacks into the
@@ -1240,7 +1240,7 @@ putting the tool under <code class="docutils literal notranslate"><span class="p
 <code class="docutils literal notranslate"><span class="pre">remove_ask</span></code> would union into <em>every</em> child, including the one meant to
 keep the approval prompt, and strip that prompt away. <code class="docutils literal notranslate"><span class="pre">deny</span></code> is
 subtractable per tier, which is the direction a floor has to work in.</p>
-<p>The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset is built exactly this way: its
+<p>The bundled <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset is built exactly this way: its
 base denies the agent’s own deployment-editing tool, and the <code class="docutils literal notranslate"><span class="pre">admin</span></code>
 tier is the single delta that removes that deny. Writing the floor is
 not only a convention. A web terminal served without a login by a tier
@@ -1434,7 +1434,7 @@ profile ships no channel-database inputs. What it does need is a
 <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, and the paradigm works with either shape that block
 comes in.</p>
 <p>A deployment that runs its own store already has one.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code> writes the <code class="docutils literal notranslate"><span class="pre">services.graphdb.*</span></code>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">demo</span></code> writes the <code class="docutils literal notranslate"><span class="pre">services.graphdb.*</span></code>
 keys and the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> entry in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> into the profile’s
 <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts, bootstraps and seeds it — see
 <a class="reference internal" href="../../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a>. That profile reads, in outline:</p>
@@ -1486,7 +1486,7 @@ own <code class="docutils literal notranslate"><span class="pre">config:</span><
 answers, see <a class="reference internal" href="../../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>; for the corpus behind them,
 <a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
 <p>The qmd sidecar behind hybrid logbook search is guarded the same way. The
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset switches
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset switches
 <code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> on and deploys the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar that
 answers it, but an attached project renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
@@ -1891,7 +1891,7 @@ the profile starts with them in force. Seeding is append-only: a value already
 in the file — set by the operator, or minted by a deploy — always wins, and
 later <code class="docutils literal notranslate"><span class="pre">init</span></code> runs never rewrite one. Declare a default only for a value the
 profile’s author can honestly choose for every deployment (the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset’s demo login passwords, say); values a <em>site</em>
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset’s login passwords, say); values a <em>site</em>
 should share across hosts belong in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, which is committed with
 the repository and read by every host (see <a class="reference internal" href="../../how-to/deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>).</p>
 </section>

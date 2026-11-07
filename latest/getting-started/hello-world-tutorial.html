@@ -387,7 +387,7 @@
 <li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Hello World Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="osprey-install.html">Guided Facility Setup</a></li>
-<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demo.html">The Demo Deployment</a></li>
 </ul>
 </div>
 </nav></div>
@@ -536,7 +536,7 @@ per line:</p>
 <span class="w">  </span><span class="c1"># the built facility; `serving: in_process` runs it inside this process — the</span>
 <span class="w">  </span><span class="c1"># facility&#39;s channels, its seeds and scenarios, no hardware and no containers</span>
 <span class="w">  </span><span class="c1"># — and refuses any address outside the facility. `served` reaches the same</span>
-<span class="w">  </span><span class="c1"># simulator in its container over Channel Access. The control-assistant</span>
+<span class="w">  </span><span class="c1"># simulator in its container over Channel Access. The demo</span>
 <span class="w">  </span><span class="c1"># preset shows the EPICS connector configuration,</span>
 <span class="w">  </span><span class="c1"># and `osprey config --defaults` lists every shipped connector type.</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
@@ -811,7 +811,7 @@ which OSPREY installs:</p>
 </div>
 <p>On the first day the archive is still empty, and DuckDB reports that no file
 matches. See <a class="reference internal" href="../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a> for what the
-record and its archive hold. The control-assistant preset adds a history page in the browser,
+record and its archive hold. The demo preset adds a history page in the browser,
 described in <a class="reference internal" href="../how-to/health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>.</p>
 <p>The commands you now know are the complete lifecycle, and they are the same
 for a production facility deployment: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> once, then edit →
@@ -821,8 +821,8 @@ for a production facility deployment: <code class="docutils literal notranslate"
 <p>You have a working agent, and — more importantly — a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> whose
 commented blocks map everything it can become.</p>
 <ul class="simple">
-<li><p><strong>The production tutorial</strong>: <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a> builds the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset, which adds a channel database with
+<li><p><strong>The production tutorial</strong>: <a class="reference internal" href="demo.html"><span class="doc">The Demo Deployment</span></a> builds the
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset, which adds a channel database with
 natural-language channel finding, a seeded electronic logbook, a real
 archive, sub-agents, and operator skills — on the same safety model.</p></li>
 <li><p><strong>How it works</strong>: <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> explains the MCP server

@@ -610,8 +610,8 @@ previous release.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--up</span></code> / <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detach</span></code> / <code class="docutils literal notranslate"><span class="pre">--dev</span></code> — Build and start the deployment right
 away, optionally in the background or in development mode.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>--list-presets
-osprey<span class="w"> </span>init<span class="w"> </span>my-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
-osprey<span class="w"> </span>init<span class="w"> </span>demo<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--up<span class="w"> </span>-d<span class="w"> </span>--dev
+osprey<span class="w"> </span>init<span class="w"> </span>my-assistant<span class="w"> </span>--preset<span class="w"> </span>demo
+osprey<span class="w"> </span>init<span class="w"> </span>demo<span class="w"> </span>--preset<span class="w"> </span>demo<span class="w"> </span>--up<span class="w"> </span>-d<span class="w"> </span>--dev
 osprey<span class="w"> </span>init<span class="w"> </span>my-assistant<span class="w"> </span>--revalidate
 </pre></div>
 </div>
@@ -790,7 +790,7 @@ objects on stdout and every warning on stderr.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>presets
-osprey<span class="w"> </span>init<span class="w"> </span>my-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-opus-5
+osprey<span class="w"> </span>init<span class="w"> </span>my-facility<span class="w"> </span>--preset<span class="w"> </span>demo<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-opus-5
 <span class="nb">cd</span><span class="w"> </span>my-facility
 osprey<span class="w"> </span>validate
 osprey<span class="w"> </span>build
@@ -1894,8 +1894,8 @@ that differs is reported and left alone unless <code class="docutils literal not
 from).</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">pull</span> <span class="pre">PRESET[:PATH]</span> <span class="pre">[--list]</span> <span class="pre">[--force]</span> <span class="pre">[--with-content]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Copy a preset’s packaged content into this repo, each file at the same path,
-for you to edit and commit: <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> copies the whole app
-template, <code class="docutils literal notranslate"><span class="pre">control-assistant:data/facility/knowledge</span></code> one subtree of it.
+for you to edit and commit: <code class="docutils literal notranslate"><span class="pre">demo</span></code> copies the whole app
+template, <code class="docutils literal notranslate"><span class="pre">demo:data/facility/knowledge</span></code> one subtree of it.
 <code class="docutils literal notranslate"><span class="pre">--list</span></code> prints every path the preset offers and copies nothing. The
 knowledge base arrives as its <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files alone, rebuilt from what
 landed; <code class="docutils literal notranslate"><span class="pre">--with-content</span></code> brings its documents too. A file that is already
@@ -1946,7 +1946,7 @@ default and aborts on errors; <code class="docutils literal notranslate"><span c
 osprey<span class="w"> </span>scaffold<span class="w"> </span>systemd<span class="w">                        </span><span class="c1"># Write the boot unit</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>tiers<span class="w">                          </span><span class="c1"># Write the tier files</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>apps<span class="w">                           </span><span class="c1"># Write the app files</span>
-osprey<span class="w"> </span>scaffold<span class="w"> </span>pull<span class="w"> </span>control-assistant<span class="w"> </span>--list<span class="w">  </span><span class="c1"># Show what a preset offers</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>pull<span class="w"> </span>demo<span class="w"> </span>--list<span class="w">               </span><span class="c1"># Show what a preset offers</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">      </span><span class="c1"># Freeze a service template</span>

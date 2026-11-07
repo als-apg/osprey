@@ -624,7 +624,7 @@ conventional starting shape groups documents by kind:</p>
 └── references/         ← glossaries, standards, safety rules
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships an Example Research Facility bundle
+<p>The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships an Example Research Facility bundle
 you can read as a worked example, then replace with your own.</p>
 <p>Author the bundle in your <strong>profile</strong> (<code class="docutils literal notranslate"><span class="pre">data/facility/knowledge/</span></code> in the deployment repository),
 not in the built project: each build copies the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree
@@ -679,7 +679,7 @@ to <code class="docutils literal notranslate"><span class="pre">config.yml</span
 </div>
 <p>Relative paths are resolved against the project root — the deployment
 repo, not the <code class="docutils literal notranslate"><span class="pre">build/</span></code> render inside it, which every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-re-creates. For the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the example bundle is
+re-creates. For the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset the example bundle is
 scaffolded into <code class="docutils literal notranslate"><span class="pre">data/facility/knowledge/</span></code> automatically.</p>
 <p id="shared-bundle-multi-user"><strong>One bundle, many terminals.</strong> In a multi-user deployment every web
 terminal whose tier or app configures <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> gets
@@ -733,7 +733,7 @@ access only to the three read-only tools (<code class="docutils literal notransl
 <code class="docutils literal notranslate"><span class="pre">read_concept</span></code>, <code class="docutils literal notranslate"><span class="pre">search</span></code>) and follows a fixed retrieval strategy: list
 first to orient, search to narrow, read to synthesize, then submit the
 result.</p>
-<p>It is enabled by default in the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset. To enable or
+<p>It is enabled by default in the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset. To enable or
 disable it in a generated project, set the agent’s <code class="docutils literal notranslate"><span class="pre">enabled</span></code> flag under
 <code class="docutils literal notranslate"><span class="pre">claude_code.agents</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>

@@ -549,8 +549,8 @@ is the set of Markdown rules under the project’s <code class="docutils literal
 They load into the main agent’s context at the start of every session, the same
 way <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> does. Several of them carry facility-specific operating
 context.</p>
-<section id="what-the-control-assistant-preset-ships">
-<h2>What the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships<a class="headerlink" href="#what-the-control-assistant-preset-ships" title="Link to this heading">#</a></h2>
+<section id="what-the-demo-preset-ships">
+<h2>What the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships<a class="headerlink" href="#what-the-demo-preset-ships" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 34.0%" />
@@ -597,7 +597,7 @@ task planning/delegation.</p></td>
 </div>
 <p>Some rules render conditionally: <code class="docutils literal notranslate"><span class="pre">data-visualization.md</span></code> is generated only
 when the <code class="docutils literal notranslate"><span class="pre">data-visualizer</span></code> agent is <em>not</em> enabled (the agent carries its own
-plotting guidance, and the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset enables it — so a
+plotting guidance, and the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset enables it — so a
 default project has no such rule file), and <code class="docutils literal notranslate"><span class="pre">timezone.md</span></code> only appears when
 <code class="docutils literal notranslate"><span class="pre">system.timezone</span></code> is set.</p>
 <p>A build profile can add rules of its own. Any rule without <code class="docutils literal notranslate"><span class="pre">paths</span></code> frontmatter
@@ -605,7 +605,7 @@ loads unconditionally at session start.</p>
 </section>
 <section id="test-ioc-port-isolation">
 <h2>Test IOC port isolation<a class="headerlink" href="#test-ioc-port-isolation" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">test-ioc-safety</span></code> is a packaged rule the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset selects
+<p><code class="docutils literal notranslate"><span class="pre">test-ioc-safety</span></code> is a packaged rule the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset selects
 by default (it renders only where the deployment’s connector speaks Channel
 Access). For other profiles, add it to the <code class="docutils literal notranslate"><span class="pre">rules:</span></code> list when the project runs
 an EPICS soft IOC for testing:</p>
@@ -735,7 +735,7 @@ by hand or unclaim and rebuild:</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-control-assistant-preset-ships">What the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-demo-preset-ships">What the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#test-ioc-port-isolation">Test IOC port isolation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-a-rule">Changing a rule</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#answer-provenance-verify-first">Answer provenance (verify-first)</a></li>

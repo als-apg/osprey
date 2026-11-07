@@ -544,7 +544,7 @@
                   
   <section id="use-the-virtual-accelerator">
 <span id="how-to-use-virtual-accelerator"></span><h1>Use the Virtual Accelerator<a class="headerlink" href="#use-the-virtual-accelerator" title="Link to this heading">#</a></h1>
-<p>How to run the Control Assistant tutorial against a <strong>Virtual Accelerator</strong> — a
+<p>How to run the demo tutorial against a <strong>Virtual Accelerator</strong> — a
 containerized simulator that serves real EPICS Channel Access, with PyAT physics
 behind the channels your facility wires to a lattice, so correctors move and
 BPMs respond.
@@ -563,12 +563,12 @@ How it is put together is <a class="reference internal" href="../../architecture
 <li><p class="sd-card-text">Write limits</p></li>
 <li><p class="sd-card-text">The stored archive the stack deploys, and the one pairing it refuses</p></li>
 </ul>
-<p class="sd-card-text"><strong>Prerequisites:</strong> Docker (or Podman) installed; the Control Assistant
-tutorial project (see <a class="reference internal" href="../../getting-started/control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a>).</p>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Docker (or Podman) installed; the demo
+tutorial project (see <a class="reference internal" href="../../getting-started/demo.html"><span class="doc">The Demo Deployment</span></a>).</p>
 </div>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>The Control Assistant tutorial ships interchangeable control-system backends,
+<p>The demo tutorial ships interchangeable control-system backends,
 selected by a single <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> value. The value picks the machine
 the deployment <strong>starts</strong> on:</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -643,7 +643,7 @@ physics runs behind either.</p>
 </section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
-<p>The Control Assistant stack ships pointed at the Virtual Accelerator and
+<p>The demo stack ships pointed at the Virtual Accelerator and
 <strong>already deploys</strong> it: the preset’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block renders a
 compose service, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings the Virtual Accelerator up alongside the
 rest of the stack and the connector is already talking to it. There is nothing
@@ -676,7 +676,7 @@ was just rendered. Anything already running in a container keeps the old
 setting until you restart it. No image rebuild is involved.</p>
 </div>
 <p><strong>The archive has to come first.</strong> On a deployment created from the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the switch just works: the preset declares where the
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset the switch just works: the preset declares where the
 archive lives, so the deployment already reads a real store. On one with no
 archive of its own — still reading the mock archiver, which makes its history
 up as it is asked for it — the build <strong>refuses</strong> the profile, and says what to
@@ -706,7 +706,7 @@ the deployment is switched.</p>
 <code class="docutils literal notranslate"><span class="pre">epics</span></code> connector points at a facility gateway that may not exist yet, or not
 from this laptop. Setting <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">true</span></code> in the build
 profile gives it a machine to rehearse on — a <strong>second</strong> simulator container,
-deployed as a control target of its own, <code class="docutils literal notranslate"><span class="pre">standin</span></code>. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>
+deployed as a control target of its own, <code class="docutils literal notranslate"><span class="pre">standin</span></code>. The <code class="docutils literal notranslate"><span class="pre">demo</span></code>
 preset ships it on; delete the line to run one machine again.</p>
 <p>The stand-in is a third machine, not a rewrite of <code class="docutils literal notranslate"><span class="pre">live</span></code>. It has its own
 connector block, and <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics</span></code> stays whatever your

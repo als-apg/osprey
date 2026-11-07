@@ -545,7 +545,7 @@
 holds the agent’s writes and asks the operator to stop or continue.
 <a class="reference internal" href="../architecture/safety-chain.html#architecture-safety-watchdogs"><span class="std std-ref">Safety watchdogs</span></a> says where this sits among the write
 gates and what it does not cover. This page sets one up. The steps here enable
-<code class="docutils literal notranslate"><span class="pre">guard-circumvention</span></code>, the example the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships, and then show how
+<code class="docutils literal notranslate"><span class="pre">guard-circumvention</span></code>, the example the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships, and then show how
 to write your own.</p>
 <p>Each watchdog runs on one of two engines. <strong>decision</strong> is a fast classifier: it scores the
 session against the options you wrote and answers in about a tenth of a second. <strong>agent</strong> is a
@@ -562,7 +562,7 @@ classifier; <a class="reference internal" href="#how-to-watchdogs-engine"><span 
          alt="The web terminal with the dialog of the guard-circumvention watchdog.">
   </video>
   <p class="osprey-demo-note" id="osprey-watchdog-note">
-    One session on the control-assistant demo; the wait for the verdict is sped up
+    One session on the demo; the wait for the verdict is sped up
     (marked ⏩). Its first exchange happened before recording started.
   </p>
   <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
@@ -575,7 +575,7 @@ classifier; <a class="reference internal" href="#how-to-watchdogs-engine"><span 
 </div>
 <script src="../_static/js/doc-video.js"></script><section id="enable-the-example">
 <h2>Enable the example<a class="headerlink" href="#enable-the-example" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code> writes the watchdog, turned off, into your
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">demo</span></code> writes the watchdog, turned off, into your
 deployment: its entry in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and its instructions in
 <code class="docutils literal notranslate"><span class="pre">watchdogs/guard-circumvention/instructions.md</span></code>. It flags an operator pushing the agent
 around OSPREY’s own guards, for instance by asking it to edit hooks or call a panel’s API with
@@ -863,7 +863,7 @@ The off reaches the sessions of that terminal only. In a multi-user deployment e
 own terminal, so it does not pause anyone else’s watchdog; for that, set <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code>. While it
 is off, prompts there are not judged and no new hold opens, unless the terminal cannot take a prompt
 and the hook judges it itself. Open holds stay until an operator answers. The move is audited, and
-a restart turns the watchdogs back on. The control-assistant preset’s readonly dispatch tier refuses
+a restart turns the watchdogs back on. The demo preset’s readonly dispatch tier refuses
 <code class="docutils literal notranslate"><span class="pre">web.config_panel.enabled</span></code>, so no terminal there can move the switch yet (<a class="reference external" href="https://github.com/als-apg/osprey/issues/2278">#2278</a>).</p>
 </section>
 </section>

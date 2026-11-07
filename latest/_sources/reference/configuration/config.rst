@@ -52,7 +52,7 @@ may touch.
        the way ``osprey sim apply`` would, before it seeds the archive and the
        logbook, and only while no set has been chosen. Absent, ``null`` or
        ``[]`` starts in ``nominal`` alone, which is the default: the build
-       derives no start set. The control-assistant preset sets
+       derives no start set. The demo preset sets
        ``[rf-thermal, demo-history]`` (an existing deployment gets
        ``demo-history``'s sessions only from a fresh ``osprey init``); the other
        presets leave it out. A value that is not a list of non-empty
