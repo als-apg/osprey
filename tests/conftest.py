@@ -56,6 +56,7 @@ from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant_watchdog_on,
     offline_build_env,
 )
+from tests.e2e import provider_refusal
 
 if TYPE_CHECKING:
     from tests._graphdb_container import WatchedStore
@@ -1602,10 +1603,15 @@ def pytest_runtest_makereport(
     item: pytest.Item,
     call: pytest.CallInfo[None],  # noqa: ARG001 - the hook's signature
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
-    """A ``canopy``-marked test never skips, and its report says it carries the mark."""
+    """A ``canopy``-marked test never skips, and its report says it carries the mark.
+
+    A test whose agent session the provider refused becomes a setup error here too, which
+    happens only on the benchmark board (``tests/e2e/provider_refusal.py``).
+    """
     report = yield
     _canopy_contract.refuse_skip(item, report)
     _canopy_contract.stamp(item, report)
+    provider_refusal.apply_to_report(report)
     return report
 
 

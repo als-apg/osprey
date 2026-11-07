@@ -17,7 +17,6 @@ from osprey.registry import reset_registry
 from tests.conftest import E2E_REFUSAL_KEY as _REFUSAL_KEY
 from tests.conftest import E2E_REFUSAL_RELAY_KEY as _RELAY_KEY
 from tests.e2e import agentic_tiers
-from tests.e2e import provider_refusal as refused_by_provider
 from tests.e2e.provider import MODEL_FREE_MARKER, e2e_provider, provider_refusal
 
 _E2E_ROOT = Path(__file__).resolve().parent
@@ -47,14 +46,6 @@ def _print_failure_now(report) -> None:
     rule = "_" * 12
     sys.stdout.write(f"\n{rule} {label} {report.nodeid} [{report.when}] {rule}\n{text}\n")
     sys.stdout.flush()
-
-
-@pytest.hookimpl(wrapper=True)
-def pytest_runtest_makereport(item, call):  # noqa: ARG001 - the hook's signature
-    """A test whose session the provider refused is a setup error on the board."""
-    report = yield
-    refused_by_provider.apply_to_report(report)
-    return report
 
 
 def _live_outcome(report) -> str:
