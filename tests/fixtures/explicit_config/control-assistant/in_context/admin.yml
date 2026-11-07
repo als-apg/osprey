@@ -262,6 +262,7 @@ services:
 simulation:
   default_scenarios:
   - rf-thermal
+  - demo-history
   models: null
   tick_s: 1.0
 system:

@@ -255,7 +255,6 @@ DENIED: tuple[Denied, ...] = (
                 # returns "ALS eLog": an expectation spelled any other way would
                 # assert a value no adapter produces.
                 "tests/services/ariel_search/conftest.py",
-                "tests/services/ariel_search/integration/test_cli.py",
                 "tests/services/ariel_search/integration/test_ingestion.py",
                 "tests/services/ariel_search/test_ingestion.py",
                 "tests/services/ariel_search/test_ingestion_branches.py",

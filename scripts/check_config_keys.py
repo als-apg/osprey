@@ -58,12 +58,13 @@ with ``re.M`` serves both.
 Usage
 -----
     python scripts/check_config_keys.py
-    python scripts/check_config_keys.py --back-test          # dev-time only
+    python scripts/check_config_keys.py --back-test
     python scripts/check_config_keys.py --back-test <commit>
 
 The back-test proves every orphan regex is falsifiable — it must match at the
 recorded merge-base and not on the branch. It shells out to git and extracts
-the base tree, so it is a developer-time check, not part of the CI run.
+the base tree, so it needs the repository's history. Every ``config-keys``
+run (CI and both gate tiers) includes it.
 """
 
 from __future__ import annotations
@@ -1535,7 +1536,7 @@ class ConfigKeyGuard:
         proc = self.git("ls-files", "--", rel_path)
         return [line for line in proc.stdout.splitlines() if line.strip()]
 
-    # ── back-test (developer-time) ──────────────────────────────────────
+    # ── back-test ───────────────────────────────────────────────────────
 
     def back_test(self, commit: str) -> None:
         """Prove every orphan regex is falsifiable against the merge-base.
@@ -1664,7 +1665,7 @@ def main(argv: list[str] | None = None) -> int:
         const="",
         default=None,
         metavar="COMMIT",
-        help="also prove every orphan regex fires at the merge-base (developer-time; "
+        help="also prove every orphan regex fires at the merge-base (needs git history; "
         "defaults to the commit recorded in the manifest)",
     )
     args = parser.parse_args(argv)

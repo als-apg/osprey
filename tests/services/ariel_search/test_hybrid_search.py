@@ -1360,6 +1360,135 @@ class TestReciprocalRankFusion:
         assert diagnostic.message == SEMANTIC_UNAVAILABLE_MESSAGE
 
 
+class UnreachableEmbedder(StubEmbedder):
+    """An embedding provider that refuses the connection, as a stopped Ollama does."""
+
+    def execute_embedding(self, **kwargs: Any) -> list[list[float]]:
+        raise ConnectionError("[Errno 61] Connection refused")
+
+
+class TestRRFLaneOutage:
+    """One lost RRF lane is reported and the other lane answers (GH #2453)."""
+
+    @staticmethod
+    def _rrf_fixture() -> tuple[list[dict[str, Any]], SemanticRepository]:
+        entries = [make_entry(entry_id) for entry_id in ("first", "second", "third")]
+        by_id = {entry["entry_id"]: entry for entry in entries}
+        return entries, SemanticRepository(entries, [(by_id["third"], 0.9), (by_id["first"], 0.6)])
+
+    @pytest.mark.asyncio
+    async def test_an_unreachable_embedder_keeps_the_keyword_hits_and_says_so(self, search_calls):
+        """A refused connection is not a timeout, and must not read as "no matches"."""
+        _entries, repository = self._rrf_fixture()
+        client = StubClient([make_hit("first"), make_hit("second")])
+
+        output = await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf"}),
+            UnreachableEmbedder(),
+            client=client,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(output, ModuleOutput)
+        assert [entry["entry_id"] for entry, _score, _snippet in output.entries] == [
+            "first",
+            "second",
+        ]
+        (diagnostic,) = output.diagnostics
+        assert diagnostic.level is DiagnosticLevel.WARNING
+        assert diagnostic.category == "semantic_search"
+        assert diagnostic.message.startswith("Semantic ranking unavailable")
+        assert "Connection refused" in diagnostic.message
+        assert "keywords only" in diagnostic.message
+
+    @pytest.mark.asyncio
+    async def test_a_down_sidecar_keeps_the_semantic_hits_and_says_so(self, search_calls):
+        _entries, repository = self._rrf_fixture()
+        client = StubClient(available=False)
+
+        output = await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf"}),
+            StubEmbedder(),
+            client=client,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(output, ModuleOutput)
+        assert [entry["entry_id"] for entry, _score, _snippet in output.entries] == [
+            "third",
+            "first",
+        ]
+        assert client.calls == []
+        (diagnostic,) = output.diagnostics
+        assert diagnostic.level is DiagnosticLevel.WARNING
+        assert diagnostic.category == "text_ranking"
+        assert diagnostic.message.startswith("Keyword ranking unavailable")
+        assert "127.0.0.1:8180" in diagnostic.message
+        assert "meaning only" in diagnostic.message
+
+    @pytest.mark.asyncio
+    async def test_a_failed_sidecar_query_keeps_the_semantic_hits(self, search_calls):
+        from osprey.services.qmd import QMDClientError
+
+        _entries, repository = self._rrf_fixture()
+        client = StubClient(error=QMDClientError("qmd tool 'query' failed: index missing"))
+
+        output = await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf"}),
+            StubEmbedder(),
+            client=client,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(output, ModuleOutput)
+        assert [entry["entry_id"] for entry, _score, _snippet in output.entries] == [
+            "third",
+            "first",
+        ]
+        (diagnostic,) = output.diagnostics
+        assert diagnostic.category == "text_ranking"
+        assert "index missing" in diagnostic.message
+
+    @pytest.mark.asyncio
+    async def test_both_lanes_down_is_an_error_naming_both(self, search_calls):
+        _entries, repository = self._rrf_fixture()
+
+        with pytest.raises(QMDUnavailableError) as raised:
+            await hybrid_search(
+                "beam problem",
+                repository,
+                make_semantic_config({"strategy": "rrf"}),
+                UnreachableEmbedder(),
+                client=StubClient(available=False),
+                search_calls=search_calls,
+            )
+
+        message = str(raised.value)
+        assert "127.0.0.1:8180" in message
+        assert "Connection refused" in message
+
+    @pytest.mark.asyncio
+    async def test_the_qmd_strategy_still_raises_on_a_down_sidecar(self, search_calls):
+        """Only RRF has a second text lane; the qmd strategy keeps its error."""
+        _entries, repository = self._rrf_fixture()
+
+        with pytest.raises(QMDUnavailableError):
+            await hybrid_search(
+                "beam problem",
+                repository,
+                make_semantic_config(),
+                StubEmbedder(),
+                client=StubClient(available=False),
+                search_calls=search_calls,
+            )
+
+
 class TestRerankFallback:
     """A reranked-query failure degrades the ranking; it never breaks search."""
 
