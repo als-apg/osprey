@@ -491,7 +491,7 @@ level. Such a profile is refused, naming that key and the verb that fixes it:
 .. code-block:: bash
 
    osprey init --revalidate                            # preset from provenance:
-   osprey init --revalidate --preset demo # or name it
+   osprey init --revalidate --preset demo              # or name it
 
 It writes every key the preset documents and the profile lacks into the
 profile's own ``config:`` block, each under the comment the preset documents it
@@ -1375,7 +1375,7 @@ the profile starts with them in force. Seeding is append-only: a value already
 in the file — set by the operator, or minted by a deploy — always wins, and
 later ``init`` runs never rewrite one. Declare a default only for a value the
 profile's author can honestly choose for every deployment (the
-``demo`` preset's demo login passwords, say); values a *site*
+``demo`` preset's login passwords, say); values a *site*
 should share across hosts belong in ``.env.shared``, which is committed with
 the repository and read by every host (see :ref:`deployment-env-chain`).
 

@@ -1683,7 +1683,7 @@ All subcommands accept a common flag:
    osprey scaffold systemd                        # Write the boot unit
    osprey scaffold tiers                          # Write the tier files
    osprey scaffold apps                           # Write the app files
-   osprey scaffold pull demo --list  # Show what a preset offers
+   osprey scaffold pull demo --list               # Show what a preset offers
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold claim services/postgresql      # Freeze a service template
