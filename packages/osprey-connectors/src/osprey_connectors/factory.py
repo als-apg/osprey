@@ -18,9 +18,18 @@ from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     # Import only for annotations: pulling in the archiver base eagerly would
     # make pandas a hard dependency of the lean control-system import chain.
     from osprey_connectors.archiver._base import ArchiverConnector
+    from osprey_connectors.pv_directory.contract import (
+        AlarmLog,
+        AlarmState,
+        BackendSpec,
+        PutLog,
+        PVDirectory,
+    )
 
 __all__ = [
     "BUILTIN_CONNECTORS",
@@ -30,6 +39,22 @@ __all__ = [
 ]
 
 logger = get_logger("connector_factory")
+
+
+def _dotted_class(connector_type: str) -> Any:
+    """Import the class a dotted out-of-tree type names.
+
+    Raises:
+        ValueError: The module does not import, or has no such class.
+    """
+    module_path, class_name = connector_type.rsplit(".", 1)
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)
+    except ImportError as e:
+        raise ValueError(f"Could not import connector module '{module_path}': {e}") from e
+    except AttributeError as e:
+        raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
 
 
 class ConnectorFactory:
@@ -51,6 +76,10 @@ class ConnectorFactory:
 
     _control_system_connectors: dict[str, type[ControlSystemConnector]] = {}
     _archiver_connectors: dict[str, type[ArchiverConnector]] = {}
+    _pv_directory_connectors: dict[str, type[PVDirectory]] = {}
+    _alarm_log_connectors: dict[str, type[AlarmLog]] = {}
+    _alarm_state_connectors: dict[str, type[AlarmState]] = {}
+    _put_log_connectors: dict[str, type[PutLog]] = {}
 
     @classmethod
     def register_control_system(
@@ -77,6 +106,30 @@ class ConnectorFactory:
         """
         cls._archiver_connectors[name] = connector_class
         logger.debug(f"Registered archiver connector: {name}")
+
+    @classmethod
+    def register_pv_directory(cls, name: str, connector_class: type[PVDirectory]) -> None:
+        """Register a PV directory backend under the type name a config selects it by."""
+        cls._pv_directory_connectors[name] = connector_class
+        logger.debug(f"Registered PV directory connector: {name}")
+
+    @classmethod
+    def register_alarm_log(cls, name: str, connector_class: type[AlarmLog]) -> None:
+        """Register an alarm log backend under the type name a config selects it by."""
+        cls._alarm_log_connectors[name] = connector_class
+        logger.debug(f"Registered alarm log connector: {name}")
+
+    @classmethod
+    def register_alarm_state(cls, name: str, connector_class: type[AlarmState]) -> None:
+        """Register an alarm state backend under the type name a config selects it by."""
+        cls._alarm_state_connectors[name] = connector_class
+        logger.debug(f"Registered alarm state connector: {name}")
+
+    @classmethod
+    def register_put_log(cls, name: str, connector_class: type[PutLog]) -> None:
+        """Register a put log backend under the type name a config selects it by."""
+        cls._put_log_connectors[name] = connector_class
+        logger.debug(f"Registered put log connector: {name}")
 
     @classmethod
     def build_control_system_connector(
@@ -151,16 +204,7 @@ class ConnectorFactory:
 
         if not connector_class:
             if "." in connector_type:
-                module_path, class_name = connector_type.rsplit(".", 1)
-                try:
-                    module = importlib.import_module(module_path)
-                    connector_class = getattr(module, class_name)
-                except ImportError as e:
-                    raise ValueError(
-                        f"Could not import connector module '{module_path}': {e}"
-                    ) from e
-                except AttributeError as e:
-                    raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+                connector_class = _dotted_class(connector_type)
                 cls._control_system_connectors[connector_type] = connector_class
             else:
                 if connector_type in types.RETIRED_CONTROL_SYSTEM_TYPES:
@@ -302,16 +346,7 @@ class ConnectorFactory:
 
         if not connector_class:
             if "." in connector_type:
-                module_path, class_name = connector_type.rsplit(".", 1)
-                try:
-                    module = importlib.import_module(module_path)
-                    connector_class = getattr(module, class_name)
-                except ImportError as e:
-                    raise ValueError(
-                        f"Could not import connector module '{module_path}': {e}"
-                    ) from e
-                except AttributeError as e:
-                    raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+                connector_class = _dotted_class(connector_type)
                 cls._archiver_connectors[connector_type] = connector_class
             else:
                 available = list(cls._archiver_connectors.keys())
@@ -333,6 +368,73 @@ class ConnectorFactory:
 
         logger.info(f"Created archiver connector: {connector_type}")
         return connector
+
+    @classmethod
+    def _build_directory_backend(
+        cls,
+        registry: dict[str, Any],
+        spec: BackendSpec,
+        project_dir: Path | None,
+        seams: dict[str, Any],
+    ) -> Any:
+        """Build the backend a spec names, registering the builtins first.
+
+        The panel and the directory MCP server never register builtins themselves,
+        and registration converges, so every create call can afford to.
+
+        Raises:
+            ValueError: The type is unknown, or a dotted type does not resolve.
+        """
+        register_builtin_connectors()
+        backend_class = registry.get(spec.type)
+        if backend_class is None:
+            if "." not in spec.type:
+                raise ValueError(
+                    f"Unknown {spec.kind} type: '{spec.type}'. "
+                    f"Available types: {list(registry)}. "
+                    f"Use a dotted module path for custom connectors."
+                )
+            backend_class = _dotted_class(spec.type)
+            registry[spec.type] = backend_class
+        given = {name: seam for name, seam in seams.items() if seam is not None}
+        return backend_class(spec, project_dir=project_dir, **given)
+
+    @classmethod
+    async def create_pv_directory_connector(
+        cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any
+    ) -> PVDirectory:
+        """Build a PV directory backend. Backends connect nothing here: no I/O happens.
+
+        Args:
+            spec: The backend to build, from ``pv_directory_targets``.
+            project_dir: The rendered config's directory.
+            **seams: Test seams, passed on only when not ``None``.
+
+        Raises:
+            ValueError: If the type is unknown or does not resolve.
+        """
+        return cls._build_directory_backend(cls._pv_directory_connectors, spec, project_dir, seams)
+
+    @classmethod
+    async def create_alarm_log_connector(
+        cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any
+    ) -> AlarmLog:
+        """Build an alarm log backend, as :meth:`create_pv_directory_connector` does."""
+        return cls._build_directory_backend(cls._alarm_log_connectors, spec, project_dir, seams)
+
+    @classmethod
+    async def create_alarm_state_connector(
+        cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any
+    ) -> AlarmState:
+        """Build an alarm state backend, as :meth:`create_pv_directory_connector` does."""
+        return cls._build_directory_backend(cls._alarm_state_connectors, spec, project_dir, seams)
+
+    @classmethod
+    async def create_put_log_connector(
+        cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any
+    ) -> PutLog:
+        """Build a put log backend, as :meth:`create_pv_directory_connector` does."""
+        return cls._build_directory_backend(cls._put_log_connectors, spec, project_dir, seams)
 
     @classmethod
     def list_control_systems(cls) -> list:
@@ -454,6 +556,85 @@ _BUILTIN_CONTROL_SYSTEMS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind ==
 _BUILTIN_ARCHIVERS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
 
 
+@dataclass(frozen=True)
+class _DirectoryBuiltin:
+    """One directory-kind backend this package ships.
+
+    Apart from :class:`BuiltinConnector` because the framework registry reads
+    that table, and these kinds must never reach a framework that predates them.
+    """
+
+    #: The type name a ``BackendSpec`` selects it by, and the key it registers under.
+    name: str
+    kind: Literal["pv_directory", "alarm_log", "alarm_state", "put_log"]
+    module_path: str
+    class_name: str
+    description: str
+
+    def load(self) -> Any:
+        """Import the module and return the backend class."""
+        return getattr(importlib.import_module(self.module_path), self.class_name)
+
+
+#: Every built-in directory-kind backend, in registration order. ``simulator_view``
+#: and ``alarm_replay`` are internal: ``pv_directory_targets`` selects them, and the
+#: framework's section resolver refuses them as a configured ``type``.
+_DIRECTORY_BUILTINS: tuple[_DirectoryBuiltin, ...] = (
+    _DirectoryBuiltin(
+        "channelfinder",
+        "pv_directory",
+        "osprey_connectors.pv_directory._channelfinder",
+        "ChannelFinderDirectory",
+        "ChannelFinder directory service",
+    ),
+    _DirectoryBuiltin(
+        "simulator_view",
+        "pv_directory",
+        "osprey_connectors.pv_directory._simulator",
+        "SimulatorDirectory",
+        "Every PV the virtual accelerator serves, from the build's simulator view",
+    ),
+    _DirectoryBuiltin(
+        "phoebus_alarm_logger",
+        "alarm_log",
+        "osprey_connectors.alarm_log._phoebus",
+        "PhoebusAlarmLogger",
+        "Phoebus alarm logger service",
+    ),
+    _DirectoryBuiltin(
+        "phoebus_alarm_server",
+        "alarm_state",
+        "osprey_connectors.alarm_state._phoebus_kafka",
+        "PhoebusAlarmState",
+        "Phoebus alarm server state, from its Kafka topic (requires aiokafka)",
+    ),
+    _DirectoryBuiltin(
+        "alarm_replay",
+        "alarm_state",
+        "osprey_connectors.alarm_state._replay",
+        "ReplayAlarmState",
+        "Alarm state replayed from a file, for the simulator",
+    ),
+    _DirectoryBuiltin(
+        "caputlog",
+        "put_log",
+        "osprey_connectors.put_log._caputlog",
+        "CaPutLog",
+        "caPutLog put history service",
+    ),
+)
+
+_BUILTIN_PV_DIRECTORIES = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "pv_directory")
+_BUILTIN_ALARM_LOGS = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "alarm_log")
+_BUILTIN_ALARM_STATES = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "alarm_state")
+_BUILTIN_PUT_LOGS = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "put_log")
+
+
+def _directory_registry(kind: str) -> dict[str, Any]:
+    """The factory's registry for one directory kind."""
+    return getattr(ConnectorFactory, f"_{kind}_connectors")
+
+
 def register_builtin_connectors() -> None:
     """Register all built-in control system and archiver connectors.
 
@@ -471,7 +652,12 @@ def register_builtin_connectors() -> None:
     missing_archivers = [
         name for name in _BUILTIN_ARCHIVERS if name not in ConnectorFactory._archiver_connectors
     ]
-    if not missing_control_systems and not missing_archivers:
+    missing_directory_rows = [
+        builtin
+        for builtin in _DIRECTORY_BUILTINS
+        if builtin.name not in _directory_registry(builtin.kind)
+    ]
+    if not missing_control_systems and not missing_archivers and not missing_directory_rows:
         return
 
     # The DOOCS and MongoDB connectors import their optional drivers (doocs4py,
@@ -493,3 +679,7 @@ def register_builtin_connectors() -> None:
             raise ValueError(
                 f"built-in connector {builtin.name!r} has unknown kind {builtin.kind!r}"
             )
+
+    # Their optional client (aiokafka) is imported on start, not at module scope.
+    for builtin in missing_directory_rows:
+        _directory_registry(builtin.kind)[builtin.name] = builtin.load()

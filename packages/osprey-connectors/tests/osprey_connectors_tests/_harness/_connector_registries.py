@@ -1,15 +1,26 @@
 """Bracket a test's changes to the connector factory's registries.
 
-``ConnectorFactory`` keeps its registrations in two class-level dicts that live
-for the whole process. A test that registers, replaces or clears connectors
-does it inside :func:`isolated_connector_registries`, which puts both dicts back
-as they were on the way out.
+``ConnectorFactory`` keeps its registrations in class-level dicts that live for
+the whole process. A test that registers, replaces or clears connectors does it
+inside :func:`isolated_connector_registries`, which puts every dict back as it
+was on the way out.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+
+#: Read through ``getattr``: this harness also runs at the connectors floor, whose
+#: factory has only the first two.
+_REGISTRIES = (
+    "_control_system_connectors",
+    "_archiver_connectors",
+    "_pv_directory_connectors",
+    "_alarm_log_connectors",
+    "_alarm_state_connectors",
+    "_put_log_connectors",
+)
 
 
 @contextmanager
@@ -26,7 +37,7 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[None]:
     and registrations removed inside it are put back.
 
     Args:
-        clear: Empty both registries on entry, for code that needs to observe
+        clear: Empty every registry on entry, for code that needs to observe
             registration from scratch. The clear is undone on exit like any
             other mutation.
 
@@ -38,15 +49,18 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[None]:
     # factory brings the control-system contract with it.
     from osprey_connectors.factory import ConnectorFactory
 
-    control_system = dict(ConnectorFactory._control_system_connectors)
-    archiver = dict(ConnectorFactory._archiver_connectors)
+    registries = [
+        registry
+        for registry in (getattr(ConnectorFactory, name, None) for name in _REGISTRIES)
+        if registry is not None
+    ]
+    saved = [dict(registry) for registry in registries]
     if clear:
-        ConnectorFactory._control_system_connectors.clear()
-        ConnectorFactory._archiver_connectors.clear()
+        for registry in registries:
+            registry.clear()
     try:
         yield
     finally:
-        ConnectorFactory._control_system_connectors.clear()
-        ConnectorFactory._control_system_connectors.update(control_system)
-        ConnectorFactory._archiver_connectors.clear()
-        ConnectorFactory._archiver_connectors.update(archiver)
+        for registry, contents in zip(registries, saved, strict=True):
+            registry.clear()
+            registry.update(contents)

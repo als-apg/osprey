@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import pytest
 from click.testing import CliRunner
 
-from osprey_connectors import types
+from osprey_connectors import factory, types
 from osprey_connectors.factory import (
     ConnectorFactory,
     register_builtin_connectors,
@@ -112,6 +112,28 @@ class TestBuiltinRegistration:
                 assert row.type_name in ConnectorFactory.list_archivers()
                 registered = ConnectorFactory._archiver_connectors[row.type_name]
             assert registered.__name__ == row.class_name
+
+
+@pytest.mark.skipif(
+    not hasattr(factory, "_DIRECTORY_BUILTINS"), reason="connectors floor has no directory kinds"
+)
+class TestDirectoryBuiltins:
+    """The directory kinds register beside the connectors, and name nothing here."""
+
+    def test_each_registers_under_its_kind(self):
+        with isolated_connector_registries(clear=True):
+            register_builtin_connectors()
+
+            for row in factory._DIRECTORY_BUILTINS:
+                registry = getattr(ConnectorFactory, f"_{row.kind}_connectors")
+                assert registry[row.name].__name__ == row.class_name
+
+    def test_none_is_selectable_as_a_connector(self):
+        names = {row.name for row in factory._DIRECTORY_BUILTINS}
+
+        assert not names & set(types.SET_CONTROL_SYSTEM_TYPES)
+        assert not names & set(types.CLI_CONTROL_SYSTEM_TYPES)
+        assert not names & set(types.CLI_ARCHIVER_TYPES)
 
 
 class TestFrameworkRegistryEntries:

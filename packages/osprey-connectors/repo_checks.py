@@ -45,6 +45,18 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.pv_directory.contract.AlarmLog": (
+        "an out-of-tree alarm-log backend subclasses it"
+    ),
+    "osprey_connectors.pv_directory.contract.AlarmState": (
+        "an out-of-tree alarm-state backend subclasses it"
+    ),
+    "osprey_connectors.pv_directory.contract.PVDirectory": (
+        "an out-of-tree directory backend subclasses it"
+    ),
+    "osprey_connectors.pv_directory.contract.PutLog": (
+        "an out-of-tree put-log backend subclasses it"
+    ),
 }
 
 #: Interim: the listed names that had no user when this check was added. Each
@@ -53,7 +65,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
 UNUSED_BASELINE: frozenset[str] = frozenset(
     {
         "osprey_connectors.archive_targets.ADDRESS_SETTINGS",
-        "osprey_connectors.archive_targets.APPLIANCE_TARGETS",
         "osprey_connectors.archive_targets.ARCHIVER_SECTION_KEY",
         "osprey_connectors.archive_targets.DEFAULT_ADDRESS_SETTING",
         "osprey_connectors.archive_targets.NO_TARGETS",
@@ -158,7 +169,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.simulation.values.VALUE_TYPES",
         "osprey_connectors.simulation.values.WAVEFORM",
         "osprey_connectors.simulation.view.Binding",
-        "osprey_connectors.simulation.view.Channel",
         "osprey_connectors.simulation.view.NO_VIEW_MESSAGE",
         "osprey_connectors.simulation.view.PLANES",
         "osprey_connectors.simulation.view.REFRESH",

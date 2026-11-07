@@ -632,6 +632,7 @@ module = [
     "doocs4py.*",
     "jlab_archiver_client.*",
     "tango.*",
+    "aiokafka.*",
 ]
 ignore_missing_imports = true
 
@@ -857,6 +858,11 @@ name = "The connector package's top-level modules, in layers"
 # `write_authorization` reads the record and the posture store and is read by
 # the write guard in the control-system connectors, so it sits between them.
 #
+# The factory builds the directory-kind backends. They reach the control system
+# through neither connector family, so they sit below both; the alarm and put
+# logs take the contract from `pv_directory`, whose simulator backend reads the
+# simulator view.
+#
 # A layer written with ":" holds two modules that still import each other,
 # each in one direction from inside a function: `posture_store` reads the
 # record `control_context` parses, and `control_context` takes its root and
@@ -868,6 +874,8 @@ layers = [
     "osprey_connectors.factory",
     "osprey_connectors.archiver",
     "osprey_connectors.control_system",
+    "osprey_connectors.alarm_log | osprey_connectors.alarm_state | osprey_connectors.put_log",
+    "osprey_connectors.pv_directory",
     "osprey_connectors.simulation",
     "osprey_connectors.settle",
     "osprey_connectors.recovery",

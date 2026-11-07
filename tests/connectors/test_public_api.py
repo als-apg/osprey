@@ -55,6 +55,12 @@ MODULES = (
         for path in sorted((ROOT / "simulation").glob("*.py"))
         if not path.stem.startswith("_")
     )
+    # Not the subpackage itself: its __init__ lists nothing, and only public modules do.
+    + tuple(
+        f"osprey_connectors.pv_directory.{path.stem}"
+        for path in sorted((ROOT / "pv_directory").glob("*.py"))
+        if not path.stem.startswith("_")
+    )
 )
 
 #: A module's own logger is module plumbing, not API, and is conventionally
@@ -160,7 +166,7 @@ def _framework_imports() -> tuple[tuple[str, str, str], ...]:
                     continue
                 for alias in node.names:
                     full = f"{node.module}.{alias.name}"
-                    if importlib.util.find_spec(node.module) and _is_module(full):
+                    if _is_module(node.module) and _is_module(full):
                         aliases[alias.asname or alias.name] = full
                     else:
                         found.append((f"{where}:{node.lineno}", node.module, alias.name))
