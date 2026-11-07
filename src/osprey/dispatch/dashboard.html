@@ -13,10 +13,9 @@
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 initTheme({ role: 'follower' });
-// Stamps body.embedded when the hub frames this page as the EVENTS panel,
-// which drops .app-head below — a tile gets exactly ONE header, the hub's tile
-// bar — and arms the header-contribution helpers the main script publishes to.
-// Standalone the class never appears, so the in-body header stays.
+// Stamps body.embedded when the hub frames this page as the EVENTS panel — a
+// tile gets exactly ONE header, the hub's tile bar — which arms the
+// header-contribution helpers the main script publishes to.
 applyEmbedded();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -42,85 +41,6 @@ body {
   flex-direction: column;
   overflow: hidden;
 }
-
-/* ============================================================
-   Shell — one title row, one status line, two tabs.
-   ============================================================ */
-
-.app-head {
-  flex-shrink: 0;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
-  padding: 14px 20px 12px;
-}
-/* Embedded, the hub's tile bar IS this panel's header: it carries the title,
-   and the main script contributes the tabs and the status sentence to it. A
-   second bar underneath would be a duplicate, so the whole thing goes. */
-body.embedded .app-head { display: none; }
-.head-row {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-}
-.app-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-/* Underline-indicator tabs, matching the terminal's other panels. */
-.tabs {
-  margin-left: auto;
-  display: flex;
-  gap: 4px;
-  align-self: stretch;
-}
-.tabs button {
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px 8px;
-  margin-bottom: -13px;
-  cursor: pointer;
-  transition: color 120ms ease, border-color 120ms ease;
-}
-.tabs button:hover { color: var(--text-secondary); }
-.tabs button.on {
-  color: var(--color-accent-light);
-  border-bottom-color: var(--color-accent-light);
-}
-
-.status-line {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--color-success);
-  box-shadow: 0 0 5px var(--color-success);
-}
-.status-line.is-busy .status-dot {
-  background: var(--color-warning);
-  box-shadow: 0 0 5px var(--color-warning);
-}
-.status-line.is-error .status-dot,
-.status-line.is-degraded .status-dot {
-  background: var(--color-error);
-  box-shadow: 0 0 5px var(--color-error);
-}
-.status-line.is-degraded { color: var(--color-error); }
 
 /* ============================================================
    Views — exactly one is visible at a time.
@@ -737,20 +657,6 @@ a.btn {
 </head>
 <body>
 
-<header class="app-head">
-  <div class="head-row">
-    <span class="app-title">Event dispatcher</span>
-    <nav class="tabs" role="tablist" aria-label="Dispatcher views">
-      <button id="tab-activity" role="tab" class="on">Activity</button>
-      <button id="tab-triggers" role="tab">Triggers</button>
-    </nav>
-  </div>
-  <div class="status-line" id="status-line">
-    <span class="status-dot"></span>
-    <span id="status-text">Checking the dispatcher…</span>
-  </div>
-</header>
-
 <main id="main">
 
   <!-- Activity: timeline lanes + recent runs -->
@@ -1086,10 +992,6 @@ function navigate(next, { push = true } = {}) {
   for (const [name, id] of Object.entries(VIEW_IDS)) {
     document.getElementById(id).classList.toggle('on', name === view.name);
   }
-  // Detail screens are reached FROM a tab, so the tab they belong to stays lit.
-  const triggersSide = view.name === 'triggers' || view.name === 'trigger';
-  $('#tab-activity').classList.toggle('on', !triggersSide);
-  $('#tab-triggers').classList.toggle('on', triggersSide);
   $('#main').scrollTop = 0;
   if (push) saveUrl();
   render();
@@ -1098,15 +1000,15 @@ function navigate(next, { push = true } = {}) {
 /* ============================================================
    Tile-bar header contribution — the embedded panel's chrome
 
-   Embedded, .app-head is hidden and the hub's tile bar carries this panel's
-   chrome instead: the two tabs, and the status sentence behind them. The
-   design-system helpers are ES modules while this is a classic inline script,
-   so they arrive through a dynamic import() rather than a top-level one. Until
-   it settles — and standalone, where contributeHeader() is a no-op by
-   construction — every publish below simply does nothing.
+   The hub's tile bar carries this panel's chrome: the two tabs, and the status
+   sentence behind them. The design-system helpers are ES modules while this is
+   a classic inline script, so they arrive through a dynamic import() rather
+   than a top-level one. Until it settles every publish below simply does
+   nothing.
    ============================================================ */
 
 let headerContrib = null;
+let statusSentence = 'Checking the dispatcher…';
 const headerContribReady = import('/design-system/js/header-contrib.js')
   .then((mod) => { headerContrib = mod; })
   .catch((e) => {
@@ -1121,8 +1023,7 @@ const headerContribReady = import('/design-system/js/header-contrib.js')
    which is what keeps the bar and the body in step. */
 function publishHeader() {
   if (!headerContrib) return;
-  // A detail screen is reached FROM a tab, so the tab it belongs to stays lit
-  // — the same rule navigate() applies to the in-body tabs.
+  // A detail screen is reached FROM a tab, so the tab it belongs to stays lit.
   const triggersSide = view.name === 'triggers' || view.name === 'trigger';
   headerContrib.contributeHeader([
     {
@@ -1135,7 +1036,7 @@ function publishHeader() {
     },
     // Longest item in the bar and the least urgent — a narrow tile drops the
     // status sentence before it drops the way to change screens.
-    { kind: 'text', id: 'status', text: $('#status-text').textContent, priority: -1 },
+    { kind: 'text', id: 'status', text: statusSentence, priority: -1 },
   ]);
 }
 
@@ -1178,19 +1079,13 @@ function saveUrl() {
    ============================================================ */
 
 function renderStatus() {
-  const line = $('#status-line');
-  const text = $('#status-text');
-  line.classList.remove('is-busy', 'is-error', 'is-degraded');
-
   if (authBlocked) {
-    line.classList.add('is-degraded');
-    text.textContent = 'Not authorised to read the dispatcher.';
+    statusSentence = 'Not authorised to read the dispatcher.';
     return;
   }
   if (lastWorkerError) {
     // Persistent, not a toast: a stale run list must never look fresh.
-    line.classList.add('is-degraded');
-    text.textContent = 'Cannot reach the dispatch worker — the runs below may be out of date.';
+    statusSentence = 'Cannot reach the dispatch worker — the runs below may be out of date.';
     return;
   }
 
@@ -1202,16 +1097,13 @@ function renderStatus() {
   const done = runs.filter(r => r.status === 'completed').length;
   const pool = state.pool || {};
 
-  if (failed > 0) line.classList.add('is-error');
-  else if (running > 0) line.classList.add('is-busy');
-
   const parts = [plural(armed, 'trigger') + ' armed'];
   parts.push(plural(runs.length, 'recent run'));
   if (running > 0) parts.push(running + ' running');
   if (failed > 0) parts.push(failed + ' failed');
   // Pool detail earns its place only when it is actually constraining work.
   if (pool.queued) parts.push(`queue full — ${plural(pool.queued, 'waiting')}`);
-  text.textContent = parts.join(' · ');
+  statusSentence = parts.join(' · ');
 }
 
 /* ============================================================
@@ -1939,8 +1831,6 @@ function render() {
 }
 
 function wire() {
-  $('#tab-activity').addEventListener('click', () => navigate({ name: 'activity' }));
-  $('#tab-triggers').addEventListener('click', () => navigate({ name: 'triggers' }));
   $('#run-back').addEventListener('click', () => navigate({ name: 'activity' }));
   $('#trigger-back').addEventListener('click', () => navigate({ name: 'triggers' }));
 

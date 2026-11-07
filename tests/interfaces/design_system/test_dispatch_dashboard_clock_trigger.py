@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._panel_host import open_panel_host
 from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
@@ -67,9 +68,12 @@ def test_a_clock_trigger_shows_its_times_and_next_fire(
     chromium_browser: Browser, dashboard_url: str
 ) -> None:
     """The trigger row names the times, the days and the next fire."""
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    page.goto(f"{dashboard_url}/", wait_until="domcontentloaded")
-    page.click("#tab-triggers")
+    page = open_panel_host(
+        chromium_browser.new_page(viewport=VIEWPORT),
+        f"{dashboard_url}/",
+        wait_until="domcontentloaded",
+    )
+    page.bar_item("view", "triggers").click()
     page.wait_for_selector("#trigger-list .trigger-row", timeout=10_000)
     # The next fire renders once the facility-time module has loaded.
     page.wait_for_function(
