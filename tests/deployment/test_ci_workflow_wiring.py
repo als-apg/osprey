@@ -8645,7 +8645,7 @@ def _uv_commands(script: str) -> Iterator[tuple[str, str]]:
             yield match["verb"], match.group(0).strip()
 
 
-def _step_scripts(
+def _expanded_step_scripts(
     step: dict[str, Any], documents: dict[str, dict[str, Any]]
 ) -> Iterator[tuple[str, str]]:
     """``(where, script)`` a step runs; a local composite action's steps run in its place."""
@@ -8659,7 +8659,7 @@ def _step_scripts(
             if path.startswith(f"{uses[2:].rstrip('/')}/") and Path(path).stem == "action"
         )
         for inner in documents[action]["runs"].get("steps") or []:
-            for where, script in _step_scripts(inner, documents):
+            for where, script in _expanded_step_scripts(inner, documents):
                 yield f"{uses} > {where}", script
 
 
@@ -8692,7 +8692,7 @@ def _runs_before_a_locked_sync(documents: dict[str, dict[str, Any]]) -> list[str
         for job_id, job in (document.get("jobs") or {}).items():
             locked = False
             for step in job.get("steps") or []:
-                for where, script in _step_scripts(step, documents):
+                for where, script in _expanded_step_scripts(step, documents):
                     for verb, command in _uv_commands(script):
                         flags = set(command.split())
                         if verb == "sync":
