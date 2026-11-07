@@ -78,7 +78,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/channel_finder/static/js/state.js",
     "src/osprey/interfaces/channel_finder/static/js/utils.js",
     "src/osprey/interfaces/design_system/static/js/check-name.js",
-    "src/osprey/interfaces/design_system/static/js/components/osprey-display-menu.js",
     "src/osprey/interfaces/design_system/static/js/components/osprey-drawer.js",
     "src/osprey/interfaces/design_system/static/js/components/osprey-theme-switcher.js",
     "src/osprey/interfaces/design_system/static/js/platform.js",

@@ -209,9 +209,8 @@ function _familyOf(id) {
  * whose id does not title-case correctly -- 'desy' -> 'DESY', not 'Desy'.
  *
  * The single implementation for every family picker in the fleet: no picker
- * derives a label of its own -- <osprey-display-menu> and
- * <osprey-theme-switcher> both get it through `themeFamilies()` below -- so a
- * newly-labelled family can never render one way in one picker and another
+ * derives a label of its own -- they get it through `themeFamilies()` below --
+ * so a newly-labelled family can never render one way in one picker and another
  * way in the other.
  *
  * @param {string} family
@@ -234,10 +233,9 @@ export function familyLabel(family) {
  * function enforces.
  *
  * The single implementation for every family picker in the fleet, for the same
- * reason `familyLabel` is: both <osprey-display-menu> and
- * <osprey-theme-switcher> import this rather than deduping `THEMES`
- * themselves, so the two pickers can never offer a different set of families
- * (or a different order) after a token regeneration.
+ * reason `familyLabel` is: pickers import this rather than deduping `THEMES`
+ * themselves, so they can never offer a different set of families (or a
+ * different order) after a token regeneration.
  *
  * @returns {{id: string, label: string}[]}
  */
@@ -256,9 +254,8 @@ export function themeFamilies() {
  * `initTheme()` has resolved one.
  *
  * The single implementation for every theme control in the fleet, like
- * `familyLabel` and `themeFamilies` above: `<osprey-theme-switcher>` and
- * `<osprey-display-menu>` both reflect the active light/dark side off this
- * rather than each reading `THEMES` for itself.
+ * `familyLabel` and `themeFamilies` above: a control reflects the active
+ * light/dark side off this rather than reading `THEMES` for itself.
  *
  * @param {string|null} id
  * @returns {string|null}
