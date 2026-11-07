@@ -620,6 +620,21 @@ keys:
       Injected by the build from the profile's `teams_bridge.mentions`, which is
       the one knob; rendered as TEAMS_MENTIONS.
     default: true
+  services.slack_bridge.image:
+    rendered: false
+    evidence: 'OSPREY_SLACK_BRIDGE_IMAGE:-\{\{ services\.slack_bridge\.image'
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
+    default: derived
+    default_note: osprey_images.slack_bridge
+  services.slack_bridge.mentions:
+    rendered: false
+    evidence: 'services\.slack_bridge\.mentions is sameas false'
+    note: >-
+      Injected by the build from the profile's `slack_bridge.mentions`, which is
+      the one knob; rendered as SLACK_MENTIONS.
+    default: true
   services.ariel_sync.image:
     rendered: false
     evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\)'
@@ -935,6 +950,8 @@ keys:
   services.nextcloud_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.nextcloud_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's nextcloud_bridge.trigger (nextcloud-question)}
   services.teams_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Teams injector writes ./services/teams_bridge"}
   services.teams_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.teams_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's teams_bridge.trigger (teams-question)}
+  services.slack_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Slack injector writes ./services/slack_bridge"}
+  services.slack_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.slack_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's slack_bridge.trigger (slack-question)}
   web.panels.events: {covered-by: web.panels, default: n/a}
   web.panels.events.url: {evidence: 'url = str\(spec\.get\("url"\) or ""\)', default: derived, default_note: "http://localhost:<the dispatcher's port>, written by the dispatch injector"}
   web.panels.events.path: {evidence: 'path = str\(spec\.get\("path"\) or "/"\)', default: /dashboard}

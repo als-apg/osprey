@@ -70,6 +70,7 @@ BRIDGE_IDENTITIES: Mapping[str, str] = {
     "teams_bridge": "teams-bridge",
     "gchat_bridge": "gchat-bridge",
     "nextcloud_bridge": "nextcloud-bridge",
+    "slack_bridge": "slack-bridge",
 }
 
 #: The one identity every dispatch worker maps to in the shared workspace mode.
