@@ -102,8 +102,11 @@ const MOUNT_STYLE =
  * @property {string} title - the window's title
  * @property {HTMLElement} content - the live node that moves into the window
  * @property {HTMLElement} anchor - hidden; takes the node's place meanwhile
+ * @property {() => boolean} [holdMove] - asked while the first shell loads: true
+ *   keeps the node where it is, up to {@link READY_TIMEOUT_MS}
  * @property {() => boolean} [beforeMove] - the shell has loaded, once; false
  *   closes the window and moves nothing
+ * @property {() => void} [onGiveUp] - the first move never came; the window closed
  * @property {() => void} [beforeDress] - before each move into a dressed shell
  * @property {(mount: HTMLElement) => void} [onDress] - the node is in the window
  *   (again, after a reload of the shell); `mount` holds it, ready for a bar above it
@@ -169,7 +172,7 @@ export function openAttached(spec) {
   };
   attached.set(spec.key, entry);
   if (pollHandle === null) pollHandle = setInterval(pollClosed, CLOSED_POLL_MS);
-  if (shellLoaded(entry)) moveIn(entry);
+  if (readyToMove(entry)) moveIn(entry);
   else {
     waitForShell(
       entry,
@@ -177,6 +180,7 @@ export function openAttached(spec) {
       () => {
         console.warn(`attached-window: the window for ${spec.key} never loaded its page`);
         release(spec.key, 'closed');
+        runHook(spec.onGiveUp);
       }
     );
   }
@@ -204,6 +208,15 @@ function shellLoaded({ win, doc: dressed }) {
 }
 
 /**
+ * @param {Attached} entry
+ * @returns {boolean} true when the shell has loaded and nothing holds the first
+ *   move; a reload of a shell the node already lives in has no first move to hold
+ */
+function readyToMove(entry) {
+  return shellLoaded(entry) && (entry.ready || !entry.spec.holdMove?.());
+}
+
+/**
  * Poll for the shell until it loads or {@link READY_TIMEOUT_MS} passes. A window
  * that closes meanwhile is the `closed` poll's, which tears this wait down.
  * @param {Attached} entry
@@ -213,7 +226,7 @@ function shellLoaded({ win, doc: dressed }) {
 function waitForShell(entry, onShell, onTimeout) {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   const handle = setInterval(() => {
-    if (shellLoaded(entry)) {
+    if (readyToMove(entry)) {
       entry.teardown();
       onShell();
     } else if (Date.now() >= deadline) {

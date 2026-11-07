@@ -932,3 +932,228 @@ def test_the_tile_button_and_the_palette_say_open_in_new_window_and_reattach(
             row.click()
         expect(page.locator(_ARIEL_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
         ctx.close()
+
+
+def test_a_chat_message_and_an_approval_both_work_from_the_agent_window(hub, page):
+    hub.chat.asks["Please carry out the plan"] = ("ExitPlanMode", {"plan": "Scan the beam."})
+    _boot(page, hub)
+    popup = _detach_agent(page)
+
+    _send(popup.locator(_COMPOSER), "Check the beam from the window")
+    expect(popup.locator("#operator-container")).to_contain_text(
+        "Done: Check the beam from the window", timeout=_TIMEOUT_MS
+    )
+
+    # The card comes up in the window, and its answer reaches the turn waiting on it.
+    _send(popup.locator(_COMPOSER), "Please carry out the plan")
+    approve = popup.locator(".op-card-actions button", has_text="Approve plan")
+    expect(approve).to_be_visible(timeout=_TIMEOUT_MS)
+    approve.click()
+    expect(popup.locator("#operator-container")).to_contain_text(
+        "The operator said PermissionResultAllow", timeout=_TIMEOUT_MS
+    )
+    assert "terminal" not in _tiles(page)
+
+
+def _boot_custom_panel_row(page: Page, base_url: str, row: str) -> None:
+    page.goto(base_url, wait_until="domcontentloaded")
+    expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+    expect(page.locator(row)).not_to_have_class(re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS)
+
+
+@contextmanager
+def _a_never_loaded_panel(tmp_path, chromium_browser):
+    """A first-party panel with no frame yet, and the hub's question about it held back."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    row = 'button.panel-rail-button[data-panel-id="never-loaded"]'
+    with _search_menu_panel_backend() as stub_url:
+        custom = _contributing_panel("never-loaded", "NEVER", stub_url)
+        with _live_server(workspace, enabled_panels={"artifacts"}, custom_panels=[custom]) as (
+            base_url,
+            _app,
+        ):
+            ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+            page = ctx.new_page()
+            held = []
+            page.route("**/api/panels/never-loaded/cap*", lambda route: held.append(route))
+            _boot_custom_panel_row(page, base_url, row)
+            page.locator(row).click(button="right")
+            item = page.get_by_role("menuitem", name="Open in new window")
+            expect(item).not_to_have_attribute("aria-disabled", "true")
+            with page.expect_popup() as info:
+                item.click()
+            popup = info.value
+            # The window is open inside the gesture; the frame waits in the hub.
+            page.wait_for_timeout(300)
+            assert not popup.is_closed()
+            assert len(held) == 1
+            expect(popup.locator("iframe.panel-iframe")).to_have_count(0)
+            try:
+                yield page, popup, held[0], row
+            finally:
+                ctx.close()
+
+
+def test_a_first_click_on_a_never_loaded_panel_opens_the_window_and_the_frame_follows(
+    tmp_path, chromium_browser
+):
+    with _a_never_loaded_panel(tmp_path, chromium_browser) as (page, popup, cap, row):
+        cap.fulfill(status=404)
+
+        frame = 'iframe.panel-iframe[data-panel-id="never-loaded"]'
+        expect(popup.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
+        popup.wait_for_function(
+            """(sel) => { const w = document.querySelector(sel).contentWindow;
+                return w.location.pathname.startsWith('/panel/never-loaded')
+                  && w.document.readyState === 'complete'; }""",
+            arg=frame,
+            polling=100,
+            timeout=_TIMEOUT_MS,
+        )
+        expect(page.locator(row)).to_have_class(re.compile(r"\bdetached\b"))
+        expect(popup.locator(_BAR_REATTACH)).to_be_visible()
+
+
+def test_a_first_click_on_a_panel_that_resolves_opaque_closes_the_window_cleanly(
+    tmp_path, chromium_browser
+):
+    with _a_never_loaded_panel(tmp_path, chromium_browser) as (page, popup, cap, row):
+        before = _tiles(page)
+        with popup.expect_event("close", timeout=_TIMEOUT_MS):
+            cap.fulfill(status=200, json={"cap_url": None})
+
+        expect(page.locator(".undo-notice-text")).to_have_text(
+            "This panel runs at an opaque origin and cannot open in a new window.",
+            timeout=_TIMEOUT_MS,
+        )
+        expect(page.locator(row)).not_to_have_class(re.compile(r"\bdetached\b"))
+        assert _tiles(page) == before
+
+
+def test_remove_from_rail_in_the_windows_menu_closes_the_window_and_the_row_goes(
+    tmp_path, chromium_browser
+):
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    with _palette_live_server(workspace) as (base_url, _app):
+        ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+        page = ctx.new_page()
+        _boot_ariel_beside_artifacts(page, base_url)
+        popup = _detach_ariel(page)
+
+        popup.locator(f"{_BAR} .tile-tab-title").click(button="right")
+        with popup.expect_event("close", timeout=_TIMEOUT_MS):
+            popup.locator(_MENU).get_by_role("menuitem", name="Remove from rail").click()
+
+        expect(page.locator(_ARIEL_ROW)).to_have_count(0, timeout=_TIMEOUT_MS)
+        expect(page.locator(_ARIEL_TILE)).to_have_count(0)
+        # The window is gone from the pane's account too: a reload keeps it closed.
+        page.reload(wait_until="domcontentloaded")
+        expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+        page.wait_for_timeout(1000)
+        expect(page.locator(_ARIEL_TILE)).to_have_count(0)
+        ctx.close()
+
+
+#: The pages the server holds for the session in use's layout; {} until it holds one.
+_SAVED_PAGES_JS = """async () => {
+  const rows = await (await fetch('/api/sessions')).json();
+  for (const r of rows.sessions ?? rows.rows ?? rows ?? []) {
+    if (!r.transcript_id) continue;
+    const saved = await (await fetch(`/api/sessions/${r.transcript_id}/layout`)).json();
+    if (saved?.layout?.pages) return saved.layout.pages;
+  }
+  return {};
+}"""
+
+
+def _saved_page(page: Page, panel_id: str, part: str) -> None:
+    """Wait until the session's saved layout has *panel_id* on a page containing *part*."""
+    page.wait_for_function(
+        f"""async () => ((await ({_SAVED_PAGES_JS})())[{json.dumps(panel_id)}] ?? '')
+            .includes({json.dumps(part)})""",
+        polling=250,
+        timeout=_TIMEOUT_MS,
+    )
+
+
+def _settled_after_reload(page: Page) -> None:
+    """The hub reloaded, and session-layout's arrive plus SETTLE_MS (400 ms) have passed."""
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
+    page.wait_for_timeout(1200)
+
+
+def _x_order(page: Page) -> list[str]:
+    """The tiles' panel ids, left to right."""
+    return page.evaluate(
+        """() => [...document.querySelectorAll('.tile-tab[data-panel-id]')]
+          .map((el) => [el.getBoundingClientRect().x, el.dataset.panelId])
+          .sort((a, b) => a[0] - b[0]).map(([, id]) => id)"""
+    )
+
+
+def test_r7_the_agent_comes_back_docked_beside_its_neighbour(hub, page):
+    _boot_with_artifacts(page, hub)
+    order = _x_order(page)
+    popup = _detach_agent(page)
+    _send(popup.locator(_COMPOSER), "Check the beam from the window")
+    expect(popup.locator("#operator-container")).to_contain_text(
+        "Done: Check the beam from the window", timeout=_TIMEOUT_MS
+    )
+    page.wait_for_timeout(500)
+
+    _settled_after_reload(page)
+
+    assert popup.is_closed()
+    expect(page.locator(_AGENT_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+    assert _x_order(page) == order
+    expect(page.locator("#operator-container")).to_contain_text(
+        "Done: Check the beam from the window", timeout=_TIMEOUT_MS
+    )
+
+
+def test_r7_two_panes_detached_in_neighbour_order_both_return_in_place(tmp_path, chromium_browser):
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    with _palette_live_server(workspace) as (base_url, _app):
+        ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+        page = ctx.new_page()
+        _boot_ariel_beside_artifacts(page, base_url)
+        order = _x_order(page)
+        first, second = _detach_ariel(page), _detach_artifacts(page)
+        assert _tiles(page) == ["terminal"]
+        page.wait_for_timeout(500)
+
+        _settled_after_reload(page)
+
+        assert first.is_closed()
+        assert second.is_closed()
+        expect(page.locator(_ARIEL_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+        expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+        assert _x_order(page) == order
+        ctx.close()
+
+
+def test_r7_with_the_neighbour_closed_every_other_docked_panel_stays_docked(
+    tmp_path, chromium_browser
+):
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    with _palette_live_server(workspace) as (base_url, _app):
+        ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+        page = ctx.new_page()
+        _boot_ariel_beside_artifacts(page, base_url)
+        popup = _detach_ariel(page)
+        page.locator(f"{_ARTIFACTS_TILE} .tile-tab-close").click()
+        expect(page.locator(_ARTIFACTS_TILE)).to_have_count(0, timeout=_TIMEOUT_MS)
+        page.wait_for_timeout(500)
+
+        _settled_after_reload(page)
+
+        assert popup.is_closed()
+        tiles = _tiles(page)
+        assert "terminal" in tiles, tiles
+        assert "iframe:ariel" in tiles, tiles
+        ctx.close()

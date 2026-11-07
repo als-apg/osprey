@@ -13,7 +13,10 @@
  *     hub reference to it, its messages and its session broadcasts stay as they
  *     were; the theme is sent here, because theme-manager reaches only the frames
  *     in the hub's document. A panel at an opaque origin cannot go: it takes its
- *     theme only from its parent window, which would no longer be the hub.
+ *     theme only from its parent window, which would no longer be the hub. A frame
+ *     whose kind the hub is still asking about opens its window at once, inside the
+ *     gesture, and moves in when the answer comes; an opaque answer closes the window
+ *     again and moves nothing.
  *   the Agent pane — the `.terminal-panel` subtree moves without a reload: its
  *     SSE and WebSocket clients, its composer, slash list, queue and attachments
  *     are the hub's own objects.
@@ -162,8 +165,6 @@ export function detachBlocker(id) {
     if (!managed && !deps.canLoadFrame?.(id)) return NOT_LOADED;
     const kind = managed?.iframe.dataset.panelFrame;
     if (kind === 'opaque') return OPAQUE;
-    // Not known yet to be first-party: it may still turn out opaque.
-    if (kind === 'pending') return NOT_LOADED;
   }
   return null;
 }
@@ -343,6 +344,9 @@ function detachService(id, hadTile) {
   return (
     openAttached({
       ...windowSpec(id, titleCase(title), iframe),
+      // Not known yet to be first-party: it may still turn out opaque.
+      holdMove: () => iframe.dataset.panelFrame === 'pending',
+      onGiveUp: () => deps.showNotice?.(NOT_LOADED),
       beforeMove: () => {
         // What the frame is may have become known during the wait.
         const blocker = detachBlocker(id);

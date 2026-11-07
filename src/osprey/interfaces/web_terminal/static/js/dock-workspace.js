@@ -529,14 +529,14 @@ export function closeTerminalPanel() {
  * Close a service panel's tile — the tile bar's × on a service tile. Local
  * only: the panel keeps its sidebar row (dock-sync routes the gesture to
  * panel-manager's vacate first, in the capture phase). A key not in the dock
- * changes nothing.
+ * changes nothing. A detached panel closes with its window.
  * @param {string} serviceId  the panel's bare id
- * @returns {boolean} whether a tile was closed
+ * @returns {boolean} whether a tile or a window was closed
  */
 export function closeDockPanel(serviceId) {
   const holder = layoutHolder;
   if (!dockApi || !holder) return false;
-  return holder.run((layout) => closeKey(layout, serviceId)).changed;
+  return closeDetached(serviceId) || holder.run((layout) => closeKey(layout, serviceId)).changed;
 }
 
 /* ---- Layout persistence (the repair itself lives in dock-reconcile.js) ---- */

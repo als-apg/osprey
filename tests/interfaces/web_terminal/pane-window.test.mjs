@@ -179,13 +179,15 @@ describe('the seam', () => {
     expect(fresh.detachBlocker('terminal')).toMatch(/Agent pane is not ready/);
   });
 
-  test('an opaque panel, or one whose frame kind is still pending, cannot leave', () => {
+  test('an opaque panel cannot leave; one whose kind is still pending can', () => {
     iframe.dataset.panelFrame = 'opaque';
-    expect(mod.detachBlocker('ariel')).toMatch(/opaque/);
-    iframe.dataset.panelFrame = 'pending';
-    expect(mod.detachBlocker('ariel')).toMatch(/has not loaded/);
+    expect(mod.detachBlocker('ariel')).toBe(
+      'This panel runs at an opaque origin and cannot open in a new window.'
+    );
     expect(mod.detach('ariel')).toBe(false);
     expect(popups).toHaveLength(0);
+    iframe.dataset.panelFrame = 'pending';
+    expect(mod.detachBlocker('ariel')).toBeNull();
     delete iframe.dataset.panelFrame;
   });
 
@@ -252,22 +254,65 @@ describe('detach', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  test.each(['opaque', 'pending'])(
-    'a frame that turns %s during the marker wait does not move',
-    (kind) => {
-      vi.useFakeTimers();
-      nextLoaded = false;
-      mod.detach('ariel');
-      iframe.dataset.panelFrame = kind;
-      popups[0].document.documentElement.setAttribute(SHELL_MARKER, '');
-      vi.advanceTimersByTime(attached.READY_POLL_MS);
-      expect(popups[0].closed).toBe(true);
-      expect(holder.isDetached('ariel')).toBe(false);
-      expect(iframe.parentElement).toBe(overlay);
-      expect(deps.showNotice).toHaveBeenCalledTimes(1);
-      delete iframe.dataset.panelFrame;
-    }
-  );
+  test('a frame that turns opaque during the marker wait does not move', () => {
+    vi.useFakeTimers();
+    nextLoaded = false;
+    mod.detach('ariel');
+    iframe.dataset.panelFrame = 'opaque';
+    popups[0].document.documentElement.setAttribute(SHELL_MARKER, '');
+    vi.advanceTimersByTime(attached.READY_POLL_MS);
+    expect(popups[0].closed).toBe(true);
+    expect(holder.isDetached('ariel')).toBe(false);
+    expect(iframe.parentElement).toBe(overlay);
+    expect(deps.showNotice).toHaveBeenCalledTimes(1);
+    delete iframe.dataset.panelFrame;
+  });
+
+  test('a pending frame waits in the hub with its window open, then moves in', () => {
+    vi.useFakeTimers();
+    iframe.dataset.panelFrame = 'pending';
+    expect(mod.detach('ariel')).toBe(true);
+    expect(popups).toHaveLength(1);
+    vi.advanceTimersByTime(attached.READY_POLL_MS * 4);
+    expect(iframe.parentElement).toBe(overlay);
+    expect(holder.isDetached('ariel')).toBe(false);
+
+    iframe.dataset.panelFrame = 'first-party';
+    vi.advanceTimersByTime(attached.READY_POLL_MS);
+    expect(iframe.ownerDocument).toBe(popups[0].document);
+    expect(holder.isDetached('ariel')).toBe(true);
+    expect(deps.showNotice).not.toHaveBeenCalled();
+    delete iframe.dataset.panelFrame;
+  });
+
+  test('a pending frame that resolves opaque closes its window and stays docked', () => {
+    vi.useFakeTimers();
+    iframe.dataset.panelFrame = 'pending';
+    mod.detach('ariel');
+    vi.advanceTimersByTime(attached.READY_POLL_MS);
+
+    iframe.dataset.panelFrame = 'opaque';
+    vi.advanceTimersByTime(attached.READY_POLL_MS);
+    expect(popups[0].closed).toBe(true);
+    expect(holder.isDetached('ariel')).toBe(false);
+    expect(holder.holds('ariel')).toBe(true);
+    expect(iframe.parentElement).toBe(overlay);
+    expect(deps.showNotice).toHaveBeenCalledExactlyOnceWith(
+      'This panel runs at an opaque origin and cannot open in a new window.'
+    );
+    delete iframe.dataset.panelFrame;
+  });
+
+  test('a frame that never resolves gives up, with a notice and the pane in place', () => {
+    vi.useFakeTimers();
+    iframe.dataset.panelFrame = 'pending';
+    mod.detach('ariel');
+    vi.advanceTimersByTime(attached.READY_TIMEOUT_MS + attached.READY_POLL_MS);
+    expect(popups[0].closed).toBe(true);
+    expect(holder.holds('ariel')).toBe(true);
+    expect(deps.showNotice).toHaveBeenCalledExactlyOnceWith('This panel has not loaded yet.');
+    delete iframe.dataset.panelFrame;
+  });
 
   test('a refused window says so and changes nothing', () => {
     /** @type {any} */ (window.open).mockReturnValue(null);
@@ -344,7 +389,8 @@ describe('a pane with no tile', () => {
     expect(popups).toHaveLength(0);
   });
 
-  test('a new frame that turns out pending says so and opens no window', () => {
+  test('a first click on a never-loaded panel opens the window, then moves the frame in', () => {
+    vi.useFakeTimers();
     holder.restore(AGENT_ONLY);
     let loaded = false;
     deps.managedIframe.mockImplementation((/** @type {string} */ id) =>
@@ -357,9 +403,15 @@ describe('a pane with no tile', () => {
         loaded = true;
       },
     });
-    expect(mod.detach('ariel')).toBe(false);
-    expect(popups).toHaveLength(0);
-    expect(deps.showNotice).toHaveBeenCalledExactlyOnceWith('This panel has not loaded yet.');
+    expect(mod.detach('ariel')).toBe(true);
+    expect(popups).toHaveLength(1);
+    expect(deps.showNotice).not.toHaveBeenCalled();
+    expect(holder.isDetached('ariel')).toBe(false);
+
+    iframe.dataset.panelFrame = 'first-party';
+    vi.advanceTimersByTime(attached.READY_POLL_MS);
+    expect(holder.isDetached('ariel')).toBe(true);
+    expect(iframe.ownerDocument).toBe(popups[0].document);
     delete iframe.dataset.panelFrame;
   });
 

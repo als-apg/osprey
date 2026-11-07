@@ -58,7 +58,7 @@ import { railDragStart, railDragEnd } from './rail-drag.js';
 import { getEntry, entryIds, DETACHED_TRAIL_ATTR } from './panel-rail.js';
 import { isListOpen, setListOpen, toggleEverySession } from './sidebar.js';
 import { showUndoNotice } from './undo-notice.js';
-import { detach, detachBlocker, focusWindow, reattach } from './pane-window.js';
+import { closeDetached, detach, detachBlocker, focusWindow, reattach } from './pane-window.js';
 import { isDetached } from './dock-apply.js';
 import { exportConversation } from './chat-export.js';
 import {
@@ -246,7 +246,8 @@ export function showAgentPane() {
  * counted), which the server carries on its echo so every client restores it
  * there. The removal also closed the panel's tile, so a panel that had one is
  * shown again too — at the default placement, since the tile's old spot in the
- * grid is not something the rail can put back.
+ * grid is not something the rail can put back. A panel in its window closes with
+ * the window, as a closed window does.
  *
  * The notice belongs to the gesture, not to the membership change: an agent's
  * remove_panel_from_rail and a removal made in another tab arrive here only as
@@ -262,11 +263,12 @@ export async function removeFromRail(id) {
     .filter((e) => e !== TERMINAL_RAIL_ID)
     .indexOf(id);
   // Fallback mode has no tiles, only the one surface the active panel fills.
-  const hadTile = hasDockedTile(id) || ctx().getActiveTabId() === id;
+  const hadTile = hasDockedTile(id) || ctx().getActiveTabId() === id || isDetached(id);
   if (!(await setPanelVisibility(id, false))) {
     showUndoNotice({ message: `Could not remove ${label} from the rail` });
     return;
   }
+  closeDetached(id);
   showUndoNotice({
     message: `${label} removed from the rail`,
     undo: async () => {

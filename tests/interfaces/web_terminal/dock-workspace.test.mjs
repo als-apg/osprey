@@ -695,6 +695,21 @@ describe("a session's layout is the stored dock, applied live", () => {
     return { win, doc };
   }
 
+  test.each([
+    ['closeDockPanel', (/** @type {any} */ workspace) => workspace.closeDockPanel('terminal')],
+    ['closeTerminalPanel', (/** @type {any} */ workspace) => workspace.closeTerminalPanel()],
+  ])('%s forgets a detached pane and closes its window', async (_name, close) => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const { win } = await detachAgent(page);
+
+    expect(close(page.workspace)).toBe(true);
+
+    expect(win.close).toHaveBeenCalledTimes(1);
+    expect(page.holder.isDetached('terminal')).toBe(false);
+    expect(page.holder.holds('terminal')).toBe(false);
+  });
+
   test('a surfacing of a detached Agent pane goes to its window; it never docks', async () => {
     const page = await boot('carol');
     await openService(page, 'ariel');

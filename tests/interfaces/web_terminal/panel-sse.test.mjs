@@ -54,6 +54,7 @@ const { stream, calls, spies, dock } = vi.hoisted(() => {
       reportLayoutNow: vi.fn(),
       noteReported: vi.fn(),
       focusWindow: vi.fn(),
+      closeDetached: vi.fn(),
       badgePanelActivity: vi.fn(),
       record,
     },
@@ -105,6 +106,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/pane-window.js', () => ({
   focusWindow: spies.focusWindow,
+  closeDetached: spies.closeDetached,
 }));
 
 /** @param {string} id @param {string[]} tabs @param {string} [showing] */
@@ -588,6 +590,12 @@ describe('panel_visibility hide — the view falls back, and no other tile chang
 
   /** @param {string} panel */
   const hide = (panel) => deliver({ type: 'panel_visibility', panel, visible: false });
+
+  test('a hide of a panel in its window closes the window', () => {
+    seedView({ s1: 'lattice' }, ['ariel', 'lattice']);
+    hide('ariel');
+    expect(spies.closeDetached).toHaveBeenCalledExactlyOnceWith('ariel');
+  });
 
   test('a hide of the panel on view hands the view to the panel still on screen: nothing opens, nothing is replaced', () => {
     // artifacts, first in the catalog, is a healthy member with no tile:

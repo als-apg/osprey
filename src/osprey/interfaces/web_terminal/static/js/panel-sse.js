@@ -46,7 +46,7 @@ import {
 import { entryIds, placeEntry } from './panel-rail.js';
 import { runPanelOp } from './panel-placement.js';
 import { postPanelOpResult } from './panel-commands.js';
-import { focusWindow } from './pane-window.js';
+import { closeDetached, focusWindow } from './pane-window.js';
 import { sendAgentActivityToIframe } from './panel-iframe-sync.js';
 import {
   initWatchdogAlert,
@@ -323,7 +323,7 @@ function applyPanelVisibility(panel, visible, source, index) {
 }
 
 /**
- * Close `panel`'s tile and, when it held the view, hand the view to a panel
+ * Close `panel`'s tile, or its window, and, when it held the view, hand the view to a panel
  * the operator can still see, without touching rail membership.
  *
  * The removal half of `panel_visibility` (membership is already gone by the
@@ -339,6 +339,7 @@ function applyPanelVisibility(panel, visible, source, index) {
  */
 function closeTile(panel) {
   const c = ctx();
+  closeDetached(panel);
   withEchoSuppressed(() => hidePanel(panel));
   if (panel !== c.getActive()) return;
   const holder = getLayoutHolder();

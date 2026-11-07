@@ -58,6 +58,7 @@ import uuid
 from contextlib import ExitStack, contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, NamedTuple
 from unittest import mock
 
@@ -580,13 +581,15 @@ class FakeChat:
 
     ``replies`` overrides the reply per exact prompt; ``delay_s`` holds every
     turn open that long before it answers, so a test can see the streaming
-    guard hold. ``turns`` lists what ran.
+    guard hold. ``asks`` makes a turn ask the operator about a tool call first, by
+    exact prompt, and its reply then says the answer. ``turns`` lists what ran.
     """
 
     def __init__(self, project_dir: Path, session_dir: Path) -> None:
         self.project_dir = project_dir
         self.session_dir = session_dir
         self.replies: dict[str, str] = {}
+        self.asks: dict[str, tuple[str, dict[str, Any]]] = {}
         self.delay_s = 0.0
         self.turns: list[ChatTurn] = []
 
@@ -690,6 +693,12 @@ class _FakeChatClient:
         if self._chat.delay_s > 0:
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._interrupted.wait(), self._chat.delay_s)
+        if prompt in self._chat.asks:
+            tool_name, tool_input = self._chat.asks[prompt]
+            answer = await self.options.can_use_tool(
+                tool_name, tool_input, SimpleNamespace(tool_use_id=None)
+            )
+            self._chat.replies[prompt] = f"The operator said {type(answer).__name__}"
         if _is_clear(prompt):
             self._transcript = await asyncio.to_thread(self._chat.clear, self._key, prompt)
         else:

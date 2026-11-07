@@ -3192,6 +3192,25 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     open.mockRestore();
   });
 
+  /** @returns {Promise<string[]>} the panes the holder still has as detached */
+  async function heldDetached() {
+    const { getLayoutHolder } = await import(DOCK_APPLY_PATH);
+    return getLayoutHolder().detachedKeys();
+  }
+
+  test('"Remove from rail" forgets a detached panel and closes its window', async () => {
+    const { popup, open, calls } = await detachAriel();
+    expect(await heldDetached()).toEqual(['ariel']);
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
+
+    await settled(() => expect(popup.close).toHaveBeenCalledTimes(1));
+    expect(await heldDetached()).toEqual([]);
+    expect(calls.some((c) => c.url === '/api/panel-visibility')).toBe(true);
+    open.mockRestore();
+  });
+
   test('closing the window closes the pane: the row is back to normal and a click opens it', async () => {
     const { api, popup, open } = await detachAriel();
 
