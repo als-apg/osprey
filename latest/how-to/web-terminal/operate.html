@@ -584,14 +584,14 @@ restart — their sessions live in a store on disk; <code class="docutils litera
 <li><p><strong>Sidebar</strong> (left) — the list of everything you can open:
 the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target block</span></a> (which
 machine this deployment writes to, and whether it may), search, the
-<strong>Agent</strong> row, the <strong>Tools</strong> and <strong>System</strong> sections, and a footer with <strong>Docs</strong>,
+<strong>Sessions</strong> row, the <strong>Apps</strong> and <strong>System</strong> sections, and a footer with <strong>Docs</strong>,
 <strong>Feedback</strong> (see <a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>), <strong>Sign out</strong> (multi-user
 deployments only) and <strong>☰ More</strong>. See
 <a class="reference internal" href="#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p></li>
 <li><p><strong>Agent</strong> (right) — the operator chat, or a real terminal running the OSPREY
 agent when you open one from the pane’s <strong>⋯</strong> menu. It survives reconnects,
 and you can keep a few background conversations alive and hop between them.
-Close the pane with its <strong>×</strong>; the <strong>Agent</strong> row in the sidebar opens it again.</p></li>
+Close the pane with its <strong>×</strong>; the <strong>Sessions</strong> row in the sidebar opens it again.</p></li>
 <li><p><strong>Work pane</strong> (middle) — the artifacts and panels you open from the sidebar,
 in tiles you arrange by dragging (<a class="reference internal" href="#tiles">Tiles</a>). New artifacts,
 plots, and data files appear under their session in the sidebar
@@ -1021,20 +1021,19 @@ Ctrl+K on other systems.</p></li>
 <ul class="simple">
 <li><p><strong>Sessions</strong>, the first group, has no heading. It starts with this row:</p>
 <ul>
-<li><p><strong>Agent</strong> opens the agent pane and your session tree below it
+<li><p><strong>Sessions</strong> opens the agent pane and your session tree below it
 (<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>); with the pane open, it folds or unfolds
-the tree. When the pane
-is closed, the row is dimmed. When the agent waits for your
-answer, the row shows the number of open questions. <strong>Agent</strong> is always
-the first row of the sidebar.</p></li>
+the tree. Its <strong>+</strong> starts a new session. When the pane is closed, the
+row is dimmed. When the agent waits for your answer, the row shows the
+number of open questions. It is always the first row of the sidebar.</p></li>
 </ul>
 </li>
-<li><p><strong>Tools</strong> starts with all other panels that this deployment enables.</p></li>
+<li><p><strong>Apps</strong> starts with all other panels that this deployment enables.</p></li>
 <li><p><strong>System</strong> starts with <strong>Events</strong> (only when the deployment enables the
 events panel) and <strong>Health</strong>.</p></li>
 </ul>
 <p>In each group, the rows are in your order. <strong>+ Add panel</strong> is always the
-last row of <strong>Tools</strong>. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p>
+last row of <strong>Apps</strong>. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p>
 </li>
 <li><p>The footer: <strong>Docs</strong>, <strong>Feedback</strong>, <strong>Sign out</strong> and <strong>☰ More</strong>. <strong>Sign
 out</strong> shows only on a multi-user deployment. See
@@ -1044,7 +1043,7 @@ out</strong> shows only on a multi-user deployment. See
 scrolls. The other groups and the footer always stay on the screen.</p>
 <section id="sessions-and-artifacts">
 <span id="web-terminal-sessions"></span><h3>Sessions and artifacts<a class="headerlink" href="#sessions-and-artifacts" title="Link to this heading">#</a></h3>
-<p>The <strong>Agent</strong> row’s ▾ opens your sessions, newest first. A session is named
+<p>The <strong>Sessions</strong> row lists your sessions, newest first. A session is named
 from your first prompt (“naming…” until the name arrives); <code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts a
 new one. Under a session, its artifacts are grouped by day; <strong>Group by Kind</strong>
 sorts them into <strong>Runs</strong>, <strong>Plots</strong>, <strong>Trends</strong>, <strong>Tables</strong>, <strong>Documents</strong>,
@@ -1060,18 +1059,23 @@ can read it), with the artifact last open there (its newest if none). A new
 or older session keeps the layout on screen. The sidebar stays as it is.
 Click the current session’s name to fold or unfold it. Only the current
 session shows its artifacts; the others stay folded until you switch to them.
-⌥-click (Alt+click) a session or <strong>Agent</strong> to expand every session, or
-collapse them all if all are open.</p></li>
+⌥-click (Alt+click) a session or <strong>Sessions</strong> to expand every session, or
+collapse them all if all are open. The session the agent works in has a
+breathing accent bar.</p></li>
+<li><p>Hover a folded session to see its artifacts; click one to show it.</p></li>
 <li><p>Click an artifact to show it. This never changes the session.</p></li>
 <li><p>The title in the agent tile’s header has its own ▾ switcher: your sessions
 with state, age and message count, and <strong>+ New session</strong>.</p></li>
 <li><p>While the agent is answering in chat, a switch from any of these asks
 first: <strong>Cancel</strong>, or <strong>Stop &amp; switch</strong>.</p></li>
 </ul>
-<p>Right-click a session to rename it, export its transcript or group its
-artifacts by day or by kind, or delete a past session with its artifacts;
-a run to open its result, approval preview or code; an artifact to pin it.
-Runs and artifacts also have <strong>Delete…</strong>.</p>
+<p>Right-click a session to pin it, rename it, export its transcript or group
+its artifacts by day or by kind, or delete a past session with its artifacts;
+a run to open its result, approval preview or code. Runs and artifacts also
+have <strong>Delete…</strong>.</p>
+<p>Pinned sessions (the pin button on a row) also show in the <strong>Pinned</strong> group
+above <strong>Sessions</strong>; right-click its heading to rename or hide it. <strong>Show pinned
+sessions</strong>, on the <strong>Sessions</strong> menu or on empty sidebar space, brings it back.</p>
 <p>A reload, a new tab or another device resumes your last session and its
 layout. Its last-open artifact is shown in the Artifacts panel if that panel
 is docked, otherwise revealed in the tree. The tree highlights only the
@@ -1092,11 +1096,11 @@ name. A name can have up to 40 characters. An empty name keeps the old one.</p><
 its name for editing.</p></li>
 <li><p><strong>Move up</strong> and <strong>Move down</strong>. These move the group in the sidebar.</p></li>
 <li><p><strong>Delete group</strong>. This item shows only for a group that you added. The
-rows of the group go back to <strong>Tools</strong>. You cannot delete <strong>Tools</strong> or
+rows of the group go back to <strong>Apps</strong>. You cannot delete <strong>Apps</strong> or
 <strong>System</strong>, but you can rename them.</p></li>
 </ul>
 <p>Double-click a group’s name to fold it down to its heading, and double-click
-again to unfold it. <strong>Sessions</strong>, the group that holds <strong>Agent</strong>, has no
+again to unfold it. <strong>Sessions</strong>, the first group, has no
 heading, so it has no menu and always stays first. To make it taller, drag the
 faint line below it; double-click the line to go back to automatic height.</p>
 <p>To move a row to a different group, do one of these:</p>
@@ -1106,7 +1110,7 @@ faint line below it; double-click the line to go back to automatic height.</p>
 group. Then type the name of the new group.</p></li>
 <li><p>Drag the row into the other group. Release it where it must go.</p></li>
 </ul>
-<p>You can move each row except <strong>Agent</strong>. A group without rows shows “No
+<p>You can move each row except <strong>Sessions</strong>. A group without rows shows “No
 panels — move one here from a row’s menu”.</p>
 <p>Your groups are kept in this browser, for your user only. They do not change
 the sidebar of other users.</p>
@@ -1115,7 +1119,7 @@ the sidebar of other users.</p>
 <h3>Hide the labels<a class="headerlink" href="#hide-the-labels" title="Link to this heading">#</a></h3>
 <p>To hide the labels, click the toggle at the top of the sidebar, or press ⌘\
 (Ctrl+\ on other systems). The sidebar then shows only icons. Put the pointer
-on an icon to see its name. In this state, a click on <strong>Agent</strong> opens the
+on an icon to see its name. In this state, a click on <strong>Sessions</strong> opens the
 session tree next to the sidebar. To show the labels again, click the toggle
 or press the same keys.</p>
 <div class="admonition note">

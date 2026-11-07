@@ -587,7 +587,7 @@ with labels, 180–400 px by the handle on its right edge, or
 <code class="docutils literal notranslate"><span class="pre">data-sidebar</span></code> on <code class="docutils literal notranslate"><span class="pre">&lt;html&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">sidebar-boot.js</span></code> sets it, and the
 stored width, before the first paint.</p></li>
 <li><p>From top to bottom, the sidebar holds the OSPREY mark and the collapse
-toggle, the control-system block, search, the <code class="docutils literal notranslate"><span class="pre">Workspace</span></code> and <code class="docutils literal notranslate"><span class="pre">Tools</span></code>
+toggle, the control-system block, search, the <code class="docutils literal notranslate"><span class="pre">Workspace</span></code> and <code class="docutils literal notranslate"><span class="pre">Apps</span></code>
 sections, and a footer with Docs, Feedback and More. Only the
 <code class="docutils literal notranslate"><span class="pre">Workspace</span></code> section gives up height.</p></li>
 <li><p>The panes are cards in the dock. Each pane has one header row,
@@ -599,7 +599,7 @@ the sidebar <code class="docutils literal notranslate"><span class="pre">Agent</
 <section id="primitives">
 <h2><a class="toc-backref" href="#id7" role="doc-backlink">Primitives</a><a class="headerlink" href="#primitives" title="Link to this heading">#</a></h2>
 <p>The shared primitives are in <code class="docutils literal notranslate"><span class="pre">design_system/static/css/primitives.css</span></code>.
-Load it after <code class="docutils literal notranslate"><span class="pre">base.css</span></code>. Their behaviour is in five modules in
+Load it after <code class="docutils literal notranslate"><span class="pre">base.css</span></code>. Their behaviour is in the modules in
 <code class="docutils literal notranslate"><span class="pre">design_system/static/js/</span></code>:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -644,6 +644,19 @@ explanation.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-dot</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-kbd</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-count</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-switch</span></code>,
 <code class="docutils literal notranslate"><span class="pre">.osprey-search</span></code></p></td>
 <td><p>Status dot, keyboard hint, count pill, switch and search field.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-panel-toolbar</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-seg</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-search-field</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.osprey-chip</span></code></p></td>
+<td><p>The panel toolbar, the text segmented control, the search field and the
+status chip of a panel.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-panel-sidebar</span></code>, <code class="docutils literal notranslate"><span class="pre">panel-sidebar.js</span></code></p></td>
+<td><p>The panel sidebar. It is 260 px wide, it resizes, and it is stored for
+each user. In a narrow panel it opens over the content.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-state</span></code>, <code class="docutils literal notranslate"><span class="pre">panel-state.js</span></code>, <code class="docutils literal notranslate"><span class="pre">info-popover.js</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.osprey-content-strip</span></code>, <code class="docutils literal notranslate"><span class="pre">content-strip.js</span></code></p></td>
+<td><p>The centred state, the info popover and the content strip.</p></td>
 </tr>
 </tbody>
 </table>

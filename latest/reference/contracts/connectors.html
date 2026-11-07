@@ -501,7 +501,6 @@ budget come back inline as JSON lists, and anything larger is saved to the
 artifact gallery and reported as a summary plus a handle to it.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">read_inline_max_elements</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2000</span><span class="w">        </span><span class="c1"># per-value element budget</span>
-<span class="w">  </span><span class="nt">channel_read_artifact_retention</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">   </span><span class="c1"># readings kept per channel</span>
 </pre></div>
 </div>
 <p>Only arrays are measured – strings and single scalars are always inline. One
@@ -521,10 +520,7 @@ alone. The agent reaches the numbers by loading <code class="docutils literal no
 <code class="docutils literal notranslate"><span class="pre">execute</span></code> (<code class="docutils literal notranslate"><span class="pre">numpy.load</span></code> / <code class="docutils literal notranslate"><span class="pre">json.load</span></code>). If the artifact store cannot
 write, the read still reports success with <code class="docutils literal notranslate"><span class="pre">artifact_error</span></code> in place of the
 handle – the machine did answer.</p>
-<p><code class="docutils literal notranslate"><span class="pre">channel_read_artifact_retention</span></code> (default 20) keeps only the newest N
-<strong>unpinned</strong> artifacts per channel; pinned readings are never pruned and never
-occupy a slot. <code class="docutils literal notranslate"><span class="pre">0</span></code> keeps everything – remembering that an unattended
-polling loop will then grow the gallery without bound.</p>
+<p>OSPREY never deletes a reading; keep or delete them in the gallery.</p>
 </section>
 <section id="addresses-outside-the-facility">
 <h2>Addresses Outside the Facility<a class="headerlink" href="#addresses-outside-the-facility" title="Link to this heading">#</a></h2>
