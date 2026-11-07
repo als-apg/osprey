@@ -4,20 +4,33 @@
  * The holder is the dock's single source of truth: the current dock layout
  * (the engine's dock form — tiles keyed by bare panel ids plus `terminal`,
  * each tile holding ONE panel, OSPREY's rule in dock-policy.js), the focused
- * tile, the last tile that showed a service, the panels living in their own
- * pop-out windows, the close records an undo reopens, the server `rev` last
- * acknowledged and whether the layout changed since. Its writers are:
+ * tile, the last tile that showed a service, the DETACHED panes (each in a
+ * window of its own, with what it needs to come back), the close records an
+ * undo reopens, the server `rev` last acknowledged and whether the layout
+ * changed since. Its writers are:
  *
  *   - `run(op)`        an engine operation (open, close, move, ...); a result
- *                      giving a tile several panels is refused by the policy's
- *                      name and changes nothing;
+ *                      giving a tile several panels, or docking a detached
+ *                      pane, is refused by name and changes nothing;
  *   - `restore(l)`     a saved dock (validated, normalised, no undo record); a
- *                      tile saved with several panels keeps the one it showed;
+ *                      tile saved with several panels keeps the one it showed,
+ *                      and a detached pane it holds is taken out again;
  *   - `show(tile, k)`  a person focused a tile: dockview already shows it, so
  *                      the holder records it and does NOT re-apply;
  *   - `resized(l, px)` a sash gesture or a dock size change: sizes only, from a
  *                      tree of the same shape, never re-applied;
- *   - `setPoppedOut()` a panel left for, or came back from, its own window.
+ *   - `detach(k)`, `reattach(k)`, `forget(k)`
+ *                      a pane left for its own window, came back beside its
+ *                      old neighbour (the injected placement, below), or its
+ *                      window closed and it is not docked again;
+ *   - `setPoppedOut()` a panel left for, or came back from, a page-engine
+ *                      window (popout.js, until the window engine replaces it).
+ *
+ * The detached panes are kept by dock-detached.js, which the holder composes.
+ * Detached state is never stored: `persisted()` is the live layout with every
+ * detached pane docked again where it was, the form localStorage and the
+ * session layout keep. Where a pane lands is the placement the page injects
+ * (dock-open.js's `detachPlacement`).
  *
  * This is the only module that calls dockview mutators (a repository test,
  * test_dock_mutator_guard.py, keeps it so). Applying a layout is one
@@ -36,9 +49,10 @@
  *     subtree is moved, never rebuilt — createComponent hands dockview the same
  *     adopted node) and a focused header bar, re-found by tile and key.
  *
- * This module imports nothing but the engine and the policy (which imports
- * the engine alone), so the pure repair (dock-reconcile.js) and the placement
- * rules (dock-open.js) can read its vocabulary without pulling the page in.
+ * This module imports nothing but the engine, the policy (which imports the
+ * engine alone) and dock-detached.js (which imports those two), so the pure
+ * repair (dock-reconcile.js) and the placement rules (dock-open.js) can read
+ * its vocabulary without pulling the page in.
  */
 
 import {
@@ -56,6 +70,7 @@ import {
   validateLayout,
 } from '/static/vendor/dock-engine.mjs';
 import { ONE_PANEL_PER_TILE, crowdedTile, onePanelPerTile } from './dock-policy.js';
+import { DETACHED, createDetachedPanes, panelRecordOf } from './dock-detached.js';
 
 /** @typedef {import('/static/vendor/dock-engine.mjs').Layout} Layout */
 /** @typedef {import('/static/vendor/dock-engine.mjs').Tile} Tile */
@@ -89,6 +104,9 @@ import { ONE_PANEL_PER_TILE, crowdedTile, onePanelPerTile } from './dock-policy.
  * @property {string} [title]
  * @property {any} [params]
  */
+
+/** @typedef {import('./dock-detached.js').DetachedEntry} DetachedEntry */
+/** @typedef {import('./dock-detached.js').Placement} Placement */
 
 /** The terminal/chat card's layout key, which is also its dockview id (never prefixed). */
 export const TERMINAL_KEY = 'terminal';
@@ -501,6 +519,8 @@ function withSizes(held, sized) {
  * @property {(key: string) => PanelRecord | undefined} [newPanel]  extra state for a key
  *   the holder holds no record for (a restored store's panel records)
  * @property {DockSize} [dockPx]  the dock's px; dockview's own width and height by default
+ * @property {Placement} [placement]  where a detached pane lands (dock-open.js's
+ *   `detachPlacement`); without one a pane can leave but not come back
  */
 
 /**
@@ -508,7 +528,7 @@ function withSizes(held, sized) {
  * @param {HolderDeps} [deps]
  */
 export function createLayoutHolder(deps = {}) {
-  const { api = null, newPanel } = deps;
+  const { api = null, newPanel, placement = null } = deps;
   const guard = deps.guard ?? ((/** @type {() => any} */ fn) => fn());
   /** @type {Layout|null} */
   let layout = null;
@@ -516,8 +536,10 @@ export function createLayoutHolder(deps = {}) {
   let focusedTile = null;
   /** @type {string|null} */
   let lastServiceTile = null;
-  /** @type {Set<string>} */
+  /** The page-engine pop-outs (popout.js); removed with that engine.
+   *  @type {Set<string>} */
   const popouts = new Set();
+  const panes = createDetachedPanes(placement);
   /** @type {Map<string, PanelRecord>} */
   const records = new Map();
   /** @type {CloseRecord[]} */
@@ -548,19 +570,41 @@ export function createLayoutHolder(deps = {}) {
   /** @param {string} key @returns {PanelRecord | undefined} */
   const recordOf = (key) => records.get(key) ?? newPanel?.(key);
 
+  /** dockview's stored panel entries by id; none from an unreadable dock.
+   *  @returns {Record<string, PanelState>} */
+  const livePanels = () => {
+    try {
+      return api?.toJSON?.().panels ?? {};
+    } catch {
+      return {};
+    }
+  };
+
+  /** The record a key's panel is built with now. @param {string} key */
+  const liveRecordOf = (key) => panelRecordOf(livePanels()[panelIdOf(key)]) ?? recordOf(key);
+
+  /**
+   * Keep a result from detach or reattach, which bypass `run` (it refuses
+   * detached keys): assigned and applied as `restore` does, then announced.
+   * @param {OpResult} result
+   * @returns {true}
+   */
+  const commitDetached = (result) => {
+    layout = result.layout;
+    dirty = true;
+    if (result.focus !== undefined) focusedTile = result.focus;
+    track();
+    void holder.apply();
+    panes.changed();
+    return true;
+  };
+
   /** @returns {Promise<boolean>} */
   const applyNow = () => {
     if (!api) return Promise.resolve(false);
     const saved = saveFocus(api);
-    /** @type {Record<string, PanelState>} */
-    let panels = {};
-    try {
-      panels = api.toJSON?.().panels ?? {};
-    } catch {
-      /* an unreadable dock keeps no entries beyond the records */
-    }
     const serialized = toSerialized(layout, px(), {
-      panels,
+      panels: livePanels(),
       newPanel: recordOf,
       activeTile: focusedTile,
     });
@@ -587,9 +631,10 @@ export function createLayoutHolder(deps = {}) {
     get lastServiceTile() {
       return lastServiceTile;
     },
-    /** The panels living in their own pop-out windows, sorted. */
+    /** The panes living in windows of their own, sorted: the detached panes
+     *  and the page-engine pop-outs. The server and the agent read it. */
     get popouts() {
-      return [...popouts].sort();
+      return [...new Set([...panes.queries.detachedKeys(), ...popouts])].sort();
     },
     /** Close records, oldest first (do not mutate). */
     get closed() {
@@ -620,7 +665,9 @@ export function createLayoutHolder(deps = {}) {
      * Run an engine operation on the held layout; a changed result is kept and
      * applied, a record is kept for undo, `focus` moves the focused tile. A
      * result giving a tile several panels breaks the policy: it is refused by
-     * name (`refusal: 'one_panel_per_tile'`) and nothing changes.
+     * name (`refusal: 'one_panel_per_tile'`) and nothing changes. So is one
+     * docking a detached pane (`refusal: 'detached'`): only `reattach` brings
+     * a pane back from its window.
      * @param {(layout: Layout|null, ctx: OpContext) => OpResult} op
      * @returns {OpResult & {refusal?: string}}
      */
@@ -629,6 +676,9 @@ export function createLayoutHolder(deps = {}) {
       if (!result) return result;
       if (result.changed && crowdedTile(result.layout) !== null) {
         return { layout, changed: false, refusal: ONE_PANEL_PER_TILE };
+      }
+      if (result.changed && panes.docks(result.layout)) {
+        return { layout, changed: false, refusal: DETACHED };
       }
       if (result.record) {
         closed.push(result.record);
@@ -658,15 +708,17 @@ export function createLayoutHolder(deps = {}) {
      * Replace the layout with a saved dock: validated and normalised, no undo
      * record. A tile saved with several panels (a dock stored by the release
      * that had tabs) keeps the one it showed; the others leave the dock and
-     * keep their sidebar rows. False (and nothing changes) for an invalid
-     * layout.
+     * keep their sidebar rows. A detached pane the layout holds is taken out
+     * again, and comes back by that layout's place for it (a stored layout, a
+     * session switch, Reset layout). False (and nothing changes) for an
+     * invalid layout.
      * @param {unknown} input
      * @returns {boolean}
      */
     restore(input) {
       if (input !== null && !validateLayout(input, { form: 'dock' }).valid) return false;
       const saved = input === null ? null : structuredClone(/** @type {Layout} */ (input));
-      const kept = onePanelPerTile(saved).layout;
+      const kept = panes.prune(onePanelPerTile(saved).layout);
       layout = kept === null ? null : normalize(kept);
       dirty = true;
       track();
@@ -723,6 +775,61 @@ export function createLayoutHolder(deps = {}) {
       dirty = true;
       return true;
     },
+
+    /**
+     * A pane leaves for its own window: its tile closes (the engine's leave
+     * rule) and the holder keeps what brings it back. No undo record is kept,
+     * so Undo never docks a detached pane. The entry is stored BEFORE the
+     * apply, so the geometry pass that follows already sees the pane detached
+     * and never conceals the content on its way out. False, storing nothing,
+     * for a key the dock does not hold.
+     * @param {string} key
+     * @param {string|null} [page]  the root-relative page it is on
+     * @returns {boolean}
+     */
+    detach(key, page = null) {
+      const result = panes.leave(layout, key, liveRecordOf(key), page);
+      return result ? commitDetached(result) : false;
+    },
+
+    /**
+     * Bring a detached pane back by the injected placement: beside its old
+     * neighbour, on the same side, or by the open rule when that neighbour is
+     * gone. False, keeping the entry, when the placement finds no place (no
+     * room beside the neighbour) or there is no placement; the caller keeps
+     * the window open.
+     * @param {string} key
+     * @returns {boolean}
+     */
+    reattach(key) {
+      const left = panes.queries.detachedEntry(key)?.panelRecord;
+      const result = panes.comeBack(layout, key, holder.context());
+      if (!result) return false;
+      // The dock no longer holds its entry, and a session switch since may have
+      // replaced the records `newPanel` reads.
+      if (left) records.set(key, { ...left, ...records.get(key) });
+      return commitDetached(result);
+    },
+
+    /**
+     * A detached pane's window closed (R4): forget it without docking it.
+     * @param {string} key
+     * @returns {boolean} whether it was detached
+     */
+    forget(key) {
+      const gone = panes.forget(key);
+      if (gone) dirty = true;
+      return gone;
+    },
+
+    ...panes.queries,
+
+    /**
+     * The layout to store (R7): the live one with every detached pane docked
+     * again where it was (dock-detached.js).
+     * @returns {Layout|null}
+     */
+    persisted: () => panes.persisted(layout, holder.context()),
 
     /**
      * Remember the title and params a key's panel is built with when it next
@@ -799,4 +906,14 @@ export function initLayoutHolder(deps) {
  */
 export function getLayoutHolder() {
   return current;
+}
+
+/**
+ * Whether the pane `id` (a service panel's bare id, or `terminal`) is in a
+ * window of its own on the page's holder.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isDetached(id) {
+  return current?.isDetached(id) ?? false;
 }

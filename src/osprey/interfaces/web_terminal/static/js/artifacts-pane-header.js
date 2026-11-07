@@ -13,7 +13,7 @@
  * click's own task: the hub holds the entry, and the URLs are the gallery's
  * own (artifacts types.js `openUrl`, state.js `fileUrl`) under the proxy's
  * mount, so the viewer has nothing to add. The tile's ⋯ menu gets the
- * artifact verbs the viewer runs (pin, print, logbook, delete). Print opens
+ * artifact verbs the viewer runs (print, logbook, delete). Print opens
  * its window from the viewer's message task, which a popup blocker lets
  * through: the viewer is a first-party frame on the hub's origin with
  * `allow-popups`, and the HTML standard gives a click's activation to the
@@ -29,7 +29,7 @@ import { titleOf } from './sidebar-artifact-rows.js';
 
 /**
  * @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry
- * @typedef {'pin' | 'unpin' | 'print' | 'logbook' | 'delete'} ArtifactAction
+ * @typedef {'print' | 'logbook' | 'delete'} ArtifactAction
  */
 
 /**
@@ -86,7 +86,7 @@ export function headerItems(shown, position) {
       priority: 9,
       disabled: index <= 0,
     },
-    { kind: 'text', id: 'pager', text: `${index + 1} of ${count}`, priority: 9 },
+    { kind: 'count', id: 'pager', text: `${index + 1} of ${count}`, priority: 9 },
     {
       kind: 'button',
       id: 'next',
@@ -160,11 +160,7 @@ export function saveArtifact(entry) {
  * @returns {{label: string, run: () => void, danger?: boolean}[]}
  */
 export function menuItems(shown, send) {
-  const pin = shown.pinned
-    ? { label: 'Unpin artifact', run: () => send('unpin') }
-    : { label: 'Pin artifact', run: () => send('pin') };
   return [
-    pin,
     { label: 'Print artifact', run: () => send('print') },
     { label: 'Compose logbook entry', run: () => send('logbook') },
     { label: 'Delete artifact', danger: true, run: () => send('delete') },

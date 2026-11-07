@@ -132,9 +132,13 @@ class TestDockLessReportsUnknownLayout:
         client = _make_client()
         assert _report(client, LAYOUT, dock=False).json()["layout"] is None
 
-    def test_dock_true_requires_a_layout(self):
+    def test_dock_true_with_a_null_layout_is_an_empty_dock(self):
         client = _make_client()
-        assert _report(client, None, dock=True).status_code == 422
+        resp = _report(client, None, dock=True)
+        assert resp.status_code == 200
+        assert resp.json()["layout"] is None
+        assert client.app.state.layout_dock is True
+        assert client.app.state.dock_client_id == "page-a"
 
 
 class TestDedupe:
@@ -271,6 +275,68 @@ class TestValidation:
     def test_dock_and_client_id_are_required(self, body):
         client = _make_client()
         assert client.post("/api/panel-layout", json=body).status_code == 422
+
+
+def _report_popouts(client: TestClient, layout, popouts: list[str]):
+    return client.post(
+        "/api/panel-layout",
+        json={"layout": layout, "dock": True, "client_id": "page-a", "popouts": popouts},
+    )
+
+
+class TestPopouts:
+    """A pane in a window of its own: any service panel, and the Agent pane."""
+
+    def test_a_detached_service_panel_is_recorded_beside_the_layout(self):
+        client = _make_client()
+        body = _report_popouts(client, TERMINAL_ONLY, ["ariel"]).json()
+        assert body["popouts"] == ["ariel"]
+        assert client.app.state.dock_popouts == ["ariel"]
+
+    def test_the_agent_pane_may_be_detached(self):
+        client = _make_client()
+        only_ariel = {"tile": "2", "tabs": ["ariel"], "showing": "ariel"}
+        resp = _report_popouts(client, only_ariel, ["terminal"])
+        assert resp.status_code == 200
+        assert resp.json()["popouts"] == ["terminal"]
+
+    @pytest.mark.parametrize("key", ["ariel", "terminal"])
+    def test_a_pane_both_docked_and_detached_is_refused(self, key):
+        client = _make_client()
+        resp = _report_popouts(client, LAYOUT, [key])
+        assert resp.status_code == 422
+        assert "cannot also be in the layout" in resp.json()["detail"]
+
+    def test_an_unknown_pop_out_is_refused(self):
+        client = _make_client()
+        assert _report_popouts(client, TERMINAL_ONLY, ["nope"]).status_code == 422
+
+    def test_a_null_layout_with_the_agent_detached_is_an_empty_dock(self):
+        """Detaching the Agent pane from the default layout leaves the dock empty."""
+        client = _make_client()
+        resp = _report_popouts(client, None, ["terminal"])
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["layout"] is None
+        assert body["popouts"] == ["terminal"]
+        assert body["dock"] is True
+        assert client.app.state.dock_client_id == "page-a"
+        panels = _panels(client)
+        assert panels["layout"] is None
+        assert panels["layout_dock"] is True
+        assert panels["popouts"] == ["terminal"]
+
+    def test_the_last_detached_pane_going_clears_the_stored_pop_outs(self):
+        """Its window closed over an empty dock: the server must stop naming it."""
+        client = _make_client()
+        rev = _report_popouts(client, None, ["terminal"]).json()["rev"]
+        resp = _report_popouts(client, None, [])
+        assert resp.status_code == 200
+        assert resp.json()["rev"] == rev + 1
+        panels = _panels(client)
+        assert panels["layout"] is None
+        assert panels["popouts"] == []
+        assert panels["layout_dock"] is True
 
 
 class TestGetPanels:

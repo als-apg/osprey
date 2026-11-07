@@ -1,8 +1,9 @@
 /**
  * The session tree's context menus (sidebar-artifact-menus.js): each row
- * kind's exact items, New session through switchTo, rename in place, the
- * transcript export, a disabled approval preview, and the delete guard on an
- * artifact, on a run head and on a past session.
+ * kind's exact items, New session through switchTo, a session's Pin / Unpin
+ * and Show pinned sessions, rename in place, the transcript export, a
+ * disabled approval preview, and the delete guard on an artifact, on a run
+ * head and on a past session.
  *
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifact-menus.test.mjs
  */
@@ -16,6 +17,7 @@ const sessionModel = vi.hoisted(() => ({
   rows: vi.fn(() => [{ transcript_id: 't1', session_key: 'k1', title: 'Beam study' }]),
   refresh: vi.fn(),
   forgetSession: vi.fn(),
+  setPinned: vi.fn(async () => true),
 }));
 const listing = vi.hoisted(() => ({
   ARTIFACTS_BASE: '/panel/artifacts',
@@ -45,7 +47,7 @@ vi.mock(
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar.js', () => sidebar);
 
 const menus = await import(`${JS}/sidebar-artifact-menus.js`);
-const pointer = await import(`${JS}/session-pointer.js`);
+const pins = await import(`${JS}/sidebar-session-pins.js`);
 
 const RUN = {
   id: 'run1',
@@ -56,7 +58,7 @@ const RUN = {
     { id: 'code1', role: 'code' },
   ],
 };
-const PLOT = { id: 'a1', title: 'BPM plot', pinned: false };
+const PLOT = { id: 'a1', title: 'BPM plot' };
 
 /** Build a tree: a session (open), a group head, a run head with parts, an artifact. */
 function buildTree() {
@@ -125,6 +127,8 @@ beforeEach(() => {
 afterEach(() => {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   menus.teardownTreeMenus();
+  pins.resetSessionPins();
+  localStorage.clear();
   document.body.innerHTML = '';
 });
 
@@ -133,7 +137,11 @@ describe('the Agent row', () => {
     const items = menus.buildAgentRowMenuItems();
     /** @param {{label?: string}} i */
     const label = (i) => i.label;
-    expect(items.filter(label).map(label)).toEqual(['New session', 'Expand all']);
+    expect(items.filter(label).map(label)).toEqual([
+      'New session',
+      'Expand all',
+      'Show pinned sessions',
+    ]);
     items[0].run();
     await vi.waitFor(() => expect(sessionModel.switchTo).toHaveBeenCalledWith({ new: true }));
   });
@@ -152,7 +160,7 @@ describe('the Agent row: Expand all / Collapse all', () => {
   test('the label reads Collapse all only when every session is open, and collapses them all', async () => {
     $('[data-session-id="t1"]').setAttribute('aria-expanded', 'true');
     const labels = menus.buildAgentRowMenuItems().map((/** @type {any} */ i) => i.label);
-    expect(labels.filter(Boolean)).toEqual(['New session', 'Collapse all']);
+    expect(labels.filter(Boolean)).toEqual(['New session', 'Collapse all', 'Show pinned sessions']);
     item('Collapse all').run();
     await vi.waitFor(() => expect(sidebar.toggleEverySession).toHaveBeenCalledWith(false));
   });
@@ -166,6 +174,28 @@ describe('the Agent row: Expand all / Collapse all', () => {
     $('[data-session-tree]').append(other);
     expect(item('Expand all')).toBeDefined();
   });
+
+  test('a pinned copy of a session does not count for Collapse all', () => {
+    $('[data-session-id="t1"]').setAttribute('aria-expanded', 'true');
+    const copy = document.createElement('div');
+    copy.className = 'osprey-tree-session osprey-tree-d0';
+    copy.dataset.sessionId = 't1';
+    copy.dataset.where = 'pinned';
+    copy.setAttribute('aria-expanded', 'false');
+    $('[data-session-tree]').append(copy);
+    expect(item('Collapse all')).toBeDefined();
+  });
+
+  test('Show pinned sessions: greyed with nothing pinned, else checked and toggles', () => {
+    const show = () => /** @type {any} */ (item('Show pinned sessions'));
+    expect(show()).toMatchObject({ checked: false, disabled: true, tip: 'No pinned sessions' });
+    pins.paintPinnedGroup(2);
+    expect(show()).toMatchObject({ checked: true, disabled: false });
+    show().run();
+    expect(show()).toMatchObject({ checked: false, disabled: false });
+    show().run();
+    expect(show().checked).toBe(true);
+  });
 });
 
 describe('a session row', () => {
@@ -173,6 +203,7 @@ describe('a session row', () => {
     const ev = await rightClick($('.osprey-tree-title'));
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
+      'Pin',
       'Group by Kind',
       'Group by Activity',
       'Rename…',
@@ -182,6 +213,24 @@ describe('a session row', () => {
     ]);
     expect(menuRow('Group by Kind').getAttribute('aria-checked')).toBe('true');
     expect(menuRow('Open in Agent')).toBeUndefined();
+  });
+
+  test('Pin is first and pins the session; on a pinned row it is Unpin', async () => {
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Pin').click();
+    await vi.waitFor(() => expect(sessionModel.setPinned).toHaveBeenCalledWith('t1', true));
+    document.querySelector('.rail-context-menu')?.remove();
+    $('[data-session-id="t1"]').dataset.pinned = '2026-11-06T10:00:00+00:00';
+    await rightClick($('.osprey-tree-title'));
+    expect(menuLabels()[0]).toBe('Unpin');
+    menuRow('Unpin').click();
+    await vi.waitFor(() => expect(sessionModel.setPinned).toHaveBeenCalledWith('t1', false));
+  });
+
+  test('a synthesized session (no transcript) has no Pin', async () => {
+    $('[data-session-id="t1"]').dataset.sessionId = 'key:k1';
+    await rightClick($('.osprey-tree-title'));
+    expect(menuLabels()[0]).toBe('Group by Kind');
   });
 
   test('Use automatic name appears only on a hand-named session', async () => {
@@ -253,7 +302,7 @@ describe('a session row', () => {
     });
     $('.osprey-tree-title').dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
-    await vi.waitFor(() => expect(menuLabels()[0]).toBe('Group by Kind'));
+    await vi.waitFor(() => expect(menuLabels()[0]).toBe('Pin'));
   });
 });
 
@@ -365,9 +414,9 @@ describe('a run head', () => {
 });
 
 describe('an artifact row', () => {
-  test('Open, Pin, Delete…, Copy ID', async () => {
+  test('Open, Delete…, Copy ID (no Pin)', async () => {
     await rightClick($('[data-id="a1"]'));
-    expect(menuLabels()).toEqual(['Open', 'Pin', 'Delete…', 'Copy ID']);
+    expect(menuLabels()).toEqual(['Open', 'Delete…', 'Copy ID']);
   });
 
   test('Delete… confirms before anything is deleted', async () => {
@@ -393,30 +442,6 @@ describe('an artifact row', () => {
     await confirm.showConfirm.mock.calls[0][0].onConfirm(ui);
     expect(ui.done).not.toHaveBeenCalled();
     expect(ui.error.hidden).toBe(false);
-  });
-
-  test('Pin posts the flipped state', async () => {
-    pointer.clearPointer();
-    await rightClick($('[data-id="a1"]'));
-    menuRow('Pin').click();
-    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
-    const [url, init] = /** @type {any} */ (globalThis.fetch).mock.calls[0];
-    expect(url).toBe('/panel/artifacts/api/artifacts/a1/pin');
-    expect(JSON.parse(init.body)).toEqual({ pinned: true });
-  });
-
-  test("Pin names the operator's current session, not the row's", async () => {
-    // The row's session is k1; the operator is on another key.
-    pointer.setPointer('k-current');
-    try {
-      await rightClick($('[data-id="a1"]'));
-      menuRow('Pin').click();
-      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
-      const [, init] = /** @type {any} */ (globalThis.fetch).mock.calls[0];
-      expect(JSON.parse(init.body)).toEqual({ pinned: true, session_key: 'k-current' });
-    } finally {
-      pointer.clearPointer();
-    }
   });
 
   test('a row outside the tree is left to the browser', () => {
@@ -467,14 +492,5 @@ describe('behind the hub prefix (/u/alice)', () => {
       click.mockRestore();
     }
     expect(href).toBe('/u/alice/api/sessions/t1/transcript.md');
-  });
-
-  test('Pin goes under the prefix', async () => {
-    await rightClick($('[data-id="a1"]'));
-    menuRow('Pin').click();
-    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
-    expect(/** @type {any} */ (globalThis.fetch).mock.calls[0][0]).toBe(
-      '/u/alice/panel/artifacts/api/artifacts/a1/pin'
-    );
   });
 });

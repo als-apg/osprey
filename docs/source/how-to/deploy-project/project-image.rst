@@ -180,7 +180,9 @@ shell, the same way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
 ``osprey up`` sets two more ARGs itself, and you normally never set them by
 hand:
 
-- ``OSPREY_DEV`` makes ``osprey up --dev`` install a locally built wheel.
+- ``OSPREY_DEV`` makes ``osprey up --dev`` install a locally built wheel,
+  beside an ``osprey-lock-constraints.txt`` that holds every third-party
+  package to the checkout's ``uv.lock`` (:ref:`development-mode`).
 - ``OSPREY_PIP_PRE`` is ``"1"`` when the pinned OSPREY version is a
   pre-release. The ``pip`` resolve inside the image then admits the
   pre-release of ``osprey-connectors`` that ships beside it.

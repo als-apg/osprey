@@ -869,6 +869,10 @@ class _ProjectVenvPlan(NamedTuple):
     member_requirements: list[str]
     install_deps: list[str] | None = None
     deployment_packages: tuple[DeploymentPackage, ...] = ()
+    #: The osprey checkout's ``uv.lock`` exported as constraints, when the spec
+    #: installs a source checkout that has one; ``None`` otherwise. See
+    #: :mod:`osprey.deployment.lock_constraints`.
+    lock_constraints: str | None = None
 
 
 def deployment_dependencies(
@@ -1006,7 +1010,37 @@ def _plan_project_venv(
         member_requirements=member_requirements,
         install_deps=install_deps,
         deployment_packages=packages,
+        lock_constraints=source_lock_constraints(osprey_spec) if install else None,
     )
+
+
+def source_lock_constraints(osprey_spec: str) -> str | None:
+    """The lock constraints a venv installing *osprey_spec* is held to, if any.
+
+    A spec naming a local osprey checkout that carries a ``uv.lock`` (the
+    editable install ``"local"`` resolves to, or a path given as
+    ``osprey_install``) installs the checkout's third-party dependencies at the
+    versions that lock holds, exactly as a ``--dev`` image built from the same
+    checkout does. Any other spec — a release pin, a ``git+`` URL, a source
+    tree without a lock — resolves from the index as before.
+
+    :raises BuildProfileError: If the checkout has a lock that cannot be
+        exported (out of date with ``pyproject.toml``, or no ``uv`` to export
+        it with); the build stops rather than resolving fresh.
+    """
+    from osprey.deployment.lock_constraints import (
+        LockExportError,
+        checkout_lock_root,
+        export_lock_constraints,
+    )
+
+    root = checkout_lock_root(osprey_spec)
+    if root is None:
+        return None
+    try:
+        return export_lock_constraints(root)
+    except LockExportError as e:
+        raise BuildProfileError(f"{e.reason}.\n        {e.remedy}") from e
 
 
 def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
@@ -1091,12 +1125,24 @@ def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
     venv_python = venv_path / "bin" / "python"
     dep_count = len(extra_deps)
 
+    # A source checkout's own lock bounds every third-party package the
+    # install resolves (see source_lock_constraints). The file is written
+    # beside the venv rather than to a temp dir: it is the record of what the
+    # install was held to, next to the environment it describes.
+    constraint_args: list[str] = []
+    if plan.lock_constraints is not None:
+        lock_file = venv_path / "osprey-lock-constraints.txt"
+        venv_path.mkdir(parents=True, exist_ok=True)
+        lock_file.write_text(plan.lock_constraints, encoding="utf-8")
+        constraint_args = ["-c", str(lock_file)]
+
     if uv_path:
         cmd = [uv_path, "pip", "install", "--quiet", "-p", str(venv_python)]
         if _pins_prerelease(osprey_spec):
             # A beta pin needs the whole resolve to admit pre-releases, or the
             # framework's connectors pair has no candidate; see _pins_prerelease.
             cmd += ["--prerelease", "allow"]
+        cmd += constraint_args
         cmd += all_deps
     else:
         cmd = [
@@ -1110,6 +1156,7 @@ def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
         if _pins_prerelease(osprey_spec):
             # pip draws the same line uv does: see _pins_prerelease.
             cmd.append("--pre")
+        cmd += constraint_args
         cmd += all_deps
         cmd += plan.member_requirements
 

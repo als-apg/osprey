@@ -2,8 +2,8 @@
 """
 ---
 name: Focus State Validator
-description: Injects the prompting session's gallery focus and pins, filtered to that session and to artifacts that still exist
-summary: Keeps one session's focus and pins out of every other session's prompt, and drops ghost-artifact references
+description: Injects the prompting session's gallery focus, filtered to that session and to artifacts that still exist
+summary: Keeps one session's focus out of every other session's prompt, and drops ghost-artifact references
 event: UserPromptSubmit
 ---
 
@@ -18,9 +18,8 @@ stdin ──► UserPromptSubmit payload ── session_id missing / unparsable 
               │
               ▼
    Read <agent-data-root>/artifacts/artifacts.json
-   ├─ unreadable ─► keep the focus lines, add no pins, check no ids
-   └─ readable   ─► drop focus lines whose id is gone;
-                    add `pinned:` per entry pinned with metadata.pinned_in == session
+   ├─ unreadable ─► keep the focus lines, check no ids
+   └─ readable   ─► drop focus lines whose id is gone
               │
               ▼
    Strip the markers ─► print under [Gallery Focus] (nothing if no line) ─► exit 0
@@ -29,16 +28,10 @@ stdin ──► UserPromptSubmit payload ── session_id missing / unparsable 
 ## Details
 
 Contract C7. The gallery writes one ``artifact:`` line per transcript slot,
-each ending in that transcript's ``(session=<id>)`` marker; pins are not in the
-file, so this hook reads them from the artifact index, where
-``ArtifactStore.set_pinned`` records the pinning session in
-``metadata.pinned_in``. A pin needs no gallery route to reach the prompt.
+each ending in that transcript's ``(session=<id>)`` marker.
 
-Filtering happens before any output, on every path. An unmarked line, a line
-marked for another session, and a pin recorded for no session are never
-printed. Titles are re-sanitised the way the writer does it — control
-characters and newlines collapse to a space, ``(id=`` and ``(session=`` lose
-their ``=`` — so no title can end a line or spell a marker.
+Filtering happens before any output, on every path. An unmarked line and a
+line marked for another session are never printed.
 
 Fails open on any error by printing *nothing*, never the raw file, and exits 0
 so the user prompt is never blocked.
@@ -67,10 +60,6 @@ _FOCUS_LINE = re.compile(
     r"^(?P<body>\s*artifact:.*\(id=(?P<id>[^)\s]+)\))\s+\(session=(?P<session>[^)\s]+)\)\s*$"
 )
 
-# Must equal the title sanitiser in osprey.interfaces.artifacts.app (_focus_title).
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]+")
-_MARKER_OPENER = re.compile(r"\((id|session)=")
-
 
 def _read_text(path: Path) -> str:
     try:
@@ -91,11 +80,6 @@ def _session_id(raw_stdin: str) -> str | None:
     if not isinstance(sid, str) or not sid.strip():
         return None
     return sid.strip()
-
-
-def _safe_title(title: object) -> str:
-    text = title if isinstance(title, str) else ""
-    return _MARKER_OPENER.sub(r"(\1 ", _CONTROL_CHARS.sub(" ", text))
 
 
 def _load_entries(artifacts_index: Path) -> list[dict] | None:
@@ -126,26 +110,11 @@ def _focus_lines(raw: str, session_id: str, valid_ids: set[str] | None) -> list[
     return kept
 
 
-def _pin_lines(entries: list[dict], session_id: str, exclude: set[str]) -> list[str]:
-    """One ``pinned:`` line per entry pinned in *session_id*, except *exclude*."""
-    lines: list[str] = []
-    for e in entries:
-        if e.get("pinned") is not True or e["id"] in exclude:
-            continue
-        meta = e.get("metadata")
-        if not isinstance(meta, dict) or meta.get("pinned_in") != session_id:
-            continue
-        lines.append(f'  pinned:   "{_safe_title(e.get("title"))}" (id={e["id"]})')
-    return lines
-
-
 def render(session_id: str, focus_raw: str, entries: list[dict] | None) -> str:
     """The text injected for *session_id* (contract C7), ``""`` when none."""
     valid_ids = None if entries is None else {e["id"] for e in entries}
     focus = _focus_lines(focus_raw, session_id, valid_ids)
     lines = [line for _, line in focus]
-    if entries is not None:
-        lines += _pin_lines(entries, session_id, {aid for aid, _ in focus})
     if not lines:
         return ""
     return _HEADER + "\n" + "\n".join(lines) + "\n"

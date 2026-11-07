@@ -3284,15 +3284,15 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(opened.defaultPrevented).toBe(true);
   });
 
-  test('on the terminal surface the Agent row offers the session verbs; its tile pairs restart with reconnect', async () => {
+  test('on the terminal surface the Sessions row offers the session verbs; its tile pairs restart with reconnect', async () => {
     await bootWorkspace({ surface: 'terminal' });
 
     // The Agent row heads the session tree: its menu is the tree's.
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Expand all']);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('Agent actions');
+    expect(menuLabels()).toEqual(['New session', 'Expand all', 'Show pinned sessions']);
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Sessions actions');
 
     // The pane verbs live on the Agent tile header.
     expect(await agentTileMenu()).toBe(true);
@@ -3511,7 +3511,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
         version: 1,
         groups: [
           { id: 'workspace', label: 'Sessions' },
-          { id: 'tools', label: 'Tools' },
+          { id: 'tools', label: 'Apps' },
         ],
         placement: { okf: 'workspace' },
       })
@@ -3637,7 +3637,7 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
 
     // The moved row offers the way back.
     rightClick(entry('ariel'));
-    expect(menuLabels()).toContain('Move to Tools');
+    expect(menuLabels()).toContain('Move to Apps');
     expect(menuLabels()).not.toContain('Move to Sessions');
   });
 
@@ -3648,7 +3648,7 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
 
     const groups = [...document.querySelectorAll('#panel-rail > .sidebar-group')];
     const ids = groups.map((g) => g.getAttribute('data-group'));
-    // okf sits in Tools (its default group), so the new group lands below Tools.
+    // okf sits in Apps (its default group), so the new group lands below Apps.
     expect(ids).toEqual(['workspace', 'tools', expect.stringMatching(/^g-[0-9a-f]{8}$/), 'system']);
     expect(groups[2].contains(entry('okf'))).toBe(true);
     const field = groups[2].querySelector('.sidebar-group-rename');

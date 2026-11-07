@@ -155,12 +155,12 @@ describe('the Agent tile header', () => {
   });
 });
 
-describe('the Agent row', () => {
+describe('the Sessions row', () => {
   test('offers the session tree’s menu, not the pane verbs', () => {
     expect(policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1)).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Expand all']);
+    expect(menuLabels()).toEqual(['New session', 'Expand all', 'Show pinned sessions']);
     expect(document.querySelector('.rail-context-menu')?.getAttribute('aria-label')).toBe(
-      'Agent actions'
+      'Sessions actions'
     );
   });
 
@@ -175,7 +175,7 @@ describe('the Agent row', () => {
     document.body.append(treeEl);
 
     policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1);
-    expect(menuLabels()).toEqual(['New session', 'Collapse all']);
+    expect(menuLabels()).toEqual(['New session', 'Collapse all', 'Show pinned sessions']);
     menuRow('Collapse all').click();
     await vi.waitFor(() => expect(tree.toggleAllSessions).toHaveBeenCalledWith(false));
   });

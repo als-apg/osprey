@@ -208,11 +208,10 @@ def _load_snapshot(path):
 def _normalize_tiles(tiles):
     """Coerce a snapshot's ``tiles`` into the tile list, or None when unknown.
 
-    Anything but a non-empty list of well-formed ``{"tile", "panel"}`` tiles is
-    unknown. A live layout always holds at least one tile, so ``[]`` is never a
-    real current state.
+    Anything but a list of well-formed ``{"tile", "panel"}`` tiles is unknown.
+    ``[]`` is an empty dock: every pane is in a window of its own.
     """
-    if not isinstance(tiles, list) or not tiles:
+    if not isinstance(tiles, list):
         return None
     out = []
     for tile in tiles:
@@ -316,8 +315,15 @@ def _occupancy_is_known(data):
     A missing or null ``layout_dock`` says nothing either way; only an
     explicit ``false`` forces unknown. A layout that is present but malformed is
     caught one step later, by :func:`_layout_tiles` returning None.
+
+    One null layout is known: a ``layout_dock: true`` report. That dock said it
+    is empty (its panes in windows of their own, named by ``popouts``, or
+    closed), which is a workspace, not silence.
     """
-    if not isinstance(data.get("layout"), dict):
+    layout = data.get("layout")
+    if layout is None:
+        return data.get("layout_dock") is True
+    if not isinstance(layout, dict):
         return False
     return data.get("layout_dock") is not False
 
@@ -330,7 +336,9 @@ def _workspace_state(data):
     is not the same as empty, and the difference decides whether this hook says
     anything about tiles at all.
     """
-    tiles = _layout_tiles(data.get("layout")) if _occupancy_is_known(data) else None
+    tiles = None
+    if _occupancy_is_known(data):
+        tiles = [] if data.get("layout") is None else _layout_tiles(data.get("layout"))
     return _normalize_state(
         {
             "tiles": tiles,
@@ -392,7 +400,7 @@ def _describe_tiles(previous, current):
     if after is None:
         return []
     if before is None:
-        return [f"tiles now {_render_tiles(after)}"]
+        return [f"tiles now {_render_tiles(after) if after else 'none'}"]
 
     tile_before = {tile["panel"]: tile["tile"] for tile in before}
     tile_after = {tile["panel"]: tile["tile"] for tile in after}

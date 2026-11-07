@@ -29,10 +29,10 @@ function mountBar() {
 }
 
 /**
- * @param {{ids: string[], pinned?: string[], selected?: string|null, focused?: string|null}} spec
+ * @param {{ids: string[], selected?: string|null, focused?: string|null}} spec
  */
-function makeDeps({ ids, pinned = [], selected = null, focused = null }) {
-  let artifacts = ids.map((id) => ({ id, pinned: pinned.includes(id) }));
+function makeDeps({ ids, selected = null, focused = null }) {
+  let artifacts = ids.map((id) => ({ id }));
   let picked = new Set(ids);
   /** @type {any} */
   let selectedArtifact = selected ? artifacts.find((a) => a.id === selected) : null;
@@ -101,35 +101,10 @@ describe('render', () => {
     expect(els.count.textContent).toBe('3 selected');
     expect(els.deleteBtn.disabled).toBe(false);
   });
-
-  test('disables Delete with the title "Pinned artifacts are kept" when every pick is pinned', () => {
-    const { deps } = makeDeps({ ids: ['a', 'b'], pinned: ['a', 'b'] });
-    const bar = createPickBar(els, deps);
-    bar.render();
-    expect(els.deleteBtn.disabled).toBe(true);
-    expect(els.deleteBtn.title).toBe('Pinned artifacts are kept');
-
-    els.deleteBtn.click();
-    expect(deps.confirm).not.toHaveBeenCalled();
-    expect(deps.fetch).not.toHaveBeenCalled();
-  });
-
-  test('re-enables Delete once an unpinned row is picked', () => {
-    const state = makeDeps({ ids: ['a', 'b', 'c'], pinned: ['a', 'b'] });
-    state.deps.getPickedIds = () => new Set(['a', 'b']);
-    const bar = createPickBar(els, state.deps);
-    bar.render();
-    expect(els.deleteBtn.disabled).toBe(true);
-
-    state.deps.getPickedIds = () => new Set(['a', 'b', 'c']);
-    bar.render();
-    expect(els.deleteBtn.disabled).toBe(false);
-    expect(els.deleteBtn.title).toBe('');
-  });
 });
 
 describe('Delete', () => {
-  test('confirms "Delete 3 artifacts? This cannot be undone." with no pinned rows', () => {
+  test('confirms "Delete 3 artifacts? This cannot be undone."', () => {
     const { deps } = makeDeps({ ids: ['a', 'b', 'c'] });
     deps.confirm.mockReturnValue(false);
     createPickBar(els, deps).render();
@@ -137,23 +112,21 @@ describe('Delete', () => {
     expect(deps.confirm).toHaveBeenCalledWith('Delete 3 artifacts? This cannot be undone.');
   });
 
-  test('confirms "… 2 pinned stay." and sends only the unpinned ids when two of five are pinned', async () => {
-    const { deps } = makeDeps({ ids: ['a', 'b', 'c', 'd', 'e'], pinned: ['b', 'd'] });
-    deps.fetch.mockResolvedValue(okResponse({ deleted: ['a', 'c', 'e'], missing: [] }));
+  test('sends every picked id, the formerly pinned ones too', async () => {
+    const { deps } = makeDeps({ ids: ['a', 'b', 'c', 'd', 'e'] });
+    deps.fetch.mockResolvedValue(okResponse({ deleted: ['a', 'b', 'c', 'd', 'e'], missing: [] }));
     createPickBar(els, deps).render();
 
     els.deleteBtn.click();
     await settle();
 
-    expect(deps.confirm).toHaveBeenCalledWith(
-      'Delete 3 artifacts? 2 pinned stay. This cannot be undone.'
-    );
+    expect(deps.confirm).toHaveBeenCalledWith('Delete 5 artifacts? This cannot be undone.');
     expect(deps.fetch).toHaveBeenCalledTimes(1);
     const [url, init] = deps.fetch.mock.calls[0];
     expect(url).toBe('/api/artifacts/delete');
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(init.body)).toEqual({ ids: ['a', 'c', 'e'] });
+    expect(JSON.parse(init.body)).toEqual({ ids: ['a', 'b', 'c', 'd', 'e'] });
   });
 
   test('a cancelled confirm sends nothing', () => {

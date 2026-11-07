@@ -3945,6 +3945,13 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
         assert (ctx / "osprey-local-requirements.txt").is_file(), (
             f"no local-requirements manifest staged next to the wheels in {ctx}"
         )
+    # The lock constraints too, the same bytes in every context: a byte that
+    # differed would give that image a deps layer of its own.
+    locks = {
+        (ctx / "osprey-lock-constraints.txt").read_bytes()
+        for ctx in (service_ctx, project_image_ctx, render_ctx)
+    }
+    assert len(locks) == 1 and next(iter(locks)), "the lock constraints differ between contexts"
 
 
 def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
@@ -5624,14 +5631,20 @@ def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer(
         'uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION"'
     )
     extras_install = 'pip install "osprey-framework[teams]"'
+    # A source build installs the extra's own requirements there instead.
+    lock_extras_install = (
+        "pip install -c /opt/osprey/lock-constraints.txt "
+        "-r /tmp/extras-ctx/osprey-extra-requirements.txt"
+    )
     assert deps_install in dockerfile
     assert extras_install in dockerfile
     assert (
         dockerfile.index(deps_install)
+        < dockerfile.index(lock_extras_install)
         < dockerfile.index(extras_install)
         < dockerfile.index("# ── wheel layer ─")
     )
-    assert 'pip install "${whl}[teams]"' in dockerfile
+    assert 'pip install $lock "${whl}[teams]"' in dockerfile
     assert '"${whl}"' not in dockerfile
 
 

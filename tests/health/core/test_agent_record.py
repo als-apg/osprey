@@ -478,3 +478,134 @@ def test_a_wrong_terminal_token_is_not_a_healthy_row(record_url):
     env = {URL_ENV: record_url, creds.LOGIN_ENV: "alice:not-the-token"}
     row = _unanswered(agent_record(None, environ=env)())
     assert "401" in row.message
+
+
+# --------------------------------------------------------------------------- #
+# Short values, store facts from the config, spool totals
+# --------------------------------------------------------------------------- #
+
+
+def _rows_with(report: dict[str, Any], config: dict[str, Any] | None) -> list[CheckResult]:
+    client = _Client(ClientAnswer(data=report, complete=True))
+    return agent_record(config, client=client)()
+
+
+def _named(rows: list[CheckResult], name: str) -> CheckResult:
+    found = [r for r in rows if r.name == name]
+    assert len(found) == 1, [r.name for r in rows]
+    return found[0]
+
+
+def test_every_row_carries_a_short_value():
+    rows = _rows(
+        _report(
+            sources={
+                "/spool/alice": _source("alice"),
+                "/spool/bob": _source("bob", idle=False, live=True, backlog_lines=3),
+            },
+            transcripts={"alice-claude-projects": _transcript("alice")},
+        )
+    )
+    assert rows and all(r.value for r in rows), [(r.name, r.value) for r in rows]
+    assert _named(rows, "agent_record_backend").value == "embedded · 12 entries"
+    assert _named(rows, "agent_record_source.alice").value == "idle"
+    assert _named(rows, "agent_record_source.bob").value == "receiving · 3 lines pending"
+    assert _named(rows, "agent_record_transcripts.alice").value == "readable"
+    assert _named(rows, "agent_record_export").value == "up to date"
+
+
+def test_an_unreadable_transcript_root_names_the_errno_and_a_fix():
+    error = (
+        "transcript root /data/transcripts/logbook-claude-projects cannot be read: "
+        "No such file or directory"
+    )
+    rows = _rows(
+        _report(
+            transcripts={
+                "logbook-claude-projects": _transcript("logbook", ok=False, error=error),
+            }
+        )
+    )
+    row = _named(rows, "agent_record_transcripts.logbook")
+    assert row.status is Status.WARNING
+    assert row.value == "root unreadable (ENOENT)"
+    assert row.fix == "docker compose exec agent-record ls /data/transcripts"
+
+
+def test_an_unreadable_root_without_a_path_carries_no_fix():
+    rows = _rows(_report(transcripts={"x": _transcript("x", ok=False, error="permission denied")}))
+    row = _named(rows, "agent_record_transcripts.x")
+    assert row.value == "root unreadable"
+    assert row.fix == ""
+
+
+def test_problem_rows_value_names_the_first_problem_briefly():
+    rows = _rows(
+        _report(sources={"/spool/w": _source("w", stopped=True, idle=False, backlog_lines=4)})
+    )
+    assert _named(rows, "agent_record_source.w").value == "stopped"
+    rows = _rows(_report(export={"lag_days": 3, "last_exported_day": "2026-10-22"}))
+    assert _named(rows, "agent_record_export").value == "3 days behind"
+    rows = _rows(_report(backend={"ok": False, "detail": "cannot open"}))
+    assert _named(rows, "agent_record_backend").value == "not ok"
+
+
+def test_retention_and_readers_come_from_the_agent_record_block():
+    config = {"agent_record": {"retention_days": 90, "readers": [{"name": "carol"}]}}
+    rows = _rows_with(_report(), config)
+    retention = _named(rows, "agent_record.retention")
+    assert retention.status is Status.OK and retention.value == "90 d"
+    reader = _named(rows, "agent_record.readers.carol")
+    assert reader.status is Status.OK and reader.value == "read access"
+    assert not reader.probed
+
+
+def test_a_reader_limited_in_days_says_so():
+    config = {"agent_record": {"readers": [{"name": "dan", "days_back": 7}]}}
+    rows = _rows_with(_report(), config)
+    assert _named(rows, "agent_record.readers.dan").value == "read access · 7 d back"
+
+
+def test_retention_defaults_when_the_block_does_not_spell_it():
+    from osprey.agent_record.config import DEFAULT_RETENTION_DAYS
+
+    rows = _rows_with(_report(), {"agent_record": {}})
+    assert _named(rows, "agent_record.retention").value == f"{DEFAULT_RETENTION_DAYS} d"
+
+
+def test_no_agent_record_block_adds_no_config_rows():
+    rows = _rows_with(_report(), None)
+    assert not [r for r in rows if r.name.startswith("agent_record.retention")]
+    assert not [r for r in rows if r.name.startswith("agent_record.readers")]
+
+
+def test_spool_backlog_and_oldest_uncommitted_segment():
+    rows = _rows(
+        _report(
+            sources={
+                "/spool/a": _source("a", idle=False, backlog_lines=2, oldest_backlog_age_s=30.0),
+                "/spool/b": _source("b", idle=False, backlog_lines=5, oldest_backlog_age_s=75.0),
+            }
+        )
+    )
+    backlog = _named(rows, "agent_record.spool.backlog")
+    assert backlog.status is Status.OK and backlog.value == "7 lines"
+    oldest = _named(rows, "agent_record.spool.oldest")
+    assert oldest.status is Status.OK and oldest.value == "75 s"
+
+
+def test_an_empty_spool_has_no_oldest_segment():
+    rows = _rows(_report(sources={"/spool/a": _source("a")}))
+    assert _named(rows, "agent_record.spool.backlog").value == "0 lines"
+    assert _named(rows, "agent_record.spool.oldest").value == "—"
+
+
+def test_unconfigured_record_row_value_says_not_configured():
+    (row,) = agent_record(None, environ={})()
+    assert row.value == "not configured"
+
+
+def test_an_unanswering_record_row_value_says_no_answer():
+    client = _Client(ClientAnswer.failed("agent-record did not answer within 5 s"))
+    (row,) = agent_record(None, client=client)()
+    assert row.value == "no answer"

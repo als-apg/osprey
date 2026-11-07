@@ -66,6 +66,7 @@ from osprey.deployment.subprocess_capture import run_captured
 # and conftest keep patching / importing it from this module's namespace.
 from osprey.deployment.wheel_build import (
     _copy_local_framework_for_override,
+    _staged_dev_artifact_paths,
     preflight_dev_mode,
 )
 from osprey.deployment.wheel_build import (
@@ -3848,6 +3849,20 @@ def _site_image_args_for_context(config, out_dir):
 #: connectors wheel), not the framework's.
 _DEV_WHEEL_MEMBERS = {"optimizer": "packages/osprey-optimizer"}
 
+#: Build contexts whose image installs extras of its primary wheel (the
+#: framework's, or the member's named in :data:`_DEV_WHEEL_MEMBERS`) before the
+#: wheel layer, keyed by context directory name, mapped to those extras. Their
+#: dev builds are handed the extras' third-party requirements
+#: (``osprey-extra-requirements.txt``), which the image installs under the lock
+#: constraints instead of fetching ``<distribution>[<extra>]`` from the index.
+#: ``test_service_dockerfiles`` holds this to the recipes' own extras.
+_DEV_WHEEL_EXTRAS = {
+    "gchat_bridge": ("gchat",),
+    "optimizer": ("service",),
+    "teams_bridge": ("teams",),
+    "virtual_accelerator": ("virtual-accelerator",),
+}
+
 
 def _stage_dev_wheel_for_context(out_dir, dev_mode):
     """Stage the local dev wheel into a service build context; report success.
@@ -3871,6 +3886,14 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     :return: True iff a wheel was successfully staged into ``out_dir``
     :rtype: bool
     """
+    if os.path.isfile(os.path.join(out_dir, "Dockerfile")):
+        # A context that outlives a deploy (the incremental refresh, a render
+        # in place) may still hold an earlier --dev run's artifacts. The lock
+        # constraints file is the one that matters: its presence alone puts the
+        # Dockerfile on the lock-driven install, so a stale copy would turn this
+        # build into a lock-pinned one whatever mode it was asked for.
+        for artifact in _staged_dev_artifact_paths(out_dir):
+            artifact.unlink()
     if not dev_mode:
         # DEBUG, not INFO — fires once per service build context on every
         # production build, restating a flag the operator already passed.
@@ -3888,8 +3911,11 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     # Raises DevModeUnavailableError rather than returning False when --dev
     # cannot be honored; the deploy stops instead of silently deploying the
     # pinned PyPI release under a flag that means "run my local code".
+    context_name = os.path.basename(out_dir)
     _copy_local_framework_for_override(
-        out_dir, member=_DEV_WHEEL_MEMBERS.get(os.path.basename(out_dir))
+        out_dir,
+        member=_DEV_WHEEL_MEMBERS.get(context_name),
+        extras=_DEV_WHEEL_EXTRAS.get(context_name, ()),
     )
     logger.debug("Development mode: Osprey override prepared")
     return True

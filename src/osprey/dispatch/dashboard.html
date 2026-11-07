@@ -54,9 +54,24 @@ body {
   padding: 14px 20px 12px;
 }
 /* Embedded, the hub's tile bar IS this panel's header: it carries the title,
-   and the main script contributes the tabs and the status sentence to it. A
-   second bar underneath would be a duplicate, so the whole thing goes. */
+   and the main script contributes the tabs to it. A second bar underneath
+   would be a duplicate, so the whole thing goes. */
 body.embedded .app-head { display: none; }
+
+/* Embedded, the status line goes with .app-head, and the tile bar carries no
+   text. The two warnings it held that nothing else on screen says come back
+   here, at the top of the body, only while they hold. Standalone, the status
+   line still says them. */
+.embed-notice {
+  flex-shrink: 0;
+  padding: 8px 20px;
+  background: var(--error-tint-08);
+  border-bottom: 1px solid var(--error-tint-30);
+  color: var(--color-error);
+  font-size: 12px;
+}
+.embed-notice[hidden],
+body:not(.embedded) .embed-notice { display: none; }
 .head-row {
   display: flex;
   align-items: baseline;
@@ -751,6 +766,8 @@ a.btn {
   </div>
 </header>
 
+<div class="embed-notice" id="embed-notice" role="status" hidden></div>
+
 <main id="main">
 
   <!-- Activity: timeline lanes + recent runs -->
@@ -1099,7 +1116,8 @@ function navigate(next, { push = true } = {}) {
    Tile-bar header contribution — the embedded panel's chrome
 
    Embedded, .app-head is hidden and the hub's tile bar carries this panel's
-   chrome instead: the two tabs, and the status sentence behind them. The
+   chrome instead: the two tabs. The status sentence stays standalone-only —
+   the tile bar holds the name and controls, never inert text. The
    design-system helpers are ES modules while this is a classic inline script,
    so they arrive through a dynamic import() rather than a top-level one. Until
    it settles — and standalone, where contributeHeader() is a no-op by
@@ -1117,7 +1135,7 @@ const headerContribReady = import('/design-system/js/header-contrib.js')
 
 /* The hub renders exactly what the LAST contribution says and never mutates
    item state itself, so the WHOLE contribution goes out again on every
-   navigation, status refresh and mode flip. render() is the single call site,
+   navigation and mode flip. render() is the single call site,
    which is what keeps the bar and the body in step. */
 function publishHeader() {
   if (!headerContrib) return;
@@ -1133,9 +1151,6 @@ function publishHeader() {
         { id: 'triggers', label: 'Triggers', active: triggersSide },
       ],
     },
-    // Longest item in the bar and the least urgent — a narrow tile drops the
-    // status sentence before it drops the way to change screens.
-    { kind: 'text', id: 'status', text: $('#status-text').textContent, priority: -1 },
   ]);
 }
 
@@ -1177,6 +1192,23 @@ function saveUrl() {
    Status line — the four counters, in one sentence
    ============================================================ */
 
+const WORKER_UNREACHABLE = 'Cannot reach the dispatch worker — the runs below may be out of date.';
+
+/* The embedded body's banner: the worker being unreachable, and a full queue.
+   While reads are refused, the body already says so and the worker state is
+   stale, so the banner stays down. */
+function renderNotice() {
+  const box = $('#embed-notice');
+  const lines = [];
+  if (!authBlocked) {
+    if (lastWorkerError) lines.push(WORKER_UNREACHABLE);
+    const queued = (state.pool || {}).queued;
+    if (queued) lines.push(`Queue full — ${queued} waiting.`);
+  }
+  box.replaceChildren(...lines.map((t) => el('div', { textContent: t })));
+  box.hidden = lines.length === 0;
+}
+
 function renderStatus() {
   const line = $('#status-line');
   const text = $('#status-text');
@@ -1190,7 +1222,7 @@ function renderStatus() {
   if (lastWorkerError) {
     // Persistent, not a toast: a stale run list must never look fresh.
     line.classList.add('is-degraded');
-    text.textContent = 'Cannot reach the dispatch worker — the runs below may be out of date.';
+    text.textContent = WORKER_UNREACHABLE;
     return;
   }
 
@@ -1930,7 +1962,7 @@ async function toggleTrigger(name, currentStatus) {
 
 function render() {
   renderStatus();
-  // After renderStatus(), so the contributed status text is the one on screen.
+  renderNotice();
   publishHeader();
   if (view.name === 'activity') { renderLanes(); renderRunList(); }
   else if (view.name === 'triggers') renderTriggerList();

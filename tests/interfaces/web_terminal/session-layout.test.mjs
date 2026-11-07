@@ -327,3 +327,62 @@ describe('writing', () => {
     expect(call?.[1].keepalive).toBe(true);
   });
 });
+
+describe('a detached pane', () => {
+  /** The page holder, with `knowledge` docked beside the terminal and then detached. */
+  async function detachKnowledge(/** @type {string | null} */ page) {
+    const { initLayoutHolder } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js');
+    const { detachPlacement } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/dock-open.js');
+    const holder = initLayoutHolder({
+      dockPx: { width: 1000, height: 600 },
+      placement: detachPlacement,
+    });
+    holder.restore({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['knowledge'], showing: 'knowledge', size: 0.6 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+      ],
+    });
+    return { holder, detach: () => holder.detach('knowledge', page) };
+  }
+
+  test('its page is read live from its frame, else the page it left with', async () => {
+    const { detach } = await detachKnowledge('/panel/knowledge/page/beam');
+    mocks.server[TA] = { ...dockWith('knowledge'), pages: {} };
+    await boot(TA);
+    vi.advanceTimersByTime(mod.SETTLE_MS);
+    detach();
+    // The persisted form still names it (dock-workspace's currentDock).
+    mocks.dock = dockWith('knowledge');
+    vi.advanceTimersByTime(mod.SAVE_DEBOUNCE_MS);
+    expect(puts().at(-1)?.layout.pages).toEqual({ knowledge: '/panel/knowledge/page/beam' });
+
+    mocks.pageOf = { knowledge: '/panel/knowledge/page/rf' };
+    await switchTo(TB);
+    expect(
+      puts().find((p) => p.tid === TA && p.layout.pages.knowledge.endsWith('/rf'))
+    ).toBeTruthy();
+  });
+
+  test('a detach or a reattach saves the layout, debounced, with no dock change', async () => {
+    const { holder, detach } = await detachKnowledge(null);
+    mocks.server[TA] = { ...dockWith('knowledge'), pages: {} };
+    await boot(TA);
+    vi.advanceTimersByTime(mod.SETTLE_MS);
+    fetchMock.mockClear();
+    mocks.pageOf = { knowledge: '/panel/knowledge/page/orbit' };
+    detach();
+    expect(puts()).toEqual([]);
+    vi.advanceTimersByTime(mod.SAVE_DEBOUNCE_MS);
+    expect(puts()).toEqual([
+      {
+        tid: TA,
+        layout: { ...dockWith('knowledge'), pages: { knowledge: '/panel/knowledge/page/orbit' } },
+      },
+    ]);
+    expect(holder.isDetached('knowledge')).toBe(true);
+  });
+});

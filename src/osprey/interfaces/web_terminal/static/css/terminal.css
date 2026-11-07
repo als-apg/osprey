@@ -91,7 +91,8 @@ html[data-sidebar-resizing] * {
   flex: none;
 }
 
-.sidebar-sections > .sidebar-group:first-child {
+.sidebar-sections > .sidebar-group:first-child,
+.sidebar-sections > .sidebar-pinned[hidden] + .sidebar-group {
   padding-top: var(--space-4);
 }
 
@@ -440,7 +441,7 @@ html[data-sidebar="collapsed"] .sidebar :is(
   background: var(--color-accent);
 }
 
-/* ---- The Agent row: open, closed, waiting ---- */
+/* ---- The Sessions row: the Agent pane open, closed, waiting ---- */
 
 .sidebar-open-hint {
   display: none;
@@ -454,6 +455,12 @@ html[data-agent="closed"] #sidebar-agent-row .osprey-nav-icon {
   opacity: 0.45;
 }
 
+/* Expanded, the Sessions row is a heading and carries no icon; collapsed to
+   icons only, the row's icon is its only mark and shows. */
+html:not([data-sidebar="collapsed"]) #sidebar-agent-row .osprey-nav-icon {
+  display: none;
+}
+
 html[data-agent="closed"] #sidebar-agent-row .osprey-nav-label {
   color: var(--text-muted);
 }
@@ -462,10 +469,31 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   display: inline;
 }
 
-/* ---- The row that discloses a tree: the Agent row and its sessions ---- */
+/* ---- The row that discloses a tree: the Sessions row and its sessions ---- */
 
 .sidebar-row {
   position: relative;
+}
+
+/* The Sessions row's "+" (a new session) sits over the row's right end; the
+   row keeps that room clear for its Open hint and badge. Collapsed, the
+   sidebar shows the row's icon alone and no "+". */
+html:not([data-sidebar="collapsed"]) #sidebar-agent-row {
+  padding-right: 32px;
+}
+
+.sidebar-new-session {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+}
+
+.sidebar-new-session .osprey-ic {
+  width: 14px;
+  height: 14px;
 }
 
 .sidebar-kids {
@@ -731,7 +759,8 @@ html[data-sidebar="collapsed"] :is(
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,
-  .sidebar-open-hint
+  .sidebar-open-hint,
+  .sidebar-new-session
 ) {
   display: none;
 }

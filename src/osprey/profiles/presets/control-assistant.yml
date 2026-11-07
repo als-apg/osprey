@@ -298,9 +298,6 @@ config:
   # inlines at most 4x this many elements across all the channels it read;
   # past that budget a channel takes the artifact path and says so.
   control_system.read_inline_max_elements: 2000
-  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
-  # on save. Pinned entries are never pruned. 0 keeps everything.
-  control_system.channel_read_artifact_retention: 20
   # Pattern detection: raw client puts in generated code (epics.caput,
   # PV.put(), and the other client libraries' write calls) are denied by the
   # approval hook and refused at runtime; osprey.runtime.write_channel is the

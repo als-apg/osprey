@@ -253,7 +253,7 @@ const STEPS = [
     title: 'The sidebar',
     body: () => [
       'The top of the sidebar holds the agent and its sessions; ',
-      strong('Tools'),
+      strong('Apps'),
       ' holds the other panels. Hide the labels with this button or ',
       strong(sidebarChord()),
       ' to give the work more room.',
@@ -327,7 +327,7 @@ const STEPS = [
       strong(panelLabel('artifacts', 'Artifacts')),
       ', listed here in the sidebar, ready to open or download.',
     ],
-    foot: '＋ Add panel, under Tools, adds more panels.',
+    foot: '＋ Add panel, under Apps, adds more panels.',
   },
   {
     anchor: () => panelRow('okf'),

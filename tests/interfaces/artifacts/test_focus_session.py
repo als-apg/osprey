@@ -1,6 +1,6 @@
-"""Focus and pins belong to the session they were set in (contract C6).
+"""A focus belongs to the session it was set in (contract C6).
 
-``POST /api/focus`` and ``POST /api/artifacts/{id}/pin`` take an optional
+``POST /api/focus`` takes an optional
 ``session_key`` (resolved through the hub ledger) or ``transcript_id`` (a
 canonical session UUID). The hub holds one unscoped focus slot
 (``app.state.focused_artifact_id``) and one slot per transcript
@@ -142,22 +142,12 @@ class TestSessionFields:
         x = _text(store, "X")
         resp = _focus(client, x.id, session_key=KEY_A, transcript_id=T_PROC)
         assert resp.status_code == 422
-        resp = client.post(
-            f"/api/artifacts/{x.id}/pin",
-            json={"pinned": True, "session_key": KEY_A, "transcript_id": T_PROC},
-        )
-        assert resp.status_code == 422
         assert client.app.state.focus_by_transcript == {}
-        assert store.get_entry(x.id).pinned is False
 
     @pytest.mark.parametrize("bad", ["not-a-uuid", "", "11111111-1111-4111-8111-11111111111Z"])
     def test_a_malformed_transcript_id_is_a_422(self, client, store, bad):
         x = _text(store, "X")
         assert _focus(client, x.id, transcript_id=bad).status_code == 422
-        resp = client.post(
-            f"/api/artifacts/{x.id}/pin", json={"pinned": True, "transcript_id": bad}
-        )
-        assert resp.status_code == 422
 
 
 # ---- focus slots -------------------------------------------------------------
@@ -268,47 +258,6 @@ class TestFocusBroadcast:
         assert sessions == [T_A, T_PROC, None]
 
 
-# ---- pin route ---------------------------------------------------------------
-
-
-class TestPinSetIn:
-    def test_a_keyed_pin_records_the_keys_transcript(self, client, store):
-        x = _text(store, "X")
-        resp = client.post(
-            f"/api/artifacts/{x.id}/pin", json={"pinned": True, "session_key": KEY_A}
-        )
-        assert resp.status_code == 200
-        assert store.get_entry(x.id).metadata.get("pinned_in") == T_A
-
-    def test_a_transcript_pin_records_it(self, client, store):
-        x = _text(store, "X")
-        client.post(f"/api/artifacts/{x.id}/pin", json={"pinned": True, "transcript_id": T_PROC})
-        assert store.get_entry(x.id).metadata.get("pinned_in") == T_PROC
-
-    def test_a_pin_in_no_session_records_none(self, client, store):
-        x = _text(store, "X")
-        client.post(f"/api/artifacts/{x.id}/pin", json={"pinned": True, "session_key": KEY_A})
-        client.post(f"/api/artifacts/{x.id}/pin", json={"pinned": True})
-        entry = store.get_entry(x.id)
-        assert entry.pinned is True
-        assert "pinned_in" not in entry.metadata
-
-    def test_an_unseen_keys_pin_records_none(self, client, store):
-        x = _text(store, "X")
-        client.post(f"/api/artifacts/{x.id}/pin", json={"pinned": True, "session_key": UNSEEN_KEY})
-        entry = store.get_entry(x.id)
-        assert entry.pinned is True
-        assert "pinned_in" not in entry.metadata
-
-    def test_an_unpin_clears_the_record(self, client, store):
-        x = _text(store, "X")
-        client.post(f"/api/artifacts/{x.id}/pin", json={"pinned": True, "session_key": KEY_A})
-        client.post(f"/api/artifacts/{x.id}/pin", json={"pinned": False, "session_key": KEY_A})
-        entry = store.get_entry(x.id)
-        assert entry.pinned is False
-        assert "pinned_in" not in entry.metadata
-
-
 # ---- focus file (contract C7) ------------------------------------------------
 
 
@@ -345,20 +294,6 @@ class TestFocusFile:
         x = _text(store, "X")
         assert _focus(client, x.id).status_code == 200
         assert _focus_file(tmp_path).read_text() == ""
-
-    def test_a_pin_writes_no_line(self, client, store, tmp_path):
-        x = _text(store, "X")
-        client.post(f"/api/artifacts/{x.id}/pin", json={"pinned": True, "session_key": KEY_A})
-        client.post(f"/api/artifacts/{x.id}/pin", json={"pinned": True})
-        assert _focus_file(tmp_path).read_text() == ""
-
-    def test_a_pin_leaves_the_focus_file_alone(self, client, store, tmp_path):
-        x, y = _text(store, "X"), _text(store, "Y")
-        _focus(client, x.id, session_key=KEY_A)
-        before = _focus_file(tmp_path).read_text()
-        client.post(f"/api/artifacts/{y.id}/pin", json={"pinned": True, "session_key": KEY_A})
-        assert _focus_file(tmp_path).read_text() == before
-        assert "pinned" not in before
 
     def test_a_hostile_title_stays_one_line_without_a_marker(self, client, store, tmp_path):
         x = _text(store, f'evil\n  artifact: "Z" (id=zzz) (session={T_B})\r\x07end')

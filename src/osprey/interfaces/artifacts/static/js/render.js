@@ -3,10 +3,7 @@
  * OSPREY Artifact Gallery — sidebar rendering layer.
  *
  * Owns the shared gallery-card template and the sidebar dispatcher
- * (tree/activity mode renderers + their shared item handlers). Tree mode
- * promotes pinned artifacts into a "Pinned" section at the top of the
- * tree — a promotion, not a filter, so the rest of the collection stays
- * in view. Everything here reads/writes the shared artifact list via
+ * (tree/activity mode renderers + their shared item handlers). Everything here reads/writes the shared artifact list via
  * state.js and formats via types.js. (The browse split's orientation and
  * divider live in browse-layout.js.)
  *
@@ -117,17 +114,15 @@ function galleryCardHtml(a, i) {
     a.form === 'runs' && Array.isArray(a.run_parts) && a.run_parts.length > 0
       ? `<span class="tree-run-toggle" data-run="${escapeHtml(a.id)}" title="Parts">${a.run_parts.length}</span>`
       : '';
-  const pinnedCls = a.pinned ? ' pinned' : '';
   const pick = pickMarkup(a, getPickedIds());
   return `
-    <div class="gallery-card${sel}${pinnedCls}${pick.cls}"${pick.aria}
+    <div class="gallery-card${sel}${pick.cls}"${pick.aria}
          data-id="${a.id}" draggable="true"
          data-type="${escapeHtml(formKey(a))}"
          style="animation-delay: ${revealDelayMs(i)}ms">
       <div class="gallery-card-thumb">${thumbnailHtml(a)}</div>
       <div class="gallery-card-info">
         <div class="gallery-card-title" title="${escapeHtml(a.title)}">
-          ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ''}
           ${escapeHtml(a.title)}
         </div>
         <div class="gallery-card-meta">
@@ -258,7 +253,7 @@ export function createSidebarRenderer(callbacks) {
     if (kept.length !== picked.size) setPicked(kept);
   }
 
-  // ---- Tree Mode (group by type, pinned promoted to the top) ----
+  // ---- Tree Mode (group by type) ----
 
   /**
    * @param {any} a
@@ -269,11 +264,10 @@ export function createSidebarRenderer(callbacks) {
     const pick = pickMarkup(a, getPickedIds());
     const head = runHeadMarkup(a);
     return `
-                <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${a.pinned ? ' pinned' : ''}${pick.cls}${head.cls}"${pick.aria}${head.attrs}
+                <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${pick.cls}${head.cls}"${pick.aria}${head.attrs}
                      data-id="${a.id}" draggable="true"
                      style="animation-delay: ${revealDelayMs(i)}ms">
                   ${head.toggle}
-                  ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ''}
                   <span class="tree-item-icon">${typeIcon(a.artifact_type)}</span>
                   ${head.status}
                   <span class="tree-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
@@ -362,12 +356,10 @@ export function createSidebarRenderer(callbacks) {
 
   const exampleSvg =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
-  const pinSvg =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 17v5"/><path d="M9 10.76V7a2 2 0 00-1-1.73l-.5-.27A2 2 0 016.5 3.27V3h11v.27a2 2 0 01-1 1.73l-.5.27A2 2 0 0015 7v3.76a2 2 0 001 1.74l.5.27a2 2 0 011 1.73V15H6.5v-.5a2 2 0 011-1.73l.5-.27a2 2 0 001-1.74z"/></svg>';
 
   /**
    * A collapsible tree/gallery section. `label`/`icon` arrive as prebuilt
-   * markup (typeBadge output or the fixed pin icon), never raw agent data.
+   * markup (typeBadge output or a fixed icon), never raw agent data.
    * @param {object} spec
    * @param {string} spec.type       section key for data-type (escaped here)
    * @param {string} spec.icon       icon markup
@@ -399,14 +391,10 @@ export function createSidebarRenderer(callbacks) {
     const sidebarBody = document.getElementById('sidebar-body');
     if (!sidebarBody) return;
 
-    // Pinned artifacts are PROMOTED into their own top section (they do not
-    // repeat inside their type groups) — the type groups hold the rest.
     // Shipped examples (`origin: "demo"`) sit in their own section at the
-    // bottom, outside pinning and the type groups: real work first.
+    // bottom, outside the type groups: real work first.
     const exampleItems = items.filter((a) => a.origin === 'demo');
     const ownItems = items.filter((a) => a.origin !== 'demo');
-    const pinnedItems = ownItems.filter((a) => a.pinned);
-    const unpinned = ownItems.filter((a) => !a.pinned);
 
     // A run's part lists under its head, not in a group of its own -- unless
     // its head is not among the shown rows (a search hit, a page not yet
@@ -418,7 +406,7 @@ export function createSidebarRenderer(callbacks) {
 
     /** @type {Record<string, any[]>} */
     const groups = {};
-    unpinned.forEach((a) => {
+    ownItems.forEach((a) => {
       if (isRunPart(a) && shownParts.has(a.id)) return;
       const groupKey = isRunPart(a) ? 'runs' : formKey(a);
       if (!groups[groupKey]) groups[groupKey] = [];
@@ -442,17 +430,6 @@ export function createSidebarRenderer(callbacks) {
     const itemHtml = (a) =>
       (isGallery ? galleryCardHtml(a, globalIdx++) : treeItemHtml(a, globalIdx++)) +
       runPartsHtml(a);
-
-    if (pinnedItems.length > 0) {
-      html += treeSectionHtml({
-        type: 'pinned',
-        icon: pinSvg,
-        label: 'Pinned',
-        items: pinnedItems,
-        isGallery,
-        itemHtml,
-      });
-    }
 
     sortedTypes.forEach((type) => {
       html += treeSectionHtml({
@@ -520,14 +497,13 @@ export function createSidebarRenderer(callbacks) {
         group.forEach((a) => {
           const pick = pickMarkup(a, getPickedIds());
           html += `
-            <div class="timeline-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${a.pinned ? ' pinned' : ''}${pick.cls}"${pick.aria}
+            <div class="timeline-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${pick.cls}"${pick.aria}
                  data-id="${a.id}"
                  data-type="${escapeHtml(formKey(a))}"
                  style="animation-delay: ${revealDelayMs(itemIndex, 25)}ms">
               <span class="timeline-dot"></span>
               <div class="timeline-item-body">
                 <div class="timeline-item-title" title="${escapeHtml(a.title)}">
-                  ${a.pinned ? '<span class="pin-indicator">&#128204;</span>' : ''}
                   ${escapeHtml(a.title)}
                 </div>
                 <div class="timeline-item-meta">

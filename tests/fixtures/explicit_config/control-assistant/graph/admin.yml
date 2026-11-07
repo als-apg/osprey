@@ -183,7 +183,6 @@ cli:
   theme: default
 container_runtime: docker
 control_system:
-  channel_read_artifact_retention: 20
   connector:
     epics:
       timeout_s: 5.0

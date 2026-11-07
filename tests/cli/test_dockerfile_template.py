@@ -526,7 +526,8 @@ class TestDockerfileContent:
         immediately before the deps RUN that installs it."""
         text = (hello_project / "Dockerfile").read_text()
         match = re.search(
-            r"^COPY \.dockerignore osprey-local-requirements\.tx\[t\] /tmp/deps-ctx/$",
+            r"^COPY \.dockerignore osprey-local-requirements\.tx\[t\] "
+            r"osprey-lock-constraints\.tx\[t\] /tmp/deps-ctx/$",
             text,
             flags=re.MULTILINE,
         )
@@ -547,10 +548,11 @@ class TestDockerfileContent:
             "manifest install missing or not &&-chained in the deps RUN"
         )
         assert install in deps
-        assert deps.index(install) > deps.index("WARNING: pin unreleased"), (
+        # Twice: alone on the lock-driven path, after the primer on the other.
+        assert deps.rindex(install) > deps.index("WARNING: pin unreleased"), (
             "manifest install must follow the primer's dev-fallback construct"
         )
-        assert deps.index(install) < deps.index("apt-get purge -y build-essential"), (
+        assert deps.rindex(install) < deps.index("apt-get purge -y build-essential"), (
             "manifest install must precede the toolchain purge"
         )
         assert "rm -rf /tmp/deps-ctx" in deps, "deps RUN must clean up /tmp/deps-ctx"

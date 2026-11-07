@@ -444,7 +444,6 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             "artifact_list",
             "artifact_read",
             "artifact_focus",
-            "artifact_pin",
             "artifact_export",
             "create_static_plot",
             "create_interactive_plot",

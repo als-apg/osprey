@@ -817,6 +817,8 @@ def _no_venv(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
         )
 
     monkeypatch.setattr(build_cmd, "_create_project_venv", fake)
+    # The installer is a stand-in path, so the checkout's lock is not exported.
+    monkeypatch.setattr("osprey.cli.build_environment.source_lock_constraints", lambda spec: None)
     return created
 
 
