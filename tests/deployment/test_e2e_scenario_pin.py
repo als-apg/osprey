@@ -43,21 +43,21 @@ EXEMPT = {
     "docs/screenshots/test_tutorial_stack.py": "tutorial stack pins its own start set",
     # Deploys hello-world; demo appears only in prose.
     "e2e/test_bluesky_deploy.py": "deploys hello-world",
+    # Inits hello-world into a directory named demo; the preset never appears.
+    "cli/test_summary_card.py": "inits hello-world, demo is a directory name",
 }
 
 #: A frozen copy of a past release's tree, not a test of this one.
 FROZEN = "fixtures/previous_release_repo/"
 
 _PRESET_FLAG = re.compile(r"""["']--preset["']""")
-_DEMO = re.compile(r"\bdemo\b")
+_DEMO = re.compile(r"""["']demo["']""")
 _UP_VERB = re.compile(r"""["']up["']""")
 
 
 def _inits_demo_and_ups(text: str) -> bool:
     """Whether a module's source runs a demo init and names ``up``."""
-    return bool(
-        _PRESET_FLAG.search(text) and _DEMO.search(text) and _UP_VERB.search(text)
-    )
+    return bool(_PRESET_FLAG.search(text) and _DEMO.search(text) and _UP_VERB.search(text))
 
 
 def test_e2e_scenario_pin_every_demo_init_that_ups_pins_its_scenarios() -> None:
