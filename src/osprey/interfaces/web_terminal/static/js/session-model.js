@@ -79,7 +79,8 @@ let nextCursor = null;
 let more = false;
 /** @type {string} */
 let record = 'complete';
-let firstLoaded = false;
+/** Whether the first listing has answered, with rows or with a failure. */
+export let firstLoaded = false;
 /** @type {string|null} */
 let pickId = null;
 /** The pick {@link switchTo} chose, applied when the pointer reaches its key. */

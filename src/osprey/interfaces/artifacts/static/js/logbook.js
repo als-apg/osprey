@@ -516,9 +516,6 @@ async function submitLogbook() {
     // clicked Submit). The host applies a plain activation — no agent
     // attribution anywhere in this payload. Same-origin on both ends: we
     // target our own origin, and the host re-checks event.origin.
-    //
-    // Guarded on actually being embedded: a standalone gallery has no host,
-    // and the success card's "Open in ARIEL" link below stays its affordance.
     if (window.parent !== window) {
       window.parent.postMessage(
         { type: 'osprey:navigate', panel: 'ariel', url: data.url },
@@ -527,7 +524,7 @@ async function submitLogbook() {
     }
 
     const body = document.getElementById('logbook-body');
-    if (body) body.replaceChildren(buildSuccessCard(data.draft_id, data.url));
+    if (body) body.replaceChildren(buildSuccessCard(data.draft_id));
     const actions = document.getElementById('logbook-actions');
     if (actions) actions.innerHTML = '';
     modal = null;

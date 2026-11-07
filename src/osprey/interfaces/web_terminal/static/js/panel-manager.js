@@ -240,13 +240,13 @@ function getActiveTabId() {
 
 /** Does this page know the panel at all (built-in, custom, or runtime-registered)?
  *  @param {string} id @returns {boolean} */
-function isPanelKnown(id) {
+export function isPanelKnown(id) {
   return !!panelState[id];
 }
 
 /** May the panel fill a tile — its health poll has settled healthy?
  *  @param {string} id @returns {boolean} */
-function isPanelHealthy(id) {
+export function isPanelHealthy(id) {
   return !!panelState[id]?.healthy;
 }
 
@@ -903,7 +903,7 @@ export function applyMenuPreset(name) {
  * @param {string} panelId
  * @param {string} url
  */
-function navigatePanel(panelId, url) {
+export function navigatePanel(panelId, url) {
   const state = panelState[panelId];
   if (!state) return;
   // The navigation guard's member rule, applied here as the server applies it

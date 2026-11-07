@@ -62,7 +62,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from unittest import mock
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Sequence
 
     from playwright.sync_api import Page
 
@@ -892,7 +892,10 @@ def _replay_shell_command(transcript_path: Path) -> list[str]:
 
 @contextmanager
 def hermetic_hub(
-    *, seed: Callable[[Path, Path], None] | None = None, e2e: bool = False
+    *,
+    seed: Callable[[Path, Path], None] | None = None,
+    e2e: bool = False,
+    custom_panels: Sequence[dict[str, Any]] = (),
 ) -> Iterator[HermeticHub]:
     """Boot the full hermetic capture stack; yield a :class:`HermeticHub`.
 
@@ -932,7 +935,8 @@ def hermetic_hub(
     no record rows of its own: the record ingests whatever transcripts it
     writes. ``e2e`` adds :func:`seed_e2e`'s sessions, ledger rows, naming
     cutoff and ``beam_profile`` extension type (off for the contact sheet,
-    whose cards must stay byte-stable).
+    whose cards must stay byte-stable). ``custom_panels`` adds config-declared
+    panels beside the artifacts panel, in the form ``_load_panel_config`` returns.
     """
     from osprey.agent_record.backends.embedded import EmbeddedBackend
     from osprey.agent_runner.project_paths import encode_claude_project_path
@@ -1017,7 +1021,10 @@ def hermetic_hub(
                 )
             )
             stack.enter_context(
-                mock.patch(f"{app_mod}._load_panel_config", return_value=({"artifacts"}, [], None))
+                mock.patch(
+                    f"{app_mod}._load_panel_config",
+                    return_value=({"artifacts"}, list(custom_panels), None),
+                )
             )
             stack.enter_context(
                 mock.patch(

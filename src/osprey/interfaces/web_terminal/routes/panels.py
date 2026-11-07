@@ -13,10 +13,10 @@ import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from osprey.interfaces.artifacts.inline_assets import self_contained
@@ -1455,12 +1455,58 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
     panel needs must be inline in the page itself, as in the design-system
     reference panel.
 
+    A top-level visit to the bundle's entry document opens the web terminal with
+    this panel instead (:func:`_direct_visit_redirect`).
+
     Returns:
-        A :class:`FileResponse` for the requested asset, or a 404 ``Response``.
+        A :class:`FileResponse` for the requested asset, a 404 ``Response``, or
+        the 303 of a direct visit.
     """
+    redirect = _direct_visit_redirect(panel_id, path, request)
+    if redirect is not None:
+        return redirect
     response = _discovered_panel_file(panel_id, path, request)
     apply_panel_sandbox(response, path, ())
     return response
+
+
+def _is_top_level_visit(request: Request) -> bool:
+    """Whether a request is a browser opening this address as its own page.
+
+    ``Sec-Fetch-*`` says so outright, and an iframe says ``iframe``. Browsers omit
+    those headers on a plain-http hostname, so there a page request counts unless
+    it carries the ``embedded=true`` every panel frame is loaded with.
+    """
+    if request.query_params.get("embedded") == "true":
+        return False
+    dest = request.headers.get("sec-fetch-dest")
+    if dest is not None:
+        return dest == "document" and request.headers.get("sec-fetch-mode") == "navigate"
+    return "text/html" in request.headers.get("accept", "")
+
+
+def _direct_visit_redirect(panel_id: str, path: str, request: Request) -> Response | None:
+    """The 303 that takes a direct visit to a bundle's entry document to the hub.
+
+    The server half of ``frame-params.js``'s ``directVisitHref``, which holds the
+    ``at`` contract, for bundles that never call ``applyEmbedded``. They route by
+    path, so nothing is lost by answering before a fragment could be read; only
+    the entry document moves, so a bundle's other files stay addressable. This
+    app sees paths with the per-user mount stripped, hence the prefix here.
+    """
+    panel = getattr(request.app.state, "discovered_panel_dirs", {}).get(panel_id)
+    if panel is None or path not in {"", "index.html", panel.entry}:
+        return None
+    if _resolve_bundle_file(request, panel_id, path) is None:
+        return None
+    if not _is_top_level_visit(request):
+        return None
+    prefix = compute_url_prefix()
+    query = f"?{request.url.query}" if request.url.query else ""
+    at = f"{prefix}/panel-static/{quote(panel_id, safe='')}/{quote(path)}{query}"
+    return RedirectResponse(
+        f"{prefix}/?open={quote(panel_id, safe='')}&at={quote(at, safe='')}", status_code=303
+    )
 
 
 def _discovered_panel_file(panel_id: str, path: str, request: Request) -> Response:
