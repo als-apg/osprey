@@ -40,8 +40,9 @@ What each case proves, read back through the read API:
 * (hello-world) a profile carrying retired keys refused by ``osprey build``
   naming each replacement, then built and brought up once edited as directed.
 
-The two cases run one after the other, never side by side: each tears its
-deployment down before it returns.
+The two cases never run side by side on one host: each holds the module's
+host lock and tears its deployment down before it returns. CI runs them on
+two runners, one matrix cell per case.
 
 CONTAINER SAFETY: every docker invocation names an exact container or volume
 of this project. Teardown is ``osprey down`` followed by the project-scoped

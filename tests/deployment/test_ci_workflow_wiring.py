@@ -213,14 +213,15 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/claude_code/test_chat_attachment_read_scripted.py",
 )
 
-#: The agent record's replay: model-free, but its own lane, because it deploys
-#: two stacks in turn and waits out a stopped source twice.
+#: The agent record's replay: model-free, but its own lane, because each case
+#: deploys a whole stack and waits out a stopped source. One matrix cell per case.
 RECORD_E2E_JOB = "agent-record-e2e"
 RECORD_E2E_RUN_STEP = "Run the agent record replay"
 RECORD_E2E_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 RECORD_E2E_FILE = "tests/e2e/test_agent_record_e2e.py"
-#: The two stopped-source waits of five minutes each, plus two deploys: the
-#: run step's floor. Below it the lane reds on its own waits, not on a fault.
+#: A stopped-source wait of five minutes plus a deploy, with the headroom of
+#: the two-case size: the run step's floor. Below it the lane reds on its own
+#: waits, not on a fault.
 RECORD_E2E_MIN_STEP_MINUTES = 40
 #: Every model-free file, whichever of the two model-free lanes runs it.
 MODEL_FREE_TEST_FILES = (*NO_MODEL_TEST_FILES, RECORD_E2E_FILE)
@@ -4000,8 +4001,8 @@ def test_model_free_lane_fails_on_any_skipped_test__mutation_gate_stops_failing(
 
 
 def test_record_lane_runs_exactly_the_replay(workflow: dict[str, Any]) -> None:
-    """The replay deploys two stacks one after the other on one port block, so
-    it runs alone, serially, and by path — a path that stops existing exits
+    """Each replay case deploys a stack on the module's one port block, so it
+    runs alone, serially, and by path — a path that stops existing exits
     pytest 4 instead of selecting nothing."""
     paths = _record_lane_paths(workflow)
     assert paths == [RECORD_E2E_FILE], f"'{RECORD_E2E_RUN_STEP}' runs {paths}, not the replay alone"
@@ -4028,6 +4029,56 @@ def test_record_lane_runs_exactly_the_replay__mutation_adds_a_file() -> None:
     )
     with pytest.raises(AssertionError, match="replay alone"):
         test_record_lane_runs_exactly_the_replay(mutated)
+
+
+def _record_lane_cases(wf: dict[str, Any]) -> list[str]:
+    """The case names the record lane's matrix cells select, one per cell."""
+    include = _jobs(wf)[RECORD_E2E_JOB]["strategy"]["matrix"]["include"]
+    return [str(cell["case"]) for cell in include]
+
+
+def _record_file_cases() -> set[str]:
+    """The test functions the replay module defines, read from source."""
+    tree = ast.parse((REPO_ROOT / RECORD_E2E_FILE).read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    }
+
+
+def test_record_lane_cells_cover_every_case_once(workflow: dict[str, Any]) -> None:
+    """The lane runs one case per matrix cell, picked by ``-k``: every case in
+    the module is one cell's, no cell's name is a substring of another case
+    (``-k`` matches substrings), the cells do not cancel each other, and the
+    run step selects the cell's case."""
+    cases = _record_lane_cases(workflow)
+    defined = _record_file_cases()
+    assert sorted(cases) == sorted(defined), (
+        f"'{RECORD_E2E_JOB}' cells run {sorted(cases)}; {RECORD_E2E_FILE} defines {sorted(defined)}"
+    )
+    for case in cases:
+        assert [c for c in defined if case in c] == [case], f"-k {case!r} selects more than itself"
+    strategy = _jobs(workflow)[RECORD_E2E_JOB]["strategy"]
+    assert strategy.get("fail-fast") is False, "a red cell must not cancel the other backend"
+    run = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    assert '-k "${{ matrix.case }}"' in run, (
+        f"'{RECORD_E2E_RUN_STEP}' does not select its cell's case"
+    )
+
+
+def test_record_lane_cells_cover_every_case_once__mutation_drops_a_cell() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[RECORD_E2E_JOB]["strategy"]["matrix"]["include"].pop()
+    with pytest.raises(AssertionError, match="defines"):
+        test_record_lane_cells_cover_every_case_once(mutated)
+
+
+def test_record_lane_cells_cover_every_case_once__mutation_fails_fast() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[RECORD_E2E_JOB]["strategy"]["fail-fast"] = True
+    with pytest.raises(AssertionError, match="must not cancel"):
+        test_record_lane_cells_cover_every_case_once(mutated)
 
 
 def test_record_lane_is_not_in_the_model_free_lane(workflow: dict[str, Any]) -> None:
@@ -7188,9 +7239,35 @@ def _va_live_lane_named_files(wf: dict[str, Any], job_name: str) -> list[str]:
 
     A list rather than a set: a file named twice in one lane is a duplicate
     the partition check below must still see.
+
+    A lane split into matrix cells names its files in each cell's ``suites``
+    and the run step reads them as ``${{ matrix.suites }}``; the lane's files
+    are then every cell's, concatenated, so a file in two cells is a duplicate
+    too.
     """
     run = _find_named_step(wf, job_name, VA_LIVE_LANE_RUN_STEPS[job_name])["run"]
+    if VA_LIVE_MATRIX_SUITES in run:
+        cells = " ".join(str(cell["suites"]) for cell in _va_live_cells(wf, job_name))
+        run = run.replace(VA_LIVE_MATRIX_SUITES, cells)
     return [token for token in run.split() if token.endswith(".py")]
+
+
+VA_LIVE_MATRIX_SUITES = "${{ matrix.suites }}"
+
+
+def _va_live_cells(wf: dict[str, Any], job_name: str = VA_LIVE_JOB) -> list[dict[str, Any]]:
+    """The matrix cells of a live lane that runs its suites split across runners."""
+    return list(_jobs(wf)[job_name]["strategy"]["matrix"]["include"])
+
+
+def _drop_va_live_suite(wf: dict[str, Any], path: str) -> None:
+    """Mutation helper: take *path* out of whichever VA live cell names it."""
+    for cell in _va_live_cells(wf):
+        tokens = str(cell["suites"]).split()
+        if path in tokens:
+            cell["suites"] = " ".join(t for t in tokens if t != path)
+            return
+    raise AssertionError(f"no {VA_LIVE_JOB} cell names {path}")
 
 
 def _va_live_suites_named_by_any_lane(wf: dict[str, Any]) -> list[str]:
@@ -7224,8 +7301,7 @@ def test_every_live_va_suite_is_named_by_one_lane(workflow: dict[str, Any]) -> N
 
 def test_every_live_va_suite_is_named_by_one_lane__mutation_drops_one_suite() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{VA_LIVE_SUITE_DIR}/test_full_sweep.py ", "")
+    _drop_va_live_suite(mutated, f"{VA_LIVE_SUITE_DIR}/test_full_sweep.py")
     with pytest.raises(AssertionError):
         test_every_live_va_suite_is_named_by_one_lane(mutated)
 
@@ -7256,6 +7332,103 @@ def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_
         test_every_live_va_suite_is_named_by_one_lane(mutated)
 
 
+# The VA live lane runs its suites split across matrix cells, one runner and
+# one image build each, balanced by measured module time. The partition above
+# already sees every cell's files (a file in two cells is a duplicate, a file
+# in none is unrun); this pins the rest of the split: the run step reads its
+# cell's files, every cell runs something, no cell's red cancels another, and
+# the real-facility lane runs in exactly one cell, whose zero-skip gate then
+# requires its report.
+
+
+def test_va_live_cells_split_the_suites_once(workflow: dict[str, Any]) -> None:
+    cells = _va_live_cells(workflow)
+    groups = [str(cell["group"]) for cell in cells]
+    assert len(groups) == len(set(groups)), f"'{VA_LIVE_JOB}' repeats a cell: {groups}"
+    per_cell = {str(cell["group"]): str(cell["suites"]).split() for cell in cells}
+    for group, files in per_cell.items():
+        assert files, f"'{VA_LIVE_JOB}' cell {group!r} runs no suite"
+        assert all(f.endswith(".py") for f in files), f"cell {group!r} names {files}"
+    seen = [f for files in per_cell.values() for f in files]
+    repeats = sorted({f for f in seen if seen.count(f) > 1})
+    assert not repeats, f"suites in more than one '{VA_LIVE_JOB}' cell: {repeats}"
+    strategy = _jobs(workflow)[VA_LIVE_JOB]["strategy"]
+    assert strategy.get("fail-fast") is False, "a red cell must not cancel the other cells"
+    run = _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])["run"]
+    named_in_run = [t for t in run.replace(VA_LIVE_MATRIX_SUITES, "").split() if t.endswith(".py")]
+    assert VA_LIVE_MATRIX_SUITES in run and not named_in_run, (
+        f"'{VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB]}' must run its cell's suites and only them"
+    )
+    als = [group for group, cell in zip(groups, cells, strict=True) if cell.get("als_lane") is True]
+    assert len(als) == 1, f"the real-facility lane must run in exactly one cell; runs in {als}"
+    assert _find_named_step(workflow, VA_LIVE_JOB, ALS_LANE_STEP).get("if") == "matrix.als_lane"
+    gate = _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)
+    assert gate.get("env", {}).get("ALS_LANE") == "${{ matrix.als_lane }}", gate.get("env")
+    assert 'os.environ["ALS_LANE"] == "true"' in gate["run"], "the gate must require the report"
+
+
+def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_two_cells() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    first, second = _va_live_cells(mutated)[:2]
+    second["suites"] = f"{second['suites']} {str(first['suites']).split()[0]}"
+    with pytest.raises(AssertionError, match="more than one"):
+        test_va_live_cells_split_the_suites_once(mutated)
+    with pytest.raises(AssertionError):
+        test_no_live_va_suite_is_named_by_two_lanes(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_drops_a_cell() -> None:
+    """Covered by the partition rather than the split: its files go unrun."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["strategy"]["matrix"]["include"].pop(0)
+    with pytest.raises(AssertionError, match="no live lane runs"):
+        test_every_live_va_suite_is_named_by_one_lane(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_fails_fast() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["strategy"]["fail-fast"] = True
+    with pytest.raises(AssertionError, match="must not cancel"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_the_run_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    step["run"] = step["run"].replace(
+        VA_LIVE_MATRIX_SUITES, f"{VA_LIVE_MATRIX_SUITES} {CHAIN_BOOT_MODULE}"
+    )
+    with pytest.raises(AssertionError, match="only them"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+@pytest.mark.parametrize("cells_running_it", [0, 2])
+def test_va_live_cells_split_the_suites_once__mutation_moves_the_real_facility_lane(
+    cells_running_it: int,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    for index, cell in enumerate(_va_live_cells(mutated)):
+        cell["als_lane"] = index < cells_running_it
+    with pytest.raises(AssertionError, match="exactly one cell"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_runs_the_real_facility_lane_everywhere() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)["if"]
+    with pytest.raises(AssertionError):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_gate_ignores_the_matrix() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)["env"]
+    with pytest.raises(AssertionError):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
 # The chain's boot half runs in the lane whose job builds the image it boots.
 # The partition above is satisfied by any one lane naming the module, so the
 # lane is pinned here by name, with the collection floor the run step's
@@ -7278,8 +7451,7 @@ def test_chain_boot_suite_runs_in_the_va_live_run_step(
 def test_chain_boot_suite_runs_in_the_va_live_run_step__mutation_moves_it_to_another_lane() -> None:
     """The partition still holds on this mutation, so only the pin sees it."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{CHAIN_BOOT_MODULE} ", "")
+    _drop_va_live_suite(mutated, CHAIN_BOOT_MODULE)
     other = _find_named_step(mutated, TARGET_SWITCH_JOB, VA_LIVE_LANE_RUN_STEPS[TARGET_SWITCH_JOB])
     other["run"] = f"{other['run']} {CHAIN_BOOT_MODULE}\n"
     test_every_live_va_suite_is_named_by_one_lane(mutated)
@@ -7339,8 +7511,7 @@ def test_each_measurement_suite_runs_in_the_va_live_run_step__mutation_drops_it(
     module: str,
 ) -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{module} ", "")
+    _drop_va_live_suite(mutated, module)
     with pytest.raises(AssertionError):
         test_each_measurement_suite_runs_in_the_va_live_run_step(module, mutated)
 
@@ -7810,6 +7981,10 @@ def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(
     for hashed in (
         "docker/virtual-accelerator/Containerfile",
         "'pyproject.toml'",
+        # The image's third-party install is the lock's export, so a lock bump
+        # must change the key: a cache entry is never overwritten, and under an
+        # unchanged key the new closure's layers would never be saved.
+        "'uv.lock'",
         VA_CACHE_MEMBER_GLOB,
     ):
         assert hashed in cache_with["key"], f"the cache key no longer hashes {hashed}"
